@@ -1,0 +1,26 @@
+{
+  "extends": "./.nuxt/tsconfig.json",
+  "compilerOptions": {
+    // ── Extra strictness on top of Nuxt's generated config ──────────────────
+    // Nuxt already sets: strict, noUncheckedIndexedAccess, noImplicitOverride,
+    // verbatimModuleSyntax, isolatedModules, forceConsistentCasingInFileNames.
+
+    // Flag unused locals and parameters as errors
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+
+    // Require bracket notation when accessing properties via index signatures
+    "noPropertyAccessFromIndexSignature": true,
+
+    // Unreachable code / unused labels are errors, not warnings
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
+
+    // Switch statements must not fall through between cases
+    "noFallthroughCasesInSwitch": true,
+
+    // Stricter optional-property typing:
+    // `{ x?: string }` means x is absent or string — not `string | undefined`
+    "exactOptionalPropertyTypes": true
+  }
+}

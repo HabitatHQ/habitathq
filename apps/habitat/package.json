@@ -1,0 +1,59 @@
+{
+  "name": "habitat",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "dev:pwa": "BUILD_TARGET=pwa nuxt dev",
+    "build:pwa": "BUILD_TARGET=pwa nuxt generate",
+    "build:native": "BUILD_TARGET=native nuxt generate && npx cap sync",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "cap:add:android": "npx cap add android",
+    "cap:add:ios": "npx cap add ios",
+    "cap:open:android": "npx cap open android",
+    "cap:open:ios": "npx cap open ios",
+    "cap:run:android": "npx cap run android",
+    "cap:run:ios": "npx cap run ios",
+    "cap:sync": "npx cap sync",
+    "cap:copy": "npx cap copy",
+    "typecheck": "nuxt typecheck",
+    "lint": "biome lint .",
+    "lint:fix": "biome lint --write .",
+    "format": "biome format --write .",
+    "check": "biome check .",
+    "check:fix": "biome check --write ."
+  },
+  "dependencies": {
+    "@nuxt/ui": "^4.4.0",
+    "@sqlite.org/sqlite-wasm": "3.51.2-build6",
+    "fflate": "^0.8.2",
+    "nuxt": "^4.3.1",
+    "vue": "latest",
+    "vue-router": "latest"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@parcel/watcher",
+      "esbuild",
+      "vue-demi"
+    ]
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.4",
+    "@capacitor/android": "^8.1.0",
+    "@capacitor/cli": "^8.1.0",
+    "@capacitor/core": "^8.1.0",
+    "@capacitor/haptics": "^8.0.0",
+    "@capacitor/ios": "^8.1.0",
+    "@capacitor/preferences": "^8.0.1",
+    "@capacitor/status-bar": "^8.0.1",
+    "@vite-pwa/nuxt": "^1.1.1",
+    "coi-serviceworker": "^0.1.7",
+    "tailwindcss": "^4.2.0",
+    "typescript": "^5.9.3",
+    "vue-tsc": "^3.2.5"
+  }
+}

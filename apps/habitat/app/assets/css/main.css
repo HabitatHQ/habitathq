@@ -1,0 +1,51 @@
+/* ── Tailwind v4 + Nuxt UI entry ─────────────────────────────────
+   @tailwindcss/vite only generates CSS for files that contain
+   @import "tailwindcss". Without this, the plugin is loaded but
+   produces nothing.
+
+   @import "@nuxt/ui" resolves (via the package "style" field) to
+   dist/runtime/index.css, which pulls in:
+     • #build/ui.css       → @source globs, @theme tokens, @layer base
+     • keyframes.css       → Nuxt UI animations
+     • @source ./components→ scans Nuxt UI component source files
+     • @variant light/dark → color-scheme variants
+     • @layer theme        → light/dark CSS custom-property definitions
+   ──────────────────────────────────────────────────────────────── */
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+/* Safe-area inset utilities for iOS notch / home indicator.
+   Used by layouts/default.vue: class="… safe-area-bottom"        */
+/* ── Plant logo fill-up animation ─────────────────────────────────────────── */
+/* Reveals the plant from bottom to top while building a neon glow.            */
+/* clip-path inset(T R B L): T=100% hides everything; decreasing T reveals     */
+/* from the bottom edge upward. Negative side/bottom values preserve the glow  */
+/* filter that bleeds outside the SVG bounding box.                            */
+@keyframes plant-fill-up {
+  from {
+    clip-path: inset(105% -28px -18px -28px);
+    filter: drop-shadow(0 0 0px rgba(34, 211, 238, 0));
+  }
+  to {
+    clip-path: inset(-8% -28px -18px -28px);
+    filter: drop-shadow(0 0 6px #22d3ee) drop-shadow(0 0 18px rgba(34, 211, 238, 0.5));
+  }
+}
+
+.plant-logo {
+  color: #22d3ee;
+  animation: plant-fill-up 2.5s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+@layer utilities {
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  .safe-area-x {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}

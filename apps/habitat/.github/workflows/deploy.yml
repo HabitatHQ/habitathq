@@ -1,0 +1,54 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Allow the workflow to push to gh-pages
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build PWA
+        run: pnpm build:pwa
+        env:
+          # Sets the base path so all assets and routes are prefixed with /<repo-name>/.
+          # GitHub Pages serves repos at https://<owner>.github.io/<repo>/.
+          NUXT_APP_BASE_URL: /${{ github.event.repository.name }}/
+          # GitHub Pages cannot serve custom HTTP headers, so we inject coi-serviceworker
+          # to polyfill COOP/COEP — required for SharedArrayBuffer (SQLite WASM OPFS).
+          ENABLE_COI_SW: 'true'
+
+      # GitHub Pages ignores directories starting with _ by default (Jekyll).
+      # .nojekyll disables that so /_nuxt/ assets are served correctly.
+      - name: Disable Jekyll
+        run: touch .output/public/.nojekyll
+
+      - name: Deploy
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: .output/public
+          branch: gh-pages
+          clean: true

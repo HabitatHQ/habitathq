@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:sqlite.org)",
+      "Bash(grep error TS:*)"
+    ]
+  }
+}
