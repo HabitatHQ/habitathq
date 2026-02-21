@@ -8,10 +8,6 @@ const buildTarget = process.env['BUILD_TARGET'] // 'pwa' | 'native' | undefined 
 // Nuxt automatically picks this up for routing and assets; we also use it for the PWA manifest.
 const appBaseURL = process.env['NUXT_APP_BASE_URL'] ?? '/'
 
-// Inject coi-serviceworker to polyfill COOP/COEP on hosts that can't set custom headers (e.g. GitHub Pages).
-// Enable via ENABLE_COI_SW=true at build time.
-const enableCoiSw = process.env['ENABLE_COI_SW'] === 'true'
-
 function gitExec(cmd: string): string | null {
   try { return execSync(cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null }
   catch { return null }
@@ -60,6 +56,13 @@ export default defineNuxtConfig({
   // PWA config (only active when BUILD_TARGET=pwa or dev)
   ...(isPWA && {
     pwa: {
+      // injectManifest: we supply a custom sw.ts that handles both Workbox
+      // precaching and COOP/COEP header injection on navigation responses.
+      // This replaces the old generateSW + coi-serviceworker.js combination —
+      // one SW avoids the scope-conflict/reload-loop that two SWs caused.
+      strategies: 'injectManifest',
+      srcDir: 'app/workers',
+      filename: 'sw.ts',
       registerType: 'autoUpdate',
       manifest: {
         name: 'Habitat – Habit Tracker',
@@ -90,25 +93,14 @@ export default defineNuxtConfig({
           },
         ],
       },
-      workbox: {
-        navigateFallback: appBaseURL,
-        navigateFallbackAllowlist: [new RegExp(`^${appBaseURL}`)],
+      injectManifest: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2,wasm}'],
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'google-fonts-cache',
-              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 },
-              cacheableResponse: { statuses: [0, 200] },
-            },
-          },
-        ],
       },
       devOptions: {
-        enabled: true,
-        type: 'module',
+        // Keep disabled in dev: Vite already serves COOP/COEP headers directly,
+        // so the PWA SW is not needed and would cause HMR reload loops via the
+        // autoUpdate controllerchange handler.
+        enabled: false,
       },
     },
   }),
@@ -149,9 +141,6 @@ export default defineNuxtConfig({
         { rel: 'icon', href: `${appBaseURL}favicon.svg`, type: 'image/svg+xml' },
         { rel: 'apple-touch-icon', href: `${appBaseURL}icons/icon-192.png` },
       ],
-      // Polyfill COOP/COEP via service worker on hosts that can't set headers (e.g. GitHub Pages).
-      // Must run before any other script so SharedArrayBuffer is available for SQLite WASM.
-      script: enableCoiSw ? [{ src: `${appBaseURL}coi-serviceworker.js` }] : [],
     },
   },
 

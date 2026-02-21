@@ -37,9 +37,8 @@ jobs:
           # Sets the base path so all assets and routes are prefixed with /<repo-name>/.
           # GitHub Pages serves repos at https://<owner>.github.io/<repo>/.
           NUXT_APP_BASE_URL: /${{ github.event.repository.name }}/
-          # GitHub Pages cannot serve custom HTTP headers, so we inject coi-serviceworker
-          # to polyfill COOP/COEP — required for SharedArrayBuffer (SQLite WASM OPFS).
-          ENABLE_COI_SW: 'true'
+          # COOP/COEP headers are now injected by the custom service worker (sw.ts)
+          # on navigation responses, so no separate coi-serviceworker.js is needed.
 
       # GitHub Pages ignores directories starting with _ by default (Jekyll).
       # .nojekyll disables that so /_nuxt/ assets are served correctly.

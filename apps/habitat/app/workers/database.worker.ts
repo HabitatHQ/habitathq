@@ -10,18 +10,33 @@ await (async () => {
 // is no multi-tab SharedWorker workaround. We use the Web Locks API to detect
 // when another tab already owns the DB and bail out gracefully instead of
 // crashing with a cryptic NoModificationAllowedError.
+//
+// We retry up to 3 times with 1 s gaps because the COI service-worker and the
+// vite-pwa autoUpdate handler can both trigger page reloads in quick succession.
+// The old worker's lock releases the instant that worker is terminated, but the
+// new page can start fast enough to race it. A genuine second-tab conflict still
+// fails after ~2 s of retries.
 
-const hasLock = await new Promise<boolean>(resolve => {
-  void navigator.locks.request(
-    'habitat-db',
-    { ifAvailable: true },
-    (lock) => {
-      if (!lock) { resolve(false); return Promise.resolve() }
-      resolve(true)
-      return new Promise(() => {}) // hold until this worker terminates
-    },
-  )
-})
+async function tryAcquireDbLock(): Promise<boolean> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise(r => setTimeout(r, 1000))
+    const got = await new Promise<boolean>(resolve => {
+      void navigator.locks.request(
+        'habitat-db',
+        { ifAvailable: true },
+        (lock) => {
+          if (!lock) { resolve(false); return Promise.resolve() }
+          resolve(true)
+          return new Promise(() => {}) // hold until this worker terminates
+        },
+      )
+    })
+    if (got) return true
+  }
+  return false
+}
+
+const hasLock = await tryAcquireDbLock()
 
 if (!hasLock) {
   self.postMessage({ type: 'LOCK_UNAVAILABLE' })

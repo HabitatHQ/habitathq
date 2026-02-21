@@ -54,6 +54,7 @@
     "coi-serviceworker": "^0.1.7",
     "tailwindcss": "^4.2.0",
     "typescript": "^5.9.3",
-    "vue-tsc": "^3.2.5"
+    "vue-tsc": "^3.2.5",
+    "workbox-precaching": "^7.4.0"
   }
 }
