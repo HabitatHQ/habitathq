@@ -61,7 +61,7 @@ export default defineNuxtConfig({
       // This replaces the old generateSW + coi-serviceworker.js combination —
       // one SW avoids the scope-conflict/reload-loop that two SWs caused.
       strategies: 'injectManifest',
-      srcDir: 'app/workers',
+      srcDir: 'workers',
       filename: 'sw.ts',
       registerType: 'autoUpdate',
       manifest: {
