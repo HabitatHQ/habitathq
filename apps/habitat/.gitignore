@@ -27,3 +27,6 @@ logs/
 
 # TypeScript
 *.tsbuildinfo
+
+# Generated at build time
+public/licenses.json

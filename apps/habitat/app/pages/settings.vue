@@ -542,6 +542,30 @@ async function enableNotifications() {
   await requestPermission()
 }
 
+// ─── Licenses ─────────────────────────────────────────────────────────────────
+
+interface LicenseEntry { name: string; version: string; license: string | null; homepage: string | null }
+const showLicensesModal = ref(false)
+const licenses = ref<LicenseEntry[]>([])
+const licensesLoading = ref(false)
+const licensesError = ref(false)
+
+async function openLicenses() {
+  showLicensesModal.value = true
+  if (licenses.value.length > 0) return
+  licensesLoading.value = true
+  licensesError.value = false
+  try {
+    const base = useRuntimeConfig().app.baseURL
+    const data = await $fetch<LicenseEntry[]>(`${base}licenses.json`)
+    licenses.value = data
+  } catch {
+    licensesError.value = true
+  } finally {
+    licensesLoading.value = false
+  }
+}
+
 // ─── Advanced: storage estimate ───────────────────────────────────────────────
 
 const storageEstimate = ref<StorageEstimate | null>(null)
@@ -939,6 +963,10 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
           <p class="text-sm text-slate-400">Storage</p>
           <p class="text-sm font-medium">On-device (OPFS)</p>
         </div>
+        <button class="w-full flex items-center justify-between px-4 py-3.5 text-left" @click="openLicenses">
+          <p class="text-sm text-slate-400">Open source licenses</p>
+          <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-slate-500 shrink-0" />
+        </button>
 
         <!-- DB schema -->
         <div>
@@ -1161,6 +1189,46 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
 
       </UCard>
     </section>
+
+    <!-- ── Open source licenses modal ───────────────────────────────────────── -->
+    <UModal v-model:open="showLicensesModal">
+      <template #content>
+        <div class="p-5 space-y-4 flex flex-col max-h-[80vh]">
+          <div class="flex items-center justify-between shrink-0">
+            <h3 class="font-semibold text-slate-100">Open source licenses</h3>
+            <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="xs" @click="showLicensesModal = false" />
+          </div>
+          <div v-if="licensesLoading" class="flex items-center justify-center py-8 text-slate-500 text-sm">
+            Loading…
+          </div>
+          <div v-else-if="licensesError" class="text-sm text-red-400 py-4">
+            Could not load licenses. Only available in production builds.
+          </div>
+          <ul v-else class="overflow-y-auto divide-y divide-slate-800 -mx-5 px-5">
+            <li v-for="pkg in licenses" :key="pkg.name" class="py-2.5 flex items-baseline justify-between gap-3">
+              <div class="min-w-0">
+                <a
+                  v-if="pkg.homepage"
+                  :href="pkg.homepage"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-sm text-slate-200 hover:text-primary-400 transition-colors truncate block"
+                >{{ pkg.name }}</a>
+                <span v-else class="text-sm text-slate-200 truncate block">{{ pkg.name }}</span>
+                <span class="text-xs text-slate-500 font-mono">v{{ pkg.version }}</span>
+              </div>
+              <UBadge
+                :label="pkg.license ?? 'Unknown'"
+                variant="subtle"
+                :color="pkg.license === 'MIT' ? 'primary' : 'neutral'"
+                size="xs"
+                class="shrink-0 font-mono rounded-full"
+              />
+            </li>
+          </ul>
+        </div>
+      </template>
+    </UModal>
 
     <!-- ── Install instructions modal ───────────────────────────────────────── -->
     <UModal v-model:open="showInstallModal">

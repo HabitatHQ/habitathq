@@ -54,6 +54,7 @@
     "@capacitor/status-bar": "^8.0.1",
     "@vite-pwa/nuxt": "^1.1.1",
     "coi-serviceworker": "^0.1.7",
+    "rollup-plugin-license": "^3.7.0",
     "tailwindcss": "^4.2.0",
     "typescript": "^5.9.3",
     "vue-tsc": "^3.2.5",

@@ -1,6 +1,8 @@
 import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { defineNuxtConfig } from 'nuxt/config'
+import license from 'rollup-plugin-license'
 
 const buildTarget = process.env['BUILD_TARGET'] // 'pwa' | 'native' | undefined (defaults to dev/pwa)
 
@@ -162,6 +164,27 @@ export default defineNuxtConfig({
     worker: {
       format: 'es',  // worker bundle must be ES module for sqlite-wasm's dynamic imports
     },
+    plugins: [
+      license({
+        thirdParty: {
+          includePrivate: false,
+          output: {
+            file: resolve('public/licenses.json'),
+            template: deps => JSON.stringify(
+              deps
+                .filter(d => d.name)
+                .map(d => ({
+                  name: d.name,
+                  version: d.version,
+                  license: d.license,
+                  homepage: d.homepage ?? null,
+                }))
+                .sort((a, b) => a.name!.localeCompare(b.name!)),
+            ),
+          },
+        },
+      }),
+    ],
   },
 
   // App meta
