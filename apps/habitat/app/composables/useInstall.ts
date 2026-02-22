@@ -1,3 +1,5 @@
+import { Capacitor } from '@capacitor/core'
+
 // BeforeInstallPromptEvent is not in standard TypeScript lib types
 declare global {
   interface BeforeInstallPromptEvent extends Event {
@@ -10,9 +12,10 @@ export function useInstall() {
   const deferredPrompt = useState<BeforeInstallPromptEvent | null>('install-prompt', () => null)
 
   // Running as an installed PWA (standalone/fullscreen/minimal-ui display mode)
+  // or as a native Capacitor app — both count as "installed".
   const isInstalled = computed(() =>
-    typeof window !== 'undefined' &&
-    window.matchMedia('(display-mode: standalone)').matches,
+    Capacitor.isNativePlatform() ||
+    (typeof window !== 'undefined' && window.matchMedia('(display-mode: standalone)').matches),
   )
 
   // Install prompt is available and app is not yet installed

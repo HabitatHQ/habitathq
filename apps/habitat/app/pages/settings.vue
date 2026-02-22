@@ -430,6 +430,7 @@ const integrityOk = computed(() =>
 // ─── Advanced: DB info ────────────────────────────────────────────────────────
 
 import { zipSync } from 'fflate'
+import { Capacitor } from '@capacitor/core'
 import type { DbInfo, HabitatExport, ExportSelection } from '~/types/database'
 
 const dbInfoOpen = ref(false)
@@ -522,6 +523,7 @@ async function forceReload() {
 // ─── Install ──────────────────────────────────────────────────────────────────
 
 const { isInstalled, canInstall, isIosSafari, isUnsupportedBrowser, installing, install } = useInstall()
+const isNativeApp = Capacitor.isNativePlatform()
 
 // ─── Notifications ────────────────────────────────────────────────────────────
 
@@ -797,7 +799,7 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
         <div v-if="isInstalled" class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Habitat is installed</p>
-            <p class="text-xs text-green-400">Running as a standalone app</p>
+            <p class="text-xs text-green-400">{{ isNativeApp ? 'Running as a native app' : 'Running as a standalone app' }}</p>
           </div>
           <div class="w-2 h-2 rounded-full bg-green-400 mx-2 shrink-0" />
         </div>
