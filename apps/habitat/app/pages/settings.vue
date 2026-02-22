@@ -510,6 +510,10 @@ async function forceReload() {
   }
 }
 
+// ─── Install ──────────────────────────────────────────────────────────────────
+
+const { isInstalled, canInstall, isIosSafari, isUnsupportedBrowser, installing, install } = useInstall()
+
 // ─── Notifications ────────────────────────────────────────────────────────────
 
 const { permission: notifPermission, requestPermission } = useNotifications()
@@ -786,6 +790,84 @@ async function enableNotifications() {
       </UCard>
     </section>
 
+    <!-- ── Install ───────────────────────────────────────────────────────────── -->
+    <section class="space-y-2">
+      <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">Install</p>
+      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+
+        <!-- Installed -->
+        <div v-if="isInstalled" class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Habitat is installed</p>
+            <p class="text-xs text-green-400">Running as a standalone app</p>
+          </div>
+          <div class="w-2 h-2 rounded-full bg-green-400 mx-2 shrink-0" />
+        </div>
+
+        <!-- Chromium: install prompt available -->
+        <div v-else-if="canInstall" class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Install Habitat</p>
+            <p class="text-xs text-slate-500">Add to your home screen for offline access and notifications</p>
+          </div>
+          <UButton
+            size="sm"
+            variant="soft"
+            color="primary"
+            icon="i-heroicons-arrow-down-tray"
+            :loading="installing"
+            class="shrink-0"
+            @click="install"
+          >
+            Install
+          </UButton>
+        </div>
+
+        <!-- iOS Safari: manual Add to Home Screen -->
+        <div v-else-if="isIosSafari" class="px-4 py-3.5 space-y-2">
+          <div class="flex items-start gap-3">
+            <UIcon name="i-heroicons-device-phone-mobile" class="w-5 h-5 text-slate-400 shrink-0 mt-0.5" />
+            <div class="space-y-1">
+              <p class="text-sm font-medium">Install on iOS</p>
+              <p class="text-xs text-slate-400">
+                Tap the <span class="font-semibold text-slate-300">Share</span> button
+                <UIcon name="i-heroicons-arrow-up-on-square" class="inline w-3.5 h-3.5 align-text-bottom" />
+                in Safari, then choose <span class="font-semibold text-slate-300">Add to Home Screen</span>.
+              </p>
+              <p class="text-xs text-slate-500">Required for offline use and notifications on iOS.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Non-Chromium desktop/Android: recommend Chrome/Edge -->
+        <div v-else-if="isUnsupportedBrowser" class="px-4 py-3.5 space-y-2">
+          <div class="flex items-start gap-3">
+            <UIcon name="i-heroicons-exclamation-circle" class="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+            <div class="space-y-1">
+              <p class="text-sm font-medium">Use a Chromium-based browser</p>
+              <p class="text-xs text-slate-400">
+                Habitat relies on features only available in Chrome, Edge, Brave, or Opera:
+              </p>
+              <ul class="text-xs text-slate-500 space-y-0.5 list-disc list-inside">
+                <li>Origin Private File System — offline SQLite database</li>
+                <li>Install to home screen</li>
+                <li>Reliable background notifications</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- Already installed standalone (no prompt needed) — shouldn't normally reach here -->
+        <div v-else class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Install Habitat</p>
+            <p class="text-xs text-slate-500">Open in Chrome or Edge to install as a standalone app</p>
+          </div>
+        </div>
+
+      </UCard>
+    </section>
+
     <!-- ── Notifications ─────────────────────────────────────────────────────── -->
     <section class="space-y-2">
       <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">Notifications</p>
@@ -794,14 +876,19 @@ async function enableNotifications() {
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Habit reminders</p>
             <p class="text-xs">
-              <span v-if="notifPermission === 'granted'" class="text-green-400">Enabled — add reminders on individual habit pages</span>
-              <span v-else-if="notifPermission === 'denied'" class="text-red-400">Blocked — allow in browser/OS settings to enable</span>
-              <span v-else class="text-slate-500">Not enabled — grant permission to receive reminders</span>
+              <template v-if="isIosSafari">
+                <span class="text-amber-400">Install the app first — iOS only allows notifications in installed PWAs</span>
+              </template>
+              <template v-else>
+                <span v-if="notifPermission === 'granted'" class="text-green-400">Enabled — add reminders on individual habit pages</span>
+                <span v-else-if="notifPermission === 'denied'" class="text-red-400">Blocked — allow in browser/OS settings to enable</span>
+                <span v-else class="text-slate-500">Not enabled — grant permission to receive reminders</span>
+              </template>
             </p>
           </div>
           <div class="shrink-0">
             <UButton
-              v-if="notifPermission === 'default'"
+              v-if="notifPermission === 'default' && !isIosSafari"
               size="sm"
               variant="soft"
               color="neutral"
@@ -811,7 +898,8 @@ async function enableNotifications() {
               Enable
             </UButton>
             <div v-else-if="notifPermission === 'granted'" class="w-2 h-2 rounded-full bg-green-400 mx-2" />
-            <UIcon v-else name="i-heroicons-bell-slash" class="w-5 h-5 text-red-400 mx-1" />
+            <UIcon v-else-if="notifPermission === 'denied'" name="i-heroicons-bell-slash" class="w-5 h-5 text-red-400 mx-1" />
+            <UIcon v-else-if="isIosSafari" name="i-heroicons-bell-slash" class="w-5 h-5 text-amber-400 mx-1" />
           </div>
         </div>
       </UCard>
