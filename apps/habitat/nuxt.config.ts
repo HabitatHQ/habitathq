@@ -110,6 +110,28 @@ export default defineNuxtConfig({
             label: 'Habitat on desktop',
           },
         ],
+        shortcuts: [
+          {
+            name: 'Today',
+            url: appBaseURL,
+            description: "View today's habits",
+          },
+          {
+            name: 'Habits',
+            url: `${appBaseURL}habits`,
+            description: 'Manage your habits',
+          },
+          {
+            name: 'Check-in',
+            url: `${appBaseURL}checkin`,
+            description: 'Daily check-in and journalling',
+          },
+          {
+            name: 'Stats',
+            url: `${appBaseURL}stats`,
+            description: 'View habit statistics',
+          },
+        ],
       },
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2,wasm}'],
