@@ -66,6 +66,7 @@ export default defineNuxtConfig({
       filename: 'sw.ts',
       registerType: 'autoUpdate',
       manifest: {
+        id: appBaseURL,
         name: 'Habitat – Habit Tracker',
         short_name: 'Habitat',
         description: 'Track your habits, build your life.',
