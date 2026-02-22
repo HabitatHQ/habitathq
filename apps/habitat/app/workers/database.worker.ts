@@ -475,6 +475,17 @@ function importJson(data: HabitatExport): null {
 
 // ─── Low-level helpers ────────────────────────────────────────────────────────
 
+/** Safely parse a JSON column value, returning `fallback` on null or parse error. */
+function safeJsonParse<T>(str: string | null | undefined, fallback: T): T {
+  if (str == null) return fallback
+  try {
+    return JSON.parse(str) as T
+  } catch {
+    console.warn('[db] JSON.parse failed for column value:', str)
+    return fallback
+  }
+}
+
 /** Run a SELECT and collect plain object rows. */
 function queryRaw(sql: string, bind?: unknown[]): Record<string, unknown>[] {
   const rows: Record<string, unknown>[] = []
@@ -512,8 +523,8 @@ function parseHabit(row: Record<string, unknown>): Habit {
     frequency: row['frequency'] as string,
     created_at: row['created_at'] as string,
     archived_at: (row['archived_at'] as string | null) ?? null,
-    tags: JSON.parse((row['tags'] as string | null) ?? '[]'),
-    annotations: JSON.parse((row['annotations'] as string | null) ?? '{}'),
+    tags: safeJsonParse(row['tags'] as string | null, []),
+    annotations: safeJsonParse(row['annotations'] as string | null, {}),
     type: ((row['type'] as string) ?? 'BOOLEAN') as 'BOOLEAN' | 'NUMERIC' | 'LIMIT',
     target_value: (row['target_value'] as number) ?? 1,
     paused_until: (row['paused_until'] as string | null) ?? null,
@@ -531,7 +542,7 @@ function parseHabitWithSchedule(row: Record<string, unknown>): HabitWithSchedule
       habit_id: habit.id,
       schedule_type: ((row['schedule_type'] as string) ?? 'DAILY') as 'DAILY' | 'WEEKLY_FLEX' | 'SPECIFIC_DAYS',
       frequency_count: row['frequency_count'] != null ? (row['frequency_count'] as number) : null,
-      days_of_week: row['days_of_week'] != null ? JSON.parse(row['days_of_week'] as string) : null,
+      days_of_week: safeJsonParse(row['days_of_week'] as string | null, null),
       due_time: (row['due_time'] as string | null) ?? null,
       start_date: (row['start_date'] as string | null) ?? null,
       end_date: (row['end_date'] as string | null) ?? null,
@@ -570,8 +581,8 @@ function parseCompletion(row: Record<string, unknown>): Completion {
     date: row['date'] as string,
     completed_at: row['completed_at'] as string,
     notes: row['notes'] as string,
-    tags: JSON.parse((row['tags'] as string | null) ?? '[]'),
-    annotations: JSON.parse((row['annotations'] as string | null) ?? '{}'),
+    tags: safeJsonParse(row['tags'] as string | null, []),
+    annotations: safeJsonParse(row['annotations'] as string | null, {}),
   }
 }
 
@@ -927,7 +938,7 @@ function parseCheckinTemplate(row: Record<string, unknown>): CheckinTemplate {
     id: row['id'] as string,
     title: row['title'] as string,
     schedule_type: ((row['schedule_type'] as string) ?? 'DAILY') as 'DAILY' | 'WEEKLY' | 'MONTHLY',
-    days_active: row['days_active'] != null ? JSON.parse(row['days_active'] as string) : null,
+    days_active: safeJsonParse(row['days_active'] as string | null, null),
   }
 }
 
@@ -1105,8 +1116,8 @@ function parseScribble(row: Record<string, unknown>): Scribble {
     id: row['id'] as string,
     title: (row['title'] as string) ?? '',
     content: (row['content'] as string) ?? '',
-    tags: JSON.parse((row['tags'] as string | null) ?? '[]'),
-    annotations: JSON.parse((row['annotations'] as string | null) ?? '{}'),
+    tags: safeJsonParse(row['tags'] as string | null, []),
+    annotations: safeJsonParse(row['annotations'] as string | null, {}),
     created_at: row['created_at'] as string,
     updated_at: row['updated_at'] as string,
   }
@@ -1152,7 +1163,7 @@ function parseReminder(row: Record<string, unknown>): Reminder {
     id: row['id'] as string,
     habit_id: row['habit_id'] as string,
     trigger_time: row['trigger_time'] as string,
-    days_active: row['days_active'] != null ? JSON.parse(row['days_active'] as string) : null,
+    days_active: safeJsonParse(row['days_active'] as string | null, null),
   }
 }
 
@@ -1188,7 +1199,7 @@ function parseCheckinReminder(row: Record<string, unknown>): CheckinReminder {
     id: row['id'] as string,
     template_id: row['template_id'] as string,
     trigger_time: row['trigger_time'] as string,
-    days_active: row['days_active'] != null ? JSON.parse(row['days_active'] as string) : null,
+    days_active: safeJsonParse(row['days_active'] as string | null, null),
   }
 }
 

@@ -63,7 +63,7 @@ export function useNotifications() {
           navigator.serviceWorker.ready,
           new Promise(resolve => setTimeout(() => resolve(null), 3000)),
         ])
-      } catch { /* ignore — will fall back to new Notification() */ }
+      } catch (err) { console.warn('[useNotifications] SW registration unavailable, falling back to direct Notification:', err) }
     }
 
     function showNotif(title: string, body: string) {

@@ -94,13 +94,16 @@ async function downloadJson() {
     const data = await db.exportJsonData({ ...exportSel })
     const payload = JSON.stringify(data, null, 2)
     const url = URL.createObjectURL(new Blob([payload], { type: 'application/json' }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `habitat-${new Date().toISOString().slice(0, 10)}.json`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    try {
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `habitat-${new Date().toISOString().slice(0, 10)}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+    } finally {
+      URL.revokeObjectURL(url)
+    }
     showExportModal.value = false
   } finally {
     exporting.value = false
@@ -117,13 +120,16 @@ async function exportSqlite() {
   try {
     const bytes = await db.exportDb()
     const url = URL.createObjectURL(new Blob([bytes], { type: 'application/x-sqlite3' }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `habitat-${new Date().toISOString().slice(0, 10)}.sqlite3`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    try {
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `habitat-${new Date().toISOString().slice(0, 10)}.sqlite3`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+    } finally {
+      URL.revokeObjectURL(url)
+    }
   } finally {
     exportingDb.value = false
   }
@@ -214,13 +220,16 @@ async function exportVoiceNotesZip() {
     }
     const zipped = zipSync(files)
     const url = URL.createObjectURL(new Blob([zipped.buffer as ArrayBuffer], { type: 'application/zip' }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `habitat-voice-${new Date().toISOString().slice(0, 10)}.zip`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    try {
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `habitat-voice-${new Date().toISOString().slice(0, 10)}.zip`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+    } finally {
+      URL.revokeObjectURL(url)
+    }
   } finally {
     exportingVoiceZip.value = false
   }

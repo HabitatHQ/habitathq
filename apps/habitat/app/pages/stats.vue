@@ -60,16 +60,41 @@ function isHabitDone(habit: HabitWithSchedule, date: string): boolean {
   return hasLog && sum < habit.target_value // LIMIT: logged and stayed under
 }
 
+// ─── Precomputed date strings (descending: today → sixMonthsAgo) ─────────────
+
+const allDateStrings = (() => {
+  const dates: string[] = []
+  const d = new Date(today)
+  const start = new Date(sixMonthsAgo)
+  while (d >= start) {
+    dates.push(d.toISOString().slice(0, 10))
+    d.setDate(d.getDate() - 1)
+  }
+  return dates
+})()
+
+// date → total habits done that day; used by aggregate charts (heatmap, monthly, avg)
+const doneCountByDate = computed(() => {
+  const map = new Map<string, number>()
+  for (const date of allDateStrings) {
+    let count = 0
+    for (const h of habits.value) {
+      if (isHabitDone(h, date)) count++
+    }
+    if (count > 0) map.set(date, count)
+  }
+  return map
+})
+
 // ─── Summary stats ─────────────────────────────────────────────────────────────
 
 const totalHabits = computed(() => habits.value.length)
 
 function habitCurrentStreak(h: HabitWithSchedule): number {
   let streak = 0
-  const d = new Date(today)
-  while (isHabitDone(h, d.toISOString().slice(0, 10))) {
+  for (const date of allDateStrings) {
+    if (!isHabitDone(h, date)) break
     streak++
-    d.setDate(d.getDate() - 1)
   }
   return streak
 }
@@ -81,13 +106,7 @@ const bestStreak = computed(() =>
 const avgCompletion = computed(() => {
   if (!habits.value.length) return 0
   let done = 0
-  for (const h of habits.value) {
-    const d = new Date(today)
-    for (let i = 0; i < 30; i++) {
-      if (isHabitDone(h, d.toISOString().slice(0, 10))) done++
-      d.setDate(d.getDate() - 1)
-    }
-  }
+  for (let i = 0; i < 30; i++) done += doneCountByDate.value.get(allDateStrings[i]!) ?? 0
   return Math.round((done / (habits.value.length * 30)) * 100)
 })
 
@@ -95,10 +114,8 @@ const avgCompletion = computed(() => {
 
 function countDoneInMonth(prefix: string, days: number): number {
   let done = 0
-  for (const h of habits.value) {
-    for (let day = 1; day <= days; day++) {
-      if (isHabitDone(h, `${prefix}-${String(day).padStart(2, '0')}`)) done++
-    }
+  for (let day = 1; day <= days; day++) {
+    done += doneCountByDate.value.get(`${prefix}-${String(day).padStart(2, '0')}`) ?? 0
   }
   return done
 }
@@ -124,17 +141,12 @@ const completionDays = ref(30)
 
 const habitRates = computed(() => {
   const days = completionDays.value
-  const from = new Date(today)
-  from.setDate(from.getDate() - (days - 1))
-  const fromStr = from.toISOString().slice(0, 10)
+  const dates = allDateStrings.slice(0, days)
   return habits.value
     .map(h => {
       let count = 0
-      const d = new Date(today)
-      for (let i = 0; i < days; i++) {
-        const date = d.toISOString().slice(0, 10)
-        if (date >= fromStr && isHabitDone(h, date)) count++
-        d.setDate(d.getDate() - 1)
+      for (const date of dates) {
+        if (isHabitDone(h, date)) count++
       }
       return { habit: h, rate: Math.round((count / days) * 100) }
     })
@@ -156,25 +168,19 @@ interface HeatmapDay {
 }
 
 function buildHeatmapWeek(start: Date, weekOffset: number, total: number): HeatmapDay[] {
-  const todayStr = new Date().toISOString().slice(0, 10)
   const week: HeatmapDay[] = []
   for (let dow = 0; dow < 7; dow++) {
     const d = new Date(start)
     d.setDate(start.getDate() + weekOffset * 7 + dow)
     const date = d.toISOString().slice(0, 10)
-    const isFuture = date > todayStr
-    let doneCount = 0
-    if (!isFuture && total > 0) {
-      for (const h of habits.value) {
-        if (isHabitDone(h, date)) doneCount++
-      }
-    }
+    const isFuture = date > today
+    const doneCount = (!isFuture && total > 0) ? (doneCountByDate.value.get(date) ?? 0) : 0
     week.push({
       date,
       doneCount,
       total,
       rate: total && !isFuture ? Math.round((doneCount / total) * 100) : 0,
-      isToday: date === todayStr,
+      isToday: date === today,
       isFuture,
     })
   }

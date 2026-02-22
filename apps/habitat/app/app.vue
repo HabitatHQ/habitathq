@@ -39,9 +39,9 @@ onMounted(async () => {
   // ── 3. Schedule today's habit reminders ───────────────────────────────────
   // Re-schedules whenever the tab becomes visible so timers that expired while
   // the tab was in the background are re-evaluated for the current time.
-  void scheduleAll()
+  scheduleAll().catch(console.error)
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') void scheduleAll()
+    if (document.visibilityState === 'visible') scheduleAll().catch(console.error)
   })
 })
 </script>

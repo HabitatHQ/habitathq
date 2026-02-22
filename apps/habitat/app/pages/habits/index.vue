@@ -91,7 +91,7 @@ function buildAnnotations(entries: { key: string; value: string }[]): Record<str
 function validateSchedule(): string | null {
   if (form.type === 'NUMERIC') {
     if (form.schedule_type === 'SPECIFIC_DAYS') return 'Metric habits can only be daily or 1× per week.'
-    if (form.schedule_type === 'WEEKLY_FLEX' && form.frequency_count > 1) return 'Metric habits can only be daily or 1× per week.'
+    if (form.schedule_type === 'WEEKLY_FLEX' && form.frequency_count > 1) return 'Metric habits must use WEEKLY_FLEX with frequency 1, or be daily.'
   }
   if (form.type === 'LIMIT' && form.schedule_type !== 'DAILY') return 'Limit habits must be daily.'
   return null

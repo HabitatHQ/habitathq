@@ -36,7 +36,8 @@ function readFromStorage(): AppSettings {
     const stored = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') } as AppSettings
     if (!Number.isFinite(stored.weekDays) || stored.weekDays < 3) stored.weekDays = 3
     return stored
-  } catch {
+  } catch (err) {
+    console.warn('[useAppSettings] Failed to parse stored settings, using defaults:', err)
     return { ...DEFAULTS }
   }
 }
