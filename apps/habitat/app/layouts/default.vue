@@ -99,7 +99,9 @@ function isActive(to: string) {
     <main
       class="flex-1 p-4 pb-2"
       :style="settings.stickyNav
-        ? { paddingBottom: settings.navExtraPadding ? '80px' : '60px' }
+        ? { paddingBottom: settings.navExtraPadding
+            ? 'calc(5.5rem + env(safe-area-inset-bottom))'
+            : 'calc(4.5rem + env(safe-area-inset-bottom))' }
         : {}"
     >
       <slot />
@@ -107,12 +109,12 @@ function isActive(to: string) {
 
     <nav
       class="border-t border-slate-800 px-1 py-1 flex justify-around"
-      :class="[
-        settings.stickyNav
-          ? 'fixed bottom-0 inset-x-0 z-30 bg-slate-950'
-          : 'safe-area-bottom',
-        settings.navExtraPadding ? 'pb-5' : '',
-      ]"
+      :class="settings.stickyNav ? 'fixed bottom-0 inset-x-0 z-30 bg-slate-950' : 'safe-area-bottom'"
+      :style="settings.stickyNav
+        ? { paddingBottom: settings.navExtraPadding
+            ? 'calc(1.25rem + env(safe-area-inset-bottom))'
+            : 'env(safe-area-inset-bottom)' }
+        : undefined"
     >
       <UButton
         v-for="item in navItems"

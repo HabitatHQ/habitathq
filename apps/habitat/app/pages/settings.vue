@@ -522,7 +522,7 @@ async function forceReload() {
 
 // ─── Install ──────────────────────────────────────────────────────────────────
 
-const { isInstalled, canInstall, isIosSafari, isUnsupportedBrowser, installing, install } = useInstall()
+const { isInstalled, canInstall, isIosSafari, isUnsupportedBrowser, isChromiumNoPrompt, installing, install } = useInstall()
 const isNativeApp = Capacitor.isNativePlatform()
 
 // ─── Notifications ────────────────────────────────────────────────────────────
@@ -839,6 +839,19 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
             <div class="space-y-1">
               <p class="text-sm font-medium">Use Chrome, Edge, Brave, or Opera</p>
               <p class="text-xs text-slate-500">Required for OPFS storage, home screen install, and background notifications.</p>
+            </div>
+          </div>
+        </div>
+        <div v-else-if="isChromiumNoPrompt" class="px-4 py-3.5 space-y-1">
+          <div class="flex items-start gap-3">
+            <UIcon name="i-heroicons-arrow-down-tray" class="w-5 h-5 text-slate-400 shrink-0 mt-0.5" />
+            <div class="space-y-1">
+              <p class="text-sm font-medium">Install Habitat</p>
+              <p class="text-xs text-slate-400">
+                Tap the <span class="font-semibold text-slate-300">⋮ menu</span> in your browser,
+                then choose <span class="font-semibold text-slate-300">Install app</span>
+                or <span class="font-semibold text-slate-300">Add to Home Screen</span>.
+              </p>
             </div>
           </div>
         </div>

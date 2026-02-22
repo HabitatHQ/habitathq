@@ -40,6 +40,13 @@ export function useInstall() {
     return !isChromium
   })
 
+  // Chromium-based browser that supports install but hasn't offered the prompt yet
+  // (e.g. Chrome on Android before engagement criteria are met, or after prompt was dismissed).
+  // User can still install via the browser menu (⋮ → "Install app" / "Add to Home Screen").
+  const isChromiumNoPrompt = computed(() =>
+    !isInstalled.value && !canInstall.value && !isIosSafari.value && !isUnsupportedBrowser.value,
+  )
+
   const installing = ref(false)
 
   async function install() {
@@ -54,5 +61,5 @@ export function useInstall() {
     }
   }
 
-  return { isInstalled, canInstall, isIosSafari, isUnsupportedBrowser, installing, install }
+  return { isInstalled, canInstall, isIosSafari, isUnsupportedBrowser, isChromiumNoPrompt, installing, install }
 }
