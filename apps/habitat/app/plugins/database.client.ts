@@ -1,10 +1,17 @@
 import { Capacitor } from '@capacitor/core'
+import { initNativeDb, dispatchNative } from '~/lib/db-native'
 import type { WorkerRequestBody, WorkerResponse } from '~/types/database'
 
 let worker: Worker | null = null
 const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>()
 
+// On native, route through Capacitor SQLite directly instead of the worker.
+let nativeReady = false
+
 export function sendToWorker<T>(req: WorkerRequestBody): Promise<T> {
+  if (nativeReady) {
+    return dispatchNative(req) as Promise<T>
+  }
   const id = crypto.randomUUID()
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve: resolve as (v: unknown) => void, reject })
@@ -13,9 +20,19 @@ export function sendToWorker<T>(req: WorkerRequestBody): Promise<T> {
 }
 
 export default defineNuxtPlugin(async () => {
-  if (Capacitor.isNativePlatform()) return  // OPFS is web-only
-
   const dbError = useState<string | null>('db-error', () => null)
+
+  if (Capacitor.isNativePlatform()) {
+    try {
+      await initNativeDb()
+      nativeReady = true
+    } catch (err) {
+      dbError.value = `Database failed to start: ${err instanceof Error ? err.message : String(err)}`
+    }
+    return {
+      provide: { dbError: readonly(dbError) },
+    }
+  }
 
   worker = new Worker(
     new URL('../workers/database.worker.ts', import.meta.url),

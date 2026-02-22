@@ -2,6 +2,7 @@
 const route = useRoute()
 const { $dbError } = useNuxtApp()
 const evictionDetected = useState('eviction-detected', () => false)
+const opfsUnsupported = useState('opfs-unsupported', () => false)
 const { settings } = useAppSettings()
 
 const ALL_NAV_ITEMS = [
@@ -66,6 +67,15 @@ function isActive(to: string) {
       </div>
     </header>
 
+    <UAlert
+      v-if="opfsUnsupported"
+      title="Browser not supported"
+      description="Habitat requires the Origin Private File System (OPFS) API, which is not available in this browser. Please use a modern browser such as Chrome, Firefox, or Safari 17+."
+      color="error"
+      variant="soft"
+      icon="i-heroicons-exclamation-triangle"
+      class="rounded-none border-0 border-b border-red-900/50"
+    />
     <UAlert
       v-if="$dbError"
       :description="$dbError"

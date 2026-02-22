@@ -1,9 +1,18 @@
 <script setup lang="ts">
+import { Capacitor } from '@capacitor/core'
+
 const db = useDatabase()
 const evictionDetected = useState('eviction-detected', () => false)
+const opfsUnsupported = useState('opfs-unsupported', () => false)
 const { scheduleAll } = useNotifications()
 
 onMounted(async () => {
+  // OPFS check only applies to the web path — native uses Capacitor SQLite instead
+  if (!Capacitor.isNativePlatform() && typeof navigator.storage?.getDirectory !== 'function') {
+    opfsUnsupported.value = true
+    return
+  }
+
   if (!db.isAvailable) return
 
   // ── 1. Request persistent storage once (tracked in applied_defaults) ─────
