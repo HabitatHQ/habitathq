@@ -161,7 +161,7 @@ const transcribingNoteId = ref<string | null>(null)
 const deleteAfterTranscribe = ref(false)
 
 function openTranscriptModal(noteId: string | null = null) {
-  transcriptTitle.value = `Voice note — ${fmtDate(new Date().toISOString())}`
+  transcriptTitle.value = `Voice note ${new Date().toISOString().slice(0, 10)}`
   transcriptText.value = finalTranscript.value
   transcribingNoteId.value = noteId
   deleteAfterTranscribe.value = false
@@ -288,7 +288,7 @@ async function startRecording() {
 
     // Show transcript modal if we captured speech and setting allows it
     if (appSettings.value.saveTranscribedNotes && finalTranscript.value.trim()) {
-      openTranscriptModal(null)
+      openTranscriptModal(note.id)
     } else {
       finalTranscript.value = ''
     }
