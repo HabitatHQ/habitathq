@@ -522,8 +522,17 @@ async function forceReload() {
 
 // ─── Install ──────────────────────────────────────────────────────────────────
 
-const { isInstalled, canInstall, isIosSafari, isUnsupportedBrowser, isChromiumNoPrompt, installing, install } = useInstall()
+const { isInstalled, canInstall, isIosSafari, isChromiumNoPrompt, installing, install } = useInstall()
 const isNativeApp = Capacitor.isNativePlatform()
+const showInstallModal = ref(false)
+
+function handleInstall() {
+  if (canInstall.value) {
+    install()
+  } else {
+    showInstallModal.value = true
+  }
+}
 
 // ─── Notifications ────────────────────────────────────────────────────────────
 
@@ -803,7 +812,7 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
           </div>
           <div class="w-2 h-2 rounded-full bg-green-400 mx-2 shrink-0" />
         </div>
-        <div v-else-if="canInstall" class="flex items-center justify-between px-4 py-3.5">
+        <div v-else class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Install Habitat</p>
             <p class="text-xs text-slate-500">Add to your home screen for offline access and notifications</p>
@@ -815,51 +824,10 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
             icon="i-heroicons-arrow-down-tray"
             :loading="installing"
             class="shrink-0"
-            @click="install"
+            @click="handleInstall"
           >
             Install
           </UButton>
-        </div>
-        <div v-else-if="isIosSafari" class="px-4 py-3.5 space-y-1">
-          <div class="flex items-start gap-3">
-            <UIcon name="i-heroicons-device-phone-mobile" class="w-5 h-5 text-slate-400 shrink-0 mt-0.5" />
-            <div class="space-y-1">
-              <p class="text-sm font-medium">Install on iOS</p>
-              <p class="text-xs text-slate-400">
-                Tap the <span class="font-semibold text-slate-300">Share</span> button
-                <UIcon name="i-heroicons-arrow-up-on-square" class="inline w-3.5 h-3.5 align-text-bottom" />
-                then choose <span class="font-semibold text-slate-300">Add to Home Screen</span>.
-              </p>
-            </div>
-          </div>
-        </div>
-        <div v-else-if="isUnsupportedBrowser" class="px-4 py-3.5">
-          <div class="flex items-start gap-3">
-            <UIcon name="i-heroicons-exclamation-circle" class="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-            <div class="space-y-1">
-              <p class="text-sm font-medium">Use Chrome, Edge, Brave, or Opera</p>
-              <p class="text-xs text-slate-500">Required for OPFS storage, home screen install, and background notifications.</p>
-            </div>
-          </div>
-        </div>
-        <div v-else-if="isChromiumNoPrompt" class="px-4 py-3.5 space-y-1">
-          <div class="flex items-start gap-3">
-            <UIcon name="i-heroicons-arrow-down-tray" class="w-5 h-5 text-slate-400 shrink-0 mt-0.5" />
-            <div class="space-y-1">
-              <p class="text-sm font-medium">Install Habitat</p>
-              <p class="text-xs text-slate-400">
-                Tap the <span class="font-semibold text-slate-300">⋮ menu</span> in your browser,
-                then choose <span class="font-semibold text-slate-300">Install app</span>
-                or <span class="font-semibold text-slate-300">Add to Home Screen</span>.
-              </p>
-            </div>
-          </div>
-        </div>
-        <div v-else class="flex items-center justify-between px-4 py-3.5">
-          <div class="space-y-0.5">
-            <p class="text-sm font-medium">Install Habitat</p>
-            <p class="text-xs text-slate-500">Open in Chrome or Edge to install as a standalone app</p>
-          </div>
         </div>
 
       </UCard>
@@ -1193,6 +1161,70 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
 
       </UCard>
     </section>
+
+    <!-- ── Install instructions modal ───────────────────────────────────────── -->
+    <UModal v-model:open="showInstallModal">
+      <template #content>
+        <div class="p-5 space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="font-semibold text-slate-100">Install Habitat</h3>
+            <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="xs" @click="showInstallModal = false" />
+          </div>
+
+          <!-- iOS Safari -->
+          <template v-if="isIosSafari">
+            <ol class="space-y-3 text-sm text-slate-300">
+              <li class="flex items-start gap-3">
+                <span class="text-primary-400 font-semibold shrink-0">1.</span>
+                <span>Tap the <strong class="text-slate-100">Share</strong> button
+                  <UIcon name="i-heroicons-arrow-up-on-square" class="inline w-4 h-4 align-text-bottom text-slate-100" />
+                  in the Safari toolbar</span>
+              </li>
+              <li class="flex items-start gap-3">
+                <span class="text-primary-400 font-semibold shrink-0">2.</span>
+                <span>Scroll down and tap <strong class="text-slate-100">Add to Home Screen</strong></span>
+              </li>
+              <li class="flex items-start gap-3">
+                <span class="text-primary-400 font-semibold shrink-0">3.</span>
+                <span>Tap <strong class="text-slate-100">Add</strong> to confirm</span>
+              </li>
+            </ol>
+          </template>
+
+          <!-- Chromium but no deferred prompt (not yet offered, or previously dismissed) -->
+          <template v-else-if="isChromiumNoPrompt">
+            <p class="text-sm text-slate-400">Chrome hasn't offered an install prompt yet — use the browser menu instead:</p>
+            <ol class="space-y-3 text-sm text-slate-300">
+              <li class="flex items-start gap-3">
+                <span class="text-primary-400 font-semibold shrink-0">1.</span>
+                <span>Tap the <strong class="text-slate-100">⋮ menu</strong> in the top-right corner of Chrome</span>
+              </li>
+              <li class="flex items-start gap-3">
+                <span class="text-primary-400 font-semibold shrink-0">2.</span>
+                <span>Choose <strong class="text-slate-100">Install app</strong> or <strong class="text-slate-100">Add to Home Screen</strong></span>
+              </li>
+            </ol>
+          </template>
+
+          <!-- Unsupported browser -->
+          <template v-else>
+            <p class="text-sm text-slate-400">
+              Your current browser doesn't support PWA installation.
+              Open Habitat in <strong class="text-slate-100">Chrome</strong>, <strong class="text-slate-100">Edge</strong>,
+              <strong class="text-slate-100">Brave</strong>, or <strong class="text-slate-100">Opera</strong>
+              to install it as a standalone app.
+            </p>
+            <p class="text-xs text-slate-500">
+              These browsers also provide OPFS storage and background notifications.
+            </p>
+          </template>
+
+          <div class="flex justify-end">
+            <UButton variant="ghost" color="neutral" @click="showInstallModal = false">Close</UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
 
     <!-- ── Export JSON modal ─────────────────────────────────────────────────── -->
     <UModal v-model:open="showExportModal">
