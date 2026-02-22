@@ -949,6 +949,10 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
           <UBadge :label="runtimeConfig.public.buildTarget" variant="subtle" color="neutral" size="sm" class="rounded-full font-mono" />
         </div>
         <div class="flex items-center justify-between px-4 py-3.5">
+          <p class="text-sm text-slate-400">Built</p>
+          <p class="text-sm font-mono text-slate-300">{{ runtimeConfig.public.buildTime ? new Date(runtimeConfig.public.buildTime).toLocaleString() : '—' }}</p>
+        </div>
+        <div class="flex items-center justify-between px-4 py-3.5">
           <p class="text-sm text-slate-400">Storage</p>
           <p class="text-sm font-medium">On-device (OPFS)</p>
         </div>

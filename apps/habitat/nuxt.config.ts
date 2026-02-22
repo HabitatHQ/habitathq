@@ -16,6 +16,7 @@ function gitExec(cmd: string): string | null {
 const appVersion: string = JSON.parse(readFileSync('./package.json', 'utf8')).version ?? ''
 const commitSha: string = gitExec('git rev-parse --short HEAD') ?? ''
 const gitTag: string = gitExec('git describe --tags --exact-match HEAD') ?? ''
+const buildTime: string = new Date().toISOString()
 const isNative = buildTarget === 'native'
 const isPWA = !isNative
 
@@ -151,6 +152,7 @@ export default defineNuxtConfig({
       appVersion,
       commitSha,
       gitTag,
+      buildTime,
     },
   },
 })
