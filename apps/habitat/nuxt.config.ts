@@ -93,6 +93,22 @@ export default defineNuxtConfig({
             purpose: 'maskable',
           },
         ],
+        screenshots: [
+          {
+            src: `${appBaseURL}screenshots/mobile.png`,
+            sizes: '390x844',
+            type: 'image/png',
+            form_factor: 'narrow',
+            label: 'Habitat home screen',
+          },
+          {
+            src: `${appBaseURL}screenshots/desktop.png`,
+            sizes: '1280x800',
+            type: 'image/png',
+            form_factor: 'wide',
+            label: 'Habitat on desktop',
+          },
+        ],
       },
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2,wasm}'],
