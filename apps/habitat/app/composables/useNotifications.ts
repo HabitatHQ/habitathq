@@ -68,7 +68,7 @@ export function useNotifications() {
 
     function showNotif(title: string, body: string) {
       if (Notification.permission !== 'granted') return
-      const opts: NotificationOptions = { body, icon: '/icon-192.png' }
+      const opts: NotificationOptions = { body, icon: '/icons/icon-192.png' }
       if (swReg) {
         swReg.showNotification(title, opts).catch(() => {
           // SW showNotification failed; fall back to main-thread notification
@@ -132,7 +132,7 @@ export function useNotifications() {
     }
 
     const title = 'Habitat'
-    const opts: NotificationOptions = { body: 'Notifications are working!', icon: '/icon-192.png' }
+    const opts: NotificationOptions = { body: 'Notifications are working!', icon: '/icons/icon-192.png' }
     if (swReg) {
       swReg.showNotification(title, opts).catch(() => { new Notification(title, opts) })
     } else {
