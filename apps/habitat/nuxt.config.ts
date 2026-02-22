@@ -141,6 +141,7 @@ export default defineNuxtConfig({
       link: [
         { rel: 'icon', href: `${appBaseURL}favicon.svg`, type: 'image/svg+xml' },
         { rel: 'apple-touch-icon', href: `${appBaseURL}icons/icon-192.png` },
+        ...(isPWA ? [{ rel: 'manifest' as const, href: `${appBaseURL}manifest.webmanifest` }] : []),
       ],
     },
   },
