@@ -525,11 +525,34 @@ const { isInstalled, canInstall, isIosSafari, isUnsupportedBrowser, installing, 
 
 // ─── Notifications ────────────────────────────────────────────────────────────
 
-const { permission: notifPermission, requestPermission } = useNotifications()
+const { permission: notifPermission, requestPermission, sendTestNotification } = useNotifications()
 
 async function enableNotifications() {
   await requestPermission()
 }
+
+// ─── Advanced: storage estimate ───────────────────────────────────────────────
+
+const storageEstimate = ref<StorageEstimate | null>(null)
+const storagePersisted = ref<boolean | null>(null)
+
+async function loadStorageEstimate() {
+  if (!('storage' in navigator)) return
+  if ('estimate' in navigator.storage) {
+    storageEstimate.value = await navigator.storage.estimate()
+  }
+  if ('persisted' in navigator.storage) {
+    storagePersisted.value = await navigator.storage.persisted()
+  }
+}
+
+// ─── Collapsible section state ────────────────────────────────────────────────
+
+const aboutOpen = ref(false)
+const diagOpen = ref(false)
+const dragonsOpen = ref(false)
+
+watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
 </script>
 
 <template>
@@ -543,52 +566,40 @@ async function enableNotifications() {
     <section class="space-y-2">
       <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">Display</p>
       <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
-            <p class="text-sm font-medium">Enable Today</p>
-            <p class="text-xs text-slate-500">Show the Today tab in the navigation.</p>
+            <p class="text-sm font-medium">24-hour time</p>
+            <p class="text-xs text-slate-500">Show times as 17:34 instead of 5:34 PM.</p>
           </div>
           <USwitch
-            :model-value="appSettings.enableToday"
-            @update:model-value="setAppSetting('enableToday', $event)"
+            :model-value="appSettings.use24HourTime"
+            @update:model-value="setAppSetting('use24HourTime', $event)"
           />
         </div>
-        <div class="space-y-0">
-          <div class="flex items-center justify-between px-4 py-3.5">
-            <div class="space-y-0.5">
-              <p class="text-sm font-medium">Enable Week</p>
-              <p class="text-xs text-slate-500">Quick-fill view for multiple days at once.</p>
-            </div>
-            <USwitch
-              :model-value="appSettings.enableWeek"
-              @update:model-value="setAppSetting('enableWeek', $event)"
-            />
-          </div>
-          <div v-if="appSettings.enableWeek" class="flex items-center justify-between px-4 pb-3.5">
-            <p class="text-sm text-slate-400">Days to show</p>
-            <div class="flex items-center gap-2">
-              <button
-                class="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 flex items-center justify-center text-sm"
-                @click="setAppSetting('weekDays', Math.max(3, (appSettings.weekDays || 3) - 1))"
-              >−</button>
-              <span class="w-4 text-center text-sm font-medium tabular-nums">{{ appSettings.weekDays || 3 }}</span>
-              <button
-                class="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 flex items-center justify-center text-sm"
-                @click="setAppSetting('weekDays', Math.min(7, (appSettings.weekDays || 3) + 1))"
-              >+</button>
-            </div>
-          </div>
-        </div>
+
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
-            <p class="text-sm font-medium">Enable journalling</p>
-            <p class="text-xs text-slate-500">Show Check-in, Scribbles, and Voice in the navigation.</p>
+            <p class="text-sm font-medium">Sticky bottom bar</p>
+            <p class="text-xs text-slate-500">Keep the nav bar fixed at the bottom when scrolling.</p>
           </div>
           <USwitch
-            :model-value="appSettings.enableJournalling"
-            @update:model-value="setAppSetting('enableJournalling', $event)"
+            :model-value="appSettings.stickyNav"
+            @update:model-value="setAppSetting('stickyNav', $event)"
           />
         </div>
+
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Extra bottom padding</p>
+            <p class="text-xs text-slate-500">Add space below the nav for Android gesture buttons.</p>
+          </div>
+          <USwitch
+            :model-value="appSettings.navExtraPadding"
+            @update:model-value="setAppSetting('navExtraPadding', $event)"
+          />
+        </div>
+
         <div class="px-4 pt-3 pb-1">
           <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-600">Habits page</p>
         </div>
@@ -612,6 +623,7 @@ async function enableNotifications() {
             @update:model-value="setAppSetting('showAnnotationsOnHabits', $event)"
           />
         </div>
+
         <div class="px-4 pt-3 pb-1">
           <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-600">Today page</p>
         </div>
@@ -625,7 +637,7 @@ async function enableNotifications() {
             @update:model-value="setAppSetting('showTagsOnToday', $event)"
           />
         </div>
-        <div class="flex items-center justify-between px-4 py-3 pb-3.5">
+        <div class="flex items-center justify-between px-4 py-3">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Show annotations</p>
             <p class="text-xs text-slate-500">Display key:value metadata in today's list.</p>
@@ -635,6 +647,7 @@ async function enableNotifications() {
             @update:model-value="setAppSetting('showAnnotationsOnToday', $event)"
           />
         </div>
+
         <div class="px-4 pt-3 pb-1">
           <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-600">Log entries</p>
         </div>
@@ -662,50 +675,64 @@ async function enableNotifications() {
             </button>
           </div>
         </div>
-        <div class="flex items-center justify-between px-4 py-3.5">
-          <div class="space-y-0.5">
-            <p class="text-sm font-medium">24-hour time</p>
-            <p class="text-xs text-slate-500">Display times in 24-hour format (e.g. 17:34 instead of 5:34 PM).</p>
-          </div>
-          <USwitch
-            :model-value="appSettings.use24HourTime"
-            @update:model-value="setAppSetting('use24HourTime', $event)"
-          />
-        </div>
+
       </UCard>
     </section>
 
-    <!-- ── Navigation ───────────────────────────────────────────────────────── -->
+    <!-- ── Features ──────────────────────────────────────────────────────────── -->
     <section class="space-y-2">
-      <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">Navigation</p>
+      <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">Features</p>
       <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
-        <div class="flex items-center justify-between px-4 py-3.5">
-          <div class="space-y-0.5">
-            <p class="text-sm font-medium">Sticky bottom bar</p>
-            <p class="text-xs text-slate-500">Keep the nav bar fixed at the bottom when scrolling.</p>
-          </div>
-          <USwitch
-            :model-value="appSettings.stickyNav"
-            @update:model-value="setAppSetting('stickyNav', $event)"
-          />
-        </div>
-        <div class="flex items-center justify-between px-4 py-3.5">
-          <div class="space-y-0.5">
-            <p class="text-sm font-medium">Extra bottom padding</p>
-            <p class="text-xs text-slate-500">Add space below the nav for Android gesture buttons.</p>
-          </div>
-          <USwitch
-            :model-value="appSettings.navExtraPadding"
-            @update:model-value="setAppSetting('navExtraPadding', $event)"
-          />
-        </div>
-      </UCard>
-    </section>
 
-    <!-- ── Health ───────────────────────────────────────────────────────────── -->
-    <section class="space-y-2">
-      <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">Health</p>
-      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Enable Today</p>
+            <p class="text-xs text-slate-500">Show the Today tab in the navigation.</p>
+          </div>
+          <USwitch
+            :model-value="appSettings.enableToday"
+            @update:model-value="setAppSetting('enableToday', $event)"
+          />
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between px-4 py-3.5">
+            <div class="space-y-0.5">
+              <p class="text-sm font-medium">Enable Week</p>
+              <p class="text-xs text-slate-500">Quick-fill view for multiple days at once.</p>
+            </div>
+            <USwitch
+              :model-value="appSettings.enableWeek"
+              @update:model-value="setAppSetting('enableWeek', $event)"
+            />
+          </div>
+          <div v-if="appSettings.enableWeek" class="flex items-center justify-between px-4 pb-3.5">
+            <p class="text-sm text-slate-400">Days to show</p>
+            <div class="flex items-center gap-2">
+              <button
+                class="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 flex items-center justify-center text-sm"
+                @click="setAppSetting('weekDays', Math.max(3, (appSettings.weekDays || 3) - 1))"
+              >−</button>
+              <span class="w-4 text-center text-sm font-medium tabular-nums">{{ appSettings.weekDays || 3 }}</span>
+              <button
+                class="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 flex items-center justify-center text-sm"
+                @click="setAppSetting('weekDays', Math.min(7, (appSettings.weekDays || 3) + 1))"
+              >+</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Enable Journalling</p>
+            <p class="text-xs text-slate-500">Show Check-in, Scribbles, and Voice in the navigation.</p>
+          </div>
+          <USwitch
+            :model-value="appSettings.enableJournalling"
+            @update:model-value="setAppSetting('enableJournalling', $event)"
+          />
+        </div>
+
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Enable Health</p>
@@ -716,184 +743,21 @@ async function enableNotifications() {
             @update:model-value="onHealthToggle"
           />
         </div>
-      </UCard>
-    </section>
 
-    <!-- ── Data ──────────────────────────────────────────────────────────────── -->
-    <section class="space-y-2">
-      <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">Data</p>
-      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
-
-        <!-- Export JSON -->
-        <div class="flex items-center justify-between px-4 py-3.5">
+        <div v-if="appSettings.enableJournalling" class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
-            <p class="text-sm font-medium">Export data</p>
-            <p class="text-xs text-slate-500">Download selected data as a versioned JSON file.</p>
+            <p class="text-sm font-medium">Save transcriptions</p>
+            <p class="text-xs text-slate-500">After recording, offer to save the speech-to-text transcript as a Scribble tagged <code class="text-slate-400">habitat-transcribed</code>.</p>
           </div>
-          <UButton
-            icon="i-heroicons-arrow-down-tray"
-            variant="ghost"
-            color="neutral"
-            size="sm"
-            :disabled="!db.isAvailable"
-            @click="openExportModal"
+          <USwitch
+            :model-value="appSettings.saveTranscribedNotes"
+            @update:model-value="setAppSetting('saveTranscribedNotes', $event)"
           />
         </div>
 
-        <!-- Import JSON -->
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
-            <p class="text-sm font-medium">Import data</p>
-            <p class="text-xs text-slate-500">Merge from a Habitat JSON export. Existing records are kept.</p>
-          </div>
-          <input ref="importInput" type="file" accept=".json" class="hidden" @change="onImportFileSelected" />
-          <UButton
-            icon="i-heroicons-arrow-up-tray"
-            variant="ghost"
-            color="neutral"
-            size="sm"
-            :disabled="!db.isAvailable"
-            @click="openImport"
-          />
-        </div>
-
-        <!-- Export SQLite -->
-        <div class="flex items-center justify-between px-4 py-3.5">
-          <div class="space-y-0.5">
-            <p class="text-sm font-medium">Export SQLite</p>
-            <p class="text-xs text-slate-500">Download the raw <span class="font-mono">.sqlite3</span> database file.</p>
-          </div>
-          <UButton
-            icon="i-heroicons-circle-stack"
-            variant="ghost"
-            color="neutral"
-            size="sm"
-            :loading="exportingDb"
-            :disabled="!db.isAvailable"
-            @click="exportSqlite"
-          />
-        </div>
-
-        <!-- Export voice notes ZIP -->
-        <div class="flex items-center justify-between px-4 py-3.5">
-          <div class="space-y-0.5">
-            <p class="text-sm font-medium">Export voice notes</p>
-            <p class="text-xs text-slate-500">Download all voice recordings as a <span class="font-mono">.zip</span> archive.</p>
-          </div>
-          <UButton
-            icon="i-heroicons-musical-note"
-            variant="ghost"
-            color="neutral"
-            size="sm"
-            :loading="exportingVoiceZip"
-            @click="exportVoiceNotesZip"
-          />
-        </div>
-
-        <!-- Clear app data -->
-        <div class="flex items-center justify-between px-4 py-3.5">
-          <div class="space-y-0.5">
-            <p class="text-sm font-medium text-red-400">Clear app data</p>
-            <p class="text-xs text-slate-500">Delete all data and wipe on-device storage.</p>
-          </div>
-          <UButton
-            icon="i-heroicons-trash"
-            variant="ghost"
-            color="error"
-            size="sm"
-            :disabled="!db.isAvailable"
-            @click="showClearModal = true"
-          />
-        </div>
-
-      </UCard>
-    </section>
-
-    <!-- ── Install ───────────────────────────────────────────────────────────── -->
-    <section class="space-y-2">
-      <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">Install</p>
-      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
-
-        <!-- Installed -->
-        <div v-if="isInstalled" class="flex items-center justify-between px-4 py-3.5">
-          <div class="space-y-0.5">
-            <p class="text-sm font-medium">Habitat is installed</p>
-            <p class="text-xs text-green-400">Running as a standalone app</p>
-          </div>
-          <div class="w-2 h-2 rounded-full bg-green-400 mx-2 shrink-0" />
-        </div>
-
-        <!-- Chromium: install prompt available -->
-        <div v-else-if="canInstall" class="flex items-center justify-between px-4 py-3.5">
-          <div class="space-y-0.5">
-            <p class="text-sm font-medium">Install Habitat</p>
-            <p class="text-xs text-slate-500">Add to your home screen for offline access and notifications</p>
-          </div>
-          <UButton
-            size="sm"
-            variant="soft"
-            color="primary"
-            icon="i-heroicons-arrow-down-tray"
-            :loading="installing"
-            class="shrink-0"
-            @click="install"
-          >
-            Install
-          </UButton>
-        </div>
-
-        <!-- iOS Safari: manual Add to Home Screen -->
-        <div v-else-if="isIosSafari" class="px-4 py-3.5 space-y-2">
-          <div class="flex items-start gap-3">
-            <UIcon name="i-heroicons-device-phone-mobile" class="w-5 h-5 text-slate-400 shrink-0 mt-0.5" />
-            <div class="space-y-1">
-              <p class="text-sm font-medium">Install on iOS</p>
-              <p class="text-xs text-slate-400">
-                Tap the <span class="font-semibold text-slate-300">Share</span> button
-                <UIcon name="i-heroicons-arrow-up-on-square" class="inline w-3.5 h-3.5 align-text-bottom" />
-                in Safari, then choose <span class="font-semibold text-slate-300">Add to Home Screen</span>.
-              </p>
-              <p class="text-xs text-slate-500">Required for offline use and notifications on iOS.</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Non-Chromium desktop/Android: recommend Chrome/Edge -->
-        <div v-else-if="isUnsupportedBrowser" class="px-4 py-3.5 space-y-2">
-          <div class="flex items-start gap-3">
-            <UIcon name="i-heroicons-exclamation-circle" class="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-            <div class="space-y-1">
-              <p class="text-sm font-medium">Use a Chromium-based browser</p>
-              <p class="text-xs text-slate-400">
-                Habitat relies on features only available in Chrome, Edge, Brave, or Opera:
-              </p>
-              <ul class="text-xs text-slate-500 space-y-0.5 list-disc list-inside">
-                <li>Origin Private File System — offline SQLite database</li>
-                <li>Install to home screen</li>
-                <li>Reliable background notifications</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-
-        <!-- Already installed standalone (no prompt needed) — shouldn't normally reach here -->
-        <div v-else class="flex items-center justify-between px-4 py-3.5">
-          <div class="space-y-0.5">
-            <p class="text-sm font-medium">Install Habitat</p>
-            <p class="text-xs text-slate-500">Open in Chrome or Edge to install as a standalone app</p>
-          </div>
-        </div>
-
-      </UCard>
-    </section>
-
-    <!-- ── Notifications ─────────────────────────────────────────────────────── -->
-    <section class="space-y-2">
-      <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">Notifications</p>
-      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
-        <div class="flex items-center justify-between px-4 py-3.5">
-          <div class="space-y-0.5">
-            <p class="text-sm font-medium">Habit reminders</p>
+            <p class="text-sm font-medium">Notifications</p>
             <p class="text-xs">
               <template v-if="isIosSafari">
                 <span class="text-amber-400">Install the app first — iOS only allows notifications in installed PWAs</span>
@@ -921,68 +785,162 @@ async function enableNotifications() {
             <UIcon v-else-if="isIosSafari" name="i-heroicons-bell-slash" class="w-5 h-5 text-amber-400 mx-1" />
           </div>
         </div>
+
+        <!-- Install -->
+        <div v-if="isInstalled" class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Habitat is installed</p>
+            <p class="text-xs text-green-400">Running as a standalone app</p>
+          </div>
+          <div class="w-2 h-2 rounded-full bg-green-400 mx-2 shrink-0" />
+        </div>
+        <div v-else-if="canInstall" class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Install Habitat</p>
+            <p class="text-xs text-slate-500">Add to your home screen for offline access and notifications</p>
+          </div>
+          <UButton
+            size="sm"
+            variant="soft"
+            color="primary"
+            icon="i-heroicons-arrow-down-tray"
+            :loading="installing"
+            class="shrink-0"
+            @click="install"
+          >
+            Install
+          </UButton>
+        </div>
+        <div v-else-if="isIosSafari" class="px-4 py-3.5 space-y-1">
+          <div class="flex items-start gap-3">
+            <UIcon name="i-heroicons-device-phone-mobile" class="w-5 h-5 text-slate-400 shrink-0 mt-0.5" />
+            <div class="space-y-1">
+              <p class="text-sm font-medium">Install on iOS</p>
+              <p class="text-xs text-slate-400">
+                Tap the <span class="font-semibold text-slate-300">Share</span> button
+                <UIcon name="i-heroicons-arrow-up-on-square" class="inline w-3.5 h-3.5 align-text-bottom" />
+                then choose <span class="font-semibold text-slate-300">Add to Home Screen</span>.
+              </p>
+            </div>
+          </div>
+        </div>
+        <div v-else-if="isUnsupportedBrowser" class="px-4 py-3.5">
+          <div class="flex items-start gap-3">
+            <UIcon name="i-heroicons-exclamation-circle" class="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+            <div class="space-y-1">
+              <p class="text-sm font-medium">Use Chrome, Edge, Brave, or Opera</p>
+              <p class="text-xs text-slate-500">Required for OPFS storage, home screen install, and background notifications.</p>
+            </div>
+          </div>
+        </div>
+        <div v-else class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Install Habitat</p>
+            <p class="text-xs text-slate-500">Open in Chrome or Edge to install as a standalone app</p>
+          </div>
+        </div>
+
       </UCard>
     </section>
 
-    <!-- ── Voice ─────────────────────────────────────────────────────────────── -->
-    <section v-if="appSettings.enableJournalling" class="space-y-2">
-      <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">Voice</p>
+    <!-- ── Data ──────────────────────────────────────────────────────────────── -->
+    <section class="space-y-2">
+      <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">Data</p>
       <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
-            <p class="text-sm font-medium">Save transcriptions</p>
-            <p class="text-xs text-slate-500">After recording, offer to save the speech-to-text transcript as a Scribble tagged <code class="text-slate-400">habitat-transcribed</code>.</p>
+            <p class="text-sm font-medium">Export data</p>
+            <p class="text-xs text-slate-500">Download selected data as a versioned JSON file.</p>
           </div>
-          <USwitch
-            :model-value="appSettings.saveTranscribedNotes"
-            @update:model-value="setAppSetting('saveTranscribedNotes', $event)"
+          <UButton
+            icon="i-heroicons-arrow-down-tray"
+            variant="ghost"
+            color="neutral"
+            size="sm"
+            :disabled="!db.isAvailable"
+            @click="openExportModal"
           />
         </div>
+
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Import data</p>
+            <p class="text-xs text-slate-500">Merge from a Habitat JSON export. Existing records are kept.</p>
+          </div>
+          <input ref="importInput" type="file" accept=".json" class="hidden" @change="onImportFileSelected" />
+          <UButton
+            icon="i-heroicons-arrow-up-tray"
+            variant="ghost"
+            color="neutral"
+            size="sm"
+            :disabled="!db.isAvailable"
+            @click="openImport"
+          />
+        </div>
+
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Export SQLite</p>
+            <p class="text-xs text-slate-500">Download the raw <span class="font-mono">.sqlite3</span> database file.</p>
+          </div>
+          <UButton
+            icon="i-heroicons-circle-stack"
+            variant="ghost"
+            color="neutral"
+            size="sm"
+            :loading="exportingDb"
+            :disabled="!db.isAvailable"
+            @click="exportSqlite"
+          />
+        </div>
+
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Export voice notes</p>
+            <p class="text-xs text-slate-500">Download all voice recordings as a <span class="font-mono">.zip</span> archive.</p>
+          </div>
+          <UButton
+            icon="i-heroicons-musical-note"
+            variant="ghost"
+            color="neutral"
+            size="sm"
+            :loading="exportingVoiceZip"
+            @click="exportVoiceNotesZip"
+          />
+        </div>
+
       </UCard>
     </section>
 
-    <!-- ── About ─────────────────────────────────────────────────────────────── -->
+    <!-- ── About (collapsible) ───────────────────────────────────────────────── -->
     <section class="space-y-2">
-      <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">About</p>
-      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+      <button class="w-full flex items-center justify-between px-1 py-0.5" @click="aboutOpen = !aboutOpen">
+        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">About</p>
+        <UIcon :name="aboutOpen ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-slate-600" />
+      </button>
+      <UCard v-if="aboutOpen" :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
 
         <div class="flex items-center justify-between px-4 py-3.5">
           <p class="text-sm text-slate-400">App</p>
           <p class="text-sm font-medium">Habitat</p>
         </div>
-
         <div class="flex items-center justify-between px-4 py-3.5">
           <p class="text-sm text-slate-400">Version</p>
           <p class="text-sm font-mono font-medium">{{ runtimeConfig.public.appVersion || '—' }}</p>
         </div>
-
         <div class="flex items-center justify-between px-4 py-3.5">
           <p class="text-sm text-slate-400">Commit</p>
           <p class="text-sm font-mono text-slate-300">{{ runtimeConfig.public.commitSha || '—' }}</p>
         </div>
-
         <div v-if="runtimeConfig.public.gitTag.length > 0" class="flex items-center justify-between px-4 py-3.5">
           <p class="text-sm text-slate-400">Tag</p>
-          <UBadge
-            :label="runtimeConfig.public.gitTag"
-            variant="subtle"
-            color="primary"
-            size="sm"
-            class="rounded-full font-mono"
-          />
+          <UBadge :label="runtimeConfig.public.gitTag" variant="subtle" color="primary" size="sm" class="rounded-full font-mono" />
         </div>
-
         <div class="flex items-center justify-between px-4 py-3.5">
           <p class="text-sm text-slate-400">Build</p>
-          <UBadge
-            :label="runtimeConfig.public.buildTarget"
-            variant="subtle"
-            color="neutral"
-            size="sm"
-            class="rounded-full font-mono"
-          />
+          <UBadge :label="runtimeConfig.public.buildTarget" variant="subtle" color="neutral" size="sm" class="rounded-full font-mono" />
         </div>
-
         <div class="flex items-center justify-between px-4 py-3.5">
           <p class="text-sm text-slate-400">Storage</p>
           <p class="text-sm font-medium">On-device (OPFS)</p>
@@ -991,10 +949,13 @@ async function enableNotifications() {
       </UCard>
     </section>
 
-    <!-- ── Advanced ──────────────────────────────────────────────────────────── -->
+    <!-- ── Diagnostics (collapsible) ─────────────────────────────────────────── -->
     <section class="space-y-2">
-      <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">Advanced</p>
-      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+      <button class="w-full flex items-center justify-between px-1 py-0.5" @click="diagOpen = !diagOpen">
+        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Diagnostics</p>
+        <UIcon :name="diagOpen ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-slate-600" />
+      </button>
+      <UCard v-if="diagOpen" :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
 
         <!-- Integrity check -->
         <div class="flex items-start justify-between px-4 py-3.5 gap-3">
@@ -1006,90 +967,52 @@ async function enableNotifications() {
                 <UIcon name="i-heroicons-check-circle" class="w-3.5 h-3.5 shrink-0" /> ok
               </p>
               <ul v-else class="space-y-0.5">
-                <li
-                  v-for="(msg, i) in integrityResults"
-                  :key="i"
-                  class="text-xs text-red-400 font-mono break-all"
-                >{{ msg }}</li>
+                <li v-for="(msg, i) in integrityResults" :key="i" class="text-xs text-red-400 font-mono break-all">{{ msg }}</li>
               </ul>
             </div>
           </div>
           <UButton
-            size="sm"
-            variant="ghost"
-            color="neutral"
-            :loading="integrityLoading"
-            :disabled="!db.isAvailable"
-            icon="i-heroicons-shield-check"
-            class="shrink-0"
+            size="sm" variant="ghost" color="neutral"
+            :loading="integrityLoading" :disabled="!db.isAvailable"
+            icon="i-heroicons-shield-check" class="shrink-0"
             @click="runIntegrityCheck"
           />
         </div>
 
         <!-- DB schema -->
         <div>
-          <button
-            class="w-full flex items-center justify-between px-4 py-3.5 text-left"
-            @click="toggleDbInfo"
-          >
+          <button class="w-full flex items-center justify-between px-4 py-3.5 text-left" @click="toggleDbInfo">
             <div class="space-y-0.5">
               <p class="text-sm font-medium">Database schema</p>
               <p class="text-xs text-slate-500">SQLite user_version and table definitions</p>
             </div>
             <div class="flex items-center gap-2 shrink-0">
-              <UBadge
-                v-if="dbInfo"
-                :label="`v${dbInfo.userVersion}`"
-                variant="subtle"
-                color="neutral"
-                size="sm"
-                class="font-mono rounded-full"
-              />
-              <UIcon
-                :name="dbInfoOpen ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'"
-                class="w-4 h-4 text-slate-500"
-              />
+              <UBadge v-if="dbInfo" :label="`v${dbInfo.userVersion}`" variant="subtle" color="neutral" size="sm" class="font-mono rounded-full" />
+              <UIcon :name="dbInfoOpen ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-4 h-4 text-slate-500" />
             </div>
           </button>
-
           <div v-if="dbInfoOpen" class="border-t border-slate-800 px-4 py-3 space-y-2">
             <div v-if="dbInfoLoading" class="flex items-center gap-2 text-xs text-slate-500">
-              <UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 animate-spin" />
-              Loading…
+              <UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 animate-spin" /> Loading…
             </div>
             <template v-else-if="dbInfo">
               <div class="flex items-center gap-2 mb-3">
                 <span class="text-xs text-slate-500">Schema version:</span>
                 <span class="font-mono text-xs text-slate-200">{{ dbInfo.userVersion }}</span>
               </div>
-              <div
-                v-for="table in dbInfo.tables"
-                :key="table.name"
-                class="rounded-lg border border-slate-800 overflow-hidden"
-              >
+              <div v-for="table in dbInfo.tables" :key="table.name" class="rounded-lg border border-slate-800 overflow-hidden">
                 <button
                   class="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-slate-800/40 transition-colors"
                   @click="expandedTable = expandedTable === table.name ? null : table.name"
                 >
                   <span class="text-xs font-mono text-slate-300">{{ table.name }}</span>
-                  <UIcon
-                    :name="expandedTable === table.name ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'"
-                    class="w-3.5 h-3.5 text-slate-600"
-                  />
+                  <UIcon :name="expandedTable === table.name ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5 text-slate-600" />
                 </button>
-                <pre
-                  v-if="expandedTable === table.name"
-                  class="text-[10px] leading-relaxed font-mono text-slate-400 bg-slate-950 px-3 py-2 overflow-x-auto border-t border-slate-800"
-                >{{ table.sql }}</pre>
+                <pre v-if="expandedTable === table.name" class="text-[10px] leading-relaxed font-mono text-slate-400 bg-slate-950 px-3 py-2 overflow-x-auto border-t border-slate-800">{{ table.sql }}</pre>
               </div>
-
               <template v-if="dbInfo.indices.length > 0">
                 <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-600 pt-1">Indices</p>
-                <div
-                  v-for="idx in dbInfo.indices"
-                  :key="idx.name"
-                  class="rounded-lg border border-slate-800 overflow-hidden"
-                >
+                <div v-for="idx in dbInfo.indices" :key="idx.name" class="rounded-lg border border-slate-800 overflow-hidden">
                   <button
                     class="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-slate-800/40 transition-colors"
                     @click="expandedTable = expandedTable === idx.name ? null : idx.name"
@@ -1098,15 +1021,9 @@ async function enableNotifications() {
                       <span class="text-xs font-mono text-slate-400">{{ idx.name }}</span>
                       <span class="text-[10px] text-slate-600 ml-2">on {{ idx.tbl_name }}</span>
                     </div>
-                    <UIcon
-                      :name="expandedTable === idx.name ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'"
-                      class="w-3.5 h-3.5 text-slate-600 shrink-0"
-                    />
+                    <UIcon :name="expandedTable === idx.name ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5 text-slate-600 shrink-0" />
                   </button>
-                  <pre
-                    v-if="expandedTable === idx.name"
-                    class="text-[10px] leading-relaxed font-mono text-slate-400 bg-slate-950 px-3 py-2 overflow-x-auto border-t border-slate-800"
-                  >{{ idx.sql }}</pre>
+                  <pre v-if="expandedTable === idx.name" class="text-[10px] leading-relaxed font-mono text-slate-400 bg-slate-950 px-3 py-2 overflow-x-auto border-t border-slate-800">{{ idx.sql }}</pre>
                 </div>
               </template>
             </template>
@@ -1115,63 +1032,80 @@ async function enableNotifications() {
 
         <!-- OPFS files -->
         <div>
-          <button
-            class="w-full flex items-center justify-between px-4 py-3.5 text-left"
-            @click="toggleOpfs"
-          >
+          <button class="w-full flex items-center justify-between px-4 py-3.5 text-left" @click="toggleOpfs">
             <div class="space-y-0.5">
               <p class="text-sm font-medium">OPFS files</p>
               <p class="text-xs text-slate-500">All files in the origin private file system</p>
             </div>
             <div class="flex items-center gap-2 shrink-0">
               <span v-if="opfsFiles.length > 0" class="text-xs text-slate-500">{{ opfsFiles.length }} file{{ opfsFiles.length !== 1 ? 's' : '' }}</span>
-              <UIcon
-                :name="opfsOpen ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'"
-                class="w-4 h-4 text-slate-500"
-              />
+              <UIcon :name="opfsOpen ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-4 h-4 text-slate-500" />
             </div>
           </button>
-
           <div v-if="opfsOpen" class="border-t border-slate-800 px-4 py-3">
             <div v-if="opfsLoading" class="flex items-center gap-2 text-xs text-slate-500">
-              <UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 animate-spin" />
-              Scanning…
+              <UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 animate-spin" /> Scanning…
             </div>
             <div v-else-if="opfsFiles.length === 0" class="text-xs text-slate-500">No files found.</div>
             <ul v-else class="space-y-1.5">
-              <li
-                v-for="f in opfsFiles"
-                :key="f.path"
-                class="flex items-center justify-between gap-4"
-              >
+              <li v-for="f in opfsFiles" :key="f.path" class="flex items-center justify-between gap-4">
                 <span class="text-[11px] font-mono text-slate-300 truncate">{{ f.path }}</span>
                 <span class="text-[11px] font-mono text-slate-500 shrink-0">{{ formatBytes(f.size) }}</span>
               </li>
             </ul>
-            <button
-              class="mt-3 text-xs text-slate-600 hover:text-slate-400 flex items-center gap-1 transition-colors"
-              @click="loadOpfsFiles"
-            >
-              <UIcon name="i-heroicons-arrow-path" class="w-3 h-3" />
-              Refresh
+            <button class="mt-3 text-xs text-slate-600 hover:text-slate-400 flex items-center gap-1 transition-colors" @click="loadOpfsFiles">
+              <UIcon name="i-heroicons-arrow-path" class="w-3 h-3" /> Refresh
             </button>
           </div>
         </div>
 
-        <!-- Nuke OPFS -->
+        <!-- Test notification -->
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
-            <p class="text-sm font-medium text-red-400">Clear OPFS storage</p>
-            <p class="text-xs text-slate-500">Wipe all on-device file system storage including the database.</p>
+            <p class="text-sm font-medium">Test notification</p>
+            <p class="text-xs text-slate-500">Fire a sample notification to verify delivery.</p>
           </div>
           <UButton
-            icon="i-heroicons-fire"
-            variant="ghost"
-            color="error"
-            size="sm"
-            :disabled="!db.isAvailable"
-            @click="showNukeModal = true"
+            size="sm" variant="ghost" color="neutral"
+            icon="i-heroicons-bell"
+            :disabled="notifPermission !== 'granted'"
+            @click="sendTestNotification"
           />
+        </div>
+
+        <!-- Storage estimate -->
+        <div class="px-4 py-3.5 space-y-2">
+          <div class="flex items-center justify-between">
+            <div class="space-y-0.5">
+              <p class="text-sm font-medium">Storage</p>
+              <p class="text-xs text-slate-500">Browser quota and current usage.</p>
+            </div>
+            <UButton size="sm" variant="ghost" color="neutral" icon="i-heroicons-arrow-path" @click="loadStorageEstimate" />
+          </div>
+          <template v-if="storageEstimate">
+            <div class="space-y-1">
+              <div class="flex justify-between text-xs text-slate-400">
+                <span>{{ formatBytes(storageEstimate.usage ?? 0) }} used</span>
+                <span>{{ formatBytes(storageEstimate.quota ?? 0) }} quota</span>
+              </div>
+              <div class="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                <div
+                  class="h-full rounded-full bg-primary-500 transition-all"
+                  :style="{ width: `${Math.min(100, ((storageEstimate.usage ?? 0) / (storageEstimate.quota ?? 1)) * 100).toFixed(1)}%` }"
+                />
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5 text-xs">
+              <UIcon
+                :name="storagePersisted ? 'i-heroicons-lock-closed' : 'i-heroicons-lock-open'"
+                class="w-3.5 h-3.5"
+                :class="storagePersisted ? 'text-green-400' : 'text-amber-400'"
+              />
+              <span :class="storagePersisted ? 'text-green-400' : 'text-amber-400'">
+                {{ storagePersisted === null ? 'Checking…' : storagePersisted ? 'Persistent storage' : 'Storage not persisted' }}
+              </span>
+            </div>
+          </template>
         </div>
 
         <!-- Force reload -->
@@ -1181,13 +1115,46 @@ async function enableNotifications() {
             <p class="text-xs text-slate-500">Unregister service worker, clear JS/CSS caches, and reload. OPFS data is preserved.</p>
           </div>
           <UButton
-            size="sm"
-            variant="ghost"
-            color="neutral"
-            icon="i-heroicons-arrow-path"
-            :loading="forceReloading"
-            class="shrink-0"
+            size="sm" variant="ghost" color="neutral"
+            icon="i-heroicons-arrow-path" :loading="forceReloading" class="shrink-0"
             @click="forceReload"
+          />
+        </div>
+
+      </UCard>
+    </section>
+
+    <!-- ── Here be dragons (collapsible) ─────────────────────────────────────── -->
+    <section class="space-y-2">
+      <button class="w-full flex items-center justify-between px-1 py-0.5" @click="dragonsOpen = !dragonsOpen">
+        <p class="text-xs font-semibold uppercase tracking-wider text-red-900/70">🐉 Here be dragons</p>
+        <UIcon :name="dragonsOpen ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-red-900/50" />
+      </button>
+      <UCard v-if="dragonsOpen" :ui="{ root: 'rounded-2xl ring-1 ring-red-900/30', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium text-red-400">Clear app data</p>
+            <p class="text-xs text-slate-500">Selectively delete habits, check-ins, scribbles, or voice notes.</p>
+          </div>
+          <UButton
+            icon="i-heroicons-trash"
+            variant="ghost" color="error" size="sm"
+            :disabled="!db.isAvailable"
+            @click="showClearModal = true"
+          />
+        </div>
+
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium text-red-400">Clear OPFS storage</p>
+            <p class="text-xs text-slate-500">Wipe all on-device file system storage including the database.</p>
+          </div>
+          <UButton
+            icon="i-heroicons-fire"
+            variant="ghost" color="error" size="sm"
+            :disabled="!db.isAvailable"
+            @click="showNukeModal = true"
           />
         </div>
 

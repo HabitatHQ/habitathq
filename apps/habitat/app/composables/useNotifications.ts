@@ -116,9 +116,34 @@ export function useNotifications() {
     }
   }
 
+  async function sendTestNotification(): Promise<void> {
+    if (typeof Notification === 'undefined') return
+    _permission.value = Notification.permission
+    if (_permission.value !== 'granted') return
+
+    let swReg: ServiceWorkerRegistration | null = null
+    if ('serviceWorker' in navigator) {
+      try {
+        swReg = await Promise.race<ServiceWorkerRegistration | null>([
+          navigator.serviceWorker.ready,
+          new Promise(resolve => setTimeout(() => resolve(null), 3000)),
+        ])
+      } catch (err) { console.warn('[useNotifications] SW unavailable for test notification:', err) }
+    }
+
+    const title = 'Habitat'
+    const opts: NotificationOptions = { body: 'Notifications are working!', icon: '/icon-192.png' }
+    if (swReg) {
+      swReg.showNotification(title, opts).catch(() => { new Notification(title, opts) })
+    } else {
+      new Notification(title, opts)
+    }
+  }
+
   return {
     permission: readonly(_permission),
     requestPermission,
     scheduleAll,
+    sendTestNotification,
   }
 }
