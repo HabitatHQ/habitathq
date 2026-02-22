@@ -546,6 +546,11 @@ async function loadStorageEstimate() {
   }
 }
 
+async function requestPersistStorage() {
+  if (!('storage' in navigator && 'persist' in navigator.storage)) return
+  storagePersisted.value = await navigator.storage.persist()
+}
+
 // ─── Collapsible section state ────────────────────────────────────────────────
 
 const aboutOpen = ref(false)
@@ -598,6 +603,46 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
             :model-value="appSettings.navExtraPadding"
             @update:model-value="setAppSetting('navExtraPadding', $event)"
           />
+        </div>
+
+        <div class="px-4 pt-3 pb-1">
+          <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-600">Navigation</p>
+        </div>
+        <div class="flex items-center justify-between px-4 py-3">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Today tab</p>
+            <p class="text-xs text-slate-500">Show daily progress and log habits for today.</p>
+          </div>
+          <USwitch
+            :model-value="appSettings.enableToday"
+            @update:model-value="setAppSetting('enableToday', $event)"
+          />
+        </div>
+        <div>
+          <div class="flex items-center justify-between px-4 py-3">
+            <div class="space-y-0.5">
+              <p class="text-sm font-medium">Week view</p>
+              <p class="text-xs text-slate-500">Quick-fill view for logging multiple days at once.</p>
+            </div>
+            <USwitch
+              :model-value="appSettings.enableWeek"
+              @update:model-value="setAppSetting('enableWeek', $event)"
+            />
+          </div>
+          <div v-if="appSettings.enableWeek" class="flex items-center justify-between px-4 pb-3">
+            <p class="text-sm text-slate-400">Days to show</p>
+            <div class="flex items-center gap-2">
+              <button
+                class="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 flex items-center justify-center text-sm"
+                @click="setAppSetting('weekDays', Math.max(3, (appSettings.weekDays || 3) - 1))"
+              >−</button>
+              <span class="w-4 text-center text-sm font-medium tabular-nums">{{ appSettings.weekDays || 3 }}</span>
+              <button
+                class="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 flex items-center justify-center text-sm"
+                @click="setAppSetting('weekDays', Math.min(7, (appSettings.weekDays || 3) + 1))"
+              >+</button>
+            </div>
+          </div>
         </div>
 
         <div class="px-4 pt-3 pb-1">
@@ -683,44 +728,6 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
     <section class="space-y-2">
       <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">Features</p>
       <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
-
-        <div class="flex items-center justify-between px-4 py-3.5">
-          <div class="space-y-0.5">
-            <p class="text-sm font-medium">Enable Today</p>
-            <p class="text-xs text-slate-500">Show the Today tab in the navigation.</p>
-          </div>
-          <USwitch
-            :model-value="appSettings.enableToday"
-            @update:model-value="setAppSetting('enableToday', $event)"
-          />
-        </div>
-
-        <div>
-          <div class="flex items-center justify-between px-4 py-3.5">
-            <div class="space-y-0.5">
-              <p class="text-sm font-medium">Enable Week</p>
-              <p class="text-xs text-slate-500">Quick-fill view for multiple days at once.</p>
-            </div>
-            <USwitch
-              :model-value="appSettings.enableWeek"
-              @update:model-value="setAppSetting('enableWeek', $event)"
-            />
-          </div>
-          <div v-if="appSettings.enableWeek" class="flex items-center justify-between px-4 pb-3.5">
-            <p class="text-sm text-slate-400">Days to show</p>
-            <div class="flex items-center gap-2">
-              <button
-                class="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 flex items-center justify-center text-sm"
-                @click="setAppSetting('weekDays', Math.max(3, (appSettings.weekDays || 3) - 1))"
-              >−</button>
-              <span class="w-4 text-center text-sm font-medium tabular-nums">{{ appSettings.weekDays || 3 }}</span>
-              <button
-                class="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 flex items-center justify-center text-sm"
-                @click="setAppSetting('weekDays', Math.min(7, (appSettings.weekDays || 3) + 1))"
-              >+</button>
-            </div>
-          </div>
-        </div>
 
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
@@ -946,45 +953,11 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
           <p class="text-sm font-medium">On-device (OPFS)</p>
         </div>
 
-      </UCard>
-    </section>
-
-    <!-- ── Diagnostics (collapsible) ─────────────────────────────────────────── -->
-    <section class="space-y-2">
-      <button class="w-full flex items-center justify-between px-1 py-0.5" @click="diagOpen = !diagOpen">
-        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Diagnostics</p>
-        <UIcon :name="diagOpen ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-slate-600" />
-      </button>
-      <UCard v-if="diagOpen" :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
-
-        <!-- Integrity check -->
-        <div class="flex items-start justify-between px-4 py-3.5 gap-3">
-          <div class="space-y-0.5 min-w-0">
-            <p class="text-sm font-medium">Integrity check</p>
-            <p class="text-xs text-slate-500">Runs SQLite <span class="font-mono">PRAGMA integrity_check</span></p>
-            <div v-if="integrityResults !== null" class="mt-1.5">
-              <p v-if="integrityOk" class="text-xs text-green-400 flex items-center gap-1">
-                <UIcon name="i-heroicons-check-circle" class="w-3.5 h-3.5 shrink-0" /> ok
-              </p>
-              <ul v-else class="space-y-0.5">
-                <li v-for="(msg, i) in integrityResults" :key="i" class="text-xs text-red-400 font-mono break-all">{{ msg }}</li>
-              </ul>
-            </div>
-          </div>
-          <UButton
-            size="sm" variant="ghost" color="neutral"
-            :loading="integrityLoading" :disabled="!db.isAvailable"
-            icon="i-heroicons-shield-check" class="shrink-0"
-            @click="runIntegrityCheck"
-          />
-        </div>
-
         <!-- DB schema -->
         <div>
           <button class="w-full flex items-center justify-between px-4 py-3.5 text-left" @click="toggleDbInfo">
             <div class="space-y-0.5">
-              <p class="text-sm font-medium">Database schema</p>
-              <p class="text-xs text-slate-500">SQLite user_version and table definitions</p>
+              <p class="text-sm text-slate-400">Database schema</p>
             </div>
             <div class="flex items-center gap-2 shrink-0">
               <UBadge v-if="dbInfo" :label="`v${dbInfo.userVersion}`" variant="subtle" color="neutral" size="sm" class="font-mono rounded-full" />
@@ -1028,6 +1001,39 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
               </template>
             </template>
           </div>
+        </div>
+
+      </UCard>
+    </section>
+
+    <!-- ── Diagnostics (collapsible) ─────────────────────────────────────────── -->
+    <section class="space-y-2">
+      <button class="w-full flex items-center justify-between px-1 py-0.5" @click="diagOpen = !diagOpen">
+        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Diagnostics</p>
+        <UIcon :name="diagOpen ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-slate-600" />
+      </button>
+      <UCard v-if="diagOpen" :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+
+        <!-- Integrity check -->
+        <div class="flex items-start justify-between px-4 py-3.5 gap-3">
+          <div class="space-y-0.5 min-w-0">
+            <p class="text-sm font-medium">Integrity check</p>
+            <p class="text-xs text-slate-500">Runs SQLite <span class="font-mono">PRAGMA integrity_check</span></p>
+            <div v-if="integrityResults !== null" class="mt-1.5">
+              <p v-if="integrityOk" class="text-xs text-green-400 flex items-center gap-1">
+                <UIcon name="i-heroicons-check-circle" class="w-3.5 h-3.5 shrink-0" /> ok
+              </p>
+              <ul v-else class="space-y-0.5">
+                <li v-for="(msg, i) in integrityResults" :key="i" class="text-xs text-red-400 font-mono break-all">{{ msg }}</li>
+              </ul>
+            </div>
+          </div>
+          <UButton
+            size="sm" variant="ghost" color="neutral"
+            :loading="integrityLoading" :disabled="!db.isAvailable"
+            icon="i-heroicons-shield-check" class="shrink-0"
+            @click="runIntegrityCheck"
+          />
         </div>
 
         <!-- OPFS files -->
@@ -1095,30 +1101,26 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
                 />
               </div>
             </div>
-            <div class="flex items-center gap-1.5 text-xs">
-              <UIcon
-                :name="storagePersisted ? 'i-heroicons-lock-closed' : 'i-heroicons-lock-open'"
-                class="w-3.5 h-3.5"
-                :class="storagePersisted ? 'text-green-400' : 'text-amber-400'"
-              />
-              <span :class="storagePersisted ? 'text-green-400' : 'text-amber-400'">
-                {{ storagePersisted === null ? 'Checking…' : storagePersisted ? 'Persistent storage' : 'Storage not persisted' }}
-              </span>
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1.5 text-xs">
+                <UIcon
+                  :name="storagePersisted ? 'i-heroicons-lock-closed' : 'i-heroicons-lock-open'"
+                  class="w-3.5 h-3.5"
+                  :class="storagePersisted ? 'text-green-400' : 'text-amber-400'"
+                />
+                <span :class="storagePersisted ? 'text-green-400' : 'text-amber-400'">
+                  {{ storagePersisted === null ? 'Checking…' : storagePersisted ? 'Persistent storage' : 'Storage not persisted' }}
+                </span>
+              </div>
+              <UButton
+                v-if="storagePersisted === false"
+                size="xs" variant="soft" color="primary"
+                @click="requestPersistStorage"
+              >
+                Request
+              </UButton>
             </div>
           </template>
-        </div>
-
-        <!-- Force reload -->
-        <div class="flex items-center justify-between px-4 py-3.5">
-          <div class="space-y-0.5">
-            <p class="text-sm font-medium">Force reload</p>
-            <p class="text-xs text-slate-500">Unregister service worker, clear JS/CSS caches, and reload. OPFS data is preserved.</p>
-          </div>
-          <UButton
-            size="sm" variant="ghost" color="neutral"
-            icon="i-heroicons-arrow-path" :loading="forceReloading" class="shrink-0"
-            @click="forceReload"
-          />
         </div>
 
       </UCard>
@@ -1131,6 +1133,18 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
         <UIcon :name="dragonsOpen ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-red-900/50" />
       </button>
       <UCard v-if="dragonsOpen" :ui="{ root: 'rounded-2xl ring-1 ring-red-900/30', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Force reload</p>
+            <p class="text-xs text-slate-500">Unregister service worker, clear JS/CSS caches, and reload. OPFS data is preserved.</p>
+          </div>
+          <UButton
+            size="sm" variant="ghost" color="neutral"
+            icon="i-heroicons-arrow-path" :loading="forceReloading" class="shrink-0"
+            @click="forceReload"
+          />
+        </div>
 
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
