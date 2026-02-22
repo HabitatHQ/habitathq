@@ -11,6 +11,9 @@ importers:
       '@capacitor-community/sqlite':
         specifier: ^8.0.0
         version: 8.0.0(@capacitor/core@8.1.0)
+      '@capacitor/local-notifications':
+        specifier: ^8.0.1
+        version: 8.0.1(@capacitor/core@8.1.0)
       '@nuxt/ui':
         specifier: ^4.4.0
         version: 4.4.0(@capacitor/preferences@8.0.1(@capacitor/core@8.1.0))(@tiptap/extensions@3.20.0(@tiptap/core@3.20.0(@tiptap/pm@3.20.0))(@tiptap/pm@3.20.0))(@tiptap/y-tiptap@3.0.2(prosemirror-model@1.25.4)(prosemirror-state@1.4.4)(prosemirror-view@1.41.6)(y-protocols@1.0.7(yjs@13.6.29))(yjs@13.6.29))(db0@0.3.4)(embla-carousel@8.6.0)(ioredis@5.9.3)(magicast@0.5.2)(tailwindcss@4.2.0)(typescript@5.9.3)(vite@7.3.1(@types/node@25.3.0)(jiti@2.6.1)(lightningcss@1.31.1)(terser@5.46.0)(yaml@2.8.2))(vue-router@5.0.3(@vue/compiler-sfc@3.5.28)(vue@3.5.28(typescript@5.9.3)))(vue@3.5.28(typescript@5.9.3))(yjs@13.6.29)
@@ -697,6 +700,11 @@ packages:
     resolution: {integrity: sha512-wPaQ8ayL0UY+SxydZbrmfzPs8TryZVEB6hrL/XBnXxQtb6rpEmIy/3GIltPwM+/T4m/IuaSDZOToWK65ruC00g==}
     peerDependencies:
       '@capacitor/core': ^8.1.0
+
+  '@capacitor/local-notifications@8.0.1':
+    resolution: {integrity: sha512-BWYg3wTCFQ9lsbE6tyHmJaE2IbxUuKYq4SeMIHQ9ZqVclrlTO6326sPT0sxM61YfR6K3G3fJGvyJqn89LzDk8A==}
+    peerDependencies:
+      '@capacitor/core': '>=8.0.0'
 
   '@capacitor/preferences@8.0.1':
     resolution: {integrity: sha512-T6no3ebi79XJCk91U3Jp/liJUwgBdvHR+s6vhvPkPxSuch7z3zx5Rv1bdWM6sWruNx+pViuEGqZvbfCdyBvcHQ==}
@@ -6562,6 +6570,10 @@ snapshots:
       '@capacitor/core': 8.1.0
 
   '@capacitor/ios@8.1.0(@capacitor/core@8.1.0)':
+    dependencies:
+      '@capacitor/core': 8.1.0
+
+  '@capacitor/local-notifications@8.0.1(@capacitor/core@8.1.0)':
     dependencies:
       '@capacitor/core': 8.1.0
 
