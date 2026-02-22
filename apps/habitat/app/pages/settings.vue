@@ -662,6 +662,16 @@ async function enableNotifications() {
             </button>
           </div>
         </div>
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">24-hour time</p>
+            <p class="text-xs text-slate-500">Display times in 24-hour format (e.g. 17:34 instead of 5:34 PM).</p>
+          </div>
+          <USwitch
+            :model-value="appSettings.use24HourTime"
+            @update:model-value="setAppSetting('use24HourTime', $event)"
+          />
+        </div>
       </UCard>
     </section>
 

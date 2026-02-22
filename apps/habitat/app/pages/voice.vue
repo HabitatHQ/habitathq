@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { formatTime } from '~/composables/useAppSettings'
+
 interface VoiceNote {
   id: string
   blob: Blob
@@ -144,6 +146,7 @@ function stopRecognitionCapture(): void {
   if (!recognition) return
   const r = recognition
   recognition = null   // cleared first so onend doesn't restart
+  transcriptionPending.value = false
   try { r.stop() } catch { /* ignore */ }
 }
 
@@ -161,7 +164,10 @@ const transcribingNoteId = ref<string | null>(null)
 const deleteAfterTranscribe = ref(false)
 
 function openTranscriptModal(noteId: string | null = null) {
-  transcriptTitle.value = `Voice note ${new Date().toISOString().slice(0, 10)}`
+  const now = new Date()
+  const date = now.toISOString().slice(0, 10)
+  const time = formatTime(now, appSettings.value.use24HourTime)
+  transcriptTitle.value = `Voice note — ${date}, ${time}`
   transcriptText.value = finalTranscript.value
   transcribingNoteId.value = noteId
   deleteAfterTranscribe.value = false
@@ -202,10 +208,12 @@ const recording = ref(false)
 const recordingSeconds = ref(0)
 const errorMsg = ref<string | null>(null)
 const currentlyPlaying = ref<string | null>(null)
+const transcriptionPending = ref(false)
 
 let mediaRecorder: MediaRecorder | null = null
 let chunks: Blob[] = []
 let recordingTimer: ReturnType<typeof setInterval> | null = null
+let pendingNoteId: string | null = null
 const audioMap = new Map<string, HTMLAudioElement>()
 
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
@@ -250,10 +258,10 @@ function fmtDate(iso: string): string {
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate()
 
-  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  const time = formatTime(d, appSettings.value.use24HourTime)
   if (sameDay(d, today)) return `Today, ${time}`
   if (sameDay(d, yesterday)) return `Yesterday, ${time}`
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + `, ${time}`
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(d) + `, ${time}`
 }
 
 // ─── Recording ────────────────────────────────────────────────────────────────
@@ -285,24 +293,45 @@ async function startRecording() {
     await idbPut(note)
     notes.value.unshift({ ...note, url: URL.createObjectURL(blob) })
     recordingSeconds.value = 0
+    pendingNoteId = note.id
 
-    // Show transcript modal if we captured speech and setting allows it
-    if (appSettings.value.saveTranscribedNotes && finalTranscript.value.trim()) {
-      openTranscriptModal(note.id)
+    if (speechSupported && recognition) {
+      // Recognition still finishing — show pending state; onDone will open the modal
+      transcriptionPending.value = true
     } else {
-      finalTranscript.value = ''
+      if (appSettings.value.saveTranscribedNotes && finalTranscript.value.trim()) {
+        openTranscriptModal(note.id)
+      } else {
+        finalTranscript.value = ''
+      }
+      pendingNoteId = null
     }
   }
   mediaRecorder.start(100)
   recording.value = true
   recordingTimer = setInterval(() => { recordingSeconds.value++ }, 1000)
 
-  // Start speech recognition alongside recording
-  if (speechSupported) startRecognition()
+  // Start speech recognition alongside recording; onDone fires after recognition
+  // finishes processing (which may be after the MediaRecorder has already stopped).
+  if (speechSupported) {
+    startRecognition(() => {
+      transcriptionPending.value = false
+      if (appSettings.value.saveTranscribedNotes && finalTranscript.value.trim()) {
+        openTranscriptModal(pendingNoteId)
+      } else {
+        finalTranscript.value = ''
+      }
+      pendingNoteId = null
+    })
+  }
 }
 
 function stopRecording() {
-  stopRecognitionCapture()
+  // Signal recognition to stop but keep the reference so its onend fires onDone.
+  // stopRecognitionCapture() would null it immediately and lose the callback.
+  if (recognition) {
+    try { recognition.stop() } catch { /* ignore */ }
+  }
   if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop()
   recording.value = false
   if (recordingTimer) { clearInterval(recordingTimer); recordingTimer = null }
@@ -433,6 +462,9 @@ async function deleteNote(note: VoiceNote) {
 
       <p v-if="recording" class="text-red-400 text-sm font-mono tabular-nums animate-pulse">
         ● {{ fmtDuration(recordingSeconds) }}
+      </p>
+      <p v-else-if="transcriptionPending" class="text-xs text-primary-400 animate-pulse">
+        Finishing transcription…
       </p>
       <p v-else class="text-xs text-slate-500">Tap to record</p>
 

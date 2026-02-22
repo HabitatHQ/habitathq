@@ -12,6 +12,7 @@ export interface AppSettings {
   navExtraPadding: boolean
   logInputMode: 'absolute' | 'increment'
   saveTranscribedNotes: boolean
+  use24HourTime: boolean
 }
 
 const KEY = 'habitat-app-settings'
@@ -29,6 +30,19 @@ const DEFAULTS: AppSettings = {
   navExtraPadding: false,
   logInputMode: 'absolute',
   saveTranscribedNotes: true,
+  use24HourTime: false,
+}
+
+/**
+ * Format a Date's time portion respecting the user's 12/24-hour preference.
+ * Uses Intl.DateTimeFormat with the runtime locale.
+ */
+export function formatTime(date: Date, use24h: boolean): string {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: use24h ? '2-digit' : 'numeric',
+    minute: '2-digit',
+    hour12: !use24h,
+  }).format(date)
 }
 
 function readFromStorage(): AppSettings {
