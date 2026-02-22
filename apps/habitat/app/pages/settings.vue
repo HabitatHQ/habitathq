@@ -905,6 +905,23 @@ async function enableNotifications() {
       </UCard>
     </section>
 
+    <!-- ── Voice ─────────────────────────────────────────────────────────────── -->
+    <section v-if="appSettings.enableJournalling" class="space-y-2">
+      <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">Voice</p>
+      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Save transcriptions</p>
+            <p class="text-xs text-slate-500">After recording, offer to save the speech-to-text transcript as a Scribble tagged <code class="text-slate-400">habitat-transcribed</code>.</p>
+          </div>
+          <USwitch
+            :model-value="appSettings.saveTranscribedNotes"
+            @update:model-value="setAppSetting('saveTranscribedNotes', $event)"
+          />
+        </div>
+      </UCard>
+    </section>
+
     <!-- ── About ─────────────────────────────────────────────────────────────── -->
     <section class="space-y-2">
       <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">About</p>

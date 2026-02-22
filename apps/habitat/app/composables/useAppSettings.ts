@@ -11,6 +11,7 @@ export interface AppSettings {
   stickyNav: boolean
   navExtraPadding: boolean
   logInputMode: 'absolute' | 'increment'
+  saveTranscribedNotes: boolean
 }
 
 const KEY = 'habitat-app-settings'
@@ -27,6 +28,7 @@ const DEFAULTS: AppSettings = {
   stickyNav: false,
   navExtraPadding: false,
   logInputMode: 'absolute',
+  saveTranscribedNotes: true,
 }
 
 function readFromStorage(): AppSettings {
