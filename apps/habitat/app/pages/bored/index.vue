@@ -31,7 +31,7 @@ function toggleCategory(id: string) {
 async function roll() {
   if (shaking.value) return
   shaking.value = true
-  await new Promise(r => setTimeout(r, 400))
+  await new Promise(r => setTimeout(r, 650))
   currentResult.value = await db.getBoredOracle([...excludedCategories.value], maxMinutes.value)
   shaking.value = false
 }
@@ -125,32 +125,38 @@ const resultTags = computed(() => {
     </div>
 
     <!-- 8-ball oracle -->
-    <div class="flex flex-col items-center gap-6 py-4">
+    <div class="flex flex-col items-center gap-5 py-4">
       <button
-        class="w-48 h-48 rounded-full relative cursor-pointer select-none outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
-        :class="shaking ? 'animate-shake' : ''"
-        style="background: radial-gradient(circle at 35% 35%, #334155, #020617)"
+        class="ball select-none outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-4 focus-visible:ring-offset-slate-950"
+        :class="{ 'ball-shake': shaking }"
         aria-label="Roll the oracle"
         @click="roll"
       >
-        <!-- Gloss overlay -->
-        <div class="absolute inset-0 rounded-full" style="background: radial-gradient(circle at 35% 30%, rgba(255,255,255,0.12) 0%, transparent 65%)" />
-        <!-- Inner circle -->
-        <div class="absolute inset-8 rounded-full flex flex-col items-center justify-center gap-1"
-             style="background: radial-gradient(circle at 40% 40%, #1e1b4b, #030712)">
-          <template v-if="currentResult && !shaking">
+        <!-- Secondary soft highlight -->
+        <div class="ball-glow" />
+        <!-- Primary specular hot spot -->
+        <div class="ball-specular" />
+        <!-- Rim light (bottom-right) -->
+        <div class="ball-rim" />
+
+        <!-- Window: metallic ring + deep liquid interior -->
+        <div class="ball-window">
+          <div v-if="currentResult && !shaking" class="result-content">
             <UIcon
               v-if="resultCategory"
               :name="resultCategory.icon"
-              class="w-7 h-7"
+              class="w-8 h-8 shrink-0"
               :style="{ color: resultCategory.color }"
             />
-            <span v-if="resultCategory" class="text-xs font-medium text-center leading-tight px-2"
-                  :style="{ color: resultCategory.color }">
+            <span
+              v-if="resultCategory"
+              class="text-[10px] font-semibold tracking-wide text-center leading-tight px-1.5"
+              :style="{ color: resultCategory.color }"
+            >
               {{ resultCategory.name }}
             </span>
-          </template>
-          <span v-else class="text-4xl font-bold text-slate-400 select-none">?</span>
+          </div>
+          <span v-else class="idle-question">?</span>
         </div>
       </button>
 
@@ -256,18 +262,181 @@ const resultTags = computed(() => {
 </template>
 
 <style scoped>
-@keyframes shake {
-  0%   { transform: rotate(0deg) scale(1); }
-  15%  { transform: rotate(-8deg) scale(1.05); }
-  30%  { transform: rotate(8deg) scale(1.05); }
-  45%  { transform: rotate(-6deg) scale(1.03); }
-  60%  { transform: rotate(6deg) scale(1.03); }
-  75%  { transform: rotate(-3deg) scale(1.01); }
-  90%  { transform: rotate(3deg) scale(1.01); }
-  100% { transform: rotate(0deg) scale(1); }
+/* ── Sphere body ───────────────────────────────────────── */
+.ball {
+  position: relative;
+  width: 13rem;
+  height: 13rem;
+  border-radius: 50%;
+  cursor: pointer;
+  overflow: hidden;
+
+  /* Multi-stop sphere gradient: dark core, subtle depth */
+  background:
+    radial-gradient(circle at 30% 27%, rgba(255,255,255,0.10) 0%, transparent 30%),
+    radial-gradient(circle at 66% 70%, rgba(99,102,241,0.15) 0%, transparent 42%),
+    radial-gradient(ellipse at 48% 52%, #111827 0%, #050d1f 55%, #000 100%);
+
+  /* Layered shadows: deep ground shadow + inner rim glow */
+  box-shadow:
+    0 30px 70px rgba(0,0,0,0.9),
+    0 10px 22px rgba(0,0,0,0.65),
+    inset 0 -4px 10px rgba(79,70,229,0.13),
+    inset 0 2px 4px rgba(255,255,255,0.06),
+    0 0 0 1px rgba(255,255,255,0.04);
+
+  transition: box-shadow 0.2s ease, transform 0.15s ease;
 }
 
-.animate-shake {
-  animation: shake 0.5s ease-in-out;
+.ball:active:not(.ball-shake) {
+  transform: scale(0.965);
+  box-shadow:
+    0 14px 35px rgba(0,0,0,0.9),
+    0 5px 12px rgba(0,0,0,0.65),
+    inset 0 -3px 8px rgba(79,70,229,0.1),
+    inset 0 2px 3px rgba(255,255,255,0.05);
+}
+
+/* ── Lighting layers (absolutely positioned within ball) ─ */
+
+/* Secondary: large, soft fill highlight */
+.ball-glow {
+  position: absolute;
+  top: 3%;
+  left: 5%;
+  width: 56%;
+  height: 48%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 38% 32%,
+    rgba(255,255,255,0.07) 0%,
+    transparent 68%
+  );
+  pointer-events: none;
+}
+
+/* Primary: tight specular hot spot */
+.ball-specular {
+  position: absolute;
+  top: 7%;
+  left: 11%;
+  width: 34%;
+  height: 28%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 38% 32%,
+    rgba(255,255,255,0.65) 0%,
+    rgba(255,255,255,0.24) 28%,
+    rgba(255,255,255,0.05) 55%,
+    transparent 78%
+  );
+  filter: blur(2.5px);
+  pointer-events: none;
+}
+
+/* Rim: indigo-violet glow, bottom-right edge */
+.ball-rim {
+  position: absolute;
+  bottom: -12%;
+  right: -12%;
+  width: 60%;
+  height: 60%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 40%,
+    rgba(99,102,241,0.26) 0%,
+    rgba(139,92,246,0.09) 48%,
+    transparent 70%
+  );
+  pointer-events: none;
+  animation: rim-breathe 4s ease-in-out infinite;
+}
+
+/* ── Window: metallic ring + liquid interior ───────────── */
+.ball-window {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 44%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+
+  /*
+   * Gradient-border technique:
+   * - padding-box = the deep blue "liquid" interior
+   * - border-box  = the metallic ring (the border itself)
+   */
+  border: 4px solid transparent;
+  background:
+    radial-gradient(circle at 36% 30%, #1d2478, #0a0d30 52%, #040510 100%) padding-box,
+    linear-gradient(145deg, #64748b 0%, #334155 28%, #1e293b 50%, #2d3748 72%, #64748b 100%) border-box;
+
+  box-shadow:
+    0 4px 18px rgba(0,0,0,0.88),
+    inset 0 2px 10px rgba(0,0,0,0.92);
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* ── Content ───────────────────────────────────────────── */
+.idle-question {
+  font-size: 2rem;
+  font-weight: 800;
+  color: rgba(148,163,184,0.55);
+  user-select: none;
+  line-height: 1;
+  animation: float-idle 3s ease-in-out infinite;
+}
+
+.result-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  animation: reveal 0.4s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+}
+
+/* ── Animations ────────────────────────────────────────── */
+
+/* Physical shake: translate + rotate + scale sinusoid */
+@keyframes shake {
+  0%   { transform: translate(0,    0)    rotate(0deg)  scale(1);     }
+  8%   { transform: translate(-8px,-5px)  rotate(-7deg) scale(1.05);  }
+  17%  { transform: translate(10px, 4px)  rotate(8deg)  scale(1.07);  }
+  25%  { transform: translate(-9px, 7px)  rotate(-6deg) scale(1.06);  }
+  33%  { transform: translate(8px, -8px)  rotate(7deg)  scale(1.07);  }
+  42%  { transform: translate(-7px, 5px)  rotate(-5deg) scale(1.05);  }
+  50%  { transform: translate(6px, -4px)  rotate(5deg)  scale(1.04);  }
+  58%  { transform: translate(-5px, 3px)  rotate(-3deg) scale(1.03);  }
+  67%  { transform: translate(4px, -3px)  rotate(3deg)  scale(1.02);  }
+  75%  { transform: translate(-3px, 2px)  rotate(-2deg) scale(1.01);  }
+  83%  { transform: translate(2px, -2px)  rotate(1deg)  scale(1.005); }
+  92%  { transform: translate(-1px, 1px)  rotate(-1deg) scale(1);     }
+  100% { transform: translate(0,    0)    rotate(0deg)  scale(1);     }
+}
+
+/* Idle "?" floats gently */
+@keyframes float-idle {
+  0%, 100% { transform: translateY(0);    opacity: 0.55; }
+  50%       { transform: translateY(-3px); opacity: 0.85; }
+}
+
+/* Result materialises with spring overshoot + blur clear */
+@keyframes reveal {
+  from { opacity: 0; transform: scale(0.6) translateY(6px); filter: blur(3px); }
+  to   { opacity: 1; transform: scale(1)   translateY(0);   filter: blur(0);   }
+}
+
+/* Rim light breathes slowly */
+@keyframes rim-breathe {
+  0%, 100% { opacity: 0.7; }
+  50%       { opacity: 1;   }
+}
+
+.ball-shake {
+  animation: shake 0.65s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
 }
 </style>
