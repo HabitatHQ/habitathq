@@ -1,5 +1,5 @@
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm'
-import type { WorkerRequest, WorkerResponse, Habit, Completion, HabitSchedule, HabitLog, HabitWithSchedule, CheckinEntry, CheckinTemplate, CheckinQuestion, CheckinResponse, Scribble, Reminder, CheckinReminder, HabitatExport, ExportSelection, CheckinDaySummary } from '~/types/database'
+import type { WorkerRequest, WorkerResponse, Habit, Completion, HabitSchedule, HabitLog, HabitWithSchedule, CheckinEntry, CheckinTemplate, CheckinQuestion, CheckinResponse, Scribble, Reminder, CheckinReminder, HabitatExport, ExportSelection, CheckinDaySummary, BoredCategory, BoredActivity, Todo, BoredOracleResult } from '~/types/database'
 
 // Wrapped in an async IIFE so we can return early (e.g. lock unavailable)
 // without leaking unguarded top-level awaits.
@@ -189,6 +189,61 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_checkin_reminders_template ON checkin_reminders(template_id);
+
+  CREATE TABLE IF NOT EXISTS bored_categories (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    icon       TEXT NOT NULL DEFAULT 'i-heroicons-sparkles',
+    color      TEXT NOT NULL DEFAULT '#6366f1',
+    is_system  INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS bored_activities (
+    id                TEXT PRIMARY KEY,
+    title             TEXT NOT NULL,
+    description       TEXT NOT NULL DEFAULT '',
+    category_id       TEXT NOT NULL REFERENCES bored_categories(id) ON DELETE CASCADE,
+    estimated_minutes INTEGER,
+    tags              TEXT NOT NULL DEFAULT '[]',
+    annotations       TEXT NOT NULL DEFAULT '{}',
+    is_recurring      INTEGER NOT NULL DEFAULT 0,
+    recurrence_rule   TEXT,
+    is_done           INTEGER NOT NULL DEFAULT 0,
+    done_at           TEXT,
+    done_count        INTEGER NOT NULL DEFAULT 0,
+    last_done_at      TEXT,
+    archived_at       TEXT,
+    created_at        TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_bored_activities_category ON bored_activities(category_id);
+
+  CREATE TABLE IF NOT EXISTS todos (
+    id                TEXT PRIMARY KEY,
+    title             TEXT NOT NULL,
+    description       TEXT NOT NULL DEFAULT '',
+    due_date          TEXT,
+    priority          TEXT NOT NULL DEFAULT 'medium',
+    estimated_minutes INTEGER,
+    is_done           INTEGER NOT NULL DEFAULT 0,
+    done_at           TEXT,
+    done_count        INTEGER NOT NULL DEFAULT 0,
+    last_done_at      TEXT,
+    tags              TEXT NOT NULL DEFAULT '[]',
+    annotations       TEXT NOT NULL DEFAULT '{}',
+    is_recurring      INTEGER NOT NULL DEFAULT 0,
+    recurrence_rule   TEXT,
+    show_in_bored     INTEGER NOT NULL DEFAULT 0,
+    bored_category_id TEXT REFERENCES bored_categories(id) ON DELETE SET NULL,
+    archived_at       TEXT,
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_todos_due_date ON todos(due_date);
+  CREATE INDEX IF NOT EXISTS idx_todos_is_done  ON todos(is_done);
 `)
 
 // ─── Migrations ───────────────────────────────────────────────────────────────
@@ -210,7 +265,42 @@ function runMigrations(): void {
   // Schema squashed at v10 (includes all tables via CREATE TABLE IF NOT EXISTS above).
   // Add future migrations here at key 11+.
   const migrations: Record<number, string[]> = {
-    // placeholder — next migration goes here at key 11
+    11: [
+      `CREATE TABLE IF NOT EXISTS bored_categories (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL,
+        icon TEXT NOT NULL DEFAULT 'i-heroicons-sparkles',
+        color TEXT NOT NULL DEFAULT '#6366f1',
+        is_system INTEGER NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS bored_activities (
+        id TEXT PRIMARY KEY, title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        category_id TEXT NOT NULL REFERENCES bored_categories(id) ON DELETE CASCADE,
+        estimated_minutes INTEGER, tags TEXT NOT NULL DEFAULT '[]',
+        annotations TEXT NOT NULL DEFAULT '{}',
+        is_recurring INTEGER NOT NULL DEFAULT 0, recurrence_rule TEXT,
+        is_done INTEGER NOT NULL DEFAULT 0, done_at TEXT,
+        done_count INTEGER NOT NULL DEFAULT 0, last_done_at TEXT,
+        archived_at TEXT, created_at TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_bored_activities_category ON bored_activities(category_id)`,
+      `CREATE TABLE IF NOT EXISTS todos (
+        id TEXT PRIMARY KEY, title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '', due_date TEXT,
+        priority TEXT NOT NULL DEFAULT 'medium', estimated_minutes INTEGER,
+        is_done INTEGER NOT NULL DEFAULT 0, done_at TEXT,
+        done_count INTEGER NOT NULL DEFAULT 0, last_done_at TEXT,
+        tags TEXT NOT NULL DEFAULT '[]', annotations TEXT NOT NULL DEFAULT '{}',
+        is_recurring INTEGER NOT NULL DEFAULT 0, recurrence_rule TEXT,
+        show_in_bored INTEGER NOT NULL DEFAULT 0,
+        bored_category_id TEXT REFERENCES bored_categories(id) ON DELETE SET NULL,
+        archived_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_todos_due_date ON todos(due_date)`,
+      `CREATE INDEX IF NOT EXISTS idx_todos_is_done ON todos(is_done)`,
+    ],
   }
 
   for (let v = userVersion + 1; v in migrations; v++) {
@@ -222,7 +312,7 @@ function runMigrations(): void {
   }
 
   // Ensure fresh installs (user_version = 0) are stamped at the current baseline.
-  if (userVersion === 0) db.exec('PRAGMA user_version = 10')
+  if (userVersion === 0) db.exec('PRAGMA user_version = 11')
 }
 
 runMigrations()
@@ -274,6 +364,97 @@ function seedDefaults(): void {
           { template_id: t.id, prompt: 'What will you focus on next week?',            response_type: 'TEXT',  display_order: 3 },
         ]
         for (const q of qs) createCheckinQuestion(q)
+      },
+    },
+    {
+      key: 'bored:cat:reading',
+      apply: () => {
+        const id = 'bored-cat-reading'
+        const now2 = new Date().toISOString()
+        exec('INSERT OR IGNORE INTO bored_categories (id,name,icon,color,is_system,sort_order,created_at) VALUES (?,?,?,?,?,?,?)',
+          [id, 'Things to Read', 'i-heroicons-book-open', '#3b82f6', 1, 0, now2])
+        const acts = [
+          ['Read 10 pages of current book', 'Pick up wherever you left off.', 20],
+          ['Catch up on saved articles', 'Clear your reading list a bit.', 15],
+          ['Wikipedia rabbit hole', 'Start on any topic and follow curiosity.', 30],
+        ]
+        for (const [title, description, mins] of acts) {
+          exec('INSERT OR IGNORE INTO bored_activities (id,title,description,category_id,estimated_minutes,tags,annotations,is_recurring,is_done,done_count,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+            [crypto.randomUUID(), title, description, id, mins, '[]', '{}', 0, 0, 0, new Date().toISOString()])
+        }
+      },
+    },
+    {
+      key: 'bored:cat:chores',
+      apply: () => {
+        const id = 'bored-cat-chores'
+        const now2 = new Date().toISOString()
+        exec('INSERT OR IGNORE INTO bored_categories (id,name,icon,color,is_system,sort_order,created_at) VALUES (?,?,?,?,?,?,?)',
+          [id, 'Chores', 'i-heroicons-home', '#f59e0b', 1, 1, now2])
+        const acts = [
+          ['Clean one small area', 'A drawer, a shelf, a corner — pick one.', 15],
+          ['Do laundry', 'Throw in a load or fold what\'s waiting.', 45],
+          ['Organize one drawer', 'Just one. It always feels satisfying.', 20],
+        ]
+        for (const [title, description, mins] of acts) {
+          exec('INSERT OR IGNORE INTO bored_activities (id,title,description,category_id,estimated_minutes,tags,annotations,is_recurring,is_done,done_count,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+            [crypto.randomUUID(), title, description, id, mins, '[]', '{}', 0, 0, 0, new Date().toISOString()])
+        }
+      },
+    },
+    {
+      key: 'bored:cat:contacts',
+      apply: () => {
+        const id = 'bored-cat-contacts'
+        const now2 = new Date().toISOString()
+        exec('INSERT OR IGNORE INTO bored_categories (id,name,icon,color,is_system,sort_order,created_at) VALUES (?,?,?,?,?,?,?)',
+          [id, 'People to Contact', 'i-heroicons-chat-bubble-left', '#10b981', 1, 2, now2])
+        const acts = [
+          ['Text a friend you haven\'t spoken to lately', 'A simple "hey, how are you?" goes a long way.', 5],
+          ['Send an appreciation message', 'Tell someone you appreciate them.', 5],
+          ['Catch up with family', 'Call or message a family member.', 15],
+        ]
+        for (const [title, description, mins] of acts) {
+          exec('INSERT OR IGNORE INTO bored_activities (id,title,description,category_id,estimated_minutes,tags,annotations,is_recurring,is_done,done_count,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+            [crypto.randomUUID(), title, description, id, mins, '[]', '{}', 0, 0, 0, new Date().toISOString()])
+        }
+      },
+    },
+    {
+      key: 'bored:cat:learning',
+      apply: () => {
+        const id = 'bored-cat-learning'
+        const now2 = new Date().toISOString()
+        exec('INSERT OR IGNORE INTO bored_categories (id,name,icon,color,is_system,sort_order,created_at) VALUES (?,?,?,?,?,?,?)',
+          [id, 'Things to Learn', 'i-heroicons-academic-cap', '#8b5cf6', 1, 3, now2])
+        const acts = [
+          ['Watch a YouTube tutorial', 'Pick a skill you\'ve been curious about.', 20],
+          ['Practice a skill for 15 min', 'Music, language, coding — whatever you\'re building.', 15],
+          ['Read documentation or a how-to', 'Level up something you already use.', 20],
+        ]
+        for (const [title, description, mins] of acts) {
+          exec('INSERT OR IGNORE INTO bored_activities (id,title,description,category_id,estimated_minutes,tags,annotations,is_recurring,is_done,done_count,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+            [crypto.randomUUID(), title, description, id, mins, '[]', '{}', 0, 0, 0, new Date().toISOString()])
+        }
+      },
+    },
+    {
+      key: 'bored:cat:idle',
+      apply: () => {
+        const id = 'bored-cat-idle'
+        const now2 = new Date().toISOString()
+        exec('INSERT OR IGNORE INTO bored_categories (id,name,icon,color,is_system,sort_order,created_at) VALUES (?,?,?,?,?,?,?)',
+          [id, 'Idle Quests', 'i-heroicons-sparkles', '#f97316', 1, 4, now2])
+        const acts = [
+          ['Take a 10-min walk', 'No destination needed. Just move.', 10],
+          ['Stretch or light yoga', 'Even 5 minutes resets the body.', 10],
+          ['Doodle without overthinking', 'Pen and paper, no expectations.', 15],
+          ['Listen to a new album', 'Pick something outside your usual taste.', 30],
+        ]
+        for (const [title, description, mins] of acts) {
+          exec('INSERT OR IGNORE INTO bored_activities (id,title,description,category_id,estimated_minutes,tags,annotations,is_recurring,is_done,done_count,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+            [crypto.randomUUID(), title, description, id, mins, '[]', '{}', 0, 0, 0, new Date().toISOString()])
+        }
       },
     },
   ]
@@ -343,6 +524,15 @@ function exportJsonData(sel: ExportSelection): HabitatExport {
   const checkin_entries = sel.checkin_entries
     ? queryRaw('SELECT * FROM checkin_entries ORDER BY entry_date ASC').map(parseCheckinEntry)
     : []
+  const bored_categories = sel.bored_categories
+    ? queryRaw('SELECT * FROM bored_categories ORDER BY sort_order ASC').map(parseBoredCategory)
+    : []
+  const bored_activities = sel.bored_activities
+    ? queryRaw('SELECT * FROM bored_activities ORDER BY created_at ASC').map(parseBoredActivity)
+    : []
+  const todos = sel.todos
+    ? queryRaw('SELECT * FROM todos ORDER BY created_at ASC').map(parseTodo)
+    : []
   return {
     version: 1,
     exported_at: new Date().toISOString(),
@@ -357,6 +547,9 @@ function exportJsonData(sel: ExportSelection): HabitatExport {
     checkin_reminders,
     scribbles,
     checkin_entries,
+    bored_categories,
+    bored_activities,
+    todos,
   }
 }
 
@@ -450,6 +643,42 @@ function importJsonV1Other(data: HabitatExport): void {
       `INSERT OR IGNORE INTO checkin_entries (id, entry_date, content, created_at, updated_at)
        VALUES (?,?,?,?,?)`,
       [e.id, e.entry_date, e.content ?? '', e.created_at, e.updated_at],
+    )
+  }
+  for (const c of (data.bored_categories ?? [])) {
+    exec(
+      `INSERT OR IGNORE INTO bored_categories (id,name,icon,color,is_system,sort_order,created_at)
+       VALUES (?,?,?,?,?,?,?)`,
+      [c.id, c.name, c.icon, c.color, c.is_system ? 1 : 0, c.sort_order, c.created_at],
+    )
+  }
+  for (const a of (data.bored_activities ?? [])) {
+    exec(
+      `INSERT OR IGNORE INTO bored_activities
+         (id,title,description,category_id,estimated_minutes,tags,annotations,
+          is_recurring,recurrence_rule,is_done,done_at,done_count,last_done_at,archived_at,created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [a.id, a.title, a.description, a.category_id, a.estimated_minutes ?? null,
+       JSON.stringify(a.tags ?? []), JSON.stringify(a.annotations ?? {}),
+       a.is_recurring ? 1 : 0, a.recurrence_rule ?? null,
+       a.is_done ? 1 : 0, a.done_at ?? null, a.done_count ?? 0, a.last_done_at ?? null,
+       a.archived_at ?? null, a.created_at],
+    )
+  }
+  for (const t of (data.todos ?? [])) {
+    exec(
+      `INSERT OR IGNORE INTO todos
+         (id,title,description,due_date,priority,estimated_minutes,is_done,done_at,
+          done_count,last_done_at,tags,annotations,is_recurring,recurrence_rule,
+          show_in_bored,bored_category_id,archived_at,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [t.id, t.title, t.description, t.due_date ?? null, t.priority ?? 'medium',
+       t.estimated_minutes ?? null, t.is_done ? 1 : 0, t.done_at ?? null,
+       t.done_count ?? 0, t.last_done_at ?? null,
+       JSON.stringify(t.tags ?? []), JSON.stringify(t.annotations ?? {}),
+       t.is_recurring ? 1 : 0, t.recurrence_rule ?? null,
+       t.show_in_bored ? 1 : 0, t.bored_category_id ?? null,
+       t.archived_at ?? null, t.created_at, t.updated_at],
     )
   }
 }
@@ -1263,6 +1492,294 @@ function getCheckinResponseDates(): Array<{ date: string; count: number }> {
   ).map(r => ({ date: r['date'] as string, count: r['count'] as number }))
 }
 
+// ─── Bored + Todo deserializers ───────────────────────────────────────────────
+
+function parseBoredCategory(row: Record<string, unknown>): BoredCategory {
+  return {
+    id: row['id'] as string,
+    name: row['name'] as string,
+    icon: row['icon'] as string,
+    color: row['color'] as string,
+    is_system: Boolean(row['is_system']),
+    sort_order: (row['sort_order'] as number) ?? 0,
+    created_at: row['created_at'] as string,
+  }
+}
+
+function parseBoredActivity(row: Record<string, unknown>): BoredActivity {
+  return {
+    id: row['id'] as string,
+    title: row['title'] as string,
+    description: (row['description'] as string) ?? '',
+    category_id: row['category_id'] as string,
+    estimated_minutes: row['estimated_minutes'] != null ? (row['estimated_minutes'] as number) : null,
+    tags: safeJsonParse(row['tags'] as string | null, []),
+    annotations: safeJsonParse(row['annotations'] as string | null, {}),
+    is_recurring: Boolean(row['is_recurring']),
+    recurrence_rule: (row['recurrence_rule'] as 'daily' | 'weekly' | 'monthly' | null) ?? null,
+    is_done: Boolean(row['is_done']),
+    done_at: (row['done_at'] as string | null) ?? null,
+    done_count: (row['done_count'] as number) ?? 0,
+    last_done_at: (row['last_done_at'] as string | null) ?? null,
+    archived_at: (row['archived_at'] as string | null) ?? null,
+    created_at: row['created_at'] as string,
+  }
+}
+
+function parseTodo(row: Record<string, unknown>): Todo {
+  return {
+    id: row['id'] as string,
+    title: row['title'] as string,
+    description: (row['description'] as string) ?? '',
+    due_date: (row['due_date'] as string | null) ?? null,
+    priority: ((row['priority'] as string) ?? 'medium') as 'high' | 'medium' | 'low',
+    estimated_minutes: row['estimated_minutes'] != null ? (row['estimated_minutes'] as number) : null,
+    is_done: Boolean(row['is_done']),
+    done_at: (row['done_at'] as string | null) ?? null,
+    done_count: (row['done_count'] as number) ?? 0,
+    last_done_at: (row['last_done_at'] as string | null) ?? null,
+    tags: safeJsonParse(row['tags'] as string | null, []),
+    annotations: safeJsonParse(row['annotations'] as string | null, {}),
+    is_recurring: Boolean(row['is_recurring']),
+    recurrence_rule: (row['recurrence_rule'] as 'daily' | 'weekly' | 'monthly' | null) ?? null,
+    show_in_bored: Boolean(row['show_in_bored']),
+    bored_category_id: (row['bored_category_id'] as string | null) ?? null,
+    archived_at: (row['archived_at'] as string | null) ?? null,
+    created_at: row['created_at'] as string,
+    updated_at: row['updated_at'] as string,
+  }
+}
+
+// ─── Bored category handlers ──────────────────────────────────────────────────
+
+function getBoredCategories(): BoredCategory[] {
+  return queryRaw('SELECT * FROM bored_categories ORDER BY is_system DESC, sort_order ASC, created_at ASC')
+    .map(parseBoredCategory)
+}
+
+function createBoredCategory(payload: Omit<BoredCategory, 'id' | 'created_at'>): BoredCategory {
+  const id = crypto.randomUUID()
+  const created_at = new Date().toISOString()
+  exec('INSERT INTO bored_categories (id,name,icon,color,is_system,sort_order,created_at) VALUES (?,?,?,?,?,?,?)',
+    [id, payload.name, payload.icon, payload.color, payload.is_system ? 1 : 0, payload.sort_order, created_at])
+  return parseBoredCategory(queryRaw('SELECT * FROM bored_categories WHERE id = ?', [id])[0]!)
+}
+
+function updateBoredCategory(payload: Partial<BoredCategory> & { id: string }): BoredCategory {
+  const { id, ...fields } = payload
+  const updates: [string, unknown][] = []
+  for (const k of ['name', 'icon', 'color', 'sort_order'] as const) {
+    if (k in fields) updates.push([k, fields[k]])
+  }
+  if (updates.length > 0) {
+    const set = updates.map(([k]) => `${k} = ?`).join(', ')
+    exec(`UPDATE bored_categories SET ${set} WHERE id = ?`, [...updates.map(([, v]) => v), id])
+  }
+  return parseBoredCategory(queryRaw('SELECT * FROM bored_categories WHERE id = ?', [id])[0]!)
+}
+
+function deleteBoredCategory(id: string): null {
+  exec('DELETE FROM bored_categories WHERE id = ? AND is_system = 0', [id])
+  return null
+}
+
+// ─── Bored activity handlers ──────────────────────────────────────────────────
+
+function getBoredActivities(): BoredActivity[] {
+  return queryRaw('SELECT * FROM bored_activities WHERE archived_at IS NULL ORDER BY created_at ASC')
+    .map(parseBoredActivity)
+}
+
+function getBoredActivitiesForCategory(category_id: string): BoredActivity[] {
+  return queryRaw('SELECT * FROM bored_activities WHERE category_id = ? AND archived_at IS NULL ORDER BY created_at ASC', [category_id])
+    .map(parseBoredActivity)
+}
+
+function createBoredActivity(payload: Omit<BoredActivity, 'id' | 'created_at' | 'is_done' | 'done_at' | 'done_count' | 'last_done_at' | 'archived_at'>): BoredActivity {
+  const id = crypto.randomUUID()
+  const created_at = new Date().toISOString()
+  exec(
+    `INSERT INTO bored_activities
+       (id,title,description,category_id,estimated_minutes,tags,annotations,is_recurring,recurrence_rule,is_done,done_count,created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,0,0,?)`,
+    [id, payload.title, payload.description, payload.category_id,
+     payload.estimated_minutes ?? null,
+     JSON.stringify(payload.tags ?? []), JSON.stringify(payload.annotations ?? {}),
+     payload.is_recurring ? 1 : 0, payload.recurrence_rule ?? null, created_at],
+  )
+  return parseBoredActivity(queryRaw('SELECT * FROM bored_activities WHERE id = ?', [id])[0]!)
+}
+
+function updateBoredActivity(payload: Partial<BoredActivity> & { id: string }): BoredActivity {
+  const { id, ...fields } = payload
+  const updates: [string, unknown][] = []
+  for (const k of ['title', 'description', 'category_id', 'estimated_minutes', 'is_recurring', 'recurrence_rule'] as const) {
+    if (k in fields) {
+      if (k === 'is_recurring') updates.push([k, fields[k] ? 1 : 0])
+      else updates.push([k, (fields[k] as unknown) ?? null])
+    }
+  }
+  if ('tags' in fields) updates.push(['tags', JSON.stringify(fields.tags ?? [])])
+  if ('annotations' in fields) updates.push(['annotations', JSON.stringify(fields.annotations ?? {})])
+  if (updates.length > 0) {
+    const set = updates.map(([k]) => `${k} = ?`).join(', ')
+    exec(`UPDATE bored_activities SET ${set} WHERE id = ?`, [...updates.map(([, v]) => v), id])
+  }
+  return parseBoredActivity(queryRaw('SELECT * FROM bored_activities WHERE id = ?', [id])[0]!)
+}
+
+function deleteBoredActivity(id: string): null {
+  exec('DELETE FROM bored_activities WHERE id = ?', [id])
+  return null
+}
+
+function archiveBoredActivity(id: string): null {
+  exec('UPDATE bored_activities SET archived_at = ? WHERE id = ?', [new Date().toISOString(), id])
+  return null
+}
+
+function markBoredActivityDone(id: string): BoredActivity {
+  const rows = queryRaw('SELECT * FROM bored_activities WHERE id = ?', [id])
+  if (rows.length === 0) throw new Error(`BoredActivity not found: ${id}`)
+  const activity = parseBoredActivity(rows[0]!)
+  const now = new Date().toISOString()
+  if (activity.is_recurring) {
+    exec('UPDATE bored_activities SET done_count = done_count + 1, last_done_at = ? WHERE id = ?', [now, id])
+  } else {
+    exec('UPDATE bored_activities SET is_done = 1, done_at = ?, done_count = done_count + 1, last_done_at = ? WHERE id = ?', [now, now, id])
+  }
+  return parseBoredActivity(queryRaw('SELECT * FROM bored_activities WHERE id = ?', [id])[0]!)
+}
+
+function calculateNextDue(fromDate: string, rule: string): string {
+  const d = new Date(fromDate)
+  if (rule === 'daily') d.setDate(d.getDate() + 1)
+  else if (rule === 'weekly') d.setDate(d.getDate() + 7)
+  else if (rule === 'monthly') d.setMonth(d.getMonth() + 1)
+  return d.toISOString().slice(0, 10)
+}
+
+function getBoredOracle(excludedCategoryIds: string[], maxMinutes: number | null): BoredOracleResult | null {
+  // Eligible activities: not archived, not done (or recurring)
+  const activities = queryRaw(
+    `SELECT * FROM bored_activities
+     WHERE archived_at IS NULL AND (is_done = 0 OR is_recurring = 1)`,
+  ).map(parseBoredActivity).filter(a => {
+    if (excludedCategoryIds.includes(a.category_id)) return false
+    if (maxMinutes != null && a.estimated_minutes != null && a.estimated_minutes > maxMinutes) return false
+    return true
+  })
+
+  // Eligible todos: show_in_bored=1, not done, not archived
+  const todos = queryRaw(
+    `SELECT * FROM todos WHERE show_in_bored = 1 AND is_done = 0 AND archived_at IS NULL`,
+  ).map(parseTodo).filter(t => {
+    if (t.bored_category_id && excludedCategoryIds.includes(t.bored_category_id)) return false
+    if (maxMinutes != null && t.estimated_minutes != null && t.estimated_minutes > maxMinutes) return false
+    return true
+  })
+
+  const pool: BoredOracleResult[] = []
+  const categories = new Map(getBoredCategories().map(c => [c.id, c]))
+
+  for (const activity of activities) {
+    const category = categories.get(activity.category_id)
+    if (category) pool.push({ source: 'activity', activity, category })
+  }
+  for (const todo of todos) {
+    const category = todo.bored_category_id ? (categories.get(todo.bored_category_id) ?? null) : null
+    pool.push({ source: 'todo', todo, category })
+  }
+
+  if (pool.length === 0) return null
+  return pool[Math.floor(Math.random() * pool.length)]!
+}
+
+function deleteAllBoredData(): null {
+  exec('DELETE FROM bored_activities')
+  exec('DELETE FROM bored_categories WHERE is_system = 0')
+  return null
+}
+
+// ─── Todo handlers ────────────────────────────────────────────────────────────
+
+function getTodos(): Todo[] {
+  return queryRaw('SELECT * FROM todos WHERE archived_at IS NULL ORDER BY created_at ASC')
+    .map(parseTodo)
+}
+
+function createTodo(payload: Omit<Todo, 'id' | 'created_at' | 'updated_at' | 'is_done' | 'done_at' | 'done_count' | 'last_done_at' | 'archived_at'>): Todo {
+  const id = crypto.randomUUID()
+  const now = new Date().toISOString()
+  exec(
+    `INSERT INTO todos
+       (id,title,description,due_date,priority,estimated_minutes,is_done,done_count,
+        tags,annotations,is_recurring,recurrence_rule,show_in_bored,bored_category_id,
+        created_at,updated_at)
+     VALUES (?,?,?,?,?,?,0,0,?,?,?,?,?,?,?,?)`,
+    [id, payload.title, payload.description, payload.due_date ?? null,
+     payload.priority ?? 'medium', payload.estimated_minutes ?? null,
+     JSON.stringify(payload.tags ?? []), JSON.stringify(payload.annotations ?? {}),
+     payload.is_recurring ? 1 : 0, payload.recurrence_rule ?? null,
+     payload.show_in_bored ? 1 : 0, payload.bored_category_id ?? null, now, now],
+  )
+  return parseTodo(queryRaw('SELECT * FROM todos WHERE id = ?', [id])[0]!)
+}
+
+function updateTodo(payload: Partial<Todo> & { id: string }): Todo {
+  const { id, ...fields } = payload
+  const updates: [string, unknown][] = []
+  const scalars = ['title', 'description', 'due_date', 'priority', 'estimated_minutes', 'recurrence_rule', 'bored_category_id'] as const
+  for (const k of scalars) {
+    if (k in fields) updates.push([k, (fields[k] as unknown) ?? null])
+  }
+  for (const k of ['is_recurring', 'show_in_bored'] as const) {
+    if (k in fields) updates.push([k, fields[k] ? 1 : 0])
+  }
+  if ('tags' in fields) updates.push(['tags', JSON.stringify(fields.tags ?? [])])
+  if ('annotations' in fields) updates.push(['annotations', JSON.stringify(fields.annotations ?? {})])
+  if (updates.length > 0) {
+    updates.push(['updated_at', new Date().toISOString()])
+    const set = updates.map(([k]) => `${k} = ?`).join(', ')
+    exec(`UPDATE todos SET ${set} WHERE id = ?`, [...updates.map(([, v]) => v), id])
+  }
+  return parseTodo(queryRaw('SELECT * FROM todos WHERE id = ?', [id])[0]!)
+}
+
+function deleteTodo(id: string): null {
+  exec('DELETE FROM todos WHERE id = ?', [id])
+  return null
+}
+
+function archiveTodo(id: string): null {
+  exec('UPDATE todos SET archived_at = ?, updated_at = ? WHERE id = ?', [new Date().toISOString(), new Date().toISOString(), id])
+  return null
+}
+
+function toggleTodo(id: string): Todo {
+  const rows = queryRaw('SELECT * FROM todos WHERE id = ?', [id])
+  if (rows.length === 0) throw new Error(`Todo not found: ${id}`)
+  const todo = parseTodo(rows[0]!)
+  const now = new Date().toISOString()
+  if (!todo.is_done && todo.is_recurring && todo.due_date) {
+    // Advance due date instead of marking done
+    const nextDue = calculateNextDue(todo.due_date, todo.recurrence_rule ?? 'daily')
+    exec('UPDATE todos SET due_date = ?, done_count = done_count + 1, last_done_at = ?, updated_at = ? WHERE id = ?',
+      [nextDue, now, now, id])
+  } else if (!todo.is_done) {
+    exec('UPDATE todos SET is_done = 1, done_at = ?, done_count = done_count + 1, last_done_at = ?, updated_at = ? WHERE id = ?',
+      [now, now, now, id])
+  } else {
+    exec('UPDATE todos SET is_done = 0, done_at = NULL, updated_at = ? WHERE id = ?', [now, id])
+  }
+  return parseTodo(queryRaw('SELECT * FROM todos WHERE id = ?', [id])[0]!)
+}
+
+function deleteAllTodos(): null {
+  exec('DELETE FROM todos')
+  return null
+}
+
 // ─── Message loop ─────────────────────────────────────────────────────────────
 
 self.addEventListener('message', async (e: MessageEvent) => {
@@ -1471,6 +1988,66 @@ self.addEventListener('message', async (e: MessageEvent) => {
         break
       case 'GET_SCRIBBLES_FOR_DATE':
         result = getScribblesForDate(req.payload.date)
+        break
+      case 'GET_BORED_CATEGORIES':
+        result = getBoredCategories()
+        break
+      case 'CREATE_BORED_CATEGORY':
+        result = createBoredCategory(req.payload)
+        break
+      case 'UPDATE_BORED_CATEGORY':
+        result = updateBoredCategory(req.payload)
+        break
+      case 'DELETE_BORED_CATEGORY':
+        result = deleteBoredCategory(req.payload.id)
+        break
+      case 'GET_BORED_ACTIVITIES':
+        result = getBoredActivities()
+        break
+      case 'GET_BORED_ACTIVITIES_FOR_CATEGORY':
+        result = getBoredActivitiesForCategory(req.payload.category_id)
+        break
+      case 'CREATE_BORED_ACTIVITY':
+        result = createBoredActivity(req.payload)
+        break
+      case 'UPDATE_BORED_ACTIVITY':
+        result = updateBoredActivity(req.payload)
+        break
+      case 'DELETE_BORED_ACTIVITY':
+        result = deleteBoredActivity(req.payload.id)
+        break
+      case 'ARCHIVE_BORED_ACTIVITY':
+        result = archiveBoredActivity(req.payload.id)
+        break
+      case 'MARK_BORED_ACTIVITY_DONE':
+        result = markBoredActivityDone(req.payload.id)
+        break
+      case 'GET_BORED_ORACLE':
+        result = getBoredOracle(req.payload.excluded_category_ids, req.payload.max_minutes)
+        break
+      case 'DELETE_ALL_BORED_DATA':
+        result = deleteAllBoredData()
+        break
+      case 'GET_TODOS':
+        result = getTodos()
+        break
+      case 'CREATE_TODO':
+        result = createTodo(req.payload)
+        break
+      case 'UPDATE_TODO':
+        result = updateTodo(req.payload)
+        break
+      case 'DELETE_TODO':
+        result = deleteTodo(req.payload.id)
+        break
+      case 'ARCHIVE_TODO':
+        result = archiveTodo(req.payload.id)
+        break
+      case 'TOGGLE_TODO':
+        result = toggleTodo(req.payload.id)
+        break
+      case 'DELETE_ALL_TODOS':
+        result = deleteAllTodos()
         break
       case 'NUKE_OPFS': {
         // Close DB to release all OPFS sync-access handles, then wipe every

@@ -105,6 +105,60 @@ export interface CheckinReminder {
   days_active: number[] | null  // null = every day; 0=Sun … 6=Sat
 }
 
+export interface BoredCategory {
+  id: string
+  name: string
+  icon: string
+  color: string
+  is_system: boolean
+  sort_order: number
+  created_at: string
+}
+
+export interface BoredActivity {
+  id: string
+  title: string
+  description: string
+  category_id: string
+  estimated_minutes: number | null
+  tags: string[]
+  annotations: Record<string, string>
+  is_recurring: boolean
+  recurrence_rule: 'daily' | 'weekly' | 'monthly' | null
+  is_done: boolean
+  done_at: string | null
+  done_count: number
+  last_done_at: string | null
+  archived_at: string | null
+  created_at: string
+}
+
+export interface Todo {
+  id: string
+  title: string
+  description: string
+  due_date: string | null
+  priority: 'high' | 'medium' | 'low'
+  estimated_minutes: number | null
+  is_done: boolean
+  done_at: string | null
+  done_count: number
+  last_done_at: string | null
+  tags: string[]
+  annotations: Record<string, string>
+  is_recurring: boolean
+  recurrence_rule: 'daily' | 'weekly' | 'monthly' | null
+  show_in_bored: boolean
+  bored_category_id: string | null
+  archived_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type BoredOracleResult =
+  | { source: 'activity'; activity: BoredActivity; category: BoredCategory }
+  | { source: 'todo'; todo: Todo; category: BoredCategory | null }
+
 export type WorkerRequest =
   | { id: string; type: 'GET_HABITS' }
   | { id: string; type: 'CREATE_HABIT'; payload: Omit<Habit, 'id' | 'created_at' | 'archived_at'> }
@@ -171,6 +225,26 @@ export type WorkerRequest =
   | { id: string; type: 'IMPORT_JSON'; payload: HabitatExport }
   | { id: string; type: 'GET_CHECKIN_SUMMARY_FOR_DATE'; payload: { date: string } }
   | { id: string; type: 'GET_SCRIBBLES_FOR_DATE'; payload: { date: string } }
+  | { id: string; type: 'GET_BORED_CATEGORIES' }
+  | { id: string; type: 'CREATE_BORED_CATEGORY'; payload: Omit<BoredCategory, 'id' | 'created_at'> }
+  | { id: string; type: 'UPDATE_BORED_CATEGORY'; payload: Partial<BoredCategory> & { id: string } }
+  | { id: string; type: 'DELETE_BORED_CATEGORY'; payload: { id: string } }
+  | { id: string; type: 'GET_BORED_ACTIVITIES' }
+  | { id: string; type: 'GET_BORED_ACTIVITIES_FOR_CATEGORY'; payload: { category_id: string } }
+  | { id: string; type: 'CREATE_BORED_ACTIVITY'; payload: Omit<BoredActivity, 'id' | 'created_at' | 'is_done' | 'done_at' | 'done_count' | 'last_done_at' | 'archived_at'> }
+  | { id: string; type: 'UPDATE_BORED_ACTIVITY'; payload: Partial<BoredActivity> & { id: string } }
+  | { id: string; type: 'DELETE_BORED_ACTIVITY'; payload: { id: string } }
+  | { id: string; type: 'ARCHIVE_BORED_ACTIVITY'; payload: { id: string } }
+  | { id: string; type: 'MARK_BORED_ACTIVITY_DONE'; payload: { id: string } }
+  | { id: string; type: 'GET_BORED_ORACLE'; payload: { excluded_category_ids: string[]; max_minutes: number | null } }
+  | { id: string; type: 'DELETE_ALL_BORED_DATA' }
+  | { id: string; type: 'GET_TODOS' }
+  | { id: string; type: 'CREATE_TODO'; payload: Omit<Todo, 'id' | 'created_at' | 'updated_at' | 'is_done' | 'done_at' | 'done_count' | 'last_done_at' | 'archived_at'> }
+  | { id: string; type: 'UPDATE_TODO'; payload: Partial<Todo> & { id: string } }
+  | { id: string; type: 'DELETE_TODO'; payload: { id: string } }
+  | { id: string; type: 'ARCHIVE_TODO'; payload: { id: string } }
+  | { id: string; type: 'TOGGLE_TODO'; payload: { id: string } }
+  | { id: string; type: 'DELETE_ALL_TODOS' }
 
 export interface CheckinDaySummary {
   template_id: string
@@ -199,6 +273,9 @@ export interface HabitatExport {
   checkin_reminders: CheckinReminder[]
   scribbles: Scribble[]
   checkin_entries: CheckinEntry[]
+  bored_categories: BoredCategory[]
+  bored_activities: BoredActivity[]
+  todos: Todo[]
 }
 
 /** Which tables to include when exporting JSON. */
@@ -214,6 +291,9 @@ export interface ExportSelection {
   checkin_reminders: boolean
   scribbles: boolean
   checkin_entries: boolean
+  bored_categories: boolean
+  bored_activities: boolean
+  todos: boolean
 }
 
 export type WorkerResponse<T = unknown> =

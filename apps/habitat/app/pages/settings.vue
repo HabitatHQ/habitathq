@@ -39,6 +39,14 @@ const EXPORT_GROUPS: ExportGroup[] = [
       { key: 'checkin_entries',label: 'Journal entries' },
     ],
   },
+  {
+    label: 'TODOs & Bored',
+    items: [
+      { key: 'todos',            label: 'TODOs' },
+      { key: 'bored_categories', label: 'Bored categories' },
+      { key: 'bored_activities', label: 'Bored activities', parent: 'bored_categories' },
+    ],
+  },
 ]
 
 function defaultExportSelection(): ExportSelection {
@@ -46,6 +54,7 @@ function defaultExportSelection(): ExportSelection {
     habits: true, completions: true, habit_logs: true, habit_schedules: true, reminders: true,
     checkin_templates: true, checkin_questions: true, checkin_responses: true, checkin_reminders: true,
     scribbles: true, checkin_entries: true,
+    todos: true, bored_categories: true, bored_activities: true,
   }
 }
 
@@ -79,6 +88,7 @@ function validateExportFk(): string[] {
     ['checkin_questions','checkin_templates','Questions',      'Check-in templates'],
     ['checkin_responses','checkin_questions','Responses',      'Check-in questions'],
     ['checkin_reminders','checkin_templates','Check-in reminders','Check-in templates'],
+    ['bored_activities','bored_categories','Bored activities','Bored categories'],
   ]
   return rules
     .filter(([child, parent]) => exportSel[child] && !exportSel[parent])
@@ -351,6 +361,8 @@ const clearSelection = reactive({
   checkins: true,
   scribbles: true,
   voiceNotes: true,
+  todos: false,
+  boredData: false,
   appliedDefaults: false,
 })
 
@@ -360,12 +372,15 @@ const clearItems = [
   { key: 'checkins',       label: 'Check-in templates & responses', description: 'All templates, questions, and recorded answers' },
   { key: 'scribbles',      label: 'Scribbles',                      description: 'All free-form notes' },
   { key: 'voiceNotes',     label: 'Voice recordings',               description: 'IndexedDB audio data' },
+  { key: 'todos',          label: 'TODOs',                          description: 'All tasks and their history' },
+  { key: 'boredData',      label: 'Bored activities',               description: 'All custom activities (system categories preserved)' },
   { key: 'appliedDefaults', label: 'Applied defaults',              description: 'Re-enables seeding of default check-in templates' },
 ] as const
 
 const nothingSelected = computed(() =>
   !(clearSelection.habits || clearSelection.checkinEntries || clearSelection.checkins ||
-    clearSelection.scribbles || clearSelection.voiceNotes || clearSelection.appliedDefaults),
+    clearSelection.scribbles || clearSelection.voiceNotes || clearSelection.todos ||
+    clearSelection.boredData || clearSelection.appliedDefaults),
 )
 
 async function clearAppData() {
@@ -377,6 +392,8 @@ async function clearAppData() {
     if (clearSelection.checkinEntries) ops.push(db.deleteAllCheckinEntries())
     if (clearSelection.checkins)       ops.push(db.deleteAllCheckinData())
     if (clearSelection.scribbles)      ops.push(db.deleteAllScribbles())
+    if (clearSelection.todos)          ops.push(db.deleteAllTodos())
+    if (clearSelection.boredData)      ops.push(db.deleteAllBoredData())
     if (clearSelection.appliedDefaults) ops.push(db.clearAppliedDefaults())
     await Promise.all(ops)
     if (clearSelection.checkinEntries) clearLocalStorage()
@@ -783,6 +800,28 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
           <USwitch
             :model-value="appSettings.enableHealth"
             @update:model-value="onHealthToggle"
+          />
+        </div>
+
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Enable TODOs</p>
+            <p class="text-xs text-slate-500">Standalone task tracker with due dates, priorities, and recurring tasks.</p>
+          </div>
+          <USwitch
+            :model-value="appSettings.enableTodos"
+            @update:model-value="setAppSetting('enableTodos', $event)"
+          />
+        </div>
+
+        <div v-if="appSettings.enableTodos" class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Enable "I'm Bored" Mode</p>
+            <p class="text-xs text-slate-500">Magic 8-ball oracle that suggests activities from curated categories.</p>
+          </div>
+          <USwitch
+            :model-value="appSettings.enableBored"
+            @update:model-value="setAppSetting('enableBored', $event)"
           />
         </div>
 

@@ -3,6 +3,8 @@ export interface AppSettings {
   enableJournalling: boolean
   enableHealth: boolean
   enableWeek: boolean
+  enableTodos: boolean
+  enableBored: boolean
   weekDays: number
   showTagsOnHabits: boolean
   showAnnotationsOnHabits: boolean
@@ -21,6 +23,8 @@ const DEFAULTS: AppSettings = {
   enableJournalling: true,
   enableHealth: false,
   enableWeek: false,
+  enableTodos: false,
+  enableBored: false,
   weekDays: 3,
   showTagsOnHabits: false,
   showAnnotationsOnHabits: false,

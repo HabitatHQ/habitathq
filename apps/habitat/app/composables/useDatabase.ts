@@ -1,5 +1,5 @@
 import { sendToWorker } from '~/plugins/database.client'
-import type { Habit, Completion, HabitWithSchedule, HabitSchedule, HabitLog, CheckinEntry, CheckinTemplate, CheckinQuestion, CheckinResponse, Scribble, DbInfo, Reminder, CheckinReminder, HabitatExport, ExportSelection, CheckinDaySummary } from '~/types/database'
+import type { Habit, Completion, HabitWithSchedule, HabitSchedule, HabitLog, CheckinEntry, CheckinTemplate, CheckinQuestion, CheckinResponse, Scribble, DbInfo, Reminder, CheckinReminder, HabitatExport, ExportSelection, CheckinDaySummary, BoredCategory, BoredActivity, Todo, BoredOracleResult } from '~/types/database'
 
 export function useDatabase() {
   return {
@@ -134,5 +134,45 @@ export function useDatabase() {
       sendToWorker({ type: 'GET_CHECKIN_SUMMARY_FOR_DATE', payload: { date } }),
     getScribblesForDate: (date: string): Promise<Scribble[]> =>
       sendToWorker({ type: 'GET_SCRIBBLES_FOR_DATE', payload: { date } }),
+    getBoredCategories: (): Promise<BoredCategory[]> =>
+      sendToWorker({ type: 'GET_BORED_CATEGORIES' }),
+    createBoredCategory: (p: Omit<BoredCategory, 'id' | 'created_at'>): Promise<BoredCategory> =>
+      sendToWorker({ type: 'CREATE_BORED_CATEGORY', payload: p }),
+    updateBoredCategory: (p: Partial<BoredCategory> & { id: string }): Promise<BoredCategory> =>
+      sendToWorker({ type: 'UPDATE_BORED_CATEGORY', payload: p }),
+    deleteBoredCategory: (id: string): Promise<null> =>
+      sendToWorker({ type: 'DELETE_BORED_CATEGORY', payload: { id } }),
+    getBoredActivities: (): Promise<BoredActivity[]> =>
+      sendToWorker({ type: 'GET_BORED_ACTIVITIES' }),
+    getBoredActivitiesForCategory: (category_id: string): Promise<BoredActivity[]> =>
+      sendToWorker({ type: 'GET_BORED_ACTIVITIES_FOR_CATEGORY', payload: { category_id } }),
+    createBoredActivity: (p: Omit<BoredActivity, 'id' | 'created_at' | 'is_done' | 'done_at' | 'done_count' | 'last_done_at' | 'archived_at'>): Promise<BoredActivity> =>
+      sendToWorker({ type: 'CREATE_BORED_ACTIVITY', payload: p }),
+    updateBoredActivity: (p: Partial<BoredActivity> & { id: string }): Promise<BoredActivity> =>
+      sendToWorker({ type: 'UPDATE_BORED_ACTIVITY', payload: p }),
+    deleteBoredActivity: (id: string): Promise<null> =>
+      sendToWorker({ type: 'DELETE_BORED_ACTIVITY', payload: { id } }),
+    archiveBoredActivity: (id: string): Promise<null> =>
+      sendToWorker({ type: 'ARCHIVE_BORED_ACTIVITY', payload: { id } }),
+    markBoredActivityDone: (id: string): Promise<BoredActivity> =>
+      sendToWorker({ type: 'MARK_BORED_ACTIVITY_DONE', payload: { id } }),
+    getBoredOracle: (excluded_category_ids: string[], max_minutes: number | null): Promise<BoredOracleResult | null> =>
+      sendToWorker({ type: 'GET_BORED_ORACLE', payload: { excluded_category_ids, max_minutes } }),
+    deleteAllBoredData: (): Promise<null> =>
+      sendToWorker({ type: 'DELETE_ALL_BORED_DATA' }),
+    getTodos: (): Promise<Todo[]> =>
+      sendToWorker({ type: 'GET_TODOS' }),
+    createTodo: (p: Omit<Todo, 'id' | 'created_at' | 'updated_at' | 'is_done' | 'done_at' | 'done_count' | 'last_done_at' | 'archived_at'>): Promise<Todo> =>
+      sendToWorker({ type: 'CREATE_TODO', payload: p }),
+    updateTodo: (p: Partial<Todo> & { id: string }): Promise<Todo> =>
+      sendToWorker({ type: 'UPDATE_TODO', payload: p }),
+    deleteTodo: (id: string): Promise<null> =>
+      sendToWorker({ type: 'DELETE_TODO', payload: { id } }),
+    archiveTodo: (id: string): Promise<null> =>
+      sendToWorker({ type: 'ARCHIVE_TODO', payload: { id } }),
+    toggleTodo: (id: string): Promise<Todo> =>
+      sendToWorker({ type: 'TOGGLE_TODO', payload: { id } }),
+    deleteAllTodos: (): Promise<null> =>
+      sendToWorker({ type: 'DELETE_ALL_TODOS' }),
   }
 }

@@ -10,6 +10,8 @@ const ALL_NAV_ITEMS = [
   { to: '/week',      icon: 'i-heroicons-calendar-days',  label: 'Week',     week: true },
   { to: '/habits',    icon: 'i-heroicons-list-bullet',    label: 'Habits'   },
   { to: '/health',    icon: 'i-heroicons-heart',          label: 'Health',   health: true },
+  { to: '/todos',     icon: 'i-heroicons-check-circle',   label: 'TODOs',    todos: true },
+  { to: '/bored',     icon: 'i-heroicons-face-smile',     label: 'Bored',    bored: true },
   { to: '/checkin',   icon: 'i-heroicons-pencil-square',  label: 'Check-in', journalling: true },
   { to: '/scribbles', icon: 'i-heroicons-pencil',         label: 'Scribbles', journalling: true },
   { to: '/voice',     icon: 'i-heroicons-microphone',     label: 'Voice',    journalling: true },
@@ -22,6 +24,8 @@ const navItems = computed(() =>
     if (i.week && !settings.value.enableWeek) return false
     if (i.health && !settings.value.enableHealth) return false
     if (i.journalling && !settings.value.enableJournalling) return false
+    if (i.todos && !settings.value.enableTodos) return false
+    if (i.bored && !(settings.value.enableTodos && settings.value.enableBored)) return false
     return true
   }),
 )
@@ -108,7 +112,7 @@ function isActive(to: string) {
     </main>
 
     <nav
-      class="border-t border-slate-800 px-1 py-1 flex justify-around"
+      class="border-t border-slate-800 py-1 flex justify-around overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
       :class="settings.stickyNav ? 'fixed bottom-0 inset-x-0 z-30 bg-slate-950' : 'safe-area-bottom'"
       :style="settings.stickyNav
         ? { paddingBottom: settings.navExtraPadding
@@ -123,9 +127,11 @@ function isActive(to: string) {
         :icon="item.icon"
         :color="isActive(item.to) ? 'primary' : 'neutral'"
         variant="ghost"
-        :ui="{ base: 'flex-col gap-0.5 h-auto py-2 px-3 text-xs' }"
+        :ui="navItems.length > 5
+          ? { base: 'flex-shrink-0 h-auto py-2.5 px-2.5' }
+          : { base: 'flex-col gap-0.5 h-auto py-2 px-3 text-xs' }"
       >
-        {{ item.label }}
+        <span v-if="navItems.length <= 5">{{ item.label }}</span>
       </UButton>
     </nav>
   </div>
