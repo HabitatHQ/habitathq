@@ -39,6 +39,7 @@ async function exec(sql: string, bind?: unknown[]): Promise<void> {
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
 async function runSchema(): Promise<void> {
+  await db().execute('PRAGMA foreign_keys = ON', false)
   await db().execute(`
     CREATE TABLE IF NOT EXISTS habits (
       id           TEXT PRIMARY KEY,

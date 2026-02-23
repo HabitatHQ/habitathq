@@ -52,7 +52,7 @@ export function formatTime(date: Date, use24h: boolean): string {
 function readFromStorage(): AppSettings {
   try {
     const stored = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') } as AppSettings
-    if (!Number.isFinite(stored.weekDays) || stored.weekDays < 3) stored.weekDays = 3
+    if (!Number.isFinite(stored.weekDays) || stored.weekDays < 3 || stored.weekDays > 7) stored.weekDays = 3
     return stored
   } catch (err) {
     console.warn('[useAppSettings] Failed to parse stored settings, using defaults:', err)

@@ -32,7 +32,9 @@ async function load() {
 
 onMounted(load)
 
-const today = new Date().toISOString().slice(0, 10)
+// Use local calendar date (not UTC) so "today" matches the device's clock
+const _d = new Date()
+const today = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, '0')}-${String(_d.getDate()).padStart(2, '0')}`
 
 const overdue = computed(() =>
   todos.value.filter(t => !t.is_done && !t.archived_at && t.due_date && t.due_date < today),
@@ -54,7 +56,10 @@ const noDate = computed(() =>
 )
 
 const done = computed(() =>
-  todos.value.filter(t => t.is_done && !t.archived_at).slice(-20).reverse(),
+  todos.value
+    .filter(t => t.is_done && !t.archived_at)
+    .sort((a, b) => (b.done_at ?? b.updated_at).localeCompare(a.done_at ?? a.updated_at))
+    .slice(0, 20),
 )
 
 type Section = { label: string; items: Todo[]; key: string; collapsible?: boolean }
@@ -170,6 +175,11 @@ async function archiveTodo(t: Todo) {
 async function deleteTodoItem(t: Todo) {
   await db.deleteTodo(t.id)
   todos.value = todos.value.filter(x => x.id !== t.id)
+}
+
+async function deleteAndClose(t: Todo) {
+  await deleteTodoItem(t)
+  showModal.value = false
 }
 </script>
 
@@ -368,7 +378,7 @@ async function deleteTodoItem(t: Todo) {
             color="error"
             class="flex-none"
             icon="i-heroicons-trash"
-            @click="deleteTodoItem(editingTodo); showModal = false"
+            @click="deleteAndClose(editingTodo)"
           />
           <UButton color="primary" class="flex-1" @click="saveTodo">Save</UButton>
         </div>

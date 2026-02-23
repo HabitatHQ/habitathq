@@ -53,6 +53,7 @@ const sqlite3 = await sqlite3InitModule({ print: () => {}, printErr: () => {} })
 
 const poolUtil = await sqlite3.installOpfsSAHPoolVfs({ directory: '/habitat', clearOnInit: false })
 const db = new poolUtil.OpfsSAHPoolDb('/habitat.db')
+db.exec('PRAGMA foreign_keys = ON')
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 //

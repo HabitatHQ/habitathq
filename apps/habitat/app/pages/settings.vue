@@ -259,7 +259,7 @@ function clearIdb(): Promise<void> {
 
 function clearLocalStorage() {
   for (const key of Object.keys(localStorage)) {
-    if (key.startsWith('checkin-')) localStorage.removeItem(key)
+    if (key.startsWith('checkin-') || key.startsWith('journal-')) localStorage.removeItem(key)
   }
 }
 

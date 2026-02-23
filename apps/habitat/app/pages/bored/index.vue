@@ -6,6 +6,8 @@ const db = useDatabase()
 const categories = ref<BoredCategory[]>([])
 const currentResult = ref<BoredOracleResult | null>(null)
 const shaking = ref(false)
+const marking = ref(false)
+const hasRolled = ref(false)
 const excludedCategories = ref<string[]>([])
 const maxMinutes = ref<number | null>(null)
 
@@ -31,19 +33,25 @@ function toggleCategory(id: string) {
 async function roll() {
   if (shaking.value) return
   shaking.value = true
+  hasRolled.value = true
   await new Promise(r => setTimeout(r, 650))
   currentResult.value = await db.getBoredOracle([...excludedCategories.value], maxMinutes.value)
   shaking.value = false
 }
 
 async function markDone() {
-  if (!currentResult.value) return
-  if (currentResult.value.source === 'activity') {
-    await db.markBoredActivityDone(currentResult.value.activity.id)
-  } else {
-    await db.toggleTodo(currentResult.value.todo.id)
+  if (!currentResult.value || marking.value) return
+  marking.value = true
+  try {
+    if (currentResult.value.source === 'activity') {
+      await db.markBoredActivityDone(currentResult.value.activity.id)
+    } else {
+      await db.toggleTodo(currentResult.value.todo.id)
+    }
+    currentResult.value = await db.getBoredOracle([...excludedCategories.value], maxMinutes.value)
+  } finally {
+    marking.value = false
   }
-  currentResult.value = await db.getBoredOracle([...excludedCategories.value], maxMinutes.value)
 }
 
 const resultTitle = computed(() => {
@@ -215,6 +223,7 @@ const resultTags = computed(() => {
             color="success"
             size="sm"
             icon="i-heroicons-check"
+            :loading="marking"
             @click="markDone"
           >
             Done
@@ -254,7 +263,10 @@ const resultTags = computed(() => {
 
     <!-- Empty state after roll -->
     <div v-if="currentResult === null && !shaking" class="text-center py-4">
-      <p v-if="categories.length === 0" class="text-slate-500 text-sm">
+      <p v-if="hasRolled" class="text-slate-500 text-sm">
+        Nothing matches your current filters. Try adjusting categories or time.
+      </p>
+      <p v-else-if="categories.length === 0" class="text-slate-500 text-sm">
         No activities yet. <NuxtLink to="/bored/activities" class="text-primary-400 underline">Add some</NuxtLink> to get started.
       </p>
     </div>
