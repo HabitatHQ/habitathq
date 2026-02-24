@@ -11,6 +11,7 @@ const showActivityModal = ref(false)
 const editingCategory = ref<BoredCategory | null>(null)
 const editingActivity = ref<BoredActivity | null>(null)
 const activityCategoryId = ref<string>('')
+const saving = ref(false)
 
 // Category form
 const catForm = reactive({ name: '', icon: 'i-heroicons-sparkles', color: '#6366f1' })
@@ -72,15 +73,21 @@ function openEditCategory(c: BoredCategory) {
 }
 
 async function saveCategory() {
+  if (saving.value) return
   const payload = { name: catForm.name.trim(), icon: catForm.icon, color: catForm.color }
   if (!payload.name) return
-  if (editingCategory.value) {
-    await db.updateBoredCategory({ id: editingCategory.value.id, ...payload })
-  } else {
-    await db.createBoredCategory({ ...payload, is_system: false, sort_order: categories.value.length })
+  saving.value = true
+  try {
+    if (editingCategory.value) {
+      await db.updateBoredCategory({ id: editingCategory.value.id, ...payload })
+    } else {
+      await db.createBoredCategory({ ...payload, is_system: false, sort_order: categories.value.length })
+    }
+    showCategoryModal.value = false
+    await load()
+  } finally {
+    saving.value = false
   }
-  showCategoryModal.value = false
-  await load()
 }
 
 async function deleteCategory(c: BoredCategory) {
@@ -90,6 +97,7 @@ async function deleteCategory(c: BoredCategory) {
 }
 
 async function saveActivity() {
+  if (saving.value) return
   const mins = actForm.estimated_minutes !== '' ? Number(actForm.estimated_minutes) : null
   const tags = actForm.tags.split(',').map(t => t.trim()).filter(Boolean)
   const payload = {
@@ -103,13 +111,18 @@ async function saveActivity() {
     annotations: {} as Record<string, string>,
   }
   if (!payload.title) return
-  if (editingActivity.value) {
-    await db.updateBoredActivity({ id: editingActivity.value.id, ...payload })
-  } else {
-    await db.createBoredActivity(payload)
+  saving.value = true
+  try {
+    if (editingActivity.value) {
+      await db.updateBoredActivity({ id: editingActivity.value.id, ...payload })
+    } else {
+      await db.createBoredActivity(payload)
+    }
+    showActivityModal.value = false
+    await load()
+  } finally {
+    saving.value = false
   }
-  showActivityModal.value = false
-  await load()
 }
 
 async function deleteActivity(a: BoredActivity) {
@@ -233,7 +246,7 @@ async function archiveActivity(a: BoredActivity) {
         </div>
         <div class="flex gap-2 pt-1">
           <UButton variant="soft" color="neutral" class="flex-1" @click="showCategoryModal = false">Cancel</UButton>
-          <UButton color="primary" class="flex-1" @click="saveCategory">Save</UButton>
+          <UButton color="primary" class="flex-1" :loading="saving" @click="saveCategory">Save</UButton>
         </div>
       </div>
     </div>
@@ -278,7 +291,7 @@ async function archiveActivity(a: BoredActivity) {
         </div>
         <div class="flex gap-2 pt-1">
           <UButton variant="soft" color="neutral" class="flex-1" @click="showActivityModal = false">Cancel</UButton>
-          <UButton color="primary" class="flex-1" @click="saveActivity">Save</UButton>
+          <UButton color="primary" class="flex-1" :loading="saving" @click="saveActivity">Save</UButton>
         </div>
       </div>
     </div>

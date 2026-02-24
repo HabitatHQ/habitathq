@@ -1653,11 +1653,12 @@ function markBoredActivityDone(id: string): BoredActivity {
 }
 
 function calculateNextDue(fromDate: string, rule: string): string {
-  const d = new Date(fromDate)
+  // Parse at local noon to avoid UTC midnight boundary off-by-one for UTC- timezones
+  const d = new Date(`${fromDate}T12:00:00`)
   if (rule === 'daily') d.setDate(d.getDate() + 1)
   else if (rule === 'weekly') d.setDate(d.getDate() + 7)
   else if (rule === 'monthly') d.setMonth(d.getMonth() + 1)
-  return d.toISOString().slice(0, 10)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 function getBoredOracle(excludedCategoryIds: string[], maxMinutes: number | null): BoredOracleResult | null {
@@ -1698,6 +1699,8 @@ function getBoredOracle(excludedCategoryIds: string[], maxMinutes: number | null
 
 function deleteAllBoredData(): null {
   exec('DELETE FROM bored_activities')
+  // Clear todo references to custom categories before deleting them
+  exec('UPDATE todos SET show_in_bored = 0, bored_category_id = NULL WHERE bored_category_id IN (SELECT id FROM bored_categories WHERE is_system = 0)')
   exec('DELETE FROM bored_categories WHERE is_system = 0')
   return null
 }
@@ -1753,7 +1756,8 @@ function deleteTodo(id: string): null {
 }
 
 function archiveTodo(id: string): null {
-  exec('UPDATE todos SET archived_at = ?, updated_at = ? WHERE id = ?', [new Date().toISOString(), new Date().toISOString(), id])
+  const now = new Date().toISOString()
+  exec('UPDATE todos SET archived_at = ?, updated_at = ? WHERE id = ?', [now, now, id])
   return null
 }
 

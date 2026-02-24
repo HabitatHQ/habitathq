@@ -24,9 +24,12 @@ async function loadTemplate() {
 
 // ─── Date navigation ──────────────────────────────────────────────────────────
 
-const todayKey = new Date().toISOString().slice(0, 10)
+function localDateKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+const todayKey = localDateKey(new Date())
 const currentDate = ref(new Date())
-const dateKey = computed(() => currentDate.value.toISOString().slice(0, 10))
+const dateKey = computed(() => localDateKey(currentDate.value))
 const isToday = computed(() => dateKey.value === todayKey)
 
 const displayDate = computed(() =>

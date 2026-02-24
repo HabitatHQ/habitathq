@@ -47,7 +47,7 @@ const dueToday = computed(() =>
 const upcoming = computed(() => {
   const in30 = new Date()
   in30.setDate(in30.getDate() + 30)
-  const limit = in30.toISOString().slice(0, 10)
+  const limit = `${in30.getFullYear()}-${String(in30.getMonth() + 1).padStart(2, '0')}-${String(in30.getDate()).padStart(2, '0')}`
   return todos.value.filter(t => !t.is_done && !t.archived_at && t.due_date && t.due_date > today && t.due_date <= limit)
 })
 

@@ -112,8 +112,9 @@ function isHabitDone(habit: HabitWithSchedule): boolean {
   if (habit.type === 'NUMERIC') {
     return getTodayLogSum(habit.id) >= habit.target_value
   }
-  // LIMIT: "done" = still under the limit
-  return getTodayLogSum(habit.id) < habit.target_value
+  // LIMIT: "done" = tracked at least once AND still under the limit
+  const sum = getTodayLogSum(habit.id)
+  return sum > 0 && sum < habit.target_value
 }
 
 function isOverLimit(habit: HabitWithSchedule): boolean {
