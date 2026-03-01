@@ -303,6 +303,10 @@ const healthSetup = reactive({
     { name: 'Lunch', calories: 600 },
     { name: 'Dinner', calories: 600 },
   ] as { name: string; calories: number }[],
+  enableWater: true,
+  waterGoal: 8,
+  enableSleep: true,
+  sleepGoal: 8,
 })
 
 function addMeal() { healthSetup.meals.push({ name: '', calories: 600 }) }
@@ -347,6 +351,28 @@ async function confirmHealthSetup() {
           tags: ['habitat-health', 'habitat-meals'],
         })
       }
+    }
+    if (healthSetup.enableWater) {
+      await db.createHabit({
+        ...base,
+        name: 'Water',
+        type: 'NUMERIC',
+        target_value: healthSetup.waterGoal,
+        color: '#0ea5e9',
+        icon: 'i-heroicons-beaker',
+        tags: ['habitat-health', 'habitat-water'],
+      })
+    }
+    if (healthSetup.enableSleep) {
+      await db.createHabit({
+        ...base,
+        name: 'Sleep',
+        type: 'NUMERIC',
+        target_value: healthSetup.sleepGoal,
+        color: '#6366f1',
+        icon: 'i-heroicons-moon',
+        tags: ['habitat-health', 'habitat-sleep'],
+      })
     }
     showHealthSetup.value = false
   } finally {
@@ -1813,11 +1839,57 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
             </div>
           </div>
 
+          <!-- Water -->
+          <div class="space-y-3">
+            <label class="flex items-center gap-3 cursor-pointer">
+              <input v-model="healthSetup.enableWater" type="checkbox" class="rounded" />
+              <div>
+                <p class="text-sm font-medium">Track Water</p>
+                <p class="text-xs text-slate-500">Creates a daily NUMERIC habit to count glasses.</p>
+              </div>
+            </label>
+            <div v-if="healthSetup.enableWater" class="ml-7">
+              <UFormField label="Daily glasses goal">
+                <UInput
+                  v-model.number="healthSetup.waterGoal"
+                  type="number"
+                  min="1"
+                  max="20"
+                  step="1"
+                  class="w-32"
+                />
+              </UFormField>
+            </div>
+          </div>
+
+          <!-- Sleep -->
+          <div class="space-y-3">
+            <label class="flex items-center gap-3 cursor-pointer">
+              <input v-model="healthSetup.enableSleep" type="checkbox" class="rounded" />
+              <div>
+                <p class="text-sm font-medium">Track Sleep</p>
+                <p class="text-xs text-slate-500">Creates a daily NUMERIC habit for hours slept.</p>
+              </div>
+            </label>
+            <div v-if="healthSetup.enableSleep" class="ml-7">
+              <UFormField label="Sleep goal (hours)">
+                <UInput
+                  v-model.number="healthSetup.sleepGoal"
+                  type="number"
+                  min="1"
+                  max="12"
+                  step="0.5"
+                  class="w-32"
+                />
+              </UFormField>
+            </div>
+          </div>
+
           <div class="flex justify-end gap-2 pt-1">
             <UButton variant="ghost" color="neutral" @click="showHealthSetup = false">Skip</UButton>
             <UButton
               color="primary"
-              :disabled="!healthSetup.enableSteps && !healthSetup.enableMeals"
+              :disabled="!healthSetup.enableSteps && !healthSetup.enableMeals && !healthSetup.enableWater && !healthSetup.enableSleep"
               :loading="creatingHealth"
               @click="confirmHealthSetup"
             >
