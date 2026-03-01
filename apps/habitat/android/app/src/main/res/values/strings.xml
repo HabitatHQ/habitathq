@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Habitat</string>
+    <string name="title_activity_main">Habitat</string>
+    <string name="package_name">com.habitat.app</string>
+    <string name="custom_url_scheme">com.habitat.app</string>
+</resources>

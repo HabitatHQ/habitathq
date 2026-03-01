@@ -190,6 +190,7 @@ async function addReminder() {
     newReminderTime.value = ''
     newReminderDays.value = []
     showAddReminder.value = false
+    useNotifications().scheduleAll().catch(console.error)
   } finally {
     savingReminder.value = false
   }
@@ -201,6 +202,7 @@ async function removeReminder(rid: string) {
   try {
     await db.deleteCheckinReminder(rid)
     reminders.value = reminders.value.filter(r => r.id !== rid)
+    useNotifications().scheduleAll().catch(console.error)
   } finally {
     deletingReminder.delete(rid)
   }
