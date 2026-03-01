@@ -156,7 +156,7 @@ async function archiveActivity(a: BoredActivity) {
             v-if="!cat.is_system"
             variant="ghost"
             color="neutral"
-            size="xs"
+            size="sm"
             icon="i-heroicons-pencil"
             @click="openEditCategory(cat)"
           />
@@ -164,14 +164,14 @@ async function archiveActivity(a: BoredActivity) {
             v-if="!cat.is_system"
             variant="ghost"
             color="error"
-            size="xs"
+            size="sm"
             icon="i-heroicons-trash"
             @click="deleteCategory(cat)"
           />
           <UButton
             variant="ghost"
             color="neutral"
-            size="xs"
+            size="sm"
             icon="i-heroicons-plus"
             @click="openAddActivity(cat.id)"
           />
@@ -202,9 +202,9 @@ async function archiveActivity(a: BoredActivity) {
             </div>
           </div>
           <div class="flex items-center gap-1 ml-2 shrink-0">
-            <UButton variant="ghost" color="neutral" size="xs" icon="i-heroicons-pencil" @click="openEditActivity(act)" />
-            <UButton variant="ghost" color="neutral" size="xs" icon="i-heroicons-archive-box" @click="archiveActivity(act)" />
-            <UButton variant="ghost" color="error" size="xs" icon="i-heroicons-trash" @click="deleteActivity(act)" />
+            <UButton variant="ghost" color="neutral" size="sm" icon="i-heroicons-pencil" @click="openEditActivity(act)" />
+            <UButton variant="ghost" color="neutral" size="sm" icon="i-heroicons-archive-box" @click="archiveActivity(act)" />
+            <UButton variant="ghost" color="error" size="sm" icon="i-heroicons-trash" @click="deleteActivity(act)" />
           </div>
         </div>
         <div v-if="activitiesForCategory(cat.id).length === 0" class="text-xs text-slate-600 px-1">

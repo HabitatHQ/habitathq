@@ -196,7 +196,7 @@ onMounted(load)
             icon="i-heroicons-pencil-square"
             variant="ghost"
             color="neutral"
-            size="xs"
+            size="sm"
             @click="openStepsLog"
           />
         </div>

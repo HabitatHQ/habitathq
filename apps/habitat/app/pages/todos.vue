@@ -229,12 +229,12 @@ async function deleteAndClose(t: Todo) {
 
             <!-- Checkbox -->
             <button
-              class="mt-0.5 shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors"
+              class="mt-0.5 shrink-0 w-7 h-7 rounded-full border-2 flex items-center justify-center transition-colors"
               :class="todo.is_done ? 'border-green-500 bg-green-500' : 'border-slate-600 hover:border-slate-400'"
               @click="toggleTodo(todo)"
             >
-              <UIcon v-if="todo.is_done" name="i-heroicons-check" class="w-3 h-3 text-white" />
-              <UIcon v-else-if="todo.is_recurring" name="i-heroicons-arrow-path" class="w-2.5 h-2.5 text-slate-500" />
+              <UIcon v-if="todo.is_done" name="i-heroicons-check" class="w-3.5 h-3.5 text-white" />
+              <UIcon v-else-if="todo.is_recurring" name="i-heroicons-arrow-path" class="w-3 h-3 text-slate-500" />
             </button>
 
             <!-- Content -->
@@ -278,8 +278,8 @@ async function deleteAndClose(t: Todo) {
 
             <!-- Actions -->
             <div class="flex flex-col gap-1 shrink-0">
-              <UButton variant="ghost" color="neutral" size="xs" icon="i-heroicons-pencil" @click="openEdit(todo)" />
-              <UButton variant="ghost" color="neutral" size="xs" icon="i-heroicons-archive-box" @click="archiveTodo(todo)" />
+              <UButton variant="ghost" color="neutral" size="sm" icon="i-heroicons-pencil" @click="openEdit(todo)" />
+              <UButton variant="ghost" color="neutral" size="sm" icon="i-heroicons-archive-box" @click="archiveTodo(todo)" />
             </div>
           </div>
         </template>

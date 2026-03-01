@@ -460,7 +460,7 @@ onMounted(load)
         <div class="px-4 pt-3.5 pb-3 flex items-center justify-between">
           <p class="text-xs font-semibold text-slate-400">Reminders</p>
           <UButton
-            size="xs"
+            size="sm"
             variant="ghost"
             color="neutral"
             :icon="showAddReminder ? 'i-heroicons-chevron-up' : 'i-heroicons-plus'"
@@ -479,7 +479,7 @@ onMounted(load)
             <p class="text-[11px] text-slate-500">{{ reminderDaysLabel(r) }}</p>
           </div>
           <button
-            class="text-slate-700 hover:text-red-400 transition-colors"
+            class="p-2 -m-2 text-slate-700 hover:text-red-400 transition-colors"
             :disabled="deletingReminder.has(r.id)"
             @click="removeReminder(r.id)"
           >
@@ -615,7 +615,7 @@ onMounted(load)
           <div class="flex items-center gap-3">
             <span class="text-sm font-medium text-slate-200">{{ entry.value }}</span>
             <button
-              class="text-slate-700 hover:text-red-400 transition-colors"
+              class="p-2 -m-2 text-slate-700 hover:text-red-400 transition-colors"
               :disabled="deletingLog.has(entry.id)"
               @click="deleteLog(entry.id)"
             >

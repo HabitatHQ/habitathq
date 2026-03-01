@@ -37,7 +37,12 @@ function isActive(to: string) {
 
 <template>
   <div class="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-    <header class="border-b border-slate-800 px-4 py-3 flex items-center justify-between">
+    <header
+      class="border-b border-slate-800 px-4 pb-3 flex items-center justify-between"
+      :style="{ paddingTop: settings.headerExtraPadding
+        ? 'calc(1.25rem + env(safe-area-inset-top))'
+        : 'calc(0.75rem + env(safe-area-inset-top))' }"
+    >
       <div class="flex items-center gap-2">
         <!-- Plant sprout logo — fill-up animation runs once on page load -->
         <svg

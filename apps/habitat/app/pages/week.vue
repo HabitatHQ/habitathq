@@ -285,7 +285,7 @@ onMounted(load)
               </template>
             </p>
           </div>
-          <button class="p-1.5 text-slate-500 hover:text-slate-300 transition-colors" @click="cellEdit = null">
+          <button class="p-2 text-slate-500 hover:text-slate-300 transition-colors" @click="cellEdit = null">
             <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
           </button>
         </div>
