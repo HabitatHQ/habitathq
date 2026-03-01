@@ -566,7 +566,7 @@ onMounted(async () => {
       <div class="relative w-full sm:max-w-md bg-slate-900 border border-slate-800 rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
         <div class="flex items-center justify-between">
           <h3 class="font-semibold text-slate-100">Edit Check-in</h3>
-          <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="xs" @click="showEdit = false" />
+          <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" @click="showEdit = false" />
         </div>
 
         <UInput v-model="editTitle" placeholder="Name" @keydown.enter="saveEdit" />

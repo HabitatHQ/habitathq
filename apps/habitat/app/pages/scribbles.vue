@@ -226,7 +226,7 @@ onMounted(load)
                 icon="i-heroicons-trash"
                 color="error"
                 variant="ghost"
-                size="xs"
+                size="sm"
                 @click="remove"
               />
             </div>
@@ -270,7 +270,7 @@ onMounted(load)
                   <span v-if="splitTag(tag).parent" class="text-slate-500">{{ splitTag(tag).parent }}/</span>
                   {{ splitTag(tag).leaf }}
                   <button
-                    class="ml-0.5 w-3.5 h-3.5 flex items-center justify-center rounded-full
+                    class="ml-0.5 w-5 h-5 flex items-center justify-center rounded-full
                            text-slate-500 hover:text-slate-200 hover:bg-slate-700 transition-colors"
                     @click.stop="removeTag(tag)"
                   >×</button>
@@ -315,7 +315,7 @@ onMounted(load)
                     icon="i-heroicons-x-mark"
                     color="neutral"
                     variant="ghost"
-                    size="xs"
+                    size="sm"
                     class="text-slate-600 hover:text-red-400 shrink-0"
                     @click="removeAnnot(String(key))"
                   />

@@ -12,6 +12,7 @@ export interface AppSettings {
   showAnnotationsOnToday: boolean
   stickyNav: boolean
   navExtraPadding: boolean
+  headerExtraPadding: boolean
   logInputMode: 'absolute' | 'increment'
   saveTranscribedNotes: boolean
   use24HourTime: boolean
@@ -32,6 +33,7 @@ const DEFAULTS: AppSettings = {
   showAnnotationsOnToday: false,
   stickyNav: false,
   navExtraPadding: false,
+  headerExtraPadding: true,
   logInputMode: 'absolute',
   saveTranscribedNotes: true,
   use24HourTime: false,

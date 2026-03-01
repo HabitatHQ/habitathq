@@ -661,6 +661,17 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
           />
         </div>
 
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Extra top padding</p>
+            <p class="text-xs text-slate-500">Add space above the header for the status bar.</p>
+          </div>
+          <USwitch
+            :model-value="appSettings.headerExtraPadding"
+            @update:model-value="setAppSetting('headerExtraPadding', $event)"
+          />
+        </div>
+
         <div class="px-4 pt-3 pb-1">
           <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-600">Navigation</p>
         </div>
@@ -1239,7 +1250,7 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
         <div class="p-5 space-y-4 flex flex-col max-h-[80vh]">
           <div class="flex items-center justify-between shrink-0">
             <h3 class="font-semibold text-slate-100">Open source licenses</h3>
-            <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="xs" @click="showLicensesModal = false" />
+            <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" @click="showLicensesModal = false" />
           </div>
           <div v-if="licensesLoading" class="flex items-center justify-center py-8 text-slate-500 text-sm">
             Loading…
@@ -1279,7 +1290,7 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
         <div class="p-5 space-y-4">
           <div class="flex items-center justify-between">
             <h3 class="font-semibold text-slate-100">Install Habitat</h3>
-            <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="xs" @click="showInstallModal = false" />
+            <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" @click="showInstallModal = false" />
           </div>
 
           <!-- iOS Safari -->
@@ -1343,7 +1354,7 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
         <div class="p-5 space-y-4">
           <div class="flex items-center justify-between">
             <h3 class="font-semibold text-slate-100">Export data</h3>
-            <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="xs" @click="showExportModal = false" />
+            <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" @click="showExportModal = false" />
           </div>
 
           <!-- Select all toggle -->

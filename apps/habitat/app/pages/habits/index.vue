@@ -453,8 +453,8 @@ onMounted(loadHabits)
                 <UInput v-model="entry.key" placeholder="key" class="w-24 shrink-0" />
                 <span class="text-slate-600 text-xs">:</span>
                 <UInput v-model="entry.value" placeholder="value" class="flex-1" />
-                <button class="text-slate-700 hover:text-red-400 transition-colors" @click="removeAnnotationEntry(i)">
-                  <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
+                <button class="p-2 -m-1 text-slate-700 hover:text-red-400 transition-colors" @click="removeAnnotationEntry(i)">
+                  <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
                 </button>
               </div>
               <button class="text-xs text-slate-500 hover:text-slate-400 flex items-center gap-1" @click="addAnnotationEntry">
