@@ -17,6 +17,9 @@ const _exactAlarm = ref<'granted' | 'denied' | 'unknown'>('unknown')
 // Android battery optimization exemption state
 const _batteryOptim = ref<'exempt' | 'optimized' | 'unknown'>('unknown')
 
+// Web persistent storage state
+const _persistentStorage = ref<'granted' | 'denied' | 'unknown'>('unknown')
+
 // In-app notification event log (visible in the diagnostics section)
 export interface NotifLogEntry { time: string; event: string; detail: string }
 const MAX_LOG_ENTRIES = 50
@@ -130,10 +133,65 @@ export function useNotifications() {
       const BatteryOptim = registerPlugin('BatteryOptim')
       notifLog('battery', 'requesting exemption')
       await BatteryOptim['requestIgnore']()
-      // Re-check after user returns
       await _checkBatteryOptim()
     } catch (err) {
       notifLog('battery', `request failed: ${err}`)
+    }
+  }
+
+  async function checkExactAlarm(): Promise<void> {
+    if (!isNative) return
+    const { LocalNotifications } = await import('@capacitor/local-notifications')
+    await _checkExactAlarm(LocalNotifications)
+  }
+
+  async function checkBatteryOptim(): Promise<void> {
+    await _checkBatteryOptim()
+  }
+
+  async function checkPersistentStorage(): Promise<void> {
+    if (isNative || typeof navigator.storage?.persisted !== 'function') return
+    try {
+      const persisted = await navigator.storage.persisted()
+      _persistentStorage.value = persisted ? 'granted' : 'denied'
+    } catch {
+      _persistentStorage.value = 'unknown'
+    }
+  }
+
+  async function requestPersistentStorage(): Promise<boolean> {
+    if (isNative || typeof navigator.storage?.persist !== 'function') return false
+    const granted = await navigator.storage.persist()
+    _persistentStorage.value = granted ? 'granted' : 'denied'
+    return granted
+  }
+
+  async function requestAllPermissions(): Promise<void> {
+    const result = await requestPermission()
+    if (result !== 'granted') return
+    if (isNative) {
+      await openExactAlarmSetting()
+      await requestBatteryExemption()
+    }
+  }
+
+  /**
+   * Re-check every permission status without prompting the user.
+   * Called on visibility change so statuses stay in sync if the user
+   * modifies permissions via Android/browser settings externally.
+   */
+  async function refreshAllStatuses(): Promise<void> {
+    if (isNative) {
+      const { LocalNotifications } = await import('@capacitor/local-notifications')
+      const { display } = await LocalNotifications.checkPermissions()
+      _permission.value = display === 'granted' ? 'granted' : display === 'denied' ? 'denied' : 'default'
+      await _checkExactAlarm(LocalNotifications)
+      await _checkBatteryOptim()
+    } else {
+      if (typeof Notification !== 'undefined') {
+        _permission.value = Notification.permission
+      }
+      await checkPersistentStorage()
     }
   }
 
@@ -571,10 +629,17 @@ export function useNotifications() {
     permission: readonly(_permission),
     exactAlarm: readonly(_exactAlarm),
     batteryOptim: readonly(_batteryOptim),
+    persistentStorage: readonly(_persistentStorage),
     notifLog: readonly(_notifLog),
     requestPermission,
     openExactAlarmSetting,
     requestBatteryExemption,
+    checkExactAlarm,
+    checkBatteryOptim,
+    checkPersistentStorage,
+    requestPersistentStorage,
+    requestAllPermissions,
+    refreshAllStatuses,
     scheduleAll,
     sendTestNotification,
     testScheduleOn,
