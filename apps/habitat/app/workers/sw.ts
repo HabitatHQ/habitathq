@@ -52,7 +52,7 @@ async function checkAndFireReminders(): Promise<void> {
     const at = new Date(r.at).getTime()
     // Fire if we're past the scheduled time but within a 2-minute window
     if (now >= at && now - at <= 120_000) {
-      await self.registration.showNotification(r.title, { body: r.body, icon: r.icon })
+      await self.registration.showNotification(r.title, { body: r.body, icon: r.icon, requireInteraction: true })
       fired.push(r.id)
     }
   }

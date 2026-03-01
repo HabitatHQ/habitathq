@@ -110,28 +110,42 @@ export function useNotifications() {
     const toSchedule: { id: number; title: string; body: string; schedule: { at: Date } }[] = []
 
     for (const reminder of reminders) {
-      if (reminder.days_active !== null && !reminder.days_active.includes(todayDow)) continue
-      if (reminder.trigger_time <= currentHHMM) continue
+      const title = habitMap.get(reminder.habit_id) ?? 'Habit reminder'
+      if (reminder.days_active !== null && !reminder.days_active.includes(todayDow)) {
+        console.debug('[Notif] _scheduleAllNative: SKIP', title, '— days_active', reminder.days_active, 'does not include today (', todayDow, ')')
+        continue
+      }
+      if (reminder.trigger_time <= currentHHMM) {
+        console.debug('[Notif] _scheduleAllNative: SKIP', title, '— trigger_time', reminder.trigger_time, '<= current', currentHHMM)
+        continue
+      }
       const parts = reminder.trigger_time.split(':')
       const at = new Date(now)
       at.setHours(Number(parts[0]), Number(parts[1]), 0, 0)
       toSchedule.push({
         id: hashId(reminder.id),
-        title: habitMap.get(reminder.habit_id) ?? 'Habit reminder',
+        title,
         body: 'Time for your habit!',
         schedule: { at },
       })
     }
 
     for (const reminder of checkinReminders) {
-      if (reminder.days_active !== null && !reminder.days_active.includes(todayDow)) continue
-      if (reminder.trigger_time <= currentHHMM) continue
+      const title = templateMap.get(reminder.template_id) ?? 'Check-in'
+      if (reminder.days_active !== null && !reminder.days_active.includes(todayDow)) {
+        console.debug('[Notif] _scheduleAllNative: SKIP', title, '— days_active', reminder.days_active, 'does not include today (', todayDow, ')')
+        continue
+      }
+      if (reminder.trigger_time <= currentHHMM) {
+        console.debug('[Notif] _scheduleAllNative: SKIP', title, '— trigger_time', reminder.trigger_time, '<= current', currentHHMM)
+        continue
+      }
       const parts = reminder.trigger_time.split(':')
       const at = new Date(now)
       at.setHours(Number(parts[0]), Number(parts[1]), 0, 0)
       toSchedule.push({
         id: hashId(reminder.id),
-        title: templateMap.get(reminder.template_id) ?? 'Check-in',
+        title,
         body: 'Time for your check-in!',
         schedule: { at },
       })
@@ -186,7 +200,7 @@ export function useNotifications() {
     function showNotif(title: string, body: string) {
       console.debug('[Notif] showNotif: firing', title, body, '| swReg =', !!swReg)
       if (Notification.permission !== 'granted') return
-      const opts: NotificationOptions = { body, icon: iconURL }
+      const opts: NotificationOptions = { body, icon: iconURL, requireInteraction: true }
       if (swReg) {
         swReg.showNotification(title, opts).catch(() => new Notification(title, opts))
       } else {
@@ -204,28 +218,46 @@ export function useNotifications() {
     const swSchedule: SwReminder[] = []
 
     for (const reminder of reminders) {
-      if (reminder.days_active !== null && !reminder.days_active.includes(todayDow)) continue
-      if (reminder.trigger_time <= currentHHMM) continue
+      const title = habitMap.get(reminder.habit_id) ?? 'Habit reminder'
+      if (reminder.days_active !== null && !reminder.days_active.includes(todayDow)) {
+        console.debug('[Notif] _scheduleAllWeb: SKIP', title, '— days_active', reminder.days_active, 'does not include today (', todayDow, ')')
+        continue
+      }
+      if (reminder.trigger_time <= currentHHMM) {
+        console.debug('[Notif] _scheduleAllWeb: SKIP', title, '— trigger_time', reminder.trigger_time, '<= current', currentHHMM)
+        continue
+      }
       const [hhStr, mmStr] = reminder.trigger_time.split(':')
       const at = new Date(now)
       at.setHours(Number(hhStr), Number(mmStr), 0, 0)
       const delay = at.getTime() - now.getTime()
-      if (delay <= 0) continue
-      const title = habitMap.get(reminder.habit_id) ?? 'Habit reminder'
+      if (delay <= 0) {
+        console.debug('[Notif] _scheduleAllWeb: SKIP', title, '— computed delay', delay, 'ms <= 0')
+        continue
+      }
       console.debug('[Notif] _scheduleAllWeb: timer for', title, 'at', reminder.trigger_time, '(delay', delay, 'ms)')
       _timers.push(setTimeout(() => showNotif(title, 'Time for your habit!'), delay))
       swSchedule.push({ id: reminder.id, title, body: 'Time for your habit!', at: at.toISOString(), icon: iconURL })
     }
 
     for (const reminder of checkinReminders) {
-      if (reminder.days_active !== null && !reminder.days_active.includes(todayDow)) continue
-      if (reminder.trigger_time <= currentHHMM) continue
+      const title = templateMap.get(reminder.template_id) ?? 'Check-in'
+      if (reminder.days_active !== null && !reminder.days_active.includes(todayDow)) {
+        console.debug('[Notif] _scheduleAllWeb: SKIP', title, '— days_active', reminder.days_active, 'does not include today (', todayDow, ')')
+        continue
+      }
+      if (reminder.trigger_time <= currentHHMM) {
+        console.debug('[Notif] _scheduleAllWeb: SKIP', title, '— trigger_time', reminder.trigger_time, '<= current', currentHHMM)
+        continue
+      }
       const [hhStr, mmStr] = reminder.trigger_time.split(':')
       const at = new Date(now)
       at.setHours(Number(hhStr), Number(mmStr), 0, 0)
       const delay = at.getTime() - now.getTime()
-      if (delay <= 0) continue
-      const title = templateMap.get(reminder.template_id) ?? 'Check-in'
+      if (delay <= 0) {
+        console.debug('[Notif] _scheduleAllWeb: SKIP', title, '— computed delay', delay, 'ms <= 0')
+        continue
+      }
       console.debug('[Notif] _scheduleAllWeb: timer for', title, 'at', reminder.trigger_time, '(delay', delay, 'ms)')
       _timers.push(setTimeout(() => showNotif(title, 'Time for your check-in!'), delay))
       swSchedule.push({ id: reminder.id, title, body: 'Time for your check-in!', at: at.toISOString(), icon: iconURL })
@@ -284,9 +316,8 @@ export function useNotifications() {
 
     const title = 'Habitat'
     const body = `Test at ${new Date().toLocaleTimeString()}`
-    const opts: NotificationOptions = { body, icon: iconURL, tag: `test-${Date.now()}` }
+    const opts: NotificationOptions = { body, icon: iconURL, requireInteraction: true, tag: `test-${Date.now()}` }
 
-    // Try SW path first, then direct Notification as fallback, then both
     if (swReg) {
       console.debug('[Notif] sendTestNotification: SW state —', {
         installing: swReg.installing?.state,
@@ -302,7 +333,6 @@ export function useNotifications() {
       }
     }
 
-    // Always also fire a direct Notification as a diagnostic fallback
     try {
       const n = new Notification(title, { ...opts, tag: `test-direct-${Date.now()}` })
       console.debug('[Notif] sendTestNotification: direct Notification created, permission =', Notification.permission)
