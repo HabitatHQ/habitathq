@@ -557,7 +557,7 @@ function handleInstall() {
 
 // ─── Notifications ────────────────────────────────────────────────────────────
 
-const { permission: notifPermission, requestPermission, sendTestNotification } = useNotifications()
+const { permission: notifPermission, exactAlarm, batteryOptim, notifLog, requestPermission, openExactAlarmSetting, requestBatteryExemption, sendTestNotification, testScheduleOn } = useNotifications()
 
 async function enableNotifications() {
   await requestPermission()
@@ -864,8 +864,14 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
                 <span v-else class="text-slate-500">Not enabled — grant permission to receive reminders</span>
               </template>
             </p>
+            <p v-if="notifPermission === 'granted' && exactAlarm === 'denied'" class="text-xs text-amber-400 mt-0.5">
+              Exact alarms disabled — reminders may be delayed or missed.
+            </p>
+            <p v-if="notifPermission === 'granted' && batteryOptim === 'optimized'" class="text-xs text-amber-400 mt-0.5">
+              Battery optimization active — reminders won't fire when app is closed.
+            </p>
           </div>
-          <div class="shrink-0">
+          <div class="shrink-0 flex items-center gap-1">
             <UButton
               v-if="notifPermission === 'default' && !isIosSafari"
               size="sm"
@@ -876,6 +882,26 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
             >
               Enable
             </UButton>
+            <template v-else-if="notifPermission === 'granted' && (exactAlarm === 'denied' || batteryOptim === 'optimized')">
+              <UButton
+                v-if="exactAlarm === 'denied'"
+                size="xs"
+                variant="soft"
+                color="warning"
+                @click="openExactAlarmSetting"
+              >
+                Fix alarms
+              </UButton>
+              <UButton
+                v-if="batteryOptim === 'optimized'"
+                size="xs"
+                variant="soft"
+                color="warning"
+                @click="requestBatteryExemption"
+              >
+                Fix battery
+              </UButton>
+            </template>
             <div v-else-if="notifPermission === 'granted'" class="w-2 h-2 rounded-full bg-green-400 mx-2" />
             <UIcon v-else-if="notifPermission === 'denied'" name="i-heroicons-bell-slash" class="w-5 h-5 text-red-400 mx-1" />
             <UIcon v-else-if="isIosSafari" name="i-heroicons-bell-slash" class="w-5 h-5 text-amber-400 mx-1" />
@@ -1137,14 +1163,28 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
         <!-- Test notification -->
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
-            <p class="text-sm font-medium">Test notification</p>
-            <p class="text-xs text-slate-500">Fire a sample notification to verify delivery.</p>
+            <p class="text-sm font-medium">Test notification (instant)</p>
+            <p class="text-xs text-slate-500">Fire via schedule.at — confirms the plugin works.</p>
           </div>
           <UButton
             size="sm" variant="ghost" color="neutral"
             icon="i-heroicons-bell"
             :disabled="notifPermission !== 'granted'"
             @click="sendTestNotification"
+          />
+        </div>
+
+        <!-- Test schedule.on -->
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Test schedule.on (≈2 min)</p>
+            <p class="text-xs text-slate-500">Schedules a repeating alarm for 2 min from now. Same API as real reminders.</p>
+          </div>
+          <UButton
+            size="sm" variant="ghost" color="neutral"
+            icon="i-heroicons-clock"
+            :disabled="notifPermission !== 'granted'"
+            @click="testScheduleOn"
           />
         </div>
 
@@ -1202,6 +1242,36 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
         <UIcon :name="dragonsOpen ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-red-900/50" />
       </button>
       <UCard v-if="dragonsOpen" :ui="{ root: 'rounded-2xl ring-1 ring-red-900/30', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+
+        <!-- Notification event log -->
+        <div class="px-4 py-3.5 space-y-2">
+          <div class="flex items-center justify-between">
+            <div class="space-y-0.5">
+              <p class="text-sm font-medium">Notification log</p>
+              <p class="text-xs text-slate-500">Recent notification events (scheduled, received, tapped).</p>
+            </div>
+            <UBadge v-if="notifLog.length > 0" :label="String(notifLog.length)" variant="subtle" color="neutral" size="xs" class="rounded-full font-mono" />
+          </div>
+          <div v-if="notifLog.length > 0" class="max-h-48 overflow-y-auto rounded-lg bg-slate-900/50 border border-slate-800 p-2 space-y-1 text-[11px] font-mono leading-snug">
+            <div v-for="(entry, i) in notifLog" :key="i" class="flex gap-2">
+              <span class="text-slate-600 shrink-0">{{ entry.time }}</span>
+              <span class="text-primary-400 shrink-0">{{ entry.event }}</span>
+              <span class="text-slate-400 break-all">{{ entry.detail }}</span>
+            </div>
+          </div>
+          <p v-else class="text-xs text-slate-600 italic">No events yet. Schedule or test a notification to see activity here.</p>
+        </div>
+
+        <!-- USB debugging instructions -->
+        <div class="px-4 py-3.5 space-y-1">
+          <p class="text-sm font-medium">Remote debugging (APK)</p>
+          <ol class="text-xs text-slate-500 list-decimal list-inside space-y-0.5">
+            <li>Enable <span class="text-slate-300">Developer Options</span> and <span class="text-slate-300">USB Debugging</span> on your Android device.</li>
+            <li>Connect via USB and open <span class="text-slate-300 font-mono">chrome://inspect</span> in desktop Chrome.</li>
+            <li>Find the Habitat WebView under <span class="text-slate-300">Remote Target</span> and click <span class="text-slate-300">inspect</span>.</li>
+          </ol>
+          <p class="text-[11px] text-slate-600 mt-1">Console logs from this page (including the notification log above) will appear in the DevTools console.</p>
+        </div>
 
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
