@@ -33,15 +33,21 @@ export function useNotifications() {
 
   async function requestPermission(): Promise<NotificationPermission> {
     if (isNative) {
+      console.debug('[Notif] requestPermission: native path')
       const { LocalNotifications } = await import('@capacitor/local-notifications')
       const { display } = await LocalNotifications.requestPermissions()
+      console.debug('[Notif] requestPermission: native display =', display)
       const mapped: NotificationPermission =
         display === 'granted' ? 'granted' : display === 'denied' ? 'denied' : 'default'
       _permission.value = mapped
       return mapped
     }
-    if (typeof Notification === 'undefined') return 'denied'
+    if (typeof Notification === 'undefined') {
+      console.debug('[Notif] requestPermission: Notification API unavailable')
+      return 'denied'
+    }
     const result = await Notification.requestPermission()
+    console.debug('[Notif] requestPermission: web result =', result)
     _permission.value = result
     return result
   }
@@ -55,6 +61,7 @@ export function useNotifications() {
    * On web: setTimeout for foreground + SW postMessage + Periodic Background Sync.
    */
   async function scheduleAll(): Promise<void> {
+    console.debug('[Notif] scheduleAll: platform =', isNative ? 'native' : 'web')
     if (isNative) {
       await _scheduleAllNative()
     } else {
@@ -71,14 +78,18 @@ export function useNotifications() {
     const mapped: NotificationPermission =
       display === 'granted' ? 'granted' : display === 'denied' ? 'denied' : 'default'
     _permission.value = mapped
+    console.debug('[Notif] _scheduleAllNative: permission =', mapped)
     if (mapped !== 'granted') return
 
-    // Cancel previously scheduled so we don't double-fire
     const { notifications: pending } = await LocalNotifications.getPending()
+    console.debug('[Notif] _scheduleAllNative: cancelling', pending.length, 'pending notifications')
     if (pending.length > 0) await LocalNotifications.cancel({ notifications: pending })
 
     const db = useDatabase()
-    if (!db.isAvailable) return
+    if (!db.isAvailable) {
+      console.debug('[Notif] _scheduleAllNative: DB not available, aborting')
+      return
+    }
 
     const [habits, reminders, checkinReminders, templates] = await Promise.all([
       db.getHabits(),
@@ -87,6 +98,7 @@ export function useNotifications() {
       db.getCheckinTemplates(),
     ])
 
+    console.debug('[Notif] _scheduleAllNative: found', reminders.length, 'habit reminders,', checkinReminders.length, 'checkin reminders')
     if (reminders.length === 0 && checkinReminders.length === 0) return
 
     const now = new Date()
@@ -125,8 +137,10 @@ export function useNotifications() {
       })
     }
 
+    console.debug('[Notif] _scheduleAllNative: scheduling', toSchedule.length, 'notifications', toSchedule.map(n => ({ id: n.id, title: n.title, at: n.schedule.at.toISOString() })))
     if (toSchedule.length > 0) {
       await LocalNotifications.schedule({ notifications: toSchedule })
+      console.debug('[Notif] _scheduleAllNative: schedule() call completed')
     }
   }
 
@@ -134,12 +148,19 @@ export function useNotifications() {
 
   async function _scheduleAllWeb(): Promise<void> {
     clearTimers()
-    if (typeof Notification === 'undefined') return
+    if (typeof Notification === 'undefined') {
+      console.debug('[Notif] _scheduleAllWeb: Notification API unavailable')
+      return
+    }
     _permission.value = Notification.permission
+    console.debug('[Notif] _scheduleAllWeb: permission =', _permission.value)
     if (_permission.value !== 'granted') return
 
     const db = useDatabase()
-    if (!db.isAvailable) return
+    if (!db.isAvailable) {
+      console.debug('[Notif] _scheduleAllWeb: DB not available, aborting')
+      return
+    }
 
     const [habits, reminders, checkinReminders, templates] = await Promise.all([
       db.getHabits(),
@@ -148,10 +169,9 @@ export function useNotifications() {
       db.getCheckinTemplates(),
     ])
 
+    console.debug('[Notif] _scheduleAllWeb: found', reminders.length, 'habit reminders,', checkinReminders.length, 'checkin reminders')
     if (reminders.length === 0 && checkinReminders.length === 0) return
 
-    // Chrome requires showNotification() via SW when a SW is registered.
-    // Resolve once up-front; 3 s timeout falls back to direct Notification.
     let swReg: ServiceWorkerRegistration | null = null
     if ('serviceWorker' in navigator) {
       try {
@@ -159,10 +179,12 @@ export function useNotifications() {
           navigator.serviceWorker.ready,
           new Promise(resolve => setTimeout(() => resolve(null), 3000)),
         ])
-      } catch (err) { console.warn('[useNotifications] SW unavailable:', err) }
+      } catch (err) { console.warn('[Notif] SW unavailable:', err) }
     }
+    console.debug('[Notif] _scheduleAllWeb: SW registration =', swReg ? 'available' : 'null', ', active =', !!swReg?.active)
 
     function showNotif(title: string, body: string) {
+      console.debug('[Notif] showNotif: firing', title, body, '| swReg =', !!swReg)
       if (Notification.permission !== 'granted') return
       const opts: NotificationOptions = { body, icon: iconURL }
       if (swReg) {
@@ -178,7 +200,6 @@ export function useNotifications() {
     const habitMap = new Map(habits.map(h => [h.id, h.name]))
     const templateMap = new Map(templates.map(t => [t.id, t.title]))
 
-    // Scheduled entries forwarded to the SW for background firing
     interface SwReminder { id: string; title: string; body: string; at: string; icon: string }
     const swSchedule: SwReminder[] = []
 
@@ -191,6 +212,7 @@ export function useNotifications() {
       const delay = at.getTime() - now.getTime()
       if (delay <= 0) continue
       const title = habitMap.get(reminder.habit_id) ?? 'Habit reminder'
+      console.debug('[Notif] _scheduleAllWeb: timer for', title, 'at', reminder.trigger_time, '(delay', delay, 'ms)')
       _timers.push(setTimeout(() => showNotif(title, 'Time for your habit!'), delay))
       swSchedule.push({ id: reminder.id, title, body: 'Time for your habit!', at: at.toISOString(), icon: iconURL })
     }
@@ -204,20 +226,22 @@ export function useNotifications() {
       const delay = at.getTime() - now.getTime()
       if (delay <= 0) continue
       const title = templateMap.get(reminder.template_id) ?? 'Check-in'
+      console.debug('[Notif] _scheduleAllWeb: timer for', title, 'at', reminder.trigger_time, '(delay', delay, 'ms)')
       _timers.push(setTimeout(() => showNotif(title, 'Time for your check-in!'), delay))
       swSchedule.push({ id: reminder.id, title, body: 'Time for your check-in!', at: at.toISOString(), icon: iconURL })
     }
 
-    // Pass schedule to SW so it can fire notifications if the page is backgrounded.
-    // Periodic Background Sync (Chrome Android only) wakes the SW on a schedule;
-    // the SW checks stored reminders and shows any that are due.
+    console.debug('[Notif] _scheduleAllWeb: scheduled', _timers.length, 'foreground timers,', swSchedule.length, 'SW reminders')
+
     if (swReg?.active) {
       swReg.active.postMessage({ type: 'SCHEDULE_REMINDERS', reminders: swSchedule })
+      console.debug('[Notif] _scheduleAllWeb: posted SCHEDULE_REMINDERS to SW')
       if ('periodicSync' in swReg) {
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           await (swReg as any).periodicSync.register('check-reminders', { minInterval: 55_000 })
-        } catch { /* unavailable or permission denied */ }
+          console.debug('[Notif] _scheduleAllWeb: periodicSync registered')
+        } catch (err) { console.debug('[Notif] _scheduleAllWeb: periodicSync unavailable:', err) }
       }
     }
   }
@@ -225,18 +249,27 @@ export function useNotifications() {
   // ── Test notification ────────────────────────────────────────────────────────
 
   async function sendTestNotification(): Promise<void> {
+    console.debug('[Notif] sendTestNotification: platform =', isNative ? 'native' : 'web')
     if (isNative) {
       const { LocalNotifications } = await import('@capacitor/local-notifications')
       const { display } = await LocalNotifications.checkPermissions()
+      console.debug('[Notif] sendTestNotification: native permission =', display)
       if (display !== 'granted') return
+      const at = new Date(Date.now() + 500)
+      console.debug('[Notif] sendTestNotification: scheduling native test at', at.toISOString())
       await LocalNotifications.schedule({
-        notifications: [{ id: 999_999, title: 'Habitat', body: 'Notifications are working!', schedule: { at: new Date(Date.now() + 500) } }],
+        notifications: [{ id: 999_999, title: 'Habitat', body: 'Notifications are working!', schedule: { at } }],
       })
+      console.debug('[Notif] sendTestNotification: native schedule() completed')
       return
     }
 
-    if (typeof Notification === 'undefined') return
+    if (typeof Notification === 'undefined') {
+      console.debug('[Notif] sendTestNotification: Notification API unavailable')
+      return
+    }
     _permission.value = Notification.permission
+    console.debug('[Notif] sendTestNotification: web permission =', _permission.value)
     if (_permission.value !== 'granted') return
 
     let swReg: ServiceWorkerRegistration | null = null
@@ -246,15 +279,37 @@ export function useNotifications() {
           navigator.serviceWorker.ready,
           new Promise(resolve => setTimeout(() => resolve(null), 3000)),
         ])
-      } catch (err) { console.warn('[useNotifications] SW unavailable for test notification:', err) }
+      } catch (err) { console.warn('[Notif] SW unavailable for test notification:', err) }
     }
 
     const title = 'Habitat'
-    const opts: NotificationOptions = { body: 'Notifications are working!', icon: iconURL }
+    const body = `Test at ${new Date().toLocaleTimeString()}`
+    const opts: NotificationOptions = { body, icon: iconURL, tag: `test-${Date.now()}` }
+
+    // Try SW path first, then direct Notification as fallback, then both
     if (swReg) {
-      swReg.showNotification(title, opts).catch(() => new Notification(title, opts))
-    } else {
-      new Notification(title, opts)
+      console.debug('[Notif] sendTestNotification: SW state —', {
+        installing: swReg.installing?.state,
+        waiting: swReg.waiting?.state,
+        active: swReg.active?.state,
+        scope: swReg.scope,
+      })
+      try {
+        await swReg.showNotification(title, opts)
+        console.debug('[Notif] sendTestNotification: SW showNotification resolved OK')
+      } catch (err) {
+        console.warn('[Notif] sendTestNotification: SW showNotification failed:', err)
+      }
+    }
+
+    // Always also fire a direct Notification as a diagnostic fallback
+    try {
+      const n = new Notification(title, { ...opts, tag: `test-direct-${Date.now()}` })
+      console.debug('[Notif] sendTestNotification: direct Notification created, permission =', Notification.permission)
+      n.onshow = () => console.debug('[Notif] sendTestNotification: direct Notification onshow fired')
+      n.onerror = (e) => console.warn('[Notif] sendTestNotification: direct Notification onerror:', e)
+    } catch (err) {
+      console.warn('[Notif] sendTestNotification: direct Notification constructor threw:', err)
     }
   }
 

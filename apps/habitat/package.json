@@ -7,6 +7,7 @@
     "dev": "nuxt dev",
     "dev:pwa": "BUILD_TARGET=pwa nuxt dev",
     "build:pwa": "BUILD_TARGET=pwa nuxt generate",
+    "preview:pwa": "BUILD_TARGET=pwa nuxt generate && npx serve .output/public",
     "build:native": "BUILD_TARGET=native nuxt generate && npx cap sync",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
