@@ -37,6 +37,7 @@ const weekCompletions = ref<Completion[]>([])
 const weekLogs = ref<HabitLog[]>([])
 const loading = ref(true)
 const toggling = reactive(new Set<string>())
+const flashing = reactive(new Set<string>())
 const logging = reactive(new Set<string>())
 
 // Per-habit inline log input state (NUMERIC type)
@@ -305,6 +306,9 @@ const pct = computed(() => (total.value > 0 ? doneCount.value / total.value : 0)
 const R = 42
 const CIRC = 2 * Math.PI * R
 const dashOffset = computed(() => CIRC * (1 - pct.value))
+const ringGlowing = computed(
+  () => doneCount.value === total.value && total.value > 0 && !isMotionReduced(),
+)
 
 // ─── BOOLEAN toggle ───────────────────────────────────────────────────────────
 
@@ -317,6 +321,10 @@ async function toggle(habit: HabitWithSchedule) {
     completions.value = await db.getCompletionsForDate(today)
     weekCompletions.value = await db.getCompletionsForDateRange(weekStart, today)
     await impact(wasCompleted ? 'light' : 'medium')
+    if (!wasCompleted && !isMotionReduced()) {
+      flashing.add(habit.id)
+      setTimeout(() => flashing.delete(habit.id), 400)
+    }
   } finally {
     toggling.delete(habit.id)
   }
@@ -415,6 +423,7 @@ onMounted(async () => {
               :stroke-dasharray="CIRC"
               :stroke-dashoffset="dashOffset"
               transform="rotate(-90 50 50)"
+              :class="{ 'ring-complete': ringGlowing }"
               style="transition: stroke-dashoffset 0.5s cubic-bezier(0.4, 0, 0.2, 1)"
             />
           </svg>
@@ -438,11 +447,14 @@ onMounted(async () => {
           </li>
           <li
             class="flex items-center gap-3 p-3 rounded-xl border transition-all duration-200"
-            :class="anyActive && !matchesContext(habit.tags)
-              ? 'bg-(--ui-bg-muted)/30 border-(--ui-border)/30 opacity-40'
-              : isHabitDone(habit)
-                ? 'bg-(--ui-bg-muted)/50 border-(--ui-border)/50 opacity-70'
-                : 'bg-(--ui-bg-muted) border-(--ui-border)'"
+            :class="[
+              anyActive && !matchesContext(habit.tags)
+                ? 'bg-(--ui-bg-muted)/30 border-(--ui-border)/30 opacity-40'
+                : isHabitDone(habit)
+                  ? 'bg-(--ui-bg-muted)/50 border-(--ui-border)/50 opacity-70'
+                  : 'bg-(--ui-bg-muted) border-(--ui-border)',
+              { 'habit-flash': flashing.has(habit.id) },
+            ]"
           >
           <!-- Icon -->
           <div
@@ -1021,5 +1033,26 @@ onMounted(async () => {
 @keyframes rim-breathe {
   0%, 100% { opacity: 0.7; }
   50%       { opacity: 1;   }
+}
+
+/* ── All-done ring glow ──────────────────────────────────── */
+.ring-complete {
+  animation: ring-glow-pulse 2s ease-in-out infinite;
+}
+
+@keyframes ring-glow-pulse {
+  0%, 100% { filter: drop-shadow(0 0 3px rgba(34, 211, 238, 0.45)); }
+  50%       { filter: drop-shadow(0 0 10px rgba(34, 211, 238, 0.85)); }
+}
+
+/* ── Habit completion flash ──────────────────────────────── */
+.habit-flash {
+  animation: habit-flash-anim 0.4s ease-out both;
+}
+
+@keyframes habit-flash-anim {
+  0%   { box-shadow: 0 0 0px rgba(34, 197, 94, 0); }
+  25%  { box-shadow: 0 0 14px rgba(34, 197, 94, 0.5), inset 0 0 10px rgba(34, 197, 94, 0.08); }
+  100% { box-shadow: 0 0 0px rgba(34, 197, 94, 0); }
 }
 </style>
