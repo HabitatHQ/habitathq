@@ -2,6 +2,12 @@
 import type { BoredCategory, Todo } from '~/types/database'
 
 const db = useDatabase()
+const { settings: appSettings, set: setAppSetting } = useAppSettings()
+
+const calendarView = computed({
+  get: () => appSettings.value.todoCalendarView,
+  set: (v: boolean) => setAppSetting('todoCalendarView', v),
+})
 
 const todos = ref<Todo[]>([])
 const boredCategories = ref<BoredCategory[]>([])
@@ -64,6 +70,16 @@ const done = computed(() =>
     .slice(0, 20),
 )
 
+// Todos passed to the calendar — respects the active filter
+const filteredTodosForCalendar = computed(() =>
+  todos.value.filter((t) => {
+    if (t.archived_at) return false
+    if (filter.value === 'active') return !t.is_done
+    if (filter.value === 'done') return t.is_done
+    return true
+  }),
+)
+
 type Section = { label: string; items: Todo[]; key: string; collapsible?: boolean }
 
 const filteredSections = computed((): Section[] => {
@@ -99,11 +115,15 @@ async function toggleTodo(t: Todo) {
 }
 
 function openAdd() {
+  openAddWithDate('')
+}
+
+function openAddWithDate(date: string) {
   editingTodo.value = null
   Object.assign(form, {
     title: '',
     description: '',
-    due_date: '',
+    due_date: date,
     priority: 'medium',
     estimated_minutes: '',
     is_recurring: false,
@@ -180,27 +200,51 @@ async function deleteAndClose(t: Todo) {
 </script>
 
 <template>
-  <div class="max-w-lg mx-auto space-y-5">
+  <div :class="calendarView ? 'space-y-4' : 'max-w-lg mx-auto space-y-5'">
     <!-- Header -->
-    <div class="flex items-center justify-between">
+    <div :class="calendarView ? '' : ''" class="flex items-center justify-between">
       <h1 class="text-2xl font-bold">TODOs</h1>
-      <UButton size="sm" icon="i-heroicons-plus" @click="openAdd">Add</UButton>
+      <div class="flex items-center gap-2">
+        <!-- List / Calendar toggle -->
+        <div class="flex bg-(--ui-bg-elevated) rounded-lg p-0.5 gap-0.5">
+          <button
+            class="p-1.5 rounded-md transition-colors"
+            :class="!calendarView ? 'bg-(--ui-bg) text-(--ui-text) shadow-sm' : 'text-(--ui-text-dimmed) hover:text-(--ui-text-toned)'"
+            @click="calendarView = false"
+          ><UIcon name="i-heroicons-list-bullet" class="w-4 h-4" /></button>
+          <button
+            class="p-1.5 rounded-md transition-colors"
+            :class="calendarView ? 'bg-(--ui-bg) text-(--ui-text) shadow-sm' : 'text-(--ui-text-dimmed) hover:text-(--ui-text-toned)'"
+            @click="calendarView = true"
+          ><UIcon name="i-heroicons-calendar-days" class="w-4 h-4" /></button>
+        </div>
+        <UButton size="sm" icon="i-heroicons-plus" @click="openAdd">Add</UButton>
+      </div>
     </div>
 
-    <!-- Filter chips -->
-    <div class="flex gap-2">
+    <!-- Filter chips (shared between list and calendar) -->
+    <div class="flex gap-2" :class="calendarView ? 'max-w-xs' : ''">
       <button
         v-for="f in [['all', 'All'], ['active', 'Active'], ['done', 'Done']] as const"
         :key="f[0]"
         class="px-3 py-1 rounded-full text-sm font-medium transition-colors"
         :class="filter === f[0] ? 'bg-primary-600 text-white' : 'bg-(--ui-bg-elevated) text-(--ui-text-toned) hover:bg-(--ui-bg-accented)'"
         @click="filter = f[0]"
-      >
-        {{ f[1] }}
-      </button>
+      >{{ f[1] }}</button>
     </div>
 
-    <!-- Sections -->
+    <!-- Calendar view -->
+    <TodoCalendarView
+      v-if="calendarView"
+      :todos="filteredTodosForCalendar"
+      :today="today"
+      @create="openAddWithDate"
+      @edit="openEdit"
+      @toggle="toggleTodo"
+    />
+
+    <!-- Sections (list view) -->
+    <template v-if="!calendarView">
     <template v-for="section in filteredSections" :key="section.key">
       <div class="space-y-2">
         <div class="flex items-center justify-between">
@@ -287,6 +331,8 @@ async function deleteAndClose(t: Todo) {
       <UIcon name="i-heroicons-check-circle" class="w-12 h-12 mx-auto mb-3 opacity-30" />
       <p>No todos yet. Tap + to add one.</p>
     </div>
+
+    </template><!-- end list view -->
 
     <!-- Add/Edit modal -->
     <div v-if="showModal" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center">

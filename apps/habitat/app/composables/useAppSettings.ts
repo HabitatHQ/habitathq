@@ -7,6 +7,8 @@ export interface AppSettings {
   enableBored: boolean
   weekDays: number
   matrixReverseDays: boolean
+  todoCalendarView: boolean
+  todoCalendarGrain: 'month' | 'week'
   showTagsOnHabits: boolean
   showAnnotationsOnHabits: boolean
   showTagsOnToday: boolean
@@ -29,6 +31,8 @@ const DEFAULTS: AppSettings = {
   enableBored: false,
   weekDays: 3,
   matrixReverseDays: false,
+  todoCalendarView: false,
+  todoCalendarGrain: 'month',
   showTagsOnHabits: false,
   showAnnotationsOnHabits: false,
   showTagsOnToday: false,
