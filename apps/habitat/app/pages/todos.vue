@@ -15,6 +15,8 @@ const filter = ref<'all' | 'active' | 'done'>('all')
 const showModal = useBoolModalQuery('add')
 const editingTodo = ref<Todo | null>(null)
 const showDone = ref(false)
+const route = useRoute()
+const highlightedTodoId = ref<string | null>(null)
 
 const form = reactive({
   title: '',
@@ -36,7 +38,20 @@ async function load() {
   ])
 }
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+  // biome-ignore lint/complexity/useLiteralKeys: noPropertyAccessFromIndexSignature requires bracket notation
+  const hid = route.query['highlight']
+  if (typeof hid === 'string' && hid) {
+    highlightedTodoId.value = hid
+    await nextTick()
+    const el = document.getElementById(`todo-${hid}`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setTimeout(() => {
+      highlightedTodoId.value = null
+    }, 2500)
+  }
+})
 
 // Use local calendar date (not UTC) so "today" matches the device's clock
 const _d = new Date()
@@ -120,6 +135,8 @@ function openAdd() {
 
 function openAddWithDate(date: string) {
   editingTodo.value = null
+  showJotPicker.value = false
+  jotPickerItems.value = []
   Object.assign(form, {
     title: '',
     description: '',
@@ -137,6 +154,8 @@ function openAddWithDate(date: string) {
 
 function openEdit(t: Todo) {
   editingTodo.value = t
+  showJotPicker.value = false
+  jotPickerItems.value = []
   Object.assign(form, {
     title: t.title,
     description: t.description,
@@ -170,7 +189,9 @@ async function saveTodo() {
     show_in_bored: form.show_in_bored,
     bored_category_id: form.show_in_bored && form.bored_category_id ? form.bored_category_id : null,
     tags,
-    annotations: {} as Record<string, string>,
+    annotations: editingTodo.value
+      ? { ...editingTodo.value.annotations }
+      : ({} as Record<string, string>),
   }
   if (editingTodo.value) {
     const updated = await db.updateTodo({ id: editingTodo.value.id, ...payload })
@@ -196,6 +217,133 @@ async function deleteTodoItem(t: Todo) {
 async function deleteAndClose(t: Todo) {
   await deleteTodoItem(t)
   showModal.value = false
+}
+
+// ─── Jot picker ───────────────────────────────────────────────────────────────
+
+const _IDB_NAME = 'habitat'
+const _VOICE_STORE = 'voice_notes'
+const _IMAGE_STORE = 'image_notes'
+let _pickerDb: IDBDatabase | null = null
+
+function _openPickerDb(): Promise<IDBDatabase> {
+  if (_pickerDb) return Promise.resolve(_pickerDb)
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(_IDB_NAME, 2)
+    req.onupgradeneeded = (e) => {
+      const idb = req.result
+      if (e.oldVersion < 1) idb.createObjectStore(_VOICE_STORE, { keyPath: 'id' })
+      if (e.oldVersion < 2) idb.createObjectStore(_IMAGE_STORE, { keyPath: 'id' })
+    }
+    req.onsuccess = () => {
+      _pickerDb = req.result
+      resolve(req.result)
+    }
+    req.onerror = () => reject(req.error)
+  })
+}
+
+async function _idbGetAll<T>(store: string): Promise<T[]> {
+  const idb = await _openPickerDb()
+  return new Promise((resolve, reject) => {
+    const req = idb.transaction(store, 'readonly').objectStore(store).getAll()
+    req.onsuccess = () => resolve(req.result as T[])
+    req.onerror = () => reject(req.error)
+  })
+}
+
+interface _VoiceNoteMin {
+  id: string
+  created_at: string
+  duration: number
+}
+interface _ImageNoteMin {
+  id: string
+  filename: string
+  created_at: string
+}
+
+interface JotPickerItem {
+  kind: 'text' | 'voice' | 'image'
+  id: string
+  label: string
+}
+
+const showJotPicker = ref(false)
+const jotPickerItems = ref<JotPickerItem[]>([])
+const loadingJotPicker = ref(false)
+const unlinkingJot = ref(false)
+
+async function openJotPicker() {
+  showJotPicker.value = true
+  if (jotPickerItems.value.length > 0) return
+  loadingJotPicker.value = true
+  try {
+    const [scribbles, voices, images] = await Promise.all([
+      db.getScribbles(),
+      _idbGetAll<_VoiceNoteMin>(_VOICE_STORE),
+      _idbGetAll<_ImageNoteMin>(_IMAGE_STORE),
+    ])
+    jotPickerItems.value = [
+      ...scribbles.map((s) => ({
+        kind: 'text' as const,
+        id: s.id,
+        label: s.title || s.content.slice(0, 60) || 'Untitled jot',
+      })),
+      ...voices.map((v) => ({
+        kind: 'voice' as const,
+        id: v.id,
+        label: `Voice note — ${v.created_at.slice(0, 10)}`,
+      })),
+      ...images.map((i) => ({ kind: 'image' as const, id: i.id, label: i.filename })),
+    ]
+  } finally {
+    loadingJotPicker.value = false
+  }
+}
+
+async function selectJot(item: JotPickerItem) {
+  if (!editingTodo.value) return
+  const updated = await db.updateTodo({
+    id: editingTodo.value.id,
+    annotations: {
+      ...editingTodo.value.annotations,
+      linked_jot_id: item.id,
+      linked_jot_kind: item.kind,
+      linked_jot_title: item.label,
+    },
+  })
+  const idx = todos.value.findIndex((x) => x.id === editingTodo.value?.id)
+  if (idx !== -1) todos.value[idx] = updated
+  editingTodo.value = updated
+  showJotPicker.value = false
+}
+
+async function unlinkJot() {
+  if (!editingTodo.value || unlinkingJot.value) return
+  unlinkingJot.value = true
+  try {
+    const filteredAnnotations: Record<string, string> = Object.fromEntries(
+      Object.entries(editingTodo.value.annotations).filter(
+        ([k]) => k !== 'linked_jot_id' && k !== 'linked_jot_kind' && k !== 'linked_jot_title',
+      ),
+    )
+    const updated = await db.updateTodo({
+      id: editingTodo.value.id,
+      annotations: filteredAnnotations,
+    })
+    const idx = todos.value.findIndex((x) => x.id === editingTodo.value?.id)
+    if (idx !== -1) todos.value[idx] = updated
+    editingTodo.value = updated
+  } finally {
+    unlinkingJot.value = false
+  }
+}
+
+function jotKindIcon(kind: string | undefined): string {
+  if (kind === 'voice') return 'i-heroicons-microphone'
+  if (kind === 'image') return 'i-heroicons-photo'
+  return 'i-heroicons-pencil'
 }
 </script>
 
@@ -262,7 +410,9 @@ async function deleteAndClose(t: Todo) {
           <div
             v-for="todo in section.items"
             :key="todo.id"
-            class="flex items-start gap-3 bg-(--ui-bg-muted) border border-(--ui-border) rounded-xl px-3 py-3"
+            :id="`todo-${todo.id}`"
+            class="flex items-start gap-3 bg-(--ui-bg-muted) border border-(--ui-border) rounded-xl px-3 py-3 transition-shadow"
+            :class="highlightedTodoId === todo.id ? 'ring-2 ring-primary-500 ring-offset-1 ring-offset-(--ui-bg)' : ''"
           >
             <!-- Priority stripe -->
             <div class="w-1 self-stretch rounded-full shrink-0 mt-0.5" :class="priorityColor(todo.priority)" />
@@ -409,6 +559,66 @@ async function deleteAndClose(t: Todo) {
                 <option v-for="cat in boredCategories" :key="cat.id" :value="cat.id">{{ cat.name }}</option>
               </select>
             </UFormField>
+          </div>
+        </div>
+
+        <!-- Linked jot (only shown when editing) -->
+        <div v-if="editingTodo" class="border-t border-(--ui-border) pt-3 space-y-2">
+          <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed)">Linked Jot</p>
+
+          <!-- Has a linked jot -->
+          <div v-if="editingTodo.annotations['linked_jot_id']" class="flex items-center gap-2.5 p-2.5 rounded-xl bg-(--ui-bg-elevated) border border-(--ui-border-accented)">
+            <UIcon
+              :name="jotKindIcon(editingTodo.annotations['linked_jot_kind'])"
+              class="w-4 h-4 text-(--ui-text-muted) shrink-0"
+            />
+            <span class="flex-1 text-sm text-(--ui-text-toned) truncate min-w-0">
+              {{ editingTodo.annotations['linked_jot_title'] || editingTodo.annotations['linked_jot_id'] }}
+            </span>
+            <UButton
+              icon="i-heroicons-arrow-top-right-on-square"
+              size="xs"
+              variant="ghost"
+              color="neutral"
+              title="Go to Jots"
+              @click="showModal = false; navigateTo('/jots')"
+            />
+            <UButton
+              icon="i-heroicons-x-mark"
+              size="xs"
+              variant="ghost"
+              color="error"
+              title="Remove link"
+              :loading="unlinkingJot"
+              @click="unlinkJot"
+            />
+          </div>
+
+          <!-- No linked jot -->
+          <button
+            v-else
+            class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1.5 transition-colors py-1"
+            @click="openJotPicker"
+          >
+            <UIcon name="i-heroicons-link" class="w-3.5 h-3.5" />
+            Link a jot
+          </button>
+
+          <!-- Jot picker -->
+          <div v-if="showJotPicker && !editingTodo.annotations['linked_jot_id']" class="border border-(--ui-border-accented) rounded-xl overflow-hidden">
+            <div v-if="loadingJotPicker" class="p-4 text-center text-xs text-(--ui-text-dimmed)">Loading jots…</div>
+            <div v-else-if="jotPickerItems.length === 0" class="p-4 text-center text-xs text-(--ui-text-dimmed)">No jots found.</div>
+            <ul v-else class="divide-y divide-(--ui-border) max-h-48 overflow-y-auto">
+              <li
+                v-for="jot in jotPickerItems"
+                :key="jot.kind + '-' + jot.id"
+                class="flex items-center gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-(--ui-bg-elevated) transition-colors"
+                @click="selectJot(jot)"
+              >
+                <UIcon :name="jotKindIcon(jot.kind)" class="w-3.5 h-3.5 text-(--ui-text-muted) shrink-0" />
+                <span class="text-sm text-(--ui-text-toned) truncate">{{ jot.label }}</span>
+              </li>
+            </ul>
           </div>
         </div>
 

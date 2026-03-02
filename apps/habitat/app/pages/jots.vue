@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Scribble } from '~/types/database'
+import type { Scribble, Todo } from '~/types/database'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -118,6 +118,9 @@ declare global {
 const dbComposable = useDatabase()
 const { settings: appSettings } = useAppSettings()
 
+const _td = new Date()
+const today = `${_td.getFullYear()}-${String(_td.getMonth() + 1).padStart(2, '0')}-${String(_td.getDate()).padStart(2, '0')}`
+
 // ─── Modal query-param sync ────────────────────────────────────────────────────
 
 const _route = useRoute()
@@ -189,6 +192,34 @@ const timeline = computed((): JotItem[] => {
     return dateB.localeCompare(dateA)
   })
 })
+
+// ─── Linked TODOs ─────────────────────────────────────────────────────────────
+
+const todos = ref<Todo[]>([])
+
+const todoByJotId = computed(() => {
+  const map = new Map<string, Todo>()
+  for (const t of todos.value) {
+    if (t.archived_at) continue
+    // biome-ignore lint/complexity/useLiteralKeys: noPropertyAccessFromIndexSignature requires bracket notation
+    const jotId = t.annotations['linked_jot_id']
+    if (jotId) map.set(jotId, t)
+  }
+  return map
+})
+
+function hasLinkedTodo(jotId: string): boolean {
+  return todoByJotId.value.has(jotId)
+}
+
+function onJotLinkClick(item: JotItem) {
+  const todo = todoByJotId.value.get(item.data.id)
+  if (todo) {
+    _router.push({ path: '/todos', query: { highlight: todo.id } })
+  } else {
+    openCreateTodo(item)
+  }
+}
 
 // ─── Text modal ───────────────────────────────────────────────────────────────
 
@@ -296,6 +327,60 @@ async function deleteText() {
   await dbComposable.deleteScribble(textEditing.value.id)
   scribbles.value = await dbComposable.getScribbles()
   closeModal()
+}
+
+// ─── Create TODO from jot ─────────────────────────────────────────────────────
+
+const showCreateTodoModal = ref(false)
+const createTodoForJot = ref<JotItem | null>(null)
+const createTodoTitle = ref('')
+const createTodoDate = ref('')
+const creatingTodo = ref(false)
+
+function jotDisplayTitle(item: JotItem): string {
+  if (item.kind === 'text') {
+    return item.data.title || item.data.content.slice(0, 50) || 'Untitled jot'
+  }
+  if (item.kind === 'voice') {
+    return `Voice note — ${item.data.created_at.slice(0, 10)}`
+  }
+  return item.data.filename
+}
+
+function openCreateTodo(item: JotItem) {
+  createTodoForJot.value = item
+  createTodoTitle.value = `Revisit: ${jotDisplayTitle(item)}`
+  createTodoDate.value = today
+  showCreateTodoModal.value = true
+}
+
+async function saveCreateTodo() {
+  if (!createTodoForJot.value || !createTodoTitle.value.trim() || creatingTodo.value) return
+  creatingTodo.value = true
+  try {
+    const jot = createTodoForJot.value
+    const created = await dbComposable.createTodo({
+      title: createTodoTitle.value.trim(),
+      description: '',
+      due_date: createTodoDate.value || null,
+      priority: 'medium',
+      estimated_minutes: null,
+      is_recurring: false,
+      recurrence_rule: null,
+      show_in_bored: false,
+      bored_category_id: null,
+      tags: [],
+      annotations: {
+        linked_jot_id: jot.data.id,
+        linked_jot_kind: jot.kind,
+        linked_jot_title: jotDisplayTitle(jot),
+      },
+    })
+    todos.value.push(created)
+    showCreateTodoModal.value = false
+  } finally {
+    creatingTodo.value = false
+  }
 }
 
 // ─── Voice recording ──────────────────────────────────────────────────────────
@@ -655,7 +740,10 @@ const gridView = ref(false)
 onMounted(async () => {
   gridView.value = localStorage.getItem('jots-view') === 'grid'
   if (dbComposable.isAvailable) {
-    scribbles.value = await dbComposable.getScribbles()
+    ;[scribbles.value, todos.value] = await Promise.all([
+      dbComposable.getScribbles(),
+      dbComposable.getTodos(),
+    ])
   }
   const storedVoice = await idbGetAll<Omit<VoiceNote, 'url'>>(VOICE_STORE)
   storedVoice.sort((a, b) => b.created_at.localeCompare(a.created_at))
@@ -757,6 +845,14 @@ onUnmounted(() => {
                 <span v-if="item.data.tags.length > 5" class="text-[10px] text-slate-600 self-center pl-0.5">+{{ item.data.tags.length - 5 }}</span>
               </div>
             </div>
+            <button
+              class="shrink-0 self-start mt-0.5 p-1 rounded-lg transition-colors"
+              :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
+              :title="hasLinkedTodo(item.data.id) ? 'View linked TODO' : 'Create TODO for this jot'"
+              @click.stop="onJotLinkClick(item)"
+            >
+              <UIcon :name="hasLinkedTodo(item.data.id) ? 'i-heroicons-paper-clip' : 'i-heroicons-link'" class="w-3.5 h-3.5" />
+            </button>
           </div>
         </li>
 
@@ -799,6 +895,16 @@ onUnmounted(() => {
               @click="transcribeNote(item.data)"
             />
             <UButton
+              :icon="hasLinkedTodo(item.data.id) ? 'i-heroicons-paper-clip' : 'i-heroicons-link'"
+              color="neutral"
+              variant="ghost"
+              size="sm"
+              :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
+              :title="hasLinkedTodo(item.data.id) ? 'View linked TODO' : 'Create TODO for this jot'"
+              :disabled="transcribingExistingId === item.data.id"
+              @click="onJotLinkClick(item)"
+            />
+            <UButton
               icon="i-heroicons-trash"
               color="neutral"
               variant="ghost"
@@ -829,6 +935,15 @@ onUnmounted(() => {
               <p class="text-sm text-(--ui-text-toned) truncate">{{ item.data.filename }}</p>
               <p class="text-xs text-(--ui-text-dimmed)">{{ fmtDate(item.data.created_at, appSettings.use24HourTime) }}</p>
             </div>
+            <UButton
+              :icon="hasLinkedTodo(item.data.id) ? 'i-heroicons-paper-clip' : 'i-heroicons-link'"
+              color="neutral"
+              variant="ghost"
+              size="sm"
+              :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
+              :title="hasLinkedTodo(item.data.id) ? 'View linked TODO' : 'Create TODO for this jot'"
+              @click="onJotLinkClick(item)"
+            />
             <UButton
               icon="i-heroicons-trash"
               color="neutral"
@@ -871,7 +986,17 @@ onUnmounted(() => {
                 >{{ splitTag(tag).leaf }}</span>
                 <span v-if="item.data.tags.length > 2" class="text-[9px] text-slate-600 self-center">+{{ item.data.tags.length - 2 }}</span>
               </div>
-              <span class="text-[10px] text-slate-600 shrink-0">{{ timeAgo(item.data.updated_at) }}</span>
+              <div class="flex items-center gap-0.5 shrink-0">
+                <button
+                  class="p-0.5 rounded transition-colors"
+                  :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
+                  :title="hasLinkedTodo(item.data.id) ? 'View linked TODO' : 'Create TODO for this jot'"
+                  @click.stop="onJotLinkClick(item)"
+                >
+                  <UIcon :name="hasLinkedTodo(item.data.id) ? 'i-heroicons-paper-clip' : 'i-heroicons-link'" class="w-3 h-3" />
+                </button>
+                <span class="text-[10px] text-slate-600">{{ timeAgo(item.data.updated_at) }}</span>
+              </div>
             </div>
           </div>
         </li>
@@ -921,6 +1046,16 @@ onUnmounted(() => {
                 @click.stop="transcribeNote(item.data)"
               />
               <UButton
+                :icon="hasLinkedTodo(item.data.id) ? 'i-heroicons-paper-clip' : 'i-heroicons-link'"
+                color="neutral"
+                variant="ghost"
+                size="xs"
+                :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
+                :title="hasLinkedTodo(item.data.id) ? 'View linked TODO' : 'Create TODO for this jot'"
+                :disabled="transcribingExistingId === item.data.id"
+                @click.stop="onJotLinkClick(item)"
+              />
+              <UButton
                 icon="i-heroicons-trash"
                 color="neutral"
                 variant="ghost"
@@ -954,14 +1089,24 @@ onUnmounted(() => {
               <p class="text-[11px] text-(--ui-text-muted) truncate leading-tight">{{ item.data.filename }}</p>
               <p class="text-[10px] text-slate-600 mt-0.5">{{ timeAgo(item.data.created_at) }}</p>
             </div>
-            <UButton
-              icon="i-heroicons-trash"
-              color="neutral"
-              variant="ghost"
-              size="xs"
-              class="text-slate-600 hover:text-red-400 shrink-0"
-              @click="deleteImageNote(item.data)"
-            />
+            <div class="flex items-center gap-0.5 shrink-0">
+              <button
+                class="p-0.5 rounded transition-colors"
+                :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
+                :title="hasLinkedTodo(item.data.id) ? 'View linked TODO' : 'Create TODO for this jot'"
+                @click="onJotLinkClick(item)"
+              >
+                <UIcon :name="hasLinkedTodo(item.data.id) ? 'i-heroicons-paper-clip' : 'i-heroicons-link'" class="w-3 h-3" />
+              </button>
+              <UButton
+                icon="i-heroicons-trash"
+                color="neutral"
+                variant="ghost"
+                size="xs"
+                class="text-slate-600 hover:text-red-400 shrink-0"
+                @click="deleteImageNote(item.data)"
+              />
+            </div>
           </div>
         </li>
 
@@ -1320,6 +1465,37 @@ onUnmounted(() => {
             </UButton>
           </div>
 
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- ── Create TODO from jot modal ────────────────────────────────────── -->
+    <Teleport to="body">
+      <div v-if="showCreateTodoModal" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="showCreateTodoModal = false" />
+        <div class="relative w-full sm:max-w-sm bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
+          <h3 class="text-base font-semibold">Create TODO</h3>
+          <p class="text-xs text-(--ui-text-dimmed) -mt-2">A TODO will be created and linked to this jot.</p>
+
+          <div class="space-y-3">
+            <UFormField label="Title" required>
+              <UInput v-model="createTodoTitle" placeholder="Revisit: …" class="w-full" />
+            </UFormField>
+            <UFormField label="Due date">
+              <UInput v-model="createTodoDate" type="date" class="w-full" />
+            </UFormField>
+          </div>
+
+          <div class="flex gap-2 pt-1">
+            <UButton variant="soft" color="neutral" class="flex-1" @click="showCreateTodoModal = false">Cancel</UButton>
+            <UButton
+              color="primary"
+              class="flex-1"
+              :loading="creatingTodo"
+              :disabled="!createTodoTitle.trim()"
+              @click="saveCreateTodo"
+            >Create</UButton>
+          </div>
         </div>
       </div>
     </Teleport>
