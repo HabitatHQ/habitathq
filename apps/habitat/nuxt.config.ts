@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { defineNuxtConfig } from 'nuxt/config'
 import license from 'rollup-plugin-license'
+import { cspHashPlugin } from './lib/csp-hashes'
 
 const buildTarget = process.env.BUILD_TARGET // 'pwa' | 'native' | undefined (defaults to dev/pwa)
 
@@ -40,8 +41,8 @@ export default defineNuxtConfig({
         'Content-Security-Policy': [
           "default-src 'self'",
           // 'wasm-unsafe-eval' is required for SQLite WASM compilation
-          // hash = @nuxt/ui color-mode FOUC-prevention inline script
-          "script-src 'self' 'wasm-unsafe-eval' 'sha256-7QIjPOpXT97VD5NmIGqI7WTiAFunWN1i1ifDHVp5i+g='",
+          // inline-script hashes are injected automatically by cspHashPlugin()
+          "script-src 'self' 'wasm-unsafe-eval'",
           // 'unsafe-inline' needed for Vue :style bindings (e.g. category colours)
           "style-src 'self' 'unsafe-inline'",
           // blob: for IDB image/voice playback & export downloads; data: for SVG bg-images
@@ -176,8 +177,8 @@ export default defineNuxtConfig({
         // Mirror routeRules CSP for the Vite dev server
         'Content-Security-Policy': [
           "default-src 'self'",
-          // hash = @nuxt/ui color-mode FOUC-prevention inline script
-          "script-src 'self' 'wasm-unsafe-eval' 'sha256-7QIjPOpXT97VD5NmIGqI7WTiAFunWN1i1ifDHVp5i+g='",
+          // inline-script hashes are injected automatically by cspHashPlugin()
+          "script-src 'self' 'wasm-unsafe-eval'",
           "style-src 'self' 'unsafe-inline'",
           "img-src 'self' blob: data:",
           "media-src 'self' blob:",
@@ -202,6 +203,9 @@ export default defineNuxtConfig({
       format: 'es', // worker bundle must be ES module for sqlite-wasm's dynamic imports
     },
     plugins: [
+      // Post-order: scan final HTML for inline <script> elements, compute
+      // their SHA-256 hashes, and patch them into the CSP meta tag's script-src.
+      cspHashPlugin(),
       license({
         thirdParty: {
           includePrivate: false,
@@ -241,8 +245,8 @@ export default defineNuxtConfig({
           'http-equiv': 'Content-Security-Policy',
           content: [
             "default-src 'self'",
-            // hash = @nuxt/ui color-mode FOUC-prevention inline script
-          "script-src 'self' 'wasm-unsafe-eval' 'sha256-7QIjPOpXT97VD5NmIGqI7WTiAFunWN1i1ifDHVp5i+g='",
+            // inline-script hashes are injected automatically by cspHashPlugin()
+          "script-src 'self' 'wasm-unsafe-eval'",
             "style-src 'self' 'unsafe-inline'",
             "img-src 'self' blob: data:",
             "media-src 'self' blob:",
