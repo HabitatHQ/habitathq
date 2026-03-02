@@ -3,6 +3,7 @@ import type { BoredCategory, BoredOracleResult } from '~/types/database'
 
 const db = useDatabase()
 const { settings } = useAppSettings()
+const eggs = useEasterEggs()
 
 const categories = ref<BoredCategory[]>([])
 const currentResult = ref<BoredOracleResult | null>(null)
@@ -11,6 +12,14 @@ const marking = ref(false)
 const hasRolled = ref(false)
 const excludedCategories = ref<string[]>([])
 const maxMinutes = ref<number | null>(null)
+
+// ── Easter egg session state ─────────────────────────────
+const habitatRolls = ref(0)
+const forestRolls = ref(0)
+const oceanRolls = ref(0)
+const consecutiveCat = ref({ id: '', count: 0 })
+const eggActive = ref<string | null>(null)
+const midnightRoll = ref(false)
 
 onMounted(async () => {
   categories.value = await db.getBoredCategories()
@@ -37,14 +46,75 @@ function isMotionReduced(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
+async function eggHabEight() {
+  if (oracle.value !== 'habitat' || habitatRolls.value !== 8 || eggs.isFound('hab-eight')) return
+  eggs.discover('hab-eight')
+  eggActive.value = 'hab-eight'
+  await new Promise((r) => setTimeout(r, 600))
+  eggActive.value = null
+}
+
+async function eggHabCertain() {
+  if (oracle.value !== 'habitat') return
+  const catId = currentResult.value?.category?.id ?? ''
+  if (catId && catId === consecutiveCat.value.id) {
+    consecutiveCat.value = { id: catId, count: consecutiveCat.value.count + 1 }
+  } else {
+    consecutiveCat.value = { id: catId, count: catId ? 1 : 0 }
+  }
+  if (consecutiveCat.value.count !== 3 || eggs.isFound('hab-certain')) return
+  eggs.discover('hab-certain')
+  eggActive.value = 'hab-certain'
+  await new Promise((r) => setTimeout(r, 200))
+  eggActive.value = null
+}
+
+async function eggForThirteenth() {
+  if (oracle.value !== 'forest' || forestRolls.value !== 13 || eggs.isFound('for-thirteenth'))
+    return
+  eggs.discover('for-thirteenth')
+  eggActive.value = 'for-thirteenth'
+  await new Promise((r) => setTimeout(r, 1800))
+  eggActive.value = null
+}
+
+async function eggOceSummon() {
+  if (oracle.value !== 'ocean' || oceanRolls.value !== 10 || eggs.isFound('oce-summon')) return
+  eggs.discover('oce-summon')
+  eggActive.value = 'oce-summon'
+  await new Promise((r) => setTimeout(r, 1600))
+  eggActive.value = null
+}
+
 async function roll() {
   if (shaking.value) return
+  midnightRoll.value = false
   hasRolled.value = true
+
+  const isMidnight = import.meta.client ? new Date().getHours() === 0 : false
+
+  shaking.value = true
   if (!isMotionReduced()) {
-    shaking.value = true
     await new Promise((r) => setTimeout(r, 650))
   }
+
+  if (oracle.value === 'habitat') habitatRolls.value++
+  else if (oracle.value === 'forest') forestRolls.value++
+  else oceanRolls.value++
+
+  await eggHabEight()
+
   currentResult.value = await db.getBoredOracle([...excludedCategories.value], maxMinutes.value)
+
+  await eggHabCertain()
+  await eggForThirteenth()
+  await eggOceSummon()
+
+  if (isMidnight && !eggs.isFound('any-midnight')) {
+    eggs.discover('any-midnight')
+    midnightRoll.value = true
+  }
+
   shaking.value = false
 }
 
@@ -120,6 +190,7 @@ const ORACLE_COPY: Record<string, { rolling: string; again: string; idle: string
 }
 
 const oracleHint = computed(() => {
+  if (midnightRoll.value && currentResult.value) return 'Something ancient answered instead'
   const copy = ORACLE_COPY[oracle.value] ?? ORACLE_COPY['habitat']
   if (shaking.value) return copy.rolling
   if (currentResult.value) return copy.again
@@ -188,7 +259,9 @@ const oracleHint = computed(() => {
 
         <!-- Window: metallic ring + deep liquid interior -->
         <div class="ball-window">
-          <div v-if="currentResult && !shaking" class="result-content">
+          <div v-if="eggActive === 'hab-eight'" class="egg-eight">8</div>
+          <div v-else-if="eggActive === 'hab-certain'" class="egg-certain-flash" />
+          <div v-else-if="currentResult && !shaking" class="result-content">
             <UIcon
               v-if="resultCategory"
               :name="resultCategory.icon"
@@ -211,7 +284,7 @@ const oracleHint = computed(() => {
       <button
         v-else-if="oracle === 'forest'"
         class="moss-stone select-none outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-4 focus-visible:ring-offset-(--ui-bg)"
-        :class="{ 'stone-rumble': shaking }"
+        :class="{ 'stone-rumble': shaking, 'egg-thirteenth': eggActive === 'for-thirteenth' }"
         aria-label="Tap the moss stone"
         @click="roll"
       >
@@ -222,7 +295,8 @@ const oracleHint = computed(() => {
 
         <!-- Carved face: recessed circle where the result appears -->
         <div class="stone-face">
-          <div v-if="currentResult && !shaking" class="rune-result">
+          <span v-if="eggActive === 'for-thirteenth'" class="rune-ancient">ᚱ</span>
+          <div v-else-if="currentResult && !shaking" class="rune-result">
             <UIcon
               v-if="resultCategory"
               :name="resultCategory.icon"
@@ -255,6 +329,9 @@ const oracleHint = computed(() => {
         <div class="bubble bubble-1" />
         <div class="bubble bubble-2" />
         <div class="bubble bubble-3" />
+
+        <!-- Kraken sucker (oce-summon egg) -->
+        <div v-if="eggActive === 'oce-summon'" class="kraken-sucker" />
 
         <!-- Jellyfish body: bell + tentacles move together -->
         <div class="jellyfish" :class="{ 'jelly-startled': shaking }">
@@ -971,5 +1048,149 @@ const oracleHint = computed(() => {
 @keyframes bio-emerge {
   from { opacity: 0; transform: scale(0.55) translateY(4px); filter: blur(4px); }
   to   { opacity: 1; transform: scale(1)    translateY(0);   filter: blur(0);   }
+}
+
+/* ── Easter eggs ─────────────────────────────────────────── */
+
+/* hab-eight: glowing "8" in ball window */
+.egg-eight {
+  font-size: 2rem;
+  font-weight: 900;
+  color: white;
+  text-shadow:
+    0 0 10px rgba(255, 255, 255, 0.9),
+    0 0 30px rgba(255, 255, 255, 0.6),
+    0 0 60px rgba(200, 200, 255, 0.4);
+  animation: egg-eight-pulse 0.6s ease-in-out both;
+  user-select: none;
+  line-height: 1;
+}
+
+@keyframes egg-eight-pulse {
+  0%   { opacity: 0; transform: scale(0.5); }
+  30%  { opacity: 1; transform: scale(1.2); }
+  70%  { opacity: 1; transform: scale(1);   }
+  100% { opacity: 0; transform: scale(0.8); }
+}
+
+/* hab-certain: white flash overlay filling the ball window */
+.egg-certain-flash {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.85);
+  animation: egg-flash 0.2s ease-out both;
+  pointer-events: none;
+}
+
+@keyframes egg-flash {
+  0%   { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* for-thirteenth: amber glow on moss stone */
+.moss-stone.egg-thirteenth {
+  box-shadow:
+    0 25px 60px rgba(0, 0, 0, 0.85),
+    0 10px 25px rgba(0, 0, 0, 0.6),
+    inset 0 -4px 12px rgba(0, 0, 0, 0.5),
+    0 0 30px rgba(251, 191, 36, 0.6),
+    0 0 70px rgba(251, 191, 36, 0.3);
+  animation: egg-thirteenth-glow 1.8s ease-in-out both;
+}
+
+@keyframes egg-thirteenth-glow {
+  0% {
+    box-shadow:
+      0 25px 60px rgba(0,0,0,0.85),
+      0 10px 25px rgba(0,0,0,0.6),
+      inset 0 -4px 12px rgba(0,0,0,0.5),
+      0 0 0px rgba(251,191,36,0);
+  }
+  25% {
+    box-shadow:
+      0 25px 60px rgba(0,0,0,0.85),
+      0 10px 25px rgba(0,0,0,0.6),
+      inset 0 -4px 12px rgba(0,0,0,0.5),
+      0 0 30px rgba(251,191,36,0.6),
+      0 0 70px rgba(251,191,36,0.3);
+  }
+  75% {
+    box-shadow:
+      0 25px 60px rgba(0,0,0,0.85),
+      0 10px 25px rgba(0,0,0,0.6),
+      inset 0 -4px 12px rgba(0,0,0,0.5),
+      0 0 30px rgba(251,191,36,0.6),
+      0 0 70px rgba(251,191,36,0.3);
+  }
+  100% {
+    box-shadow:
+      0 25px 60px rgba(0,0,0,0.85),
+      0 10px 25px rgba(0,0,0,0.6),
+      inset 0 -4px 12px rgba(0,0,0,0.5),
+      0 0 0px rgba(251,191,36,0);
+  }
+}
+
+/* for-thirteenth: amber elder rune in stone face */
+.rune-ancient {
+  font-size: 1.8rem;
+  color: #fbbf24;
+  user-select: none;
+  line-height: 1;
+  animation: rune-ancient-glow 1.8s ease-in-out both;
+}
+
+@keyframes rune-ancient-glow {
+  0%   { opacity: 0; text-shadow: 0 0 0px rgba(251, 191, 36, 0); }
+  20%  { opacity: 1; text-shadow: 0 0 12px rgba(251, 191, 36, 0.9), 0 0 30px rgba(251, 191, 36, 0.6); }
+  75%  { opacity: 1; text-shadow: 0 0 12px rgba(251, 191, 36, 0.9), 0 0 30px rgba(251, 191, 36, 0.6); }
+  100% { opacity: 0; text-shadow: 0 0 0px rgba(251, 191, 36, 0); }
+}
+
+/* oce-summon: kraken sucker rises from porthole bottom */
+.kraken-sucker {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 40% 35%,
+    rgba(99, 102, 241, 0.5),
+    rgba(49, 46, 129, 0.85) 55%,
+    rgba(15, 12, 50, 0.97)
+  );
+  border: 2px solid rgba(99, 102, 241, 0.65);
+  box-shadow:
+    0 0 14px rgba(99, 102, 241, 0.55),
+    inset 0 0 10px rgba(0, 0, 0, 0.8);
+  animation: sucker-emerge 1.6s ease-in-out both;
+  pointer-events: none;
+}
+
+.kraken-sucker::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  border: 2px solid rgba(99, 102, 241, 0.28);
+  pointer-events: none;
+}
+
+.kraken-sucker::after {
+  content: '';
+  position: absolute;
+  inset: -16px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(99, 102, 241, 0.14);
+  pointer-events: none;
+}
+
+@keyframes sucker-emerge {
+  0%   { transform: translateX(-50%) translateY(110%); opacity: 0; }
+  15%  { transform: translateX(-50%) translateY(15%);  opacity: 1; }
+  70%  { transform: translateX(-50%) translateY(15%);  opacity: 1; }
+  100% { transform: translateX(-50%) translateY(110%); opacity: 0; }
 }
 </style>
