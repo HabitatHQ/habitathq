@@ -1,0 +1,218 @@
+/* ── Habitat Themes ────────────────────────────────────────────────────────────
+   Three palettes (Habitat / Forest / Ocean) × two color modes (dark / light).
+   Applied by setting data-theme="habitat|forest|ocean" on <html>.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* ── 1. Forest theme — Moss teal-green primary ──────────────────────────────── */
+
+[data-theme='forest'] {
+  /* Moss teal-green scale: deep, earthy, slightly cool-shifted green */
+  --color-primary-50: #f0fbf7;
+  --color-primary-100: #d1f0e6;
+  --color-primary-200: #a5dece;
+  --color-primary-300: #6cc5ae;
+  --color-primary-400: #34a07a;
+  --color-primary-500: #208a65;
+  --color-primary-600: #1a6e50;
+  --color-primary-700: #15533e;
+  --color-primary-800: #10402f;
+  --color-primary-900: #0a2b1f;
+  --color-primary-950: #051711;
+  --ui-color-primary-50: #f0fbf7;
+  --ui-color-primary-100: #d1f0e6;
+  --ui-color-primary-200: #a5dece;
+  --ui-color-primary-300: #6cc5ae;
+  --ui-color-primary-400: #34a07a;
+  --ui-color-primary-500: #208a65;
+  --ui-color-primary-600: #1a6e50;
+  --ui-color-primary-700: #15533e;
+  --ui-color-primary-800: #10402f;
+  --ui-color-primary-900: #0a2b1f;
+  --ui-color-primary-950: #051711;
+}
+
+/* Forest dark mode: deep forest night with subtle warm undertone */
+html.dark[data-theme='forest'] {
+  --ui-bg: #0d1710;
+  --ui-bg-muted: #13201a;
+  --ui-bg-elevated: #1b2d23;
+  --ui-bg-accented: #22382c;
+  --ui-bg-inverted: #f0fbf7;
+  --ui-border: color-mix(in oklch, #3d7055 30%, transparent);
+  --ui-border-accented: color-mix(in oklch, #3d7055 50%, transparent);
+}
+
+/* Forest light mode: sage-white tinted background */
+html:not(.dark)[data-theme='forest'] {
+  --ui-bg: #f2f5ee;
+  --ui-bg-muted: #e8ede3;
+  --ui-bg-elevated: #dde5d7;
+  --ui-bg-accented: #d3dccb;
+  --ui-bg-inverted: #0d1710;
+  --ui-text: var(--ui-color-neutral-900);
+  --ui-text-muted: var(--ui-color-neutral-600);
+  --ui-text-dimmed: var(--ui-color-neutral-500);
+  --ui-text-toned: var(--ui-color-neutral-700);
+  --ui-border: color-mix(in oklch, #607a60 25%, transparent);
+  --ui-border-accented: color-mix(in oklch, #607a60 40%, transparent);
+}
+
+/* ── 2. Ocean theme — Indigo primary ─────────────────────────────────────────── */
+
+[data-theme='ocean'] {
+  --color-primary-50: #eef2ff;
+  --color-primary-100: #e0e7ff;
+  --color-primary-200: #c7d2fe;
+  --color-primary-300: #a5b4fc;
+  --color-primary-400: #818cf8;
+  --color-primary-500: #6366f1;
+  --color-primary-600: #4f46e5;
+  --color-primary-700: #4338ca;
+  --color-primary-800: #3730a3;
+  --color-primary-900: #312e81;
+  --color-primary-950: #1e1b4b;
+  --ui-color-primary-50: #eef2ff;
+  --ui-color-primary-100: #e0e7ff;
+  --ui-color-primary-200: #c7d2fe;
+  --ui-color-primary-300: #a5b4fc;
+  --ui-color-primary-400: #818cf8;
+  --ui-color-primary-500: #6366f1;
+  --ui-color-primary-600: #4f46e5;
+  --ui-color-primary-700: #4338ca;
+  --ui-color-primary-800: #3730a3;
+  --ui-color-primary-900: #312e81;
+  --ui-color-primary-950: #1e1b4b;
+}
+
+/* Ocean dark mode: dark teal background */
+html.dark[data-theme='ocean'] {
+  --ui-bg: #081318;
+  --ui-bg-muted: #0d1c23;
+  --ui-bg-elevated: #112630;
+  --ui-bg-accented: #163040;
+  --ui-bg-inverted: #f5f7ff;
+  --ui-border: color-mix(in oklch, #207090 30%, transparent);
+  --ui-border-accented: color-mix(in oklch, #207090 45%, transparent);
+}
+
+/* Ocean light mode: pale periwinkle background */
+html:not(.dark)[data-theme='ocean'] {
+  --ui-bg: #f5f7ff;
+  --ui-bg-muted: #eaedff;
+  --ui-bg-elevated: #dde2ff;
+  --ui-bg-accented: #d0d6ff;
+  --ui-bg-inverted: #081318;
+  --ui-text: var(--ui-color-neutral-900);
+  --ui-text-muted: var(--ui-color-neutral-600);
+  --ui-text-dimmed: var(--ui-color-neutral-500);
+  --ui-text-toned: var(--ui-color-neutral-700);
+  --ui-border: color-mix(in oklch, #6070c0 20%, transparent);
+  --ui-border-accented: color-mix(in oklch, #6070c0 35%, transparent);
+}
+
+/* ── 3. Theme crossfade transition ──────────────────────────────────────────── */
+/* Added temporarily to <html> during a theme switch to animate color changes.  */
+html.theme-transitioning,
+html.theme-transitioning * {
+  transition:
+    background-color 200ms ease,
+    color 200ms ease !important;
+}
+
+/* ── 4. Sprout logo animation (sequential stroke-dashoffset path draw) ────────
+   All paths use pathLength="1" so stroke-dasharray/offset values are
+   normalised to [0 … 1], independent of actual path length.
+   Sequential order: stem → left leaf → right branch → soil arc.
+   Default speed: ~510ms total.  Matrix logo: 2× (~1020ms total).
+   ──────────────────────────────────────────────────────────────────────────── */
+
+@keyframes sprout-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* While .sprout-anim is on the SVG, hide all paths and animate in sequence */
+.plant-logo.sprout-anim .sprout-stem,
+.plant-logo.sprout-anim .sprout-leaf-l,
+.plant-logo.sprout-anim .sprout-branch-r,
+.plant-logo.sprout-anim .sprout-soil {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+
+.plant-logo.sprout-anim .sprout-stem {
+  animation: sprout-draw 120ms 0ms linear forwards;
+}
+.plant-logo.sprout-anim .sprout-leaf-l {
+  animation: sprout-draw 150ms 120ms linear forwards;
+}
+.plant-logo.sprout-anim .sprout-branch-r {
+  animation: sprout-draw 160ms 270ms linear forwards;
+}
+.plant-logo.sprout-anim .sprout-soil {
+  animation: sprout-draw 80ms 430ms linear forwards;
+}
+
+/* 2× speed for the larger Matrix page logo */
+.plant-logo-lg.sprout-anim .sprout-stem,
+.plant-logo-lg.sprout-anim .sprout-leaf-l,
+.plant-logo-lg.sprout-anim .sprout-branch-r,
+.plant-logo-lg.sprout-anim .sprout-soil {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+
+.plant-logo-lg.sprout-anim .sprout-stem {
+  animation: sprout-draw 240ms 0ms linear forwards;
+}
+.plant-logo-lg.sprout-anim .sprout-leaf-l {
+  animation: sprout-draw 300ms 240ms linear forwards;
+}
+.plant-logo-lg.sprout-anim .sprout-branch-r {
+  animation: sprout-draw 320ms 540ms linear forwards;
+}
+.plant-logo-lg.sprout-anim .sprout-soil {
+  animation: sprout-draw 160ms 860ms linear forwards;
+}
+
+/* ── 5. Reduce motion ────────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .plant-logo.sprout-anim .sprout-stem,
+  .plant-logo.sprout-anim .sprout-leaf-l,
+  .plant-logo.sprout-anim .sprout-branch-r,
+  .plant-logo.sprout-anim .sprout-soil,
+  .plant-logo-lg.sprout-anim .sprout-stem,
+  .plant-logo-lg.sprout-anim .sprout-leaf-l,
+  .plant-logo-lg.sprout-anim .sprout-branch-r,
+  .plant-logo-lg.sprout-anim .sprout-soil {
+    stroke-dashoffset: 0 !important;
+    animation: none !important;
+  }
+
+  html.theme-transitioning,
+  html.theme-transitioning * {
+    transition: none !important;
+  }
+}
+
+html.reduce-motion .plant-logo.sprout-anim .sprout-stem,
+html.reduce-motion .plant-logo.sprout-anim .sprout-leaf-l,
+html.reduce-motion .plant-logo.sprout-anim .sprout-branch-r,
+html.reduce-motion .plant-logo.sprout-anim .sprout-soil,
+html.reduce-motion .plant-logo-lg.sprout-anim .sprout-stem,
+html.reduce-motion .plant-logo-lg.sprout-anim .sprout-leaf-l,
+html.reduce-motion .plant-logo-lg.sprout-anim .sprout-branch-r,
+html.reduce-motion .plant-logo-lg.sprout-anim .sprout-soil {
+  stroke-dashoffset: 0 !important;
+  animation: none !important;
+}
+
+html.reduce-motion.theme-transitioning,
+html.reduce-motion.theme-transitioning * {
+  transition: none !important;
+}

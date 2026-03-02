@@ -4,6 +4,44 @@ import type { Completion, HabitLog, HabitWithSchedule } from '~/types/database'
 const db = useDatabase()
 const { settings } = useAppSettings()
 
+// ── Logo sprout animation (2× speed for larger logo) ─────────────────────────
+
+const logoSvgRef = ref<SVGElement | null>(null)
+const logoAnimating = ref(false)
+const logoQueued = ref(false)
+
+function isMotionReduced(): boolean {
+  if (!import.meta.client) return true
+  if (settings.value.reduceMotion) return true
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+async function startLogoAnim() {
+  logoAnimating.value = false
+  await nextTick()
+  void logoSvgRef.value?.offsetWidth
+  logoAnimating.value = true
+}
+
+function playLogoAnimation() {
+  if (isMotionReduced()) return
+  if (logoAnimating.value) {
+    logoQueued.value = true
+    return
+  }
+  startLogoAnim()
+}
+
+function onLogoAnimEnd(e: AnimationEvent) {
+  if (!(e.target as Element).classList.contains('sprout-soil')) return
+  if (logoQueued.value) {
+    logoQueued.value = false
+    startLogoAnim()
+  } else {
+    logoAnimating.value = false
+  }
+}
+
 const today = new Date().toISOString().slice(0, 10)
 
 // Always load 30 days so both mobile (weekDays) and desktop (month) are covered
@@ -137,7 +175,10 @@ async function saveCell() {
 
 // ─── Day header helpers ───────────────────────────────────────────────────────
 
-onMounted(load)
+onMounted(() => {
+  load()
+  nextTick(playLogoAnimation)
+})
 </script>
 
 <template>
@@ -148,16 +189,25 @@ onMounted(load)
       <div class="relative flex items-center justify-center">
         <div class="absolute w-44 h-44 rounded-full bg-primary-500/10 blur-3xl" />
         <svg
-          class="plant-logo relative w-24 h-28"
+          ref="logoSvgRef"
+          class="plant-logo plant-logo-lg relative w-24 h-28"
+          :class="{ 'sprout-anim': logoAnimating }"
           viewBox="0 0 40 44"
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
-          aria-hidden="true"
+          role="img"
+          aria-label="Habitat"
+          @click="playLogoAnimation"
+          @animationend="onLogoAnimEnd"
         >
-          <path d="M 8,40 C 12,37 28,37 32,40" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" />
-          <line x1="20" y1="40" x2="20" y2="24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
-          <path d="M 20,24 C 11,23 4,29 8,34 C 11,37 19,30 20,24" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-          <path d="M 20,24 C 26,20 32,14 30,8 C 28,5 20,13 20,24" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+          <!-- Stem (draws 1st) -->
+          <line class="sprout-stem" x1="20" y1="40" x2="20" y2="24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" pathLength="1" />
+          <!-- Left leaf (draws 2nd) -->
+          <path class="sprout-leaf-l" d="M 20,24 C 11,23 4,29 8,34 C 11,37 19,30 20,24" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" pathLength="1" />
+          <!-- Right branch (draws 3rd) -->
+          <path class="sprout-branch-r" d="M 20,24 C 26,20 32,14 30,8 C 28,5 20,13 20,24" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" pathLength="1" />
+          <!-- Soil mound (draws last, 4th) -->
+          <path class="sprout-soil" d="M 8,40 C 12,37 28,37 32,40" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" pathLength="1" />
         </svg>
       </div>
       <div class="text-center">

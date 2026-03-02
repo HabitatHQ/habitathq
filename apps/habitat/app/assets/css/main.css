@@ -13,6 +13,7 @@
    ──────────────────────────────────────────────────────────────── */
 @import "tailwindcss";
 @import "@nuxt/ui";
+@import "./themes.css";
 
 /* ── Dark mode token overrides ────────────────────────────────────────────────
    Nuxt UI dark defaults use neutral-900 as the page background, but Habitat's
@@ -25,27 +26,14 @@
   --ui-text: var(--ui-color-neutral-100);
 }
 
-/* Safe-area inset utilities for iOS notch / home indicator.
-   Used by layouts/default.vue: class="… safe-area-bottom"        */
-/* ── Plant logo fill-up animation ─────────────────────────────────────────── */
-/* Reveals the plant from bottom to top while building a neon glow.            */
-/* clip-path inset(T R B L): T=100% hides everything; decreasing T reveals     */
-/* from the bottom edge upward. Negative side/bottom values preserve the glow  */
-/* filter that bleeds outside the SVG bounding box.                            */
-@keyframes plant-fill-up {
-  from {
-    clip-path: inset(105% -28px -18px -28px);
-    filter: drop-shadow(0 0 0px rgba(34, 211, 238, 0));
-  }
-  to {
-    clip-path: inset(-8% -28px -18px -28px);
-    filter: drop-shadow(0 0 6px #22d3ee) drop-shadow(0 0 18px rgba(34, 211, 238, 0.5));
-  }
-}
-
+/* ── Plant logo ───────────────────────────────────────────────────────────────
+   Uses currentColor so it inherits the primary accent from the active theme.
+   Animation is handled via the .sprout-anim class in themes.css.
+   ─────────────────────────────────────────────────────────────────────────── */
 .plant-logo {
+  /* Habitat brand cyan — unchanged across themes */
   color: #22d3ee;
-  animation: plant-fill-up 2.5s cubic-bezier(0.4, 0, 0.2, 1) both;
+  cursor: pointer;
 }
 
 @layer utilities {

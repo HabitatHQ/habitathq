@@ -596,7 +596,25 @@ const integrityOk = computed(
 
 import { Capacitor } from '@capacitor/core'
 import { zipSync } from 'fflate'
+import type { AppTheme } from '~/composables/useAppSettings'
 import type { DbInfo, ExportSelection, HabitatExport } from '~/types/database'
+
+// ── Appearance ────────────────────────────────────────────────────────────────
+
+const colorMode = useColorMode()
+
+const THEMES: { id: AppTheme; name: string; swatch: string }[] = [
+  { id: 'habitat', name: 'Habitat', swatch: '#22d3ee' },
+  { id: 'forest', name: 'Forest', swatch: '#208a65' },
+  { id: 'ocean', name: 'Ocean', swatch: '#6366f1' },
+]
+
+function setTheme(theme: AppTheme) {
+  if (!import.meta.client) return
+  document.documentElement.classList.add('theme-transitioning')
+  setAppSetting('theme', theme)
+  setTimeout(() => document.documentElement.classList.remove('theme-transitioning'), 250)
+}
 
 const dbInfoOpen = ref(false)
 const dbInfo = ref<DbInfo | null>(null)
@@ -829,6 +847,60 @@ watch(diagOpen, (open) => {
     <section class="space-y-2">
       <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Display</p>
       <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+
+        <!-- Appearance subsection -->
+        <div class="px-4 pt-3 pb-1">
+          <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-600">Appearance</p>
+        </div>
+
+        <!-- Theme swatches -->
+        <div class="flex items-center justify-between px-4 py-3">
+          <p class="text-sm font-medium">Theme</p>
+          <div class="flex gap-2.5 items-center">
+            <button
+              v-for="t in THEMES"
+              :key="t.id"
+              class="w-8 h-8 rounded-full transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+              :class="appSettings.theme === t.id
+                ? 'ring-2 ring-offset-2 ring-offset-(--ui-bg-muted) ring-primary-500 scale-110'
+                : 'opacity-70 hover:opacity-100 hover:scale-105'"
+              :style="{ background: t.swatch }"
+              :title="t.name"
+              :aria-label="`${t.name} theme`"
+              :aria-pressed="appSettings.theme === t.id"
+              @click="setTheme(t.id)"
+            />
+          </div>
+        </div>
+
+        <!-- Color mode toggle -->
+        <div class="flex items-center justify-between px-4 py-3">
+          <p class="text-sm font-medium">Color mode</p>
+          <div class="flex bg-(--ui-bg-elevated) rounded-lg p-0.5 gap-0.5">
+            <button
+              class="px-3 py-1 rounded-md text-xs font-medium transition-colors"
+              :class="colorMode.value !== 'dark' ? 'bg-(--ui-bg) text-(--ui-text) shadow-sm' : 'text-(--ui-text-dimmed) hover:text-(--ui-text-toned)'"
+              @click="colorMode.preference = 'light'"
+            >Light</button>
+            <button
+              class="px-3 py-1 rounded-md text-xs font-medium transition-colors"
+              :class="colorMode.value === 'dark' ? 'bg-(--ui-bg) text-(--ui-text) shadow-sm' : 'text-(--ui-text-dimmed) hover:text-(--ui-text-toned)'"
+              @click="colorMode.preference = 'dark'"
+            >Dark</button>
+          </div>
+        </div>
+
+        <!-- Reduce motion -->
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Reduce motion</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Disables animations and transitions.</p>
+          </div>
+          <USwitch
+            :model-value="appSettings.reduceMotion"
+            @update:model-value="setAppSetting('reduceMotion', $event)"
+          />
+        </div>
 
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">

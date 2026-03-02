@@ -1,9 +1,12 @@
 <script setup lang="ts">
+import type { AppTheme } from '~/composables/useAppSettings'
+
 const route = useRoute()
 const { $dbError } = useNuxtApp()
 const evictionDetected = useState('eviction-detected', () => false)
 const opfsUnsupported = useState('opfs-unsupported', () => false)
-const { settings } = useAppSettings()
+const { settings, set: setAppSetting } = useAppSettings()
+const colorMode = useColorMode()
 
 const isDesktop = ref(false)
 
@@ -47,6 +50,71 @@ const navItems = computed(() =>
 function isActive(to: string) {
   return to === '/' ? route.path === '/' : route.path.startsWith(to)
 }
+
+// ── Logo sprout animation ────────────────────────────────────────────────────
+
+const logoSvgRef = ref<SVGElement | null>(null)
+const logoAnimating = ref(false)
+const logoQueued = ref(false)
+
+function isMotionReduced(): boolean {
+  if (!import.meta.client) return true
+  if (settings.value.reduceMotion) return true
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+async function startLogoAnim() {
+  logoAnimating.value = false
+  await nextTick()
+  void logoSvgRef.value?.offsetWidth // force reflow so CSS animation restarts
+  logoAnimating.value = true
+}
+
+function playLogoAnimation() {
+  if (isMotionReduced()) return
+  if (logoAnimating.value) {
+    logoQueued.value = true
+    return
+  }
+  startLogoAnim()
+}
+
+function onLogoAnimEnd(e: AnimationEvent) {
+  // Only act when the last path (soil arc) finishes
+  if (!(e.target as Element).classList.contains('sprout-soil')) return
+  if (logoQueued.value) {
+    logoQueued.value = false
+    startLogoAnim()
+  } else {
+    logoAnimating.value = false
+  }
+}
+
+onMounted(() => {
+  nextTick(playLogoAnimation)
+})
+
+// ── Theme picker ─────────────────────────────────────────────────────────────
+
+const THEMES: { id: AppTheme; name: string; swatch: string }[] = [
+  { id: 'habitat', name: 'Habitat', swatch: '#22d3ee' },
+  { id: 'forest', name: 'Forest', swatch: '#208a65' },
+  { id: 'ocean', name: 'Ocean', swatch: '#6366f1' },
+]
+
+const showThemePicker = ref(false)
+
+function setTheme(theme: AppTheme) {
+  if (!import.meta.client) return
+  document.documentElement.classList.add('theme-transitioning')
+  setAppSetting('theme', theme)
+  setTimeout(() => document.documentElement.classList.remove('theme-transitioning'), 250)
+  showThemePicker.value = false
+}
+
+function toggleColorMode() {
+  colorMode.preference = colorMode.value === 'dark' ? 'light' : 'dark'
+}
 </script>
 
 <template>
@@ -58,26 +126,78 @@ function isActive(to: string) {
         : 'calc(0.75rem + env(safe-area-inset-top))' }"
     >
       <div class="flex items-center gap-2">
-        <!-- Plant sprout logo — fill-up animation runs once on page load -->
+        <!-- Plant sprout logo — stroke-dashoffset draw animation on tap/mount -->
         <svg
+          ref="logoSvgRef"
           class="plant-logo w-6 h-[1.625rem]"
+          :class="{ 'sprout-anim': logoAnimating }"
           viewBox="0 0 40 44"
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
-          aria-hidden="true"
+          role="img"
+          aria-label="Habitat"
+          @click="playLogoAnimation"
+          @animationend="onLogoAnimEnd"
         >
-          <!-- Soil mound -->
-          <path d="M 8,40 C 12,37 28,37 32,40" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" />
-          <!-- Stem -->
-          <line x1="20" y1="40" x2="20" y2="24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
-          <!-- Left leaf: leans down-left -->
-          <path d="M 20,24 C 11,23 4,29 8,34 C 11,37 19,30 20,24" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-          <!-- Right leaf: points upper-right -->
-          <path d="M 20,24 C 26,20 32,14 30,8 C 28,5 20,13 20,24" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+          <!-- Stem (draws 1st) -->
+          <line class="sprout-stem" x1="20" y1="40" x2="20" y2="24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" pathLength="1" />
+          <!-- Left leaf (draws 2nd) -->
+          <path class="sprout-leaf-l" d="M 20,24 C 11,23 4,29 8,34 C 11,37 19,30 20,24" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" pathLength="1" />
+          <!-- Right branch (draws 3rd) -->
+          <path class="sprout-branch-r" d="M 20,24 C 26,20 32,14 30,8 C 28,5 20,13 20,24" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" pathLength="1" />
+          <!-- Soil mound (draws last, 4th) -->
+          <path class="sprout-soil" d="M 8,40 C 12,37 28,37 32,40" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" pathLength="1" />
         </svg>
         <span class="text-lg font-semibold tracking-tight">Habitat</span>
       </div>
       <div class="flex items-center gap-1">
+        <!-- Dark / light mode toggle -->
+        <UButton
+          :icon="colorMode.value === 'dark' ? 'i-heroicons-sun' : 'i-heroicons-moon'"
+          variant="ghost"
+          color="neutral"
+          size="sm"
+          :aria-label="colorMode.value === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
+          @click="toggleColorMode"
+        />
+
+        <!-- Theme picker -->
+        <div class="relative">
+          <UButton
+            icon="i-heroicons-swatch"
+            variant="ghost"
+            color="neutral"
+            size="sm"
+            aria-label="Change theme"
+            @click="showThemePicker = !showThemePicker"
+          />
+          <!-- Backdrop -->
+          <div
+            v-if="showThemePicker"
+            class="fixed inset-0 z-40"
+            @click="showThemePicker = false"
+          />
+          <!-- Swatch picker dropdown -->
+          <div
+            v-if="showThemePicker"
+            class="absolute right-0 top-full mt-1 bg-(--ui-bg-muted) border border-(--ui-border) rounded-xl p-2.5 flex gap-2 z-50 shadow-lg"
+          >
+            <button
+              v-for="t in THEMES"
+              :key="t.id"
+              class="w-7 h-7 rounded-full transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+              :class="settings.theme === t.id
+                ? 'ring-2 ring-offset-2 ring-offset-(--ui-bg-muted) ring-primary-500 scale-110'
+                : 'hover:scale-110 opacity-80 hover:opacity-100'"
+              :style="{ background: t.swatch }"
+              :title="t.name"
+              :aria-label="`Switch to ${t.name} theme`"
+              :aria-pressed="settings.theme === t.id"
+              @click="setTheme(t.id)"
+            />
+          </div>
+        </div>
+
         <UButton
           to="/settings"
           icon="i-heroicons-cog-6-tooth"
@@ -86,7 +206,6 @@ function isActive(to: string) {
           size="sm"
           :class="isActive('/settings') ? 'text-primary-400' : ''"
         />
-        <UColorModeButton />
       </div>
     </header>
 

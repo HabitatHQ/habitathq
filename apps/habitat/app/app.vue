@@ -6,6 +6,15 @@ const evictionDetected = useState('eviction-detected', () => false)
 const opfsUnsupported = useState('opfs-unsupported', () => false)
 const { scheduleAll, registerNativeListeners, requestAllPermissions, refreshAllStatuses } =
   useNotifications()
+const { settings } = useAppSettings()
+
+// ── Apply theme + reduce-motion class to <html> reactively ───────────────────
+onMounted(() => {
+  watchEffect(() => {
+    document.documentElement.setAttribute('data-theme', settings.value.theme ?? 'habitat')
+    document.documentElement.classList.toggle('reduce-motion', settings.value.reduceMotion ?? false)
+  })
+})
 
 const isNative = Capacitor.isNativePlatform()
 const ONBOARDED_KEY = 'habitat-permissions-onboarded'

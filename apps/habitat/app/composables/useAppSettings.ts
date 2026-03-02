@@ -1,3 +1,5 @@
+export type AppTheme = 'habitat' | 'forest' | 'ocean'
+
 export interface AppSettings {
   enableToday: boolean
   enableJournalling: boolean
@@ -19,6 +21,8 @@ export interface AppSettings {
   logInputMode: 'absolute' | 'increment'
   saveTranscribedNotes: boolean
   use24HourTime: boolean
+  theme: AppTheme
+  reduceMotion: boolean
 }
 
 const KEY = 'habitat-app-settings'
@@ -43,6 +47,8 @@ const DEFAULTS: AppSettings = {
   logInputMode: 'absolute',
   saveTranscribedNotes: true,
   use24HourTime: false,
+  theme: 'habitat',
+  reduceMotion: false,
 }
 
 /**
