@@ -14,10 +14,14 @@ const pauseAllDate = ref('')
 const pausingAll = ref(false)
 
 const today = new Date().toISOString().slice(0, 10)
-const tomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10) })()
+const tomorrow = (() => {
+  const d = new Date()
+  d.setDate(d.getDate() + 1)
+  return d.toISOString().slice(0, 10)
+})()
 
 const anyPaused = computed(() =>
-  habits.value.some(h => h.paused_until && h.paused_until >= today),
+  habits.value.some((h) => h.paused_until && h.paused_until >= today),
 )
 
 async function confirmPauseAll() {
@@ -78,20 +82,31 @@ function removeTag(tag: string) {
   if (idx >= 0) form.tags.splice(idx, 1)
 }
 function onTagKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag() }
+  if (e.key === 'Enter' || e.key === ',') {
+    e.preventDefault()
+    addTag()
+  }
 }
-function addAnnotationEntry() { annotationEntries.value.push({ key: '', value: '' }) }
-function removeAnnotationEntry(i: number) { annotationEntries.value.splice(i, 1) }
+function addAnnotationEntry() {
+  annotationEntries.value.push({ key: '', value: '' })
+}
+function removeAnnotationEntry(i: number) {
+  annotationEntries.value.splice(i, 1)
+}
 function buildAnnotations(entries: { key: string; value: string }[]): Record<string, string> {
   const result: Record<string, string> = {}
-  for (const { key, value } of entries) { if (key.trim()) result[key.trim()] = value }
+  for (const { key, value } of entries) {
+    if (key.trim()) result[key.trim()] = value
+  }
   return result
 }
 
 function validateSchedule(): string | null {
   if (form.type === 'NUMERIC') {
-    if (form.schedule_type === 'SPECIFIC_DAYS') return 'Metric habits can only be daily or 1× per week.'
-    if (form.schedule_type === 'WEEKLY_FLEX' && form.frequency_count > 1) return 'Metric habits must use WEEKLY_FLEX with frequency 1, or be daily.'
+    if (form.schedule_type === 'SPECIFIC_DAYS')
+      return 'Metric habits can only be daily or 1× per week.'
+    if (form.schedule_type === 'WEEKLY_FLEX' && form.frequency_count > 1)
+      return 'Metric habits must use WEEKLY_FLEX with frequency 1, or be daily.'
   }
   if (form.type === 'LIMIT' && form.schedule_type !== 'DAILY') return 'Limit habits must be daily.'
   return null
@@ -119,7 +134,10 @@ function toggleDay(day: number) {
 async function handleCreate() {
   if (!db.isAvailable || !form.name.trim()) return
   const err = validateSchedule()
-  if (err) { scheduleError.value = err; return }
+  if (err) {
+    scheduleError.value = err
+    return
+  }
   scheduleError.value = null
   saving.value = true
   try {
@@ -137,7 +155,8 @@ async function handleCreate() {
     })
     // Update schedule if user chose a non-DAILY schedule or due time
     if (newHabit.schedule) {
-      const needsScheduleUpdate = form.schedule_type !== 'DAILY' || (form.show_due_time && form.due_time)
+      const needsScheduleUpdate =
+        form.schedule_type !== 'DAILY' || (form.show_due_time && form.due_time)
       if (needsScheduleUpdate) {
         await db.updateHabitSchedule({
           id: newHabit.schedule.id,
@@ -178,7 +197,7 @@ function scheduleLabel(habit: HabitWithSchedule): string {
   if (!sched || sched.schedule_type === 'DAILY') return 'Daily'
   if (sched.schedule_type === 'WEEKLY_FLEX') return `${sched.frequency_count ?? 1}×/week`
   if (sched.schedule_type === 'SPECIFIC_DAYS') {
-    return (sched.days_of_week ?? []).map(d => DAY_LABELS[d]).join(' ')
+    return (sched.days_of_week ?? []).map((d) => DAY_LABELS[d]).join(' ')
   }
   return 'Daily'
 }

@@ -24,7 +24,7 @@ const timeFilters = [
 
 function toggleCategory(id: string) {
   if (excludedCategories.value.includes(id)) {
-    excludedCategories.value = excludedCategories.value.filter(x => x !== id)
+    excludedCategories.value = excludedCategories.value.filter((x) => x !== id)
   } else {
     excludedCategories.value = [...excludedCategories.value, id]
   }
@@ -34,7 +34,7 @@ async function roll() {
   if (shaking.value) return
   shaking.value = true
   hasRolled.value = true
-  await new Promise(r => setTimeout(r, 650))
+  await new Promise((r) => setTimeout(r, 650))
   currentResult.value = await db.getBoredOracle([...excludedCategories.value], maxMinutes.value)
   shaking.value = false
 }
@@ -70,11 +70,12 @@ const resultDescription = computed(() => {
 
 const resultEstimate = computed(() => {
   if (!currentResult.value) return null
-  const mins = currentResult.value.source === 'activity'
-    ? currentResult.value.activity.estimated_minutes
-    : currentResult.value.todo.estimated_minutes
+  const mins =
+    currentResult.value.source === 'activity'
+      ? currentResult.value.activity.estimated_minutes
+      : currentResult.value.todo.estimated_minutes
   if (!mins) return null
-  return mins < 60 ? `${mins}m` : `${Math.round(mins / 60 * 10) / 10}h`
+  return mins < 60 ? `${mins}m` : `${Math.round((mins / 60) * 10) / 10}h`
 })
 
 const resultCategory = computed(() => {

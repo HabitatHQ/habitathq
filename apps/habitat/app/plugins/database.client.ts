@@ -1,5 +1,5 @@
 import { Capacitor } from '@capacitor/core'
-import { initNativeDb, dispatchNative } from '~/lib/db-native'
+import { dispatchNative, initNativeDb } from '~/lib/db-native'
 import type { WorkerRequestBody, WorkerResponse } from '~/types/database'
 
 let worker: Worker | null = null
@@ -34,14 +34,11 @@ export default defineNuxtPlugin(async () => {
     }
   }
 
-  worker = new Worker(
-    new URL('../workers/database.worker.ts', import.meta.url),
-    { type: 'module' },
-  )
+  worker = new Worker(new URL('../workers/database.worker.ts', import.meta.url), { type: 'module' })
 
   worker.addEventListener('message', (e: MessageEvent) => {
     const msg = e.data as WorkerResponse | { type: string }
-    if ('type' in msg) return  // READY / LOCK_UNAVAILABLE / other lifecycle signals
+    if ('type' in msg) return // READY / LOCK_UNAVAILABLE / other lifecycle signals
     const p = pending.get((msg as WorkerResponse).id)
     if (!p) return
     pending.delete((msg as WorkerResponse).id)
@@ -65,7 +62,8 @@ export default defineNuxtPlugin(async () => {
       } else if (type === 'LOCK_UNAVAILABLE') {
         clearTimeout(t)
         worker!.removeEventListener('message', handler)
-        dbError.value = 'Habitat is already open in another tab. Close that tab and refresh this one.'
+        dbError.value =
+          'Habitat is already open in another tab. Close that tab and refresh this one.'
         resolve()
       } else if (type === 'INIT_ERROR') {
         clearTimeout(t)

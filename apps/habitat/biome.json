@@ -8,11 +8,7 @@
   },
 
   "files": {
-    "includes": [
-      "app/**/*.ts",
-      "app/**/*.vue",
-      "nuxt.config.ts"
-    ]
+    "includes": ["app/**/*.ts", "app/**/*.vue", "nuxt.config.ts"]
   },
 
   "formatter": {

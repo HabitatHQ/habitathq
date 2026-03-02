@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import type { CheckinTemplate, CheckinQuestion, CheckinResponse, CheckinReminder } from '~/types/database'
+import type {
+  CheckinQuestion,
+  CheckinReminder,
+  CheckinResponse,
+  CheckinTemplate,
+} from '~/types/database'
 
 const db = useDatabase()
 const route = useRoute()
@@ -12,7 +17,10 @@ const questions = ref<CheckinQuestion[]>([])
 const loading = ref(true)
 
 async function loadTemplate() {
-  if (!db.isAvailable) { loading.value = false; return }
+  if (!db.isAvailable) {
+    loading.value = false
+    return
+  }
   const [tmpl, qs] = await Promise.all([
     db.getCheckinTemplate(templateId.value),
     db.getCheckinQuestions(templateId.value),
@@ -34,7 +42,9 @@ const isToday = computed(() => dateKey.value === todayKey)
 
 const displayDate = computed(() =>
   currentDate.value.toLocaleDateString('en-US', {
-    weekday: 'long', month: 'long', day: 'numeric',
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
   }),
 )
 
@@ -60,7 +70,7 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null
 async function loadResponses() {
   if (!db.isAvailable) return
   const list = await db.getCheckinResponses(templateId.value, dateKey.value)
-  responses.value = new Map(list.map(r => [r.question_id, r]))
+  responses.value = new Map(list.map((r) => [r.question_id, r]))
   // Sync text inputs
   for (const q of questions.value) {
     const r = responses.value.get(q.id)
@@ -70,11 +80,18 @@ async function loadResponses() {
 }
 
 watch(dateKey, async () => {
-  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
+  if (saveTimer) {
+    clearTimeout(saveTimer)
+    saveTimer = null
+  }
   await loadResponses()
 })
 
-async function setResponse(question_id: string, value_numeric: number | null, value_text: string | null) {
+async function setResponse(
+  question_id: string,
+  value_numeric: number | null,
+  value_text: string | null,
+) {
   if (!db.isAvailable) return
   const r = await db.upsertCheckinResponse(question_id, dateKey.value, value_numeric, value_text)
   responses.value.set(question_id, r)
@@ -107,7 +124,9 @@ async function onBoolean(question_id: string, val: number) {
   }
 }
 
-onUnmounted(() => { if (saveTimer) clearTimeout(saveTimer) })
+onUnmounted(() => {
+  if (saveTimer) clearTimeout(saveTimer)
+})
 
 // ─── Questions management ─────────────────────────────────────────────────────
 
@@ -141,7 +160,7 @@ async function deleteQuestion(qid: string) {
   deletingQuestion.add(qid)
   try {
     await db.deleteCheckinQuestion(qid)
-    questions.value = questions.value.filter(q => q.id !== qid)
+    questions.value = questions.value.filter((q) => q.id !== qid)
     responses.value.delete(qid)
     delete textValues[qid]
   } finally {
@@ -168,13 +187,16 @@ async function loadReminders() {
 
 function reminderDaysLabel(r: CheckinReminder): string {
   if (!r.days_active || r.days_active.length === 0) return 'Every day'
-  return r.days_active.map(d => DAY_NAMES[d]).join(', ')
+  return r.days_active.map((d) => DAY_NAMES[d]).join(', ')
 }
 
 function toggleNewReminderDay(day: number) {
   const idx = newReminderDays.value.indexOf(day)
   if (idx >= 0) newReminderDays.value.splice(idx, 1)
-  else { newReminderDays.value.push(day); newReminderDays.value.sort((a, b) => a - b) }
+  else {
+    newReminderDays.value.push(day)
+    newReminderDays.value.sort((a, b) => a - b)
+  }
 }
 
 async function addReminder() {
@@ -201,7 +223,7 @@ async function removeReminder(rid: string) {
   deletingReminder.add(rid)
   try {
     await db.deleteCheckinReminder(rid)
-    reminders.value = reminders.value.filter(r => r.id !== rid)
+    reminders.value = reminders.value.filter((r) => r.id !== rid)
     useNotifications().scheduleAll().catch(console.error)
   } finally {
     deletingReminder.delete(rid)
@@ -227,7 +249,10 @@ function openEdit() {
 function toggleEditDay(day: number) {
   const idx = editDays.value.indexOf(day)
   if (idx >= 0) editDays.value.splice(idx, 1)
-  else { editDays.value.push(day); editDays.value.sort((a, b) => a - b) }
+  else {
+    editDays.value.push(day)
+    editDays.value.sort((a, b) => a - b)
+  }
 }
 
 async function saveEdit() {
@@ -238,7 +263,8 @@ async function saveEdit() {
       id: template.value.id,
       title: editTitle.value.trim() || template.value.title,
       schedule_type: editSchedule.value,
-      days_active: editSchedule.value === 'WEEKLY' && editDays.value.length ? [...editDays.value] : null,
+      days_active:
+        editSchedule.value === 'WEEKLY' && editDays.value.length ? [...editDays.value] : null,
     })
     template.value = updated
     showEdit.value = false
@@ -269,7 +295,7 @@ function scheduleLabel(t: CheckinTemplate): string {
   if (t.schedule_type === 'DAILY') return 'Daily'
   if (t.schedule_type === 'MONTHLY') return 'Monthly'
   if (!t.days_active || t.days_active.length === 0) return 'Weekly'
-  return `Weekly · ${t.days_active.map(d => DAY_NAMES[d]).join(', ')}`
+  return `Weekly · ${t.days_active.map((d) => DAY_NAMES[d]).join(', ')}`
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────

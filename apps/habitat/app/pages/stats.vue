@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { HabitWithSchedule, HabitLog, Completion } from '~/types/database'
+import type { Completion, HabitLog, HabitWithSchedule } from '~/types/database'
 
 const db = useDatabase()
 const habits = ref<HabitWithSchedule[]>([])
@@ -17,7 +17,10 @@ const sixMonthsAgo = (() => {
 })()
 
 async function load() {
-  if (!db.isAvailable) { loading.value = false; return }
+  if (!db.isAvailable) {
+    loading.value = false
+    return
+  }
   const [h, c, l] = await Promise.all([
     db.getHabits(),
     db.getCompletionsForDateRange(sixMonthsAgo, today),
@@ -99,9 +102,7 @@ function habitCurrentStreak(h: HabitWithSchedule): number {
   return streak
 }
 
-const bestStreak = computed(() =>
-  Math.max(0, ...habits.value.map(habitCurrentStreak)),
-)
+const bestStreak = computed(() => Math.max(0, ...habits.value.map(habitCurrentStreak)))
 
 const avgCompletion = computed(() => {
   if (!habits.value.length) return 0
@@ -128,9 +129,10 @@ const monthlyData = computed(() => {
     const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
     const days = i === 5 ? now.getDate() : daysInMonth
     const done = countDoneInMonth(prefix, days)
-    const rate = habits.value.length && days
-      ? Math.min(100, Math.round((done / (habits.value.length * days)) * 100))
-      : 0
+    const rate =
+      habits.value.length && days
+        ? Math.min(100, Math.round((done / (habits.value.length * days)) * 100))
+        : 0
     return { label: d.toLocaleDateString('en-US', { month: 'short' }), rate }
   })
 })
@@ -143,7 +145,7 @@ const habitRates = computed(() => {
   const days = completionDays.value
   const dates = allDateStrings.slice(0, days)
   return habits.value
-    .map(h => {
+    .map((h) => {
       let count = 0
       for (const date of dates) {
         if (isHabitDone(h, date)) count++
@@ -174,7 +176,7 @@ function buildHeatmapWeek(start: Date, weekOffset: number, total: number): Heatm
     d.setDate(start.getDate() + weekOffset * 7 + dow)
     const date = d.toISOString().slice(0, 10)
     const isFuture = date > today
-    const doneCount = (!isFuture && total > 0) ? (doneCountByDate.value.get(date) ?? 0) : 0
+    const doneCount = !isFuture && total > 0 ? (doneCountByDate.value.get(date) ?? 0) : 0
     week.push({
       date,
       doneCount,
@@ -196,8 +198,10 @@ const heatmapWeeks = computed((): HeatmapDay[][] => {
 })
 
 function weekMonthLabel(week: HeatmapDay[]): string {
-  const day1 = week.find(d => d.date.slice(8) === '01')
-  return day1 ? new Date(`${day1.date}T12:00:00`).toLocaleDateString('en-US', { month: 'short' }) : ''
+  const day1 = week.find((d) => d.date.slice(8) === '01')
+  return day1
+    ? new Date(`${day1.date}T12:00:00`).toLocaleDateString('en-US', { month: 'short' })
+    : ''
 }
 
 // 5-level color scale: empty → dim cyan → bright cyan

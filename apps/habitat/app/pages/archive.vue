@@ -13,13 +13,20 @@ const archivedHabits = ref<Habit[]>([])
 const loadingHabits = ref(true)
 
 async function loadHabits() {
-  if (!db.isAvailable) { loadingHabits.value = false; return }
+  if (!db.isAvailable) {
+    loadingHabits.value = false
+    return
+  }
   archivedHabits.value = await db.getArchivedHabits()
   loadingHabits.value = false
 }
 
 function fmtArchived(iso: string) {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  return new Date(iso).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
 }
 
 // ─── Check-in history ─────────────────────────────────────────────────────────
@@ -38,10 +45,12 @@ async function loadCheckins() {
   loadingCheckins.value = true
   try {
     const rows = await db.getCheckinResponseDates()
-    checkinDays.value = rows.map(r => ({
+    checkinDays.value = rows.map((r) => ({
       date: r.date,
       label: new Date(r.date + 'T12:00:00').toLocaleDateString('en-US', {
-        weekday: 'short', month: 'short', day: 'numeric',
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
       }),
       count: r.count,
     }))
@@ -50,7 +59,9 @@ async function loadCheckins() {
   }
 }
 
-watch(tab, (t) => { if (t === 'checkin' && checkinDays.value.length === 0) void loadCheckins() })
+watch(tab, (t) => {
+  if (t === 'checkin' && checkinDays.value.length === 0) void loadCheckins()
+})
 
 onMounted(loadHabits)
 </script>

@@ -9,7 +9,13 @@ declare const self: ServiceWorkerGlobalScope & {
 // The main thread posts the day's reminder schedule here so the SW can fire
 // notifications even when the page is backgrounded (via Periodic Background Sync).
 
-interface SwReminder { id: string; title: string; body: string; at: string; icon: string }
+interface SwReminder {
+  id: string
+  title: string
+  body: string
+  at: string
+  icon: string
+}
 
 const SW_DB_NAME = 'habitat-sw'
 const SW_STORE = 'reminders'
@@ -28,8 +34,14 @@ async function storeReminders(list: SwReminder[]): Promise<void> {
   await new Promise<void>((res, rej) => {
     const tx = db.transaction(SW_STORE, 'readwrite')
     tx.objectStore(SW_STORE).put(list, 'list')
-    tx.oncomplete = () => { db.close(); res() }
-    tx.onerror = () => { db.close(); rej(tx.error) }
+    tx.oncomplete = () => {
+      db.close()
+      res()
+    }
+    tx.onerror = () => {
+      db.close()
+      rej(tx.error)
+    }
   })
 }
 
@@ -38,8 +50,14 @@ async function loadReminders(): Promise<SwReminder[]> {
   return new Promise((resolve) => {
     const tx = db.transaction(SW_STORE, 'readonly')
     const req = tx.objectStore(SW_STORE).get('list')
-    req.onsuccess = () => { db.close(); resolve(req.result ?? []) }
-    req.onerror = () => { db.close(); resolve([]) }
+    req.onsuccess = () => {
+      db.close()
+      resolve(req.result ?? [])
+    }
+    req.onerror = () => {
+      db.close()
+      resolve([])
+    }
   })
 }
 
@@ -52,12 +70,16 @@ async function checkAndFireReminders(): Promise<void> {
     const at = new Date(r.at).getTime()
     // Fire if we're past the scheduled time but within a 2-minute window
     if (now >= at && now - at <= 120_000) {
-      await self.registration.showNotification(r.title, { body: r.body, icon: r.icon, requireInteraction: true })
+      await self.registration.showNotification(r.title, {
+        body: r.body,
+        icon: r.icon,
+        requireInteraction: true,
+      })
       fired.push(r.id)
     }
   }
   if (fired.length > 0) {
-    await storeReminders(reminders.filter(r => !fired.includes(r.id)))
+    await storeReminders(reminders.filter((r) => !fired.includes(r.id)))
   }
 }
 
