@@ -709,6 +709,7 @@ const { isInstalled, canInstall, isIosSafari, isChromiumNoPrompt, installing, in
   useInstall()
 const isNativeApp = Capacitor.isNativePlatform()
 const isAndroid = Capacitor.getPlatform() === 'android'
+const isIos = isNativeApp && !isAndroid
 const showInstallModal = ref(false)
 
 function handleInstall() {
@@ -805,6 +806,7 @@ async function requestPersistStorage() {
 
 const micPermission = ref<PermissionState | null>(null)
 const cameraPermission = ref<PermissionState | null>(null)
+const photoLibraryPermission = ref<PermissionState | null>(null)
 
 async function checkMediaPermissions() {
   if (!navigator.permissions) return
@@ -820,6 +822,15 @@ async function checkMediaPermissions() {
       }
     } catch {
       // Not supported in this browser (e.g. Firefox for camera)
+    }
+  }
+  if (isIos) {
+    try {
+      // 'photos' is not a standard name — will throw on most platforms; result stays null (Unknown)
+      const status = await navigator.permissions.query({ name: 'photos' as PermissionName })
+      photoLibraryPermission.value = status.state
+    } catch {
+      // Expected: shown as Unknown
     }
   }
 }
@@ -1451,6 +1462,35 @@ watch(diagOpen, (open) => {
             <UBadge
               v-else
               label="Unknown" variant="subtle" color="neutral" size="xs" class="rounded-full"
+            />
+          </div>
+        </div>
+
+        <!-- Photo Library (iOS native only) -->
+        <div v-if="isIos" class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5 min-w-0">
+            <div class="flex items-center gap-2">
+              <UIcon name="i-heroicons-photo" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
+              <p class="text-sm font-medium">Photo library</p>
+            </div>
+            <p class="text-xs text-(--ui-text-dimmed)">Required to pick existing photos for Jots.</p>
+          </div>
+          <div class="shrink-0 flex items-center gap-2">
+            <UBadge
+              v-if="photoLibraryPermission === 'granted'"
+              label="Granted" variant="subtle" color="success" size="xs" class="rounded-full"
+            />
+            <UBadge
+              v-else-if="photoLibraryPermission === 'denied'"
+              label="Blocked" variant="subtle" color="error" size="xs" class="rounded-full"
+            />
+            <UBadge
+              v-else-if="photoLibraryPermission === 'prompt'"
+              label="Not yet asked" variant="subtle" color="neutral" size="xs" class="rounded-full"
+            />
+            <UBadge
+              v-else
+              label="Managed in Settings" variant="subtle" color="neutral" size="xs" class="rounded-full"
             />
           </div>
         </div>
