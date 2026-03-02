@@ -690,6 +690,7 @@ async function forceReload() {
 const { isInstalled, canInstall, isIosSafari, isChromiumNoPrompt, installing, install } =
   useInstall()
 const isNativeApp = Capacitor.isNativePlatform()
+const isAndroid = Capacitor.getPlatform() === 'android'
 const showInstallModal = ref(false)
 
 function handleInstall() {
@@ -1610,8 +1611,8 @@ watch(diagOpen, (open) => {
           </div>
         </div>
 
-        <!-- Remote debugging (APK) -->
-        <div class="px-4 py-3.5 space-y-1">
+        <!-- Remote debugging (APK) — Android native only -->
+        <div v-if="isAndroid" class="px-4 py-3.5 space-y-1">
           <p class="text-sm font-medium">Remote debugging (APK)</p>
           <ol class="text-xs text-(--ui-text-dimmed) list-decimal list-inside space-y-0.5">
             <li>Enable <span class="text-(--ui-text-toned)">Developer Options</span> and <span class="text-(--ui-text-toned)">USB Debugging</span> on your Android device.</li>
@@ -1632,7 +1633,8 @@ watch(diagOpen, (open) => {
       </button>
       <UCard v-if="dragonsOpen" :ui="{ root: 'rounded-2xl ring-1 ring-red-900/30', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
 
-        <div class="flex items-center justify-between px-4 py-3.5">
+        <!-- Force reload — PWA only -->
+        <div v-if="!isNativeApp" class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Force reload</p>
             <p class="text-xs text-(--ui-text-dimmed)">Unregister service worker, clear JS/CSS caches, and reload. OPFS data is preserved.</p>
