@@ -42,7 +42,7 @@ export default defineNuxtConfig({
           "default-src 'self'",
           // 'wasm-unsafe-eval' is required for SQLite WASM compilation
           // inline-script hashes are injected automatically by cspHashPlugin()
-          "script-src 'self' 'wasm-unsafe-eval'",
+          "script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'",
           // 'unsafe-inline' needed for Vue :style bindings (e.g. category colours)
           "style-src 'self' 'unsafe-inline'",
           // blob: for IDB image/voice playback & export downloads; data: for SVG bg-images
@@ -178,12 +178,13 @@ export default defineNuxtConfig({
         'Content-Security-Policy': [
           "default-src 'self'",
           // inline-script hashes are injected automatically by cspHashPlugin()
-          "script-src 'self' 'wasm-unsafe-eval'",
+          "script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'",
           "style-src 'self' 'unsafe-inline'",
           "img-src 'self' blob: data:",
           "media-src 'self' blob:",
           "font-src 'self'",
-          "connect-src 'self'",
+          // ws:/wss: required for Vite HMR WebSocket connection in dev
+          "connect-src 'self' ws: wss:",
           "worker-src 'self' blob:",
           "child-src 'self' blob:",
           "object-src 'none'",
@@ -246,7 +247,7 @@ export default defineNuxtConfig({
           content: [
             "default-src 'self'",
             // inline-script hashes are injected automatically by cspHashPlugin()
-          "script-src 'self' 'wasm-unsafe-eval'",
+            "script-src 'self' 'wasm-unsafe-eval'",
             "style-src 'self' 'unsafe-inline'",
             "img-src 'self' blob: data:",
             "media-src 'self' blob:",
