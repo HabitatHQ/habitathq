@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { BoredCategory, BoredActivity } from '~/types/database'
+import type { BoredActivity, BoredCategory } from '~/types/database'
 
 const db = useDatabase()
 
@@ -36,13 +36,20 @@ async function load() {
 onMounted(load)
 
 function activitiesForCategory(catId: string) {
-  return activities.value.filter(a => a.category_id === catId)
+  return activities.value.filter((a) => a.category_id === catId)
 }
 
 function openAddActivity(catId: string) {
   activityCategoryId.value = catId
   editingActivity.value = null
-  Object.assign(actForm, { title: '', description: '', estimated_minutes: '', is_recurring: false, recurrence_rule: 'daily', tags: '' })
+  Object.assign(actForm, {
+    title: '',
+    description: '',
+    estimated_minutes: '',
+    is_recurring: false,
+    recurrence_rule: 'daily',
+    tags: '',
+  })
   showActivityModal.value = true
 }
 
@@ -81,7 +88,11 @@ async function saveCategory() {
     if (editingCategory.value) {
       await db.updateBoredCategory({ id: editingCategory.value.id, ...payload })
     } else {
-      await db.createBoredCategory({ ...payload, is_system: false, sort_order: categories.value.length })
+      await db.createBoredCategory({
+        ...payload,
+        is_system: false,
+        sort_order: categories.value.length,
+      })
     }
     showCategoryModal.value = false
     await load()
@@ -99,7 +110,10 @@ async function deleteCategory(c: BoredCategory) {
 async function saveActivity() {
   if (saving.value) return
   const mins = actForm.estimated_minutes !== '' ? Number(actForm.estimated_minutes) : null
-  const tags = actForm.tags.split(',').map(t => t.trim()).filter(Boolean)
+  const tags = actForm.tags
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
   const payload = {
     title: actForm.title.trim(),
     description: actForm.description.trim(),

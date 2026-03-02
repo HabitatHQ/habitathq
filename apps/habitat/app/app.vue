@@ -4,7 +4,8 @@ import { Capacitor } from '@capacitor/core'
 const db = useDatabase()
 const evictionDetected = useState('eviction-detected', () => false)
 const opfsUnsupported = useState('opfs-unsupported', () => false)
-const { scheduleAll, registerNativeListeners, requestAllPermissions, refreshAllStatuses } = useNotifications()
+const { scheduleAll, registerNativeListeners, requestAllPermissions, refreshAllStatuses } =
+  useNotifications()
 
 const isNative = Capacitor.isNativePlatform()
 const ONBOARDED_KEY = 'habitat-permissions-onboarded'

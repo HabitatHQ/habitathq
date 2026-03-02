@@ -11,8 +11,11 @@ const buildTarget = process.env['BUILD_TARGET'] // 'pwa' | 'native' | undefined 
 const appBaseURL = process.env['NUXT_APP_BASE_URL'] ?? '/'
 
 function gitExec(cmd: string): string | null {
-  try { return execSync(cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null }
-  catch { return null }
+  try {
+    return execSync(cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null
+  } catch {
+    return null
+  }
 }
 
 const appVersion: string = JSON.parse(readFileSync('./package.json', 'utf8')).version ?? ''
@@ -24,7 +27,7 @@ const isPWA = !isNative
 
 export default defineNuxtConfig({
   devServer: {
-    host: '127.0.0.1'
+    host: '127.0.0.1',
   },
   compatibilityDate: '2025-01-01',
 
@@ -43,10 +46,7 @@ export default defineNuxtConfig({
 
   devtools: { enabled: true },
 
-  modules: [
-    '@nuxt/ui',
-    ...(isPWA ? ['@vite-pwa/nuxt'] : []),
-  ],
+  modules: ['@nuxt/ui', ...(isPWA ? ['@vite-pwa/nuxt'] : [])],
 
   // Global CSS (custom Tailwind v4 utilities — safe areas, etc.)
   css: ['~/assets/css/main.css'],
@@ -159,10 +159,10 @@ export default defineNuxtConfig({
       __BUILD_TARGET__: JSON.stringify(buildTarget ?? 'pwa'),
     },
     optimizeDeps: {
-      exclude: ['@sqlite.org/sqlite-wasm'],  // prevents esbuild from breaking WASM dynamic import
+      exclude: ['@sqlite.org/sqlite-wasm'], // prevents esbuild from breaking WASM dynamic import
     },
     worker: {
-      format: 'es',  // worker bundle must be ES module for sqlite-wasm's dynamic imports
+      format: 'es', // worker bundle must be ES module for sqlite-wasm's dynamic imports
     },
     plugins: [
       license({
@@ -170,17 +170,18 @@ export default defineNuxtConfig({
           includePrivate: false,
           output: {
             file: resolve('public/licenses.json'),
-            template: deps => JSON.stringify(
-              deps
-                .filter(d => d.name)
-                .map(d => ({
-                  name: d.name,
-                  version: d.version,
-                  license: d.license,
-                  homepage: d.homepage ?? null,
-                }))
-                .sort((a, b) => a.name!.localeCompare(b.name!)),
-            ),
+            template: (deps) =>
+              JSON.stringify(
+                deps
+                  .filter((d) => d.name)
+                  .map((d) => ({
+                    name: d.name,
+                    version: d.version,
+                    license: d.license,
+                    homepage: d.homepage ?? null,
+                  }))
+                  .sort((a, b) => a.name!.localeCompare(b.name!)),
+              ),
           },
         },
       }),

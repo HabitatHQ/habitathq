@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { HabitWithSchedule, Completion, HabitLog } from '~/types/database'
+import type { Completion, HabitLog, HabitWithSchedule } from '~/types/database'
 
 const db = useDatabase()
 const { settings } = useAppSettings()
@@ -33,7 +33,10 @@ const habitLogs = ref<HabitLog[]>([])
 const loading = ref(true)
 
 async function load() {
-  if (!db.isAvailable) { loading.value = false; return }
+  if (!db.isAvailable) {
+    loading.value = false
+    return
+  }
   const [h, c, l] = await Promise.all([
     db.getHabits(),
     db.getCompletionsForDateRange(sevenDaysAgo, today),
@@ -49,13 +52,13 @@ async function load() {
 
 function getLogSum(habitId: string, date: string): number {
   return habitLogs.value
-    .filter(l => l.habit_id === habitId && l.date === date)
+    .filter((l) => l.habit_id === habitId && l.date === date)
     .reduce((s, l) => s + l.value, 0)
 }
 
 function isDone(habit: HabitWithSchedule, date: string): boolean {
   if (habit.type === 'BOOLEAN') {
-    return completions.value.some(c => c.habit_id === habit.id && c.date === date)
+    return completions.value.some((c) => c.habit_id === habit.id && c.date === date)
   }
   const sum = getLogSum(habit.id, date)
   if (habit.type === 'NUMERIC') return sum >= habit.target_value
@@ -89,9 +92,7 @@ watch(cellEdit, (val) => {
 })
 
 function openCell(habit: HabitWithSchedule, date: string) {
-  const initial = settings.value.logInputMode === 'absolute'
-    ? getLogSum(habit.id, date)
-    : 0
+  const initial = settings.value.logInputMode === 'absolute' ? getLogSum(habit.id, date) : 0
   cellEdit.value = { habit, date, value: initial }
 }
 
@@ -99,12 +100,15 @@ async function saveCell() {
   if (!cellEdit.value || savingCell.value || !db.isAvailable) return
   const { habit, date, value } = cellEdit.value
   const isAbsolute = settings.value.logInputMode === 'absolute'
-  if (!isAbsolute && value <= 0) { cellEdit.value = null; return }
+  if (!isAbsolute && value <= 0) {
+    cellEdit.value = null
+    return
+  }
   savingCell.value = true
   try {
     if (isAbsolute) {
-      const existing = habitLogs.value.filter(l => l.habit_id === habit.id && l.date === date)
-      await Promise.all(existing.map(l => db.deleteHabitLog(l.id)))
+      const existing = habitLogs.value.filter((l) => l.habit_id === habit.id && l.date === date)
+      await Promise.all(existing.map((l) => db.deleteHabitLog(l.id)))
       if (value > 0) await db.logHabitValue(habit.id, date, value)
     } else {
       await db.logHabitValue(habit.id, date, value)
@@ -124,7 +128,10 @@ function dayLabel(date: string): string {
 }
 
 function dayNum(date: string): string {
-  return new Date(`${date}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return new Date(`${date}T12:00:00`).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  })
 }
 
 onMounted(load)

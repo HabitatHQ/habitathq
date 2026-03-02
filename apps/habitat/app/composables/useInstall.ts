@@ -13,9 +13,10 @@ export function useInstall() {
 
   // Running as an installed PWA (standalone/fullscreen/minimal-ui display mode)
   // or as a native Capacitor app — both count as "installed".
-  const isInstalled = computed(() =>
-    Capacitor.isNativePlatform() ||
-    (typeof window !== 'undefined' && window.matchMedia('(display-mode: standalone)').matches),
+  const isInstalled = computed(
+    () =>
+      Capacitor.isNativePlatform() ||
+      (typeof window !== 'undefined' && window.matchMedia('(display-mode: standalone)').matches),
   )
 
   // Install prompt is available and app is not yet installed
@@ -36,15 +37,19 @@ export function useInstall() {
     const ua = navigator.userAgent
     const isIos = /iphone|ipad|ipod/i.test(ua)
     if (isIos) return false
-    const isChromium = /chrome|chromium|crios/i.test(ua) && !/edge\/[0-9]/i.test(ua) || /edg\//i.test(ua) || /opr\//i.test(ua)
+    const isChromium =
+      (/chrome|chromium|crios/i.test(ua) && !/edge\/[0-9]/i.test(ua)) ||
+      /edg\//i.test(ua) ||
+      /opr\//i.test(ua)
     return !isChromium
   })
 
   // Chromium-based browser that supports install but hasn't offered the prompt yet
   // (e.g. Chrome on Android before engagement criteria are met, or after prompt was dismissed).
   // User can still install via the browser menu (⋮ → "Install app" / "Add to Home Screen").
-  const isChromiumNoPrompt = computed(() =>
-    !isInstalled.value && !canInstall.value && !isIosSafari.value && !isUnsupportedBrowser.value,
+  const isChromiumNoPrompt = computed(
+    () =>
+      !isInstalled.value && !canInstall.value && !isIosSafari.value && !isUnsupportedBrowser.value,
   )
 
   const installing = ref(false)
@@ -61,5 +66,13 @@ export function useInstall() {
     }
   }
 
-  return { isInstalled, canInstall, isIosSafari, isUnsupportedBrowser, isChromiumNoPrompt, installing, install }
+  return {
+    isInstalled,
+    canInstall,
+    isIosSafari,
+    isUnsupportedBrowser,
+    isChromiumNoPrompt,
+    installing,
+    install,
+  }
 }

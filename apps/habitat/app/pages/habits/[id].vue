@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { HabitWithSchedule, Completion, HabitLog, Reminder } from '~/types/database'
+import type { Completion, HabitLog, HabitWithSchedule, Reminder } from '~/types/database'
 
 const route = useRoute()
 const db = useDatabase()
@@ -16,10 +16,14 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 
 async function load() {
-  if (!db.isAvailable) { loading.value = false; return }
+  if (!db.isAvailable) {
+    loading.value = false
+    return
+  }
   const id = route.params['id'] as string
   const to = new Date().toISOString().slice(0, 10)
-  const fromDate = new Date(); fromDate.setDate(fromDate.getDate() - 89)
+  const fromDate = new Date()
+  fromDate.setDate(fromDate.getDate() - 89)
   const from = fromDate.toISOString().slice(0, 10)
 
   const [habits, comps, logs, rems] = await Promise.all([
@@ -28,8 +32,12 @@ async function load() {
     db.getHabitLogsForHabit(id, from, to),
     db.getRemindersForHabit(id),
   ])
-  habit.value = habits.find(h => h.id === id) ?? null
-  if (!habit.value) { notFound.value = true; loading.value = false; return }
+  habit.value = habits.find((h) => h.id === id) ?? null
+  if (!habit.value) {
+    notFound.value = true
+    loading.value = false
+    return
+  }
   completions.value = comps
   habitLogs.value = logs
   reminders.value = rems
@@ -43,14 +51,14 @@ const scheduleLabel = computed(() => {
   if (!sched || sched.schedule_type === 'DAILY') return 'Daily'
   if (sched.schedule_type === 'WEEKLY_FLEX') return `${sched.frequency_count ?? 1}× per week`
   if (sched.schedule_type === 'SPECIFIC_DAYS') {
-    return (sched.days_of_week ?? []).map(d => DAY_NAMES[d]).join(' · ') || 'No days selected'
+    return (sched.days_of_week ?? []).map((d) => DAY_NAMES[d]).join(' · ') || 'No days selected'
   }
   return 'Daily'
 })
 
 // ─── Calendar (6 weeks ending this Saturday) ──────────────────────────────────
 
-const completionDates = computed(() => new Set(completions.value.map(c => c.date)))
+const completionDates = computed(() => new Set(completions.value.map((c) => c.date)))
 const todayStr = new Date().toISOString().slice(0, 10)
 
 const calendarCells = computed(() => {
@@ -90,32 +98,36 @@ const currentStreak = computed(() => {
 const totalLogged = computed(() => habitLogs.value.reduce((s, l) => s + l.value, 0))
 const avgDailyValue = computed(() => {
   if (!habitLogs.value.length) return 0
-  const days = new Set(habitLogs.value.map(l => l.date)).size
+  const days = new Set(habitLogs.value.map((l) => l.date)).size
   return Math.round((totalLogged.value / days) * 10) / 10
 })
 
 // ─── Log history ──────────────────────────────────────────────────────────────
 
 const recentLog = computed(() =>
-  [...completions.value]
-    .sort((a, b) => b.completed_at.localeCompare(a.completed_at))
-    .slice(0, 5)
+  [...completions.value].sort((a, b) => b.completed_at.localeCompare(a.completed_at)).slice(0, 5),
 )
 
 const recentHabitLogs = computed(() =>
-  [...habitLogs.value]
-    .sort((a, b) => b.logged_at.localeCompare(a.logged_at))
-    .slice(0, 10)
+  [...habitLogs.value].sort((a, b) => b.logged_at.localeCompare(a.logged_at)).slice(0, 10),
 )
 
 function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+  return new Date(iso).toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  })
 }
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
 }
 function fmtArchived(iso: string) {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  return new Date(iso).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
 }
 
 // ─── Delete habit log ─────────────────────────────────────────────────────────
@@ -127,7 +139,7 @@ async function deleteLog(id: string) {
   deletingLog.add(id)
   try {
     await db.deleteHabitLog(id)
-    habitLogs.value = habitLogs.value.filter(l => l.id !== id)
+    habitLogs.value = habitLogs.value.filter((l) => l.id !== id)
   } finally {
     deletingLog.delete(id)
   }
@@ -139,7 +151,9 @@ const isEditing = ref(false)
 const editScheduleError = ref<string | null>(null)
 
 // Clear error when the modal closes (cancel or after save)
-watch(isEditing, (open) => { if (!open) editScheduleError.value = null })
+watch(isEditing, (open) => {
+  if (!open) editScheduleError.value = null
+})
 
 const editForm = reactive({
   name: '',
@@ -169,17 +183,27 @@ function removeEditTag(tag: string) {
   if (idx >= 0) editForm.tags.splice(idx, 1)
 }
 function onEditTagKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addEditTag() }
+  if (e.key === 'Enter' || e.key === ',') {
+    e.preventDefault()
+    addEditTag()
+  }
 }
-function addEditAnnotationEntry() { editAnnotationEntries.value.push({ key: '', value: '' }) }
-function removeEditAnnotationEntry(i: number) { editAnnotationEntries.value.splice(i, 1) }
+function addEditAnnotationEntry() {
+  editAnnotationEntries.value.push({ key: '', value: '' })
+}
+function removeEditAnnotationEntry(i: number) {
+  editAnnotationEntries.value.splice(i, 1)
+}
 
 function validateEditSchedule(): string | null {
   if (editForm.type === 'NUMERIC') {
-    if (editForm.schedule_type === 'SPECIFIC_DAYS') return 'Metric habits can only be daily or 1× per week.'
-    if (editForm.schedule_type === 'WEEKLY_FLEX' && editForm.frequency_count > 1) return 'Metric habits can only be daily or 1× per week.'
+    if (editForm.schedule_type === 'SPECIFIC_DAYS')
+      return 'Metric habits can only be daily or 1× per week.'
+    if (editForm.schedule_type === 'WEEKLY_FLEX' && editForm.frequency_count > 1)
+      return 'Metric habits can only be daily or 1× per week.'
   }
-  if (editForm.type === 'LIMIT' && editForm.schedule_type !== 'DAILY') return 'Limit habits must be daily.'
+  if (editForm.type === 'LIMIT' && editForm.schedule_type !== 'DAILY')
+    return 'Limit habits must be daily.'
   return null
 }
 
@@ -211,7 +235,10 @@ function openEdit() {
   editForm.show_due_time = !!sched?.due_time
   editForm.due_time = sched?.due_time ?? ''
   editTagInput.value = ''
-  editAnnotationEntries.value = Object.entries(habit.value.annotations).map(([key, value]) => ({ key, value }))
+  editAnnotationEntries.value = Object.entries(habit.value.annotations).map(([key, value]) => ({
+    key,
+    value,
+  }))
   editShowAnnotations.value = editAnnotationEntries.value.length > 0
   isEditing.value = true
 }
@@ -219,7 +246,10 @@ function openEdit() {
 async function saveEdit() {
   if (!habit.value || !editForm.name.trim()) return
   const err = validateEditSchedule()
-  if (err) { editScheduleError.value = err; return }
+  if (err) {
+    editScheduleError.value = err
+    return
+  }
   editScheduleError.value = null
   saving.value = true
   try {
@@ -242,7 +272,8 @@ async function saveEdit() {
         id: sched.id,
         schedule_type: editForm.schedule_type,
         frequency_count: editForm.schedule_type === 'WEEKLY_FLEX' ? editForm.frequency_count : null,
-        days_of_week: editForm.schedule_type === 'SPECIFIC_DAYS' ? [...editForm.days_of_week] : null,
+        days_of_week:
+          editForm.schedule_type === 'SPECIFIC_DAYS' ? [...editForm.days_of_week] : null,
         due_time: editForm.show_due_time && editForm.due_time ? editForm.due_time : null,
       })
       habit.value = { ...updated, schedule: newSchedule }
@@ -321,7 +352,7 @@ const deletingReminder = reactive(new Set<string>())
 
 function reminderDaysLabel(r: Reminder): string {
   if (!r.days_active || r.days_active.length === 0) return 'Every day'
-  return r.days_active.map(d => DAY_NAMES[d]).join(', ')
+  return r.days_active.map((d) => DAY_NAMES[d]).join(', ')
 }
 
 function toggleNewReminderDay(day: number) {
@@ -358,7 +389,7 @@ async function removeReminder(id: string) {
   deletingReminder.add(id)
   try {
     await db.deleteReminder(id)
-    reminders.value = reminders.value.filter(r => r.id !== id)
+    reminders.value = reminders.value.filter((r) => r.id !== id)
     useNotifications().scheduleAll().catch(console.error)
   } finally {
     deletingReminder.delete(id)

@@ -8,7 +8,10 @@ const loading = ref(true)
 // ─── Load ────────────────────────────────────────────────────────────────────
 
 async function loadTemplates() {
-  if (!db.isAvailable) { loading.value = false; return }
+  if (!db.isAvailable) {
+    loading.value = false
+    return
+  }
   templates.value = await db.getCheckinTemplates()
   loading.value = false
 }
@@ -23,7 +26,7 @@ function scheduleLabel(t: CheckinTemplate): string {
   if (t.schedule_type === 'DAILY') return 'Daily'
   if (t.schedule_type === 'MONTHLY') return 'Monthly'
   if (!t.days_active || t.days_active.length === 0) return 'Weekly'
-  return `Weekly · ${t.days_active.map(d => DAY_NAMES[d]).join(', ')}`
+  return `Weekly · ${t.days_active.map((d) => DAY_NAMES[d]).join(', ')}`
 }
 
 // ─── Create template ─────────────────────────────────────────────────────────
@@ -39,7 +42,10 @@ const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 function toggleDay(day: number) {
   const idx = newDays.value.indexOf(day)
   if (idx >= 0) newDays.value.splice(idx, 1)
-  else { newDays.value.push(day); newDays.value.sort((a, b) => a - b) }
+  else {
+    newDays.value.push(day)
+    newDays.value.sort((a, b) => a - b)
+  }
 }
 
 function openCreate() {
@@ -56,7 +62,8 @@ async function createTemplate() {
     const t = await db.createCheckinTemplate({
       title: newTitle.value.trim(),
       schedule_type: newSchedule.value,
-      days_active: newSchedule.value === 'WEEKLY' && newDays.value.length ? [...newDays.value] : null,
+      days_active:
+        newSchedule.value === 'WEEKLY' && newDays.value.length ? [...newDays.value] : null,
     })
     templates.value.push(t)
     showCreate.value = false

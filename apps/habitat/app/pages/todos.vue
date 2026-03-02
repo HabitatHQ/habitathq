@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Todo, BoredCategory } from '~/types/database'
+import type { BoredCategory, Todo } from '~/types/database'
 
 const db = useDatabase()
 
@@ -37,27 +37,29 @@ const _d = new Date()
 const today = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, '0')}-${String(_d.getDate()).padStart(2, '0')}`
 
 const overdue = computed(() =>
-  todos.value.filter(t => !t.is_done && !t.archived_at && t.due_date && t.due_date < today),
+  todos.value.filter((t) => !t.is_done && !t.archived_at && t.due_date && t.due_date < today),
 )
 
 const dueToday = computed(() =>
-  todos.value.filter(t => !t.is_done && !t.archived_at && t.due_date === today),
+  todos.value.filter((t) => !t.is_done && !t.archived_at && t.due_date === today),
 )
 
 const upcoming = computed(() => {
   const in30 = new Date()
   in30.setDate(in30.getDate() + 30)
   const limit = `${in30.getFullYear()}-${String(in30.getMonth() + 1).padStart(2, '0')}-${String(in30.getDate()).padStart(2, '0')}`
-  return todos.value.filter(t => !t.is_done && !t.archived_at && t.due_date && t.due_date > today && t.due_date <= limit)
+  return todos.value.filter(
+    (t) => !t.is_done && !t.archived_at && t.due_date && t.due_date > today && t.due_date <= limit,
+  )
 })
 
 const noDate = computed(() =>
-  todos.value.filter(t => !t.is_done && !t.archived_at && !t.due_date),
+  todos.value.filter((t) => !t.is_done && !t.archived_at && !t.due_date),
 )
 
 const done = computed(() =>
   todos.value
-    .filter(t => t.is_done && !t.archived_at)
+    .filter((t) => t.is_done && !t.archived_at)
     .sort((a, b) => (b.done_at ?? b.updated_at).localeCompare(a.done_at ?? a.updated_at))
     .slice(0, 20),
 )
@@ -69,21 +71,25 @@ const filteredSections = computed((): Section[] => {
     return [{ label: 'Done', items: done.value, key: 'done' }]
   }
   if (filter.value === 'active') {
-    return ([
+    return (
+      [
+        { label: '🔴 Overdue', items: overdue.value, key: 'overdue' },
+        { label: '📅 Today', items: dueToday.value, key: 'today' },
+        { label: '📋 Upcoming', items: upcoming.value, key: 'upcoming' },
+        { label: '📌 No date', items: noDate.value, key: 'nodate' },
+      ] as Section[]
+    ).filter((s) => s.items.length > 0)
+  }
+  // all
+  return (
+    [
       { label: '🔴 Overdue', items: overdue.value, key: 'overdue' },
       { label: '📅 Today', items: dueToday.value, key: 'today' },
       { label: '📋 Upcoming', items: upcoming.value, key: 'upcoming' },
       { label: '📌 No date', items: noDate.value, key: 'nodate' },
-    ] as Section[]).filter(s => s.items.length > 0)
-  }
-  // all
-  return ([
-    { label: '🔴 Overdue', items: overdue.value, key: 'overdue' },
-    { label: '📅 Today', items: dueToday.value, key: 'today' },
-    { label: '📋 Upcoming', items: upcoming.value, key: 'upcoming' },
-    { label: '📌 No date', items: noDate.value, key: 'nodate' },
-    { label: '✓ Done', items: done.value, key: 'done', collapsible: true },
-  ] as Section[]).filter(s => s.items.length > 0)
+      { label: '✓ Done', items: done.value, key: 'done', collapsible: true },
+    ] as Section[]
+  ).filter((s) => s.items.length > 0)
 })
 
 function priorityColor(p: string) {
@@ -108,16 +114,23 @@ function isOverdue(t: Todo) {
 
 async function toggleTodo(t: Todo) {
   const updated = await db.toggleTodo(t.id)
-  const idx = todos.value.findIndex(x => x.id === t.id)
+  const idx = todos.value.findIndex((x) => x.id === t.id)
   if (idx !== -1) todos.value[idx] = updated
 }
 
 function openAdd() {
   editingTodo.value = null
   Object.assign(form, {
-    title: '', description: '', due_date: '', priority: 'medium',
-    estimated_minutes: '', is_recurring: false, recurrence_rule: 'daily',
-    show_in_bored: false, bored_category_id: '', tags: '',
+    title: '',
+    description: '',
+    due_date: '',
+    priority: 'medium',
+    estimated_minutes: '',
+    is_recurring: false,
+    recurrence_rule: 'daily',
+    show_in_bored: false,
+    bored_category_id: '',
+    tags: '',
   })
   showModal.value = true
 }
@@ -142,7 +155,10 @@ function openEdit(t: Todo) {
 async function saveTodo() {
   if (!form.title.trim()) return
   const mins = form.estimated_minutes !== '' ? Number(form.estimated_minutes) : null
-  const tags = form.tags.split(',').map(t => t.trim()).filter(Boolean)
+  const tags = form.tags
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
   const payload = {
     title: form.title.trim(),
     description: form.description.trim(),
@@ -158,7 +174,7 @@ async function saveTodo() {
   }
   if (editingTodo.value) {
     const updated = await db.updateTodo({ id: editingTodo.value.id, ...payload })
-    const idx = todos.value.findIndex(x => x.id === editingTodo.value!.id)
+    const idx = todos.value.findIndex((x) => x.id === editingTodo.value!.id)
     if (idx !== -1) todos.value[idx] = updated
   } else {
     const created = await db.createTodo(payload)
@@ -169,12 +185,12 @@ async function saveTodo() {
 
 async function archiveTodo(t: Todo) {
   await db.archiveTodo(t.id)
-  todos.value = todos.value.filter(x => x.id !== t.id)
+  todos.value = todos.value.filter((x) => x.id !== t.id)
 }
 
 async function deleteTodoItem(t: Todo) {
   await db.deleteTodo(t.id)
-  todos.value = todos.value.filter(x => x.id !== t.id)
+  todos.value = todos.value.filter((x) => x.id !== t.id)
 }
 
 async function deleteAndClose(t: Todo) {

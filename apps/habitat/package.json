@@ -17,6 +17,7 @@
     "cap:open:android": "npx cap open android",
     "cap:open:ios": "npx cap open ios",
     "cap:run:android": "npx cap run android",
+    "gradle": "cd android && ./gradlew",
     "cap:run:ios": "npx cap run ios",
     "cap:sync": "npx cap sync",
     "cap:copy": "npx cap copy",
@@ -25,7 +26,8 @@
     "lint:fix": "biome lint --write .",
     "format": "biome format --write .",
     "check": "biome check .",
-    "check:fix": "biome check --write ."
+    "check:fix": "biome check --write .",
+    "screenshot": "node scripts/screenshot.mjs"
   },
   "dependencies": {
     "@capacitor-community/sqlite": "^8.0.0",
@@ -55,6 +57,7 @@
     "@capacitor/status-bar": "^8.0.1",
     "@vite-pwa/nuxt": "^1.1.1",
     "coi-serviceworker": "^0.1.7",
+    "playwright-core": "^1.58.2",
     "rollup-plugin-license": "^3.7.0",
     "tailwindcss": "^4.2.0",
     "typescript": "^5.9.3",

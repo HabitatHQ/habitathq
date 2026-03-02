@@ -21,7 +21,7 @@ export interface HabitSchedule {
   habit_id: string
   schedule_type: 'DAILY' | 'WEEKLY_FLEX' | 'SPECIFIC_DAYS'
   frequency_count: number | null
-  days_of_week: number[] | null   // 0=Sun … 6=Sat
+  days_of_week: number[] | null // 0=Sun … 6=Sat
   due_time: string | null
   start_date: string | null
   end_date: string | null
@@ -30,8 +30,8 @@ export interface HabitSchedule {
 export interface HabitLog {
   id: string
   habit_id: string
-  date: string       // YYYY-MM-DD
-  logged_at: string  // ISO timestamp
+  date: string // YYYY-MM-DD
+  logged_at: string // ISO timestamp
   value: number
   notes: string
 }
@@ -41,8 +41,8 @@ export type HabitWithSchedule = Habit & { schedule: HabitSchedule | null }
 export interface Completion {
   id: string
   habit_id: string
-  date: string          // 'YYYY-MM-DD'
-  completed_at: string  // ISO timestamp
+  date: string // 'YYYY-MM-DD'
+  completed_at: string // ISO timestamp
   notes: string
   /** Tags applied at completion time. */
   tags: string[]
@@ -52,8 +52,8 @@ export interface Completion {
 
 export interface CheckinEntry {
   id: string
-  entry_date: string    // YYYY-MM-DD
-  content: string       // JSON-serialised CheckinAnswers
+  entry_date: string // YYYY-MM-DD
+  content: string // JSON-serialised CheckinAnswers
   created_at: string
   updated_at: string
 }
@@ -76,7 +76,7 @@ export interface CheckinQuestion {
 export interface CheckinResponse {
   id: string
   question_id: string
-  logged_date: string   // YYYY-MM-DD
+  logged_date: string // YYYY-MM-DD
   value_numeric: number | null
   value_text: string | null
 }
@@ -94,15 +94,15 @@ export interface Scribble {
 export interface Reminder {
   id: string
   habit_id: string
-  trigger_time: string        // 'HH:MM'
-  days_active: number[] | null  // null = every day; 0=Sun … 6=Sat
+  trigger_time: string // 'HH:MM'
+  days_active: number[] | null // null = every day; 0=Sun … 6=Sat
 }
 
 export interface CheckinReminder {
   id: string
   template_id: string
-  trigger_time: string        // 'HH:MM'
-  days_active: number[] | null  // null = every day; 0=Sun … 6=Sat
+  trigger_time: string // 'HH:MM'
+  days_active: number[] | null // null = every day; 0=Sun … 6=Sat
 }
 
 export interface BoredCategory {
@@ -166,8 +166,21 @@ export type WorkerRequest =
   | { id: string; type: 'ARCHIVE_HABIT'; payload: { id: string } }
   | { id: string; type: 'DELETE_HABIT'; payload: { id: string } }
   | { id: string; type: 'GET_COMPLETIONS_FOR_DATE'; payload: { date: string } }
-  | { id: string; type: 'GET_COMPLETIONS_FOR_HABIT'; payload: { habit_id: string; from: string; to: string } }
-  | { id: string; type: 'TOGGLE_COMPLETION'; payload: { habit_id: string; date: string; tags?: string[]; annotations?: Record<string, string> } }
+  | {
+      id: string
+      type: 'GET_COMPLETIONS_FOR_HABIT'
+      payload: { habit_id: string; from: string; to: string }
+    }
+  | {
+      id: string
+      type: 'TOGGLE_COMPLETION'
+      payload: {
+        habit_id: string
+        date: string
+        tags?: string[]
+        annotations?: Record<string, string>
+      }
+    }
   | { id: string; type: 'GET_STREAK'; payload: { habit_id: string } }
   | { id: string; type: 'GET_ALL_COMPLETIONS' }
   | { id: string; type: 'DELETE_ALL_HABITS' }
@@ -179,8 +192,16 @@ export type WorkerRequest =
   | { id: string; type: 'NUKE_OPFS' }
   | { id: string; type: 'EXPORT_DB' }
   | { id: string; type: 'GET_HABIT_LOGS_FOR_DATE'; payload: { date: string } }
-  | { id: string; type: 'GET_HABIT_LOGS_FOR_HABIT'; payload: { habit_id: string; from: string; to: string } }
-  | { id: string; type: 'LOG_HABIT_VALUE'; payload: { habit_id: string; date: string; value: number; notes?: string } }
+  | {
+      id: string
+      type: 'GET_HABIT_LOGS_FOR_HABIT'
+      payload: { habit_id: string; from: string; to: string }
+    }
+  | {
+      id: string
+      type: 'LOG_HABIT_VALUE'
+      payload: { habit_id: string; date: string; value: number; notes?: string }
+    }
   | { id: string; type: 'DELETE_HABIT_LOG'; payload: { id: string } }
   | { id: string; type: 'GET_SCHEDULE_FOR_HABIT'; payload: { habit_id: string } }
   | { id: string; type: 'UPDATE_HABIT_SCHEDULE'; payload: Partial<HabitSchedule> & { id: string } }
@@ -193,17 +214,38 @@ export type WorkerRequest =
   | { id: string; type: 'GET_CHECKIN_ENTRIES'; payload: { from: string; to: string } }
   | { id: string; type: 'GET_CHECKIN_TEMPLATES' }
   | { id: string; type: 'CREATE_CHECKIN_TEMPLATE'; payload: Omit<CheckinTemplate, 'id'> }
-  | { id: string; type: 'UPDATE_CHECKIN_TEMPLATE'; payload: Partial<CheckinTemplate> & { id: string } }
+  | {
+      id: string
+      type: 'UPDATE_CHECKIN_TEMPLATE'
+      payload: Partial<CheckinTemplate> & { id: string }
+    }
   | { id: string; type: 'DELETE_CHECKIN_TEMPLATE'; payload: { id: string } }
   | { id: string; type: 'GET_CHECKIN_QUESTIONS'; payload: { template_id: string } }
   | { id: string; type: 'CREATE_CHECKIN_QUESTION'; payload: Omit<CheckinQuestion, 'id'> }
-  | { id: string; type: 'UPDATE_CHECKIN_QUESTION'; payload: Partial<CheckinQuestion> & { id: string } }
+  | {
+      id: string
+      type: 'UPDATE_CHECKIN_QUESTION'
+      payload: Partial<CheckinQuestion> & { id: string }
+    }
   | { id: string; type: 'DELETE_CHECKIN_QUESTION'; payload: { id: string } }
   | { id: string; type: 'GET_CHECKIN_RESPONSES'; payload: { template_id: string; date: string } }
-  | { id: string; type: 'UPSERT_CHECKIN_RESPONSE'; payload: { question_id: string; logged_date: string; value_numeric: number | null; value_text: string | null } }
+  | {
+      id: string
+      type: 'UPSERT_CHECKIN_RESPONSE'
+      payload: {
+        question_id: string
+        logged_date: string
+        value_numeric: number | null
+        value_text: string | null
+      }
+    }
   | { id: string; type: 'DELETE_CHECKIN_RESPONSE'; payload: { id: string } }
   | { id: string; type: 'GET_SCRIBBLES' }
-  | { id: string; type: 'CREATE_SCRIBBLE'; payload: Omit<Scribble, 'id' | 'created_at' | 'updated_at'> }
+  | {
+      id: string
+      type: 'CREATE_SCRIBBLE'
+      payload: Omit<Scribble, 'id' | 'created_at' | 'updated_at'>
+    }
   | { id: string; type: 'UPDATE_SCRIBBLE'; payload: Partial<Scribble> & { id: string } }
   | { id: string; type: 'DELETE_SCRIBBLE'; payload: { id: string } }
   | { id: string; type: 'GET_DB_INFO' }
@@ -231,15 +273,40 @@ export type WorkerRequest =
   | { id: string; type: 'DELETE_BORED_CATEGORY'; payload: { id: string } }
   | { id: string; type: 'GET_BORED_ACTIVITIES' }
   | { id: string; type: 'GET_BORED_ACTIVITIES_FOR_CATEGORY'; payload: { category_id: string } }
-  | { id: string; type: 'CREATE_BORED_ACTIVITY'; payload: Omit<BoredActivity, 'id' | 'created_at' | 'is_done' | 'done_at' | 'done_count' | 'last_done_at' | 'archived_at'> }
+  | {
+      id: string
+      type: 'CREATE_BORED_ACTIVITY'
+      payload: Omit<
+        BoredActivity,
+        'id' | 'created_at' | 'is_done' | 'done_at' | 'done_count' | 'last_done_at' | 'archived_at'
+      >
+    }
   | { id: string; type: 'UPDATE_BORED_ACTIVITY'; payload: Partial<BoredActivity> & { id: string } }
   | { id: string; type: 'DELETE_BORED_ACTIVITY'; payload: { id: string } }
   | { id: string; type: 'ARCHIVE_BORED_ACTIVITY'; payload: { id: string } }
   | { id: string; type: 'MARK_BORED_ACTIVITY_DONE'; payload: { id: string } }
-  | { id: string; type: 'GET_BORED_ORACLE'; payload: { excluded_category_ids: string[]; max_minutes: number | null } }
+  | {
+      id: string
+      type: 'GET_BORED_ORACLE'
+      payload: { excluded_category_ids: string[]; max_minutes: number | null }
+    }
   | { id: string; type: 'DELETE_ALL_BORED_DATA' }
   | { id: string; type: 'GET_TODOS' }
-  | { id: string; type: 'CREATE_TODO'; payload: Omit<Todo, 'id' | 'created_at' | 'updated_at' | 'is_done' | 'done_at' | 'done_count' | 'last_done_at' | 'archived_at'> }
+  | {
+      id: string
+      type: 'CREATE_TODO'
+      payload: Omit<
+        Todo,
+        | 'id'
+        | 'created_at'
+        | 'updated_at'
+        | 'is_done'
+        | 'done_at'
+        | 'done_count'
+        | 'last_done_at'
+        | 'archived_at'
+      >
+    }
   | { id: string; type: 'UPDATE_TODO'; payload: Partial<Todo> & { id: string } }
   | { id: string; type: 'DELETE_TODO'; payload: { id: string } }
   | { id: string; type: 'ARCHIVE_TODO'; payload: { id: string } }
