@@ -31,11 +31,19 @@ function toggleCategory(id: string) {
   }
 }
 
+function isMotionReduced(): boolean {
+  if (!import.meta.client) return true
+  if (settings.value.reduceMotion) return true
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
 async function roll() {
   if (shaking.value) return
-  shaking.value = true
   hasRolled.value = true
-  await new Promise((r) => setTimeout(r, 650))
+  if (!isMotionReduced()) {
+    shaking.value = true
+    await new Promise((r) => setTimeout(r, 650))
+  }
   currentResult.value = await db.getBoredOracle([...excludedCategories.value], maxMinutes.value)
   shaking.value = false
 }
