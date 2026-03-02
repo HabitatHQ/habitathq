@@ -78,6 +78,7 @@ export function useNotifications() {
   const baseURL = useNuxtApp().$config.app.baseURL
   const iconURL = `${baseURL}icons/icon-192.png`
   const isNative = Capacitor.isNativePlatform()
+  const toast = useToast()
 
   async function requestPermission(): Promise<NotificationPermission> {
     if (isNative) {
@@ -402,13 +403,14 @@ export function useNotifications() {
 
   async function _scheduleAllWeb(): Promise<void> {
     clearTimers()
-    if (typeof Notification === 'undefined') {
-      notifLog('webSchedule', 'Notification API unavailable')
-      return
+    const toastOnly = typeof Notification === 'undefined'
+    if (toastOnly) {
+      notifLog('webSchedule', 'Notification API unavailable — will use toast fallback')
+    } else {
+      _permission.value = Notification.permission
+      notifLog('webSchedule', `permission = ${_permission.value}`)
+      if (_permission.value !== 'granted') return
     }
-    _permission.value = Notification.permission
-    notifLog('webSchedule', `permission = ${_permission.value}`)
-    if (_permission.value !== 'granted') return
 
     const db = useDatabase()
     let retries = 0
@@ -450,6 +452,10 @@ export function useNotifications() {
 
     function showNotif(title: string, body: string) {
       notifLog('fire', `${title}: ${body}`)
+      if (toastOnly) {
+        toast.add({ title, description: body, icon: 'i-heroicons-bell', color: 'primary' })
+        return
+      }
       if (Notification.permission !== 'granted') return
       const opts: NotificationOptions = { body, icon: iconURL, requireInteraction: true }
       if (swReg) {
@@ -574,8 +580,12 @@ export function useNotifications() {
       return
     }
 
+    const title = 'Habitat'
+    const body = `Test at ${new Date().toLocaleTimeString()}`
+
     if (typeof Notification === 'undefined') {
-      notifLog('test', 'Notification API unavailable')
+      notifLog('test', 'Notification API unavailable — using toast fallback')
+      toast.add({ title, description: body, icon: 'i-heroicons-bell', color: 'primary' })
       return
     }
     _permission.value = Notification.permission
@@ -594,8 +604,6 @@ export function useNotifications() {
       }
     }
 
-    const title = 'Habitat'
-    const body = `Test at ${new Date().toLocaleTimeString()}`
     const opts: NotificationOptions = {
       body,
       icon: iconURL,
