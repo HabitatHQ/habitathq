@@ -11,14 +11,14 @@ const db = useDatabase()
 
 // ── Timer interval ────────────────────────────────────────────────────────────
 
-const timerComp = useTimer()
+const timerComp = reactive(useTimer())
 const { impact } = useHaptics()
 
 let timerInterval: ReturnType<typeof setInterval> | null = null
 let labelTimeout: ReturnType<typeof setTimeout> | null = null
 const showTimerLabel = ref(false)
 
-watch(timerComp.timer, (newTimer) => {
+watch(() => timerComp.timer, (newTimer) => {
   if (labelTimeout) {
     clearTimeout(labelTimeout)
     labelTimeout = null

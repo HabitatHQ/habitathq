@@ -8,7 +8,7 @@ const { anyActive, matchesContext } = useContextFilter()
 
 // ── Timer ─────────────────────────────────────────────────────────────────────
 
-const timer = useTimer()
+const timer = reactive(useTimer())
 
 const modeMenuItemId = ref<string | null>(null)
 const modeMenuMinutes = ref(25)
@@ -192,7 +192,7 @@ async function toggleTodo(t: Todo) {
   const updated = await db.toggleTodo(t.id)
   const idx = todos.value.findIndex((x) => x.id === t.id)
   if (idx !== -1) todos.value[idx] = updated
-  if (updated.is_done && timer.timer.value?.itemId === t.id) timer.stopTimer()
+  if (updated.is_done && timer.timer?.itemId === t.id) timer.stopTimer()
 }
 
 function openAdd() {

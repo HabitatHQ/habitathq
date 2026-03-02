@@ -8,7 +8,7 @@ const eggs = useEasterEggs()
 
 // ── Timer ─────────────────────────────────────────────────────────────────────
 
-const timer = useTimer()
+const timer = reactive(useTimer())
 const modeMenuOpen = ref(false)
 const modeMenuMinutes = ref(25)
 let longPressTimeout: ReturnType<typeof setTimeout> | null = null
@@ -218,7 +218,7 @@ async function roll() {
 
 async function markDone() {
   if (!currentResult.value || marking.value) return
-  if (timer.timer.value?.itemId === getBoredItemId()) timer.stopTimer()
+  if (timer.timer?.itemId === getBoredItemId()) timer.stopTimer()
   marking.value = true
   try {
     if (currentResult.value.source === 'activity') {
