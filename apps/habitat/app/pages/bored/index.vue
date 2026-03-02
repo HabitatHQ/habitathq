@@ -218,6 +218,7 @@ async function roll() {
 
 async function markDone() {
   if (!currentResult.value || marking.value) return
+  if (timer.timer.value?.itemId === getBoredItemId()) timer.stopTimer()
   marking.value = true
   try {
     if (currentResult.value.source === 'activity') {

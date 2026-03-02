@@ -15,9 +15,27 @@ const timerComp = useTimer()
 const { impact } = useHaptics()
 
 let timerInterval: ReturnType<typeof setInterval> | null = null
+let labelTimeout: ReturnType<typeof setTimeout> | null = null
+const showTimerLabel = ref(false)
+
+watch(timerComp.timer, (newTimer) => {
+  if (labelTimeout) {
+    clearTimeout(labelTimeout)
+    labelTimeout = null
+  }
+  if (newTimer) {
+    showTimerLabel.value = true
+    labelTimeout = setTimeout(() => {
+      showTimerLabel.value = false
+    }, 3000)
+  } else {
+    showTimerLabel.value = false
+  }
+})
 
 onUnmounted(() => {
   if (timerInterval) clearInterval(timerInterval)
+  if (labelTimeout) clearTimeout(labelTimeout)
 })
 
 // ── Context filter ────────────────────────────────────────────────────────────
@@ -232,14 +250,28 @@ function toggleColorMode() {
         <NuxtLink
           v-if="settings.enableTimer && timerComp.isActive"
           :to="timerComp.timer?.itemType === 'todo' ? '/todos' : '/bored'"
-          class="flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-mono transition-colors"
+          class="flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs transition-colors overflow-hidden"
           :class="timerComp.isRunning
             ? 'border-primary-500/40 text-primary-400 bg-primary-500/10'
             : 'border-(--ui-border) text-(--ui-text-muted)'"
           :aria-label="`Timer: ${timerComp.displayTime}. Go to ${timerComp.timer?.itemType}`"
         >
           <span :class="{ 'animate-pulse': timerComp.isRunning }" aria-hidden="true">⏱</span>
-          {{ timerComp.displayTime }}
+          <Transition
+            enter-active-class="transition-all duration-300 ease-out"
+            enter-from-class="opacity-0 max-w-0"
+            enter-to-class="opacity-100 max-w-[7rem]"
+            leave-active-class="transition-all duration-300 ease-in"
+            leave-from-class="opacity-100 max-w-[7rem]"
+            leave-to-class="opacity-0 max-w-0"
+          >
+            <span
+              v-if="showTimerLabel"
+              class="font-sans truncate whitespace-nowrap"
+              style="max-width: 7rem"
+            >{{ timerComp.timer?.itemTitle }}</span>
+          </Transition>
+          <span class="font-mono">{{ timerComp.displayTime }}</span>
         </NuxtLink>
 
         <!-- Context filter toggle (only when feature on and tags exist) -->
