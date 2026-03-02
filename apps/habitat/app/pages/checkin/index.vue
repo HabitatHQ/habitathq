@@ -86,19 +86,21 @@ async function createTemplate() {
 
     <!-- Template list -->
     <div v-else class="space-y-2">
-      <NuxtLink
-        v-for="t in templates"
-        :key="t.id"
-        :to="`/checkin/${t.id}`"
-        class="flex items-center justify-between p-4 rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border)
-               hover:border-(--ui-border-accented) transition-colors"
-      >
-        <div>
-          <p class="font-semibold text-(--ui-text)">{{ t.title }}</p>
-          <p class="text-xs text-(--ui-text-dimmed) mt-0.5">{{ checkinScheduleLabel(t) }}</p>
-        </div>
-        <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-slate-600 flex-shrink-0" />
-      </NuxtLink>
+      <ul v-if="templates.length" class="space-y-2">
+        <li v-for="t in templates" :key="t.id">
+          <NuxtLink
+            :to="`/checkin/${t.id}`"
+            class="flex items-center justify-between p-4 rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border)
+                   hover:border-(--ui-border-accented) transition-colors"
+          >
+            <div>
+              <p class="font-semibold text-(--ui-text)">{{ t.title }}</p>
+              <p class="text-xs text-(--ui-text-dimmed) mt-0.5">{{ checkinScheduleLabel(t) }}</p>
+            </div>
+            <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-slate-600 flex-shrink-0" />
+          </NuxtLink>
+        </li>
+      </ul>
 
       <div
         v-if="templates.length === 0"

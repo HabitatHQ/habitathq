@@ -394,9 +394,9 @@ function jotKindIcon(kind: string | undefined): string {
     <!-- Sections (list view) -->
     <template v-if="!calendarView">
     <template v-for="section in filteredSections" :key="section.key">
-      <div class="space-y-2">
-        <div class="flex items-center justify-between">
-          <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed)">{{ section.label }}</p>
+      <section class="space-y-2">
+        <header class="flex items-center justify-between">
+          <h2 class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed)">{{ section.label }}</h2>
           <button
             v-if="section.collapsible"
             class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-toned)"
@@ -404,10 +404,10 @@ function jotKindIcon(kind: string | undefined): string {
           >
             {{ showDone ? 'Collapse' : 'Show' }}
           </button>
-        </div>
+        </header>
 
-        <template v-if="!section.collapsible || showDone">
-          <div
+        <ul v-if="!section.collapsible || showDone" class="space-y-2">
+          <li
             v-for="todo in section.items"
             :key="todo.id"
             :id="`todo-${todo.id}`"
@@ -435,14 +435,15 @@ function jotKindIcon(kind: string | undefined): string {
               <p v-if="todo.description" class="text-xs text-(--ui-text-dimmed) mt-0.5 truncate">{{ todo.description }}</p>
               <!-- Metadata -->
               <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5">
-                <span
+                <time
                   v-if="todo.due_date"
+                  :datetime="todo.due_date"
                   class="text-xs flex items-center gap-0.5"
                   :class="isOverdue(todo, today) ? 'text-red-400' : 'text-(--ui-text-muted)'"
                 >
                   <UIcon name="i-heroicons-calendar" class="w-3 h-3" />
                   {{ formatDueDate(todo.due_date, today) }}
-                </span>
+                </time>
                 <span v-if="todo.estimated_minutes" class="text-xs text-(--ui-text-dimmed) flex items-center gap-0.5">
                   <UIcon name="i-heroicons-clock" class="w-3 h-3" />
                   {{ todo.estimated_minutes }}m
@@ -471,9 +472,9 @@ function jotKindIcon(kind: string | undefined): string {
               <UButton variant="ghost" color="neutral" size="sm" icon="i-heroicons-pencil" @click="openEdit(todo)" />
               <UButton variant="ghost" color="neutral" size="sm" icon="i-heroicons-archive-box" @click="archiveTodo(todo)" />
             </div>
-          </div>
-        </template>
-      </div>
+          </li>
+        </ul>
+      </section>
     </template>
 
     <!-- Empty state -->

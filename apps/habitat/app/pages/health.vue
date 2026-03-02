@@ -278,10 +278,10 @@ onMounted(load)
 
       <!-- ── Steps ────────────────────────────────────────────────────────────── -->
       <UCard v-if="stepsHabit" :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-4' }">
-        <div class="flex items-center justify-between">
+        <header class="flex items-center justify-between">
           <div class="flex items-center gap-2">
             <UIcon name="i-heroicons-fire" class="w-4 h-4 text-rose-400" />
-            <p class="text-xs font-semibold text-(--ui-text-muted) uppercase tracking-wide">Steps Today</p>
+            <h3 class="text-xs font-semibold text-(--ui-text-muted) uppercase tracking-wide">Steps Today</h3>
           </div>
           <UButton
             icon="i-heroicons-pencil-square"
@@ -290,7 +290,7 @@ onMounted(load)
             size="sm"
             @click="openStepsLog"
           />
-        </div>
+        </header>
 
         <!-- Odometer -->
         <div class="flex flex-col items-center gap-3">
@@ -393,10 +393,10 @@ onMounted(load)
 
       <!-- ── Water ────────────────────────────────────────────────────────────── -->
       <UCard v-if="waterHabit" :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-3' }">
-        <div class="flex items-center justify-between">
+        <header class="flex items-center justify-between">
           <div class="flex items-center gap-2">
             <UIcon name="i-heroicons-beaker" class="w-4 h-4 text-sky-400" />
-            <p class="text-xs font-semibold text-(--ui-text-muted) uppercase tracking-wide">Water Today</p>
+            <h3 class="text-xs font-semibold text-(--ui-text-muted) uppercase tracking-wide">Water Today</h3>
           </div>
           <div class="flex items-center gap-2">
             <span class="text-xs text-(--ui-text-dimmed)">
@@ -420,7 +420,7 @@ onMounted(load)
               </button>
             </div>
           </div>
-        </div>
+        </header>
 
         <!-- Glass dots — tap to set count -->
         <div class="flex gap-1.5 flex-wrap">
@@ -450,10 +450,10 @@ onMounted(load)
 
       <!-- ── Sleep ─────────────────────────────────────────────────────────────── -->
       <UCard v-if="sleepHabit" :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-4' }">
-        <div class="flex items-center justify-between">
+        <header class="flex items-center justify-between">
           <div class="flex items-center gap-2">
             <UIcon name="i-heroicons-moon" class="w-4 h-4 text-indigo-400" />
-            <p class="text-xs font-semibold text-(--ui-text-muted) uppercase tracking-wide">Sleep Last Night</p>
+            <h3 class="text-xs font-semibold text-(--ui-text-muted) uppercase tracking-wide">Sleep Last Night</h3>
           </div>
           <UButton
             icon="i-heroicons-pencil-square"
@@ -462,7 +462,7 @@ onMounted(load)
             size="sm"
             @click="openSleepLog"
           />
-        </div>
+        </header>
 
         <!-- Hours display -->
         <div class="flex items-end gap-1.5">
@@ -534,19 +534,19 @@ onMounted(load)
 
       <!-- ── Meals ─────────────────────────────────────────────────────────────── -->
       <UCard v-if="mealHabits.length" :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-3' }">
-        <div class="flex items-center justify-between">
+        <header class="flex items-center justify-between">
           <div class="flex items-center gap-2">
             <UIcon name="i-heroicons-scale" class="w-4 h-4 text-amber-400" />
-            <p class="text-xs font-semibold text-(--ui-text-muted) uppercase tracking-wide">Meals</p>
+            <h3 class="text-xs font-semibold text-(--ui-text-muted) uppercase tracking-wide">Meals</h3>
           </div>
           <p class="text-xs text-(--ui-text-dimmed)">
             <span class="font-semibold text-(--ui-text-toned)">{{ totalCaloriesToday.toLocaleString() }}</span>
             kcal today
           </p>
-        </div>
+        </header>
 
-        <div class="space-y-2">
-          <div
+        <ul class="space-y-2">
+          <li
             v-for="meal in mealHabits"
             :key="meal.id"
             class="rounded-xl border border-(--ui-border) overflow-hidden"
@@ -605,8 +605,8 @@ onMounted(load)
                 <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
               </UButton>
             </div>
-          </div>
-        </div>
+          </li>
+        </ul>
       </UCard>
 
     </template>
