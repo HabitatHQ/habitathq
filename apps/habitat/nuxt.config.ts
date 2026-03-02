@@ -40,7 +40,8 @@ export default defineNuxtConfig({
         'Content-Security-Policy': [
           "default-src 'self'",
           // 'wasm-unsafe-eval' is required for SQLite WASM compilation
-          "script-src 'self' 'wasm-unsafe-eval'",
+          // hash = @nuxt/ui color-mode FOUC-prevention inline script
+          "script-src 'self' 'wasm-unsafe-eval' 'sha256-7QIjPOpXT97VD5NmIGqI7WTiAFunWN1i1ifDHVp5i+g='",
           // 'unsafe-inline' needed for Vue :style bindings (e.g. category colours)
           "style-src 'self' 'unsafe-inline'",
           // blob: for IDB image/voice playback & export downloads; data: for SVG bg-images
@@ -175,7 +176,8 @@ export default defineNuxtConfig({
         // Mirror routeRules CSP for the Vite dev server
         'Content-Security-Policy': [
           "default-src 'self'",
-          "script-src 'self' 'wasm-unsafe-eval'",
+          // hash = @nuxt/ui color-mode FOUC-prevention inline script
+          "script-src 'self' 'wasm-unsafe-eval' 'sha256-7QIjPOpXT97VD5NmIGqI7WTiAFunWN1i1ifDHVp5i+g='",
           "style-src 'self' 'unsafe-inline'",
           "img-src 'self' blob: data:",
           "media-src 'self' blob:",
@@ -239,7 +241,8 @@ export default defineNuxtConfig({
           'http-equiv': 'Content-Security-Policy',
           content: [
             "default-src 'self'",
-            "script-src 'self' 'wasm-unsafe-eval'",
+            // hash = @nuxt/ui color-mode FOUC-prevention inline script
+          "script-src 'self' 'wasm-unsafe-eval' 'sha256-7QIjPOpXT97VD5NmIGqI7WTiAFunWN1i1ifDHVp5i+g='",
             "style-src 'self' 'unsafe-inline'",
             "img-src 'self' blob: data:",
             "media-src 'self' blob:",

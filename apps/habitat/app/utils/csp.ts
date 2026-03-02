@@ -11,7 +11,8 @@
  */
 export const STRICT_CSP_DIRECTIVES = [
   "default-src 'self'",
-  "script-src 'self' 'wasm-unsafe-eval'",
+  // hash = @nuxt/ui color-mode FOUC-prevention inline script
+  "script-src 'self' 'wasm-unsafe-eval' 'sha256-7QIjPOpXT97VD5NmIGqI7WTiAFunWN1i1ifDHVp5i+g='",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' blob: data:",
   "media-src 'self' blob:",
