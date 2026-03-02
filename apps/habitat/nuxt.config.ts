@@ -1,9 +1,14 @@
 import { execSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { defineNuxtConfig } from 'nuxt/config'
 import license from 'rollup-plugin-license'
-import { cspHashPlugin } from './lib/csp-hashes'
+import {
+  buildFullCsp,
+  cspHashPlugin,
+  extractInlineScriptHashes,
+  injectFullCspMetaTag,
+} from './lib/csp-hashes'
 
 const buildTarget = process.env.BUILD_TARGET // 'pwa' | 'native' | undefined (defaults to dev/pwa)
 
@@ -32,32 +37,17 @@ export default defineNuxtConfig({
   },
   compatibilityDate: '2025-01-01',
 
-  // Required for SharedArrayBuffer (SQLite WASM OPFS persistence) + CSP
+  // Required for SharedArrayBuffer (SQLite WASM OPFS persistence).
+  // The full Content-Security-Policy lives in the HTML <meta> tag — it is
+  // injected by the `nitro:build:done` hook (build) / cspHashPlugin (dev) so
+  // that inline-script hashes can be computed dynamically.
+  // `frame-ancestors` cannot be set via a meta tag so it stays here.
   routeRules: {
     '/**': {
       headers: {
         'Cross-Origin-Opener-Policy': 'same-origin',
         'Cross-Origin-Embedder-Policy': 'require-corp',
-        'Content-Security-Policy': [
-          "default-src 'self'",
-          // 'wasm-unsafe-eval' is required for SQLite WASM compilation
-          // inline-script hashes are injected automatically by cspHashPlugin()
-          "script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'",
-          // 'unsafe-inline' needed for Vue :style bindings (e.g. category colours)
-          "style-src 'self' 'unsafe-inline'",
-          // blob: for IDB image/voice playback & export downloads; data: for SVG bg-images
-          "img-src 'self' blob: data:",
-          "media-src 'self' blob:",
-          "font-src 'self'",
-          "connect-src 'self'",
-          // blob: covers DB worker bundled as a blob URL by some bundlers
-          "worker-src 'self' blob:",
-          "child-src 'self' blob:",
-          "object-src 'none'",
-          "base-uri 'self'",
-          "form-action 'self'",
-          "frame-ancestors 'none'",
-        ].join('; '),
+        'Content-Security-Policy': "frame-ancestors 'none'",
       },
     },
   },
@@ -174,24 +164,9 @@ export default defineNuxtConfig({
       headers: {
         'Cross-Origin-Opener-Policy': 'same-origin',
         'Cross-Origin-Embedder-Policy': 'require-corp',
-        // Mirror routeRules CSP for the Vite dev server
-        'Content-Security-Policy': [
-          "default-src 'self'",
-          // inline-script hashes are injected automatically by cspHashPlugin()
-          "script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'",
-          "style-src 'self' 'unsafe-inline'",
-          "img-src 'self' blob: data:",
-          "media-src 'self' blob:",
-          "font-src 'self'",
-          // ws:/wss: required for Vite HMR WebSocket connection in dev
-          "connect-src 'self' ws: wss:",
-          "worker-src 'self' blob:",
-          "child-src 'self' blob:",
-          "object-src 'none'",
-          "base-uri 'self'",
-          "form-action 'self'",
-          "frame-ancestors 'none'",
-        ].join('; '),
+        // Full CSP is injected into HTML by cspHashPlugin() in dev mode.
+        // frame-ancestors must be an HTTP header (ignored in meta tags).
+        'Content-Security-Policy': "frame-ancestors 'none'",
       },
     },
     define: {
@@ -242,30 +217,47 @@ export default defineNuxtConfig({
         { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },
         { name: 'apple-mobile-web-app-title', content: 'Habitat' },
         { name: 'theme-color', content: '#0f172a' },
-        {
-          'http-equiv': 'Content-Security-Policy',
-          content: [
-            "default-src 'self'",
-            // inline-script hashes are injected automatically by cspHashPlugin()
-            "script-src 'self' 'wasm-unsafe-eval'",
-            "style-src 'self' 'unsafe-inline'",
-            "img-src 'self' blob: data:",
-            "media-src 'self' blob:",
-            "font-src 'self'",
-            "connect-src 'self'",
-            "worker-src 'self' blob:",
-            "child-src 'self' blob:",
-            "object-src 'none'",
-            "base-uri 'self'",
-            "form-action 'self'",
-          ].join('; '),
-        },
+        // Content-Security-Policy meta tag is injected by nitro:build:done hook
+        // (production) or cspHashPlugin transformIndexHtml (dev) so that
+        // inline-script hashes can be computed from the actual HTML output.
       ],
       link: [
         { rel: 'icon', href: `${appBaseURL}favicon.svg`, type: 'image/svg+xml' },
         { rel: 'apple-touch-icon', href: `${appBaseURL}icons/icon-192.png` },
         ...(isPWA ? [{ rel: 'manifest' as const, href: `${appBaseURL}manifest.webmanifest` }] : []),
       ],
+    },
+  },
+
+  // Inject the full Content-Security-Policy meta tag into every generated HTML
+  // file after Nitro's prerenderer has written them to `.output/public/`.
+  // This is necessary because inline-script hashes (e.g. Nuxt's color-mode
+  // IIFE) are only known once the final HTML is produced — they can't be
+  // hardcoded in nuxt.config and can't be patched by Vite's transformIndexHtml
+  // hook (which runs before the prerenderer).
+  hooks: {
+    // nitro:build:done is a valid Nuxt hook; fires after Nitro writes all static
+    // HTML files to .output/public/. Absent from the generated NuxtHooks type.
+    // @ts-expect-error — valid hook, incomplete type definition
+    'nitro:build:done': (nitro: { options: { output: { publicDir: string } } }) => {
+      const publicDir = nitro.options.output.publicDir as string
+
+      function processDir(dir: string) {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          const fullPath = join(dir, entry.name)
+          if (entry.isDirectory()) {
+            processDir(fullPath)
+          } else if (entry.name.endsWith('.html')) {
+            const html = readFileSync(fullPath, 'utf8')
+            const hashes = extractInlineScriptHashes(html)
+            const csp = buildFullCsp(hashes)
+            const patched = injectFullCspMetaTag(html, csp)
+            if (patched !== html) writeFileSync(fullPath, patched)
+          }
+        }
+      }
+
+      processDir(publicDir)
     },
   },
 
