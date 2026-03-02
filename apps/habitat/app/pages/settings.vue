@@ -859,8 +859,25 @@ const diagOpen = ref(false)
 const dragonsOpen = ref(false)
 const showNotifLog = ref(false)
 
+// ─── Pending notifications (diagnostics) ──────────────────────────────────────
+
+const { scheduled: scheduledNotifs, listPending: loadPendingNotifs } = useNotifications()
+const pendingNotifsLoading = ref(false)
+
+async function refreshPendingNotifs() {
+  pendingNotifsLoading.value = true
+  try {
+    await loadPendingNotifs()
+  } finally {
+    pendingNotifsLoading.value = false
+  }
+}
+
 watch(diagOpen, (open) => {
-  if (open) loadStorageEstimate()
+  if (open) {
+    loadStorageEstimate()
+    void refreshPendingNotifs()
+  }
 })
 </script>
 
@@ -1779,6 +1796,36 @@ watch(diagOpen, (open) => {
             </div>
             <p v-else class="text-xs text-slate-600 italic">No events yet. Schedule or test a notification to see activity here.</p>
           </div>
+        </div>
+
+        <!-- Scheduled notifications -->
+        <div>
+          <div class="flex items-center justify-between px-4 py-3.5">
+            <div class="space-y-0.5">
+              <p class="text-sm font-medium">Scheduled notifications</p>
+              <p class="text-xs text-(--ui-text-dimmed)">
+                {{ scheduledNotifs.length > 0 ? `${scheduledNotifs.length} active` : 'None scheduled for today' }}
+              </p>
+            </div>
+            <UButton
+              size="sm" variant="ghost" color="neutral"
+              icon="i-heroicons-arrow-path"
+              :loading="pendingNotifsLoading"
+              aria-label="Refresh scheduled notifications"
+              @click="refreshPendingNotifs"
+            />
+          </div>
+          <ul v-if="scheduledNotifs.length > 0" class="border-t border-(--ui-border) divide-y divide-(--ui-border)/50 px-4 pb-3">
+            <li
+              v-for="(n, i) in scheduledNotifs"
+              :key="i"
+              class="flex items-center gap-3 py-2"
+            >
+              <UIcon name="i-heroicons-bell" class="w-3.5 h-3.5 shrink-0 text-(--ui-text-dimmed)" />
+              <span class="text-xs text-(--ui-text) min-w-0 truncate grow">{{ n.title }}</span>
+              <span class="text-xs font-mono text-(--ui-text-muted) shrink-0">{{ n.when }}</span>
+            </li>
+          </ul>
         </div>
 
         <!-- Storage estimate + OPFS files subsection -->

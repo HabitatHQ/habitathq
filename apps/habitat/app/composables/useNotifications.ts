@@ -60,9 +60,19 @@ if (Capacitor.isNativePlatform()) {
 // Web-only: setTimeout handles for foreground notifications
 const _timers: ReturnType<typeof setTimeout>[] = []
 
+// Snapshot of what was last scheduled — used by the diagnostics panel.
+// Updated by _scheduleAllWeb (web) or listPending (native).
+export interface ScheduledNotification {
+  title: string
+  body: string
+  when: string // human-readable: "08:00", "daily · 08:00", "Mon · 08:00"
+}
+const _scheduled = reactive<ScheduledNotification[]>([])
+
 function clearTimers() {
   for (const t of _timers) clearTimeout(t)
   _timers.length = 0
+  _scheduled.length = 0
 }
 
 // Deterministic hash of a UUID string → positive 32-bit int (LocalNotifications needs numeric IDs)
@@ -540,6 +550,17 @@ export function useNotifications() {
 
     notifLog('webSchedule', 'scheduled', { timers: _timers.length, sw: swSchedule.length })
 
+    // Snapshot for diagnostics panel
+    _scheduled.length = 0
+    for (const r of swSchedule) {
+      const hhmm = new Date(r.at).toLocaleTimeString(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      })
+      _scheduled.push({ title: r.title, body: r.body, when: hhmm })
+    }
+
     if (swReg?.active) {
       swReg.active.postMessage({ type: 'SCHEDULE_REMINDERS', reminders: swSchedule })
       notifLog('webSchedule', 'posted SCHEDULE_REMINDERS to SW')
@@ -708,12 +729,50 @@ export function useNotifications() {
     notifLog('init', 'native listeners registered (received + tap)')
   }
 
+  // ── Pending notifications list (diagnostics) ─────────────────────────────────
+
+  /**
+   * Returns the currently scheduled notifications.
+   * - Web: synchronous snapshot from _scheduled (populated by scheduleAll).
+   * - Native: async query of LocalNotifications.getPending(); also refreshes _scheduled.
+   */
+  async function listPending(): Promise<ScheduledNotification[]> {
+    if (!isNative) return [..._scheduled]
+
+    const { LocalNotifications } = await import('@capacitor/local-notifications')
+    const { notifications } = await LocalNotifications.getPending()
+
+    const CAP_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] // Capacitor 1-indexed
+    const result: ScheduledNotification[] = notifications.map((n) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const on = (n.schedule as any)?.on as
+        | { weekday?: number; hour?: number; minute?: number }
+        | undefined
+      let when = '?'
+      if (on) {
+        const hh = String(on.hour ?? 0).padStart(2, '0')
+        const mm = String(on.minute ?? 0).padStart(2, '0')
+        const time = `${hh}:${mm}`
+        when =
+          on.weekday != null
+            ? `${CAP_DAYS[(on.weekday - 1) % 7] ?? '?'} · ${time}`
+            : `daily · ${time}`
+      }
+      return { title: n.title ?? '(no title)', body: n.body ?? '', when }
+    })
+
+    _scheduled.length = 0
+    _scheduled.push(...result)
+    return result
+  }
+
   return {
     permission: readonly(_permission),
     exactAlarm: readonly(_exactAlarm),
     batteryOptim: readonly(_batteryOptim),
     persistentStorage: readonly(_persistentStorage),
     notifLog: readonly(_notifLog),
+    scheduled: readonly(_scheduled),
     requestPermission,
     openExactAlarmSetting,
     requestBatteryExemption,
@@ -727,5 +786,6 @@ export function useNotifications() {
     sendTestNotification,
     testScheduleOn,
     registerNativeListeners,
+    listPending,
   }
 }
