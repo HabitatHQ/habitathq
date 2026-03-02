@@ -4,7 +4,7 @@ import type { HabitWithSchedule } from '~/types/database'
 const db = useDatabase()
 const { settings } = useAppSettings()
 const habits = ref<HabitWithSchedule[]>([])
-const isOpen = ref(false)
+const isOpen = useBoolModalQuery('create')
 const saving = ref(false)
 const scheduleError = ref<string | null>(null)
 
@@ -53,8 +53,6 @@ function openPauseAll() {
   showPauseAllModal.value = true
 }
 
-const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
-
 const form = reactive({
   name: '',
   description: '',
@@ -71,6 +69,33 @@ const form = reactive({
 const tagInput = ref('')
 const annotationEntries = ref<{ key: string; value: string }[]>([])
 const showAnnotations = ref(false)
+
+// ── Pending reminders (added before the habit exists in the DB) ─────────────
+const pendingReminders = ref<{ time: string; days: number[] }[]>([])
+const showAddReminder = ref(false)
+const newReminderTime = ref('')
+const newReminderDays = ref<number[]>([])
+
+function toggleNewReminderDay(day: number) {
+  const idx = newReminderDays.value.indexOf(day)
+  if (idx >= 0) {
+    newReminderDays.value.splice(idx, 1)
+  } else {
+    newReminderDays.value.push(day)
+    newReminderDays.value.sort((a, b) => a - b)
+  }
+}
+
+function addPendingReminder() {
+  if (!newReminderTime.value) return
+  pendingReminders.value.push({ time: newReminderTime.value, days: [...newReminderDays.value] })
+  newReminderTime.value = ''
+  newReminderDays.value = []
+}
+
+function removePendingReminder(i: number) {
+  pendingReminders.value.splice(i, 1)
+}
 
 function addTag() {
   const tag = tagInput.value.replace(/,$/, '').trim()
@@ -93,14 +118,6 @@ function addAnnotationEntry() {
 function removeAnnotationEntry(i: number) {
   annotationEntries.value.splice(i, 1)
 }
-function buildAnnotations(entries: { key: string; value: string }[]): Record<string, string> {
-  const result: Record<string, string> = {}
-  for (const { key, value } of entries) {
-    if (key.trim()) result[key.trim()] = value
-  }
-  return result
-}
-
 function validateSchedule(): string | null {
   if (form.type === 'NUMERIC') {
     if (form.schedule_type === 'SPECIFIC_DAYS')
@@ -167,6 +184,14 @@ async function handleCreate() {
         })
       }
     }
+    if (pendingReminders.value.length > 0) {
+      await Promise.all(
+        pendingReminders.value.map((r) =>
+          db.createReminder(newHabit.id, r.time, r.days.length ? [...r.days] : null),
+        ),
+      )
+      useNotifications().scheduleAll().catch(console.error)
+    }
     await loadHabits()
     closeModal()
   } finally {
@@ -190,16 +215,10 @@ function closeModal() {
   showAnnotations.value = false
   form.show_due_time = false
   form.due_time = ''
-}
-
-function scheduleLabel(habit: HabitWithSchedule): string {
-  const sched = habit.schedule
-  if (!sched || sched.schedule_type === 'DAILY') return 'Daily'
-  if (sched.schedule_type === 'WEEKLY_FLEX') return `${sched.frequency_count ?? 1}×/week`
-  if (sched.schedule_type === 'SPECIFIC_DAYS') {
-    return (sched.days_of_week ?? []).map((d) => DAY_LABELS[d]).join(' ')
-  }
-  return 'Daily'
+  pendingReminders.value = []
+  showAddReminder.value = false
+  newReminderTime.value = ''
+  newReminderDays.value = []
 }
 
 onMounted(loadHabits)
@@ -244,12 +263,12 @@ onMounted(loadHabits)
       v-if="habits.length === 0"
       class="flex flex-col items-center justify-center gap-4 py-12 text-center"
     >
-      <div class="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center">
-        <UIcon name="i-heroicons-clipboard-document-list" class="w-8 h-8 text-slate-400" />
+      <div class="w-16 h-16 rounded-full bg-(--ui-bg-elevated) flex items-center justify-center">
+        <UIcon name="i-heroicons-clipboard-document-list" class="w-8 h-8 text-(--ui-text-muted)" />
       </div>
       <div class="space-y-1">
-        <p class="font-semibold text-slate-200">No habits yet</p>
-        <p class="text-sm text-slate-500">Tap New to create your first habit.</p>
+        <p class="font-semibold text-(--ui-text)">No habits yet</p>
+        <p class="text-sm text-(--ui-text-dimmed)">Tap New to create your first habit.</p>
       </div>
     </section>
 
@@ -258,7 +277,7 @@ onMounted(loadHabits)
         v-for="habit in habits"
         :key="habit.id"
         :to="`/habits/${habit.id}`"
-        class="flex items-center gap-3 p-3 rounded-xl bg-slate-900 border border-slate-800 active:opacity-70 transition-opacity"
+        class="flex items-center gap-3 p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border) active:opacity-70 transition-opacity"
       >
         <div
           class="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
@@ -268,7 +287,7 @@ onMounted(loadHabits)
         </div>
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-1.5 min-w-0">
-            <p class="font-medium text-sm truncate text-slate-100">{{ habit.name }}</p>
+            <p class="font-medium text-sm truncate text-(--ui-text)">{{ habit.name }}</p>
             <span
               v-if="habit.type !== 'BOOLEAN'"
               class="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded"
@@ -278,7 +297,7 @@ onMounted(loadHabits)
             >{{ habit.type === 'NUMERIC' ? '# Metric' : '↓ Limit' }}</span>
           </div>
           <p class="text-xs text-slate-600">
-            {{ scheduleLabel(habit) }}
+            {{ habitScheduleLabel(habit) }}
             <span v-if="habit.type !== 'BOOLEAN'" class="ml-1">
               · {{ habit.type === 'NUMERIC' ? `target ${habit.target_value}` : `limit ${habit.target_value}` }}
             </span>
@@ -291,7 +310,7 @@ onMounted(loadHabits)
               v-for="tag in habit.tags"
               :key="tag"
               class="px-1.5 py-0.5 rounded text-[9px]"
-              :class="tag.startsWith('habitat-') ? 'bg-cyan-900/40 text-cyan-600' : 'bg-slate-800 text-slate-500'"
+              :class="tag.startsWith('habitat-') ? 'bg-cyan-900/40 text-cyan-600' : 'bg-(--ui-bg-elevated) text-(--ui-text-dimmed)'"
             >#{{ tag.startsWith('habitat-') ? tag.slice(8) : tag }}</span>
           </div>
           <div v-if="settings.showAnnotationsOnHabits && Object.keys(habit.annotations).length" class="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
@@ -312,7 +331,7 @@ onMounted(loadHabits)
         <div class="p-4 space-y-4">
           <div>
             <h3 class="text-lg font-semibold">Pause all habits</h3>
-            <p class="text-sm text-slate-400 mt-0.5">All active habits will be hidden from Today until this date.</p>
+            <p class="text-sm text-(--ui-text-muted) mt-0.5">All active habits will be hidden from Today until this date.</p>
           </div>
           <UFormField label="Pause until">
             <UInput v-model="pauseAllDate" type="date" :min="tomorrow" class="w-full" />
@@ -355,10 +374,10 @@ onMounted(loadHabits)
                 <span
                   v-for="tag in form.tags"
                   :key="tag"
-                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-xs text-slate-300"
+                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-(--ui-bg-elevated) border border-(--ui-border-accented) text-xs text-(--ui-text-toned)"
                 >
                   {{ tag }}
-                  <button class="text-slate-500 hover:text-white leading-none" @click="removeTag(tag)">×</button>
+                  <button class="text-(--ui-text-dimmed) hover:text-white leading-none" @click="removeTag(tag)">×</button>
                 </span>
               </div>
               <UInput v-model="tagInput" placeholder="Add tag, press Enter" @keydown="onTagKeydown" />
@@ -374,7 +393,7 @@ onMounted(loadHabits)
                 class="flex-1 py-1.5 px-2 rounded-lg text-xs font-medium border transition-colors"
                 :class="form.type === t
                   ? 'bg-primary-500/20 border-primary-500 text-primary-300'
-                  : 'border-slate-700 text-slate-400 hover:border-slate-600'"
+                  : 'border-(--ui-border-accented) text-(--ui-text-muted) hover:border-(--ui-border-accented)'"
                 @click="form.type = t"
               >
                 {{ t === 'BOOLEAN' ? '✓ Done' : t === 'NUMERIC' ? '# Metric' : '↓ Limit' }}
@@ -392,7 +411,7 @@ onMounted(loadHabits)
                 step="any"
                 class="w-28"
               />
-              <span class="text-sm text-slate-500">per day</span>
+              <span class="text-sm text-(--ui-text-dimmed)">per day</span>
             </div>
           </UFormField>
 
@@ -404,8 +423,8 @@ onMounted(loadHabits)
                 :key="s"
                 class="flex-1 py-1.5 px-1 rounded-lg text-xs font-medium border transition-colors"
                 :class="form.schedule_type === s
-                  ? 'bg-slate-700 border-slate-500 text-slate-100'
-                  : 'border-slate-700 text-slate-400 hover:border-slate-600'"
+                  ? 'bg-(--ui-bg-accented) border-(--ui-border-accented) text-(--ui-text)'
+                  : 'border-(--ui-border-accented) text-(--ui-text-muted) hover:border-(--ui-border-accented)'"
                 @click="form.schedule_type = s"
               >
                 {{ s === 'DAILY' ? 'Daily' : s === 'WEEKLY_FLEX' ? 'N× week' : 'Specific days' }}
@@ -414,15 +433,15 @@ onMounted(loadHabits)
 
             <!-- WEEKLY_FLEX: frequency count -->
             <div v-if="form.schedule_type === 'WEEKLY_FLEX'" class="flex items-center gap-2">
-              <span class="text-sm text-slate-400">Times per week:</span>
+              <span class="text-sm text-(--ui-text-muted)">Times per week:</span>
               <div class="flex items-center gap-1">
                 <button
-                  class="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 flex items-center justify-center text-sm"
+                  class="w-7 h-7 rounded-lg bg-(--ui-bg-elevated) border border-(--ui-border-accented) text-(--ui-text-toned) flex items-center justify-center text-sm"
                   @click="form.frequency_count = Math.max(1, form.frequency_count - 1)"
                 >−</button>
                 <span class="w-5 text-center text-sm font-medium">{{ form.frequency_count }}</span>
                 <button
-                  class="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 flex items-center justify-center text-sm"
+                  class="w-7 h-7 rounded-lg bg-(--ui-bg-elevated) border border-(--ui-border-accented) text-(--ui-text-toned) flex items-center justify-center text-sm"
                   @click="form.frequency_count = Math.min(7, form.frequency_count + 1)"
                 >+</button>
               </div>
@@ -431,12 +450,12 @@ onMounted(loadHabits)
             <!-- SPECIFIC_DAYS: day pills -->
             <div v-if="form.schedule_type === 'SPECIFIC_DAYS'" class="flex gap-1.5">
               <button
-                v-for="(label, i) in DAY_LABELS"
+                v-for="(label, i) in HABIT_DAY_LABELS"
                 :key="i"
                 class="w-8 h-8 rounded-full text-xs font-medium border transition-colors"
                 :class="form.days_of_week.includes(i)
                   ? 'bg-primary-500/20 border-primary-500 text-primary-300'
-                  : 'border-slate-700 text-slate-500 hover:border-slate-600'"
+                  : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented)'"
                 @click="toggleDay(i)"
               >
                 {{ label }}
@@ -447,7 +466,7 @@ onMounted(loadHabits)
           <!-- Due time (collapsible) -->
           <div>
             <button
-              class="text-xs text-slate-500 hover:text-slate-400 flex items-center gap-1"
+              class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1"
               @click="form.show_due_time = !form.show_due_time"
             >
               <UIcon :name="form.show_due_time ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5" />
@@ -461,7 +480,7 @@ onMounted(loadHabits)
           <!-- Annotations (collapsible) -->
           <div>
             <button
-              class="text-xs text-slate-500 hover:text-slate-400 flex items-center gap-1"
+              class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1"
               @click="showAnnotations = !showAnnotations"
             >
               <UIcon :name="showAnnotations ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5" />
@@ -476,9 +495,66 @@ onMounted(loadHabits)
                   <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
                 </button>
               </div>
-              <button class="text-xs text-slate-500 hover:text-slate-400 flex items-center gap-1" @click="addAnnotationEntry">
+              <button class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1" @click="addAnnotationEntry">
                 <UIcon name="i-heroicons-plus" class="w-3 h-3" /> Add annotation
               </button>
+            </div>
+          </div>
+
+          <!-- Reminders (collapsible) -->
+          <div>
+            <button
+              class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1"
+              @click="showAddReminder = !showAddReminder"
+            >
+              <UIcon :name="showAddReminder ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5" />
+              {{ showAddReminder ? 'Hide reminders' : pendingReminders.length > 0 ? `Reminders (${pendingReminders.length})` : 'Add reminders' }}
+            </button>
+            <div v-if="showAddReminder" class="mt-2 space-y-2">
+              <!-- Pending reminder list -->
+              <div
+                v-for="(r, i) in pendingReminders"
+                :key="i"
+                class="flex items-center gap-2"
+              >
+                <UIcon name="i-heroicons-bell" class="w-3.5 h-3.5 text-(--ui-text-dimmed) shrink-0" />
+                <span class="text-sm font-mono text-(--ui-text-toned)">{{ r.time }}</span>
+                <span class="text-xs text-(--ui-text-dimmed)">
+                  {{ r.days.length ? r.days.map(d => HABIT_DAY_LABELS[d]).join(' ') : 'Every day' }}
+                </span>
+                <button class="ml-auto p-1.5 -m-1 text-slate-700 hover:text-red-400 transition-colors" @click="removePendingReminder(i)">
+                  <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
+                </button>
+              </div>
+
+              <!-- New reminder form -->
+              <div class="space-y-1.5 pt-0.5">
+                <div class="flex items-center gap-2">
+                  <UInput v-model="newReminderTime" type="time" class="w-32" />
+                  <button
+                    class="text-xs font-medium transition-colors"
+                    :class="newReminderTime ? 'text-primary-400 hover:text-primary-300' : 'text-slate-600 cursor-not-allowed'"
+                    :disabled="!newReminderTime"
+                    @click="addPendingReminder"
+                  >
+                    + Add
+                  </button>
+                </div>
+                <div class="flex items-center gap-1">
+                  <button
+                    v-for="(label, i) in HABIT_DAY_LABELS"
+                    :key="i"
+                    class="w-7 h-7 rounded-full text-[10px] font-medium border transition-colors"
+                    :class="newReminderDays.includes(i)
+                      ? 'bg-primary-500/20 border-primary-500 text-primary-300'
+                      : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented)'"
+                    @click="toggleNewReminderDay(i)"
+                  >
+                    {{ label }}
+                  </button>
+                  <span v-if="newReminderDays.length === 0" class="text-[10px] text-slate-600 ml-1">every day</span>
+                </div>
+              </div>
             </div>
           </div>
 

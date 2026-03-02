@@ -24,18 +24,24 @@ const _persistentStorage = ref<'granted' | 'denied' | 'unknown'>('unknown')
 
 // In-app notification event log (visible in the diagnostics section)
 export interface NotifLogEntry {
-  time: string
+  ts: string // ISO-8601 timestamp
   event: string
-  detail: string
+  msg: string // free-form message (may be empty)
+  fields: Record<string, string | number | boolean>
 }
 const MAX_LOG_ENTRIES = 50
 const _notifLog = reactive<NotifLogEntry[]>([])
 
-function notifLog(event: string, detail: string) {
-  const time = new Date().toLocaleTimeString()
-  _notifLog.unshift({ time, event, detail })
+function notifLog(event: string, msg = '', fields: Record<string, string | number | boolean> = {}) {
+  const ts = new Date().toISOString()
+  _notifLog.unshift({ ts, event, msg, fields })
   if (_notifLog.length > MAX_LOG_ENTRIES) _notifLog.length = MAX_LOG_ENTRIES
-  console.debug(`[Notif] ${event}: ${detail}`)
+  const parts = [`ts=${ts}`, `event=${event}`]
+  if (msg) parts.push(msg.includes(' ') ? `msg="${msg}"` : `msg=${msg}`)
+  for (const [k, v] of Object.entries(fields)) {
+    const s = String(v)
+    parts.push(s.includes(' ') || s.includes('=') ? `${k}="${s}"` : `${k}=${s}`)
+  }
 }
 
 // Eagerly resolve native permission so the UI shows the correct state immediately
@@ -45,7 +51,7 @@ if (Capacitor.isNativePlatform()) {
       LocalNotifications.checkPermissions().then(({ display }) => {
         _permission.value =
           display === 'granted' ? 'granted' : display === 'denied' ? 'denied' : 'default'
-        notifLog('init', `native permission = ${_permission.value}`)
+        notifLog('init', 'native permission checked', { permission: _permission.value })
       }),
     )
     .catch(() => {})
@@ -78,7 +84,7 @@ export function useNotifications() {
       notifLog('permission', 'requesting native permission')
       const { LocalNotifications } = await import('@capacitor/local-notifications')
       const { display } = await LocalNotifications.requestPermissions()
-      notifLog('permission', `native result = ${display}`)
+      notifLog('permission', 'native result', { result: display, platform: 'native' })
       const mapped: NotificationPermission =
         display === 'granted' ? 'granted' : display === 'denied' ? 'denied' : 'default'
       _permission.value = mapped
@@ -93,7 +99,7 @@ export function useNotifications() {
       return 'denied'
     }
     const result = await Notification.requestPermission()
-    notifLog('permission', `web result = ${result}`)
+    notifLog('permission', 'web result', { result, platform: 'web' })
     _permission.value = result
     return result
   }
@@ -103,7 +109,7 @@ export function useNotifications() {
     try {
       const { exact_alarm } = await LocalNotifications.checkExactNotificationSetting()
       _exactAlarm.value = exact_alarm === 'granted' ? 'granted' : 'denied'
-      notifLog('exactAlarm', `status = ${exact_alarm}`)
+      notifLog('exactAlarm', 'status checked', { status: exact_alarm })
     } catch {
       notifLog('exactAlarm', 'checkExactNotificationSetting not available (pre-Android 12)')
       _exactAlarm.value = 'granted'
@@ -127,9 +133,9 @@ export function useNotifications() {
     try {
       const { registerPlugin } = await import('@capacitor/core')
       const BatteryOptim = registerPlugin('BatteryOptim')
-      const result = (await BatteryOptim['isIgnoringOptimizations']()) as { ignoring: boolean }
+      const result = (await BatteryOptim.isIgnoringOptimizations()) as { ignoring: boolean }
       _batteryOptim.value = result.ignoring ? 'exempt' : 'optimized'
-      notifLog('battery', `optimization = ${_batteryOptim.value}`)
+      notifLog('battery', 'optimization checked', { status: _batteryOptim.value })
     } catch (err) {
       notifLog('battery', `check failed: ${err}`)
     }
@@ -141,7 +147,7 @@ export function useNotifications() {
       const { registerPlugin } = await import('@capacitor/core')
       const BatteryOptim = registerPlugin('BatteryOptim')
       notifLog('battery', 'requesting exemption')
-      await BatteryOptim['requestIgnore']()
+      await BatteryOptim.requestIgnore()
       await _checkBatteryOptim()
     } catch (err) {
       notifLog('battery', `request failed: ${err}`)
@@ -214,7 +220,7 @@ export function useNotifications() {
    * On web: setTimeout for foreground + SW postMessage + Periodic Background Sync.
    */
   async function scheduleAll(): Promise<void> {
-    notifLog('scheduleAll', `platform = ${isNative ? 'native' : 'web'}`)
+    notifLog('scheduleAll', '', { platform: isNative ? 'native' : 'web' })
     if (isNative) {
       await _scheduleAllNative()
     } else {
@@ -275,7 +281,7 @@ export function useNotifications() {
     await _ensureChannel()
 
     const { notifications: pending } = await LocalNotifications.getPending()
-    notifLog('schedule', `cancelling ${pending.length} pending`)
+    notifLog('schedule', 'cancelling pending', { count: pending.length })
     if (pending.length > 0) await LocalNotifications.cancel({ notifications: pending })
 
     const db = useDatabase()
@@ -298,10 +304,10 @@ export function useNotifications() {
       db.getCheckinTemplates(),
     ])
 
-    notifLog(
-      'schedule',
-      `found ${reminders.length} habit + ${checkinReminders.length} checkin reminders`,
-    )
+    notifLog('schedule', 'found reminders', {
+      habits: reminders.length,
+      checkins: checkinReminders.length,
+    })
     if (reminders.length === 0 && checkinReminders.length === 0) return
 
     const habitMap = new Map(habits.map((h) => [h.id, h.name]))
@@ -376,32 +382,19 @@ export function useNotifications() {
       }
     }
 
-    const summary = toSchedule
-      .slice(0, 5)
-      .map(
-        (n: { id: number; title: string; schedule: { on: Record<string, number> } }) =>
-          `${n.title} @ ${JSON.stringify(n.schedule.on)}`,
-      )
-      .join(', ')
-    notifLog(
-      'schedule',
-      `scheduling ${toSchedule.length} repeating alarms: ${summary}${toSchedule.length > 5 ? ` ... +${toSchedule.length - 5} more` : ''}`,
-    )
+    notifLog('schedule', 'scheduling alarms', { count: toSchedule.length })
 
     if (toSchedule.length > 0) {
       try {
         await LocalNotifications.schedule({ notifications: toSchedule })
-        notifLog('schedule', `schedule() OK — ${toSchedule.length} alarms registered with OS`)
+        notifLog('schedule', 'schedule() OK', { registered: toSchedule.length })
       } catch (err) {
         notifLog('schedule', `schedule() FAILED: ${err}`)
       }
 
       // Verify alarms are actually pending in the OS
       const { notifications: afterPending } = await LocalNotifications.getPending()
-      notifLog(
-        'verify',
-        `getPending() after scheduling: ${afterPending.length} pending — IDs: ${afterPending.map((n) => n.id).join(', ')}`,
-      )
+      notifLog('verify', 'getPending() after scheduling', { pending: afterPending.length })
     }
   }
 
@@ -436,10 +429,10 @@ export function useNotifications() {
       db.getCheckinTemplates(),
     ])
 
-    notifLog(
-      'webSchedule',
-      `found ${reminders.length} habit + ${checkinReminders.length} checkin reminders`,
-    )
+    notifLog('webSchedule', 'found reminders', {
+      habits: reminders.length,
+      checkins: checkinReminders.length,
+    })
     if (reminders.length === 0 && checkinReminders.length === 0) return
 
     let swReg: ServiceWorkerRegistration | null = null
@@ -539,10 +532,7 @@ export function useNotifications() {
       })
     }
 
-    notifLog(
-      'webSchedule',
-      `scheduled ${_timers.length} foreground timers, ${swSchedule.length} SW reminders`,
-    )
+    notifLog('webSchedule', 'scheduled', { timers: _timers.length, sw: swSchedule.length })
 
     if (swReg?.active) {
       swReg.active.postMessage({ type: 'SCHEDULE_REMINDERS', reminders: swSchedule })
@@ -694,20 +684,17 @@ export function useNotifications() {
     const router = useRouter()
 
     await LocalNotifications.addListener('localNotificationReceived', (notification) => {
-      notifLog('received', `id=${notification.id} "${notification.title}" — "${notification.body}"`)
+      notifLog('received', notification.title ?? '', { id: notification.id })
     })
 
     await LocalNotifications.addListener('localNotificationActionPerformed', (event) => {
-      notifLog(
-        'tapped',
-        `id=${event.notification.id} extra=${JSON.stringify(event.notification.extra)}`,
-      )
       const extra = event.notification.extra as Record<string, string> | undefined
+      notifLog('tapped', '', { id: event.notification.id, type: extra?.type ?? 'unknown' })
       if (!extra) return
-      if (extra['type'] === 'habit' && extra['habitId']) {
-        router.push(`/habits/${extra['habitId']}`)
-      } else if (extra['type'] === 'checkin' && extra['templateId']) {
-        router.push(`/checkin/${extra['templateId']}`)
+      if (extra.type === 'habit' && extra.habitId) {
+        router.push(`/habits/${extra.habitId}`)
+      } else if (extra.type === 'checkin' && extra.templateId) {
+        router.push(`/checkin/${extra.templateId}`)
       }
     })
     notifLog('init', 'native listeners registered (received + tap)')

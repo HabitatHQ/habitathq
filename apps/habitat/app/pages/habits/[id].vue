@@ -20,7 +20,7 @@ async function load() {
     loading.value = false
     return
   }
-  const id = route.params['id'] as string
+  const id = route.params.id as string
   const to = new Date().toISOString().slice(0, 10)
   const fromDate = new Date()
   fromDate.setDate(fromDate.getDate() - 89)
@@ -111,24 +111,6 @@ const recentLog = computed(() =>
 const recentHabitLogs = computed(() =>
   [...habitLogs.value].sort((a, b) => b.logged_at.localeCompare(a.logged_at)).slice(0, 10),
 )
-
-function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  })
-}
-function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-}
-function fmtArchived(iso: string) {
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
-}
 
 // ─── Delete habit log ─────────────────────────────────────────────────────────
 
@@ -411,11 +393,11 @@ onMounted(load)
         size="sm"
         to="/habits"
       />
-      <span class="text-sm text-slate-500">Habits</span>
+      <span class="text-sm text-(--ui-text-dimmed)">Habits</span>
     </div>
 
     <!-- Not found -->
-    <div v-if="notFound" class="text-center py-12 text-slate-500 text-sm">
+    <div v-if="notFound" class="text-center py-12 text-(--ui-text-dimmed) text-sm">
       Habit not found.
     </div>
 
@@ -430,7 +412,7 @@ onMounted(load)
         </div>
         <div class="flex-1 min-w-0">
           <h2 class="text-xl font-bold truncate">{{ habit.name }}</h2>
-          <p v-if="habit.description" class="text-sm text-slate-500 truncate">{{ habit.description }}</p>
+          <p v-if="habit.description" class="text-sm text-(--ui-text-dimmed) truncate">{{ habit.description }}</p>
         </div>
       </div>
 
@@ -453,24 +435,24 @@ onMounted(load)
         <!-- BOOLEAN: streak -->
         <template v-if="habit.type === 'BOOLEAN'">
           <UCard :ui="{ root: 'rounded-2xl flex-1', body: 'p-3 sm:p-3 space-y-0.5' }">
-            <p class="text-[11px] text-slate-500">Current streak</p>
-            <p class="text-2xl font-bold text-slate-100">{{ currentStreak }} <span class="text-sm font-normal text-slate-500">days</span></p>
+            <p class="text-[11px] text-(--ui-text-dimmed)">Current streak</p>
+            <p class="text-2xl font-bold text-(--ui-text)">{{ currentStreak }} <span class="text-sm font-normal text-(--ui-text-dimmed)">days</span></p>
           </UCard>
         </template>
         <!-- NUMERIC / LIMIT: total + avg -->
         <template v-else>
           <UCard :ui="{ root: 'rounded-2xl flex-1', body: 'p-3 sm:p-3 space-y-0.5' }">
-            <p class="text-[11px] text-slate-500">Total logged</p>
-            <p class="text-2xl font-bold text-slate-100">{{ totalLogged.toFixed(totalLogged % 1 === 0 ? 0 : 1) }}</p>
+            <p class="text-[11px] text-(--ui-text-dimmed)">Total logged</p>
+            <p class="text-2xl font-bold text-(--ui-text)">{{ totalLogged.toFixed(totalLogged % 1 === 0 ? 0 : 1) }}</p>
           </UCard>
           <UCard :ui="{ root: 'rounded-2xl flex-1', body: 'p-3 sm:p-3 space-y-0.5' }">
-            <p class="text-[11px] text-slate-500">Avg / day</p>
-            <p class="text-2xl font-bold text-slate-100">{{ avgDailyValue }}</p>
+            <p class="text-[11px] text-(--ui-text-dimmed)">Avg / day</p>
+            <p class="text-2xl font-bold text-(--ui-text)">{{ avgDailyValue }}</p>
           </UCard>
         </template>
         <UCard :ui="{ root: 'rounded-2xl flex-1', body: 'p-3 sm:p-3 space-y-0.5' }">
-          <p class="text-[11px] text-slate-500">Tracked since</p>
-          <p class="text-sm font-medium text-slate-300 pt-1">{{ fmtArchived(habit.created_at) }}</p>
+          <p class="text-[11px] text-(--ui-text-dimmed)">Tracked since</p>
+          <p class="text-sm font-medium text-(--ui-text-toned) pt-1">{{ fmtArchived(habit.created_at) }}</p>
         </UCard>
       </div>
 
@@ -478,9 +460,9 @@ onMounted(load)
       <UCard :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4' }">
         <div class="flex items-center justify-between">
           <div class="space-y-0.5">
-            <p class="text-xs font-semibold text-slate-400">Schedule</p>
-            <p class="text-sm text-slate-200">{{ scheduleLabel }}</p>
-            <p v-if="habit.schedule?.due_time" class="text-xs text-slate-500">
+            <p class="text-xs font-semibold text-(--ui-text-muted)">Schedule</p>
+            <p class="text-sm text-(--ui-text)">{{ scheduleLabel }}</p>
+            <p v-if="habit.schedule?.due_time" class="text-xs text-(--ui-text-dimmed)">
               Due at {{ habit.schedule.due_time }}
             </p>
           </div>
@@ -491,7 +473,7 @@ onMounted(load)
       <!-- ── Reminders ───────────────────────────────────────────────────────── -->
       <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
         <div class="px-4 pt-3.5 pb-3 flex items-center justify-between">
-          <p class="text-xs font-semibold text-slate-400">Reminders</p>
+          <p class="text-xs font-semibold text-(--ui-text-muted)">Reminders</p>
           <UButton
             size="sm"
             variant="ghost"
@@ -508,8 +490,8 @@ onMounted(load)
           class="flex items-center justify-between px-4 py-2.5"
         >
           <div>
-            <p class="text-sm font-medium text-slate-200">{{ r.trigger_time }}</p>
-            <p class="text-[11px] text-slate-500">{{ reminderDaysLabel(r) }}</p>
+            <p class="text-sm font-medium text-(--ui-text)">{{ r.trigger_time }}</p>
+            <p class="text-[11px] text-(--ui-text-dimmed)">{{ reminderDaysLabel(r) }}</p>
           </div>
           <button
             class="p-2 -m-2 text-slate-700 hover:text-red-400 transition-colors"
@@ -528,12 +510,12 @@ onMounted(load)
         <div v-if="showAddReminder" class="px-4 py-3 space-y-3">
           <div class="flex items-center gap-3">
             <UInput v-model="newReminderTime" type="time" class="w-32" />
-            <span class="text-xs text-slate-500">Remind me at this time</span>
+            <span class="text-xs text-(--ui-text-dimmed)">Remind me at this time</span>
           </div>
 
           <!-- Day selector (empty = every day) -->
           <div class="space-y-1">
-            <p class="text-[11px] text-slate-500">Days (leave blank for every day)</p>
+            <p class="text-[11px] text-(--ui-text-dimmed)">Days (leave blank for every day)</p>
             <div class="flex gap-1.5">
               <button
                 v-for="(label, i) in DAY_LABELS"
@@ -541,7 +523,7 @@ onMounted(load)
                 class="w-8 h-8 rounded-full text-xs font-medium border transition-colors"
                 :class="newReminderDays.includes(i)
                   ? 'bg-primary-500/20 border-primary-500 text-primary-300'
-                  : 'border-slate-700 text-slate-500 hover:border-slate-600'"
+                  : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented)'"
                 @click="toggleNewReminderDay(i)"
               >
                 {{ label }}
@@ -565,7 +547,7 @@ onMounted(load)
 
       <!-- ── 6-week calendar (BOOLEAN only) ─────────────────────────────────── -->
       <UCard v-if="habit.type === 'BOOLEAN'" :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-2' }">
-        <p class="text-xs font-semibold text-slate-400 mb-3">Activity</p>
+        <p class="text-xs font-semibold text-(--ui-text-muted) mb-3">Activity</p>
         <div class="grid grid-cols-7 gap-1 mb-1">
           <div
             v-for="d in ['S','M','T','W','T','F','S']"
@@ -585,7 +567,7 @@ onMounted(load)
                 'text-white': cell.done,
                 'ring-1 ring-inset ring-primary-500 text-primary-400': cell.isToday && !cell.done,
                 'text-slate-700': !cell.done && !cell.isToday && !cell.future,
-                'text-slate-800': cell.future,
+                'text-(--ui-border-accented)': cell.future,
               }"
               :style="cell.done ? { backgroundColor: habit.color } : {}"
             >
@@ -599,8 +581,8 @@ onMounted(load)
       <UCard v-if="!isPaused" :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4' }">
         <div class="flex items-center justify-between">
           <div>
-            <p class="text-sm font-medium text-slate-300">Pause habit</p>
-            <p class="text-xs text-slate-500">Hide from today screen until a date</p>
+            <p class="text-sm font-medium text-(--ui-text-toned)">Pause habit</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Hide from today screen until a date</p>
           </div>
           <UButton size="xs" variant="soft" color="neutral" @click="showPauseModal = true">
             Pause
@@ -616,15 +598,15 @@ onMounted(load)
         :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }"
       >
         <div class="px-4 pt-3 pb-2">
-          <p class="text-xs font-semibold text-slate-400">Log History</p>
+          <p class="text-xs font-semibold text-(--ui-text-muted)">Log History</p>
         </div>
         <div
           v-for="entry in recentLog"
           :key="entry.id"
           class="flex items-center justify-between px-4 py-3"
         >
-          <p class="text-sm text-slate-300">{{ fmtDate(entry.completed_at) }}</p>
-          <p class="text-xs text-slate-600">{{ fmtTime(entry.completed_at) }} — Completed</p>
+          <p class="text-sm text-(--ui-text-toned)">{{ fmtLogDate(entry.completed_at) }}</p>
+          <p class="text-xs text-slate-600">{{ fmtLogTime(entry.completed_at) }} — Completed</p>
         </div>
       </UCard>
 
@@ -634,7 +616,7 @@ onMounted(load)
         :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }"
       >
         <div class="px-4 pt-3 pb-2">
-          <p class="text-xs font-semibold text-slate-400">Log History</p>
+          <p class="text-xs font-semibold text-(--ui-text-muted)">Log History</p>
         </div>
         <div
           v-for="entry in recentHabitLogs"
@@ -642,11 +624,11 @@ onMounted(load)
           class="flex items-center justify-between px-4 py-3"
         >
           <div>
-            <p class="text-sm text-slate-300">{{ fmtDate(entry.logged_at) }}</p>
-            <p class="text-xs text-slate-600">{{ fmtTime(entry.logged_at) }}</p>
+            <p class="text-sm text-(--ui-text-toned)">{{ fmtLogDate(entry.logged_at) }}</p>
+            <p class="text-xs text-slate-600">{{ fmtLogTime(entry.logged_at) }}</p>
           </div>
           <div class="flex items-center gap-3">
-            <span class="text-sm font-medium text-slate-200">{{ entry.value }}</span>
+            <span class="text-sm font-medium text-(--ui-text)">{{ entry.value }}</span>
             <button
               class="p-2 -m-2 text-slate-700 hover:text-red-400 transition-colors"
               :disabled="deletingLog.has(entry.id)"
@@ -690,10 +672,10 @@ onMounted(load)
                 <span
                   v-for="tag in editForm.tags"
                   :key="tag"
-                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-xs text-slate-300"
+                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-(--ui-bg-elevated) border border-(--ui-border-accented) text-xs text-(--ui-text-toned)"
                 >
                   {{ tag }}
-                  <button class="text-slate-500 hover:text-white leading-none" @click="removeEditTag(tag)">×</button>
+                  <button class="text-(--ui-text-dimmed) hover:text-white leading-none" @click="removeEditTag(tag)">×</button>
                 </span>
               </div>
               <UInput v-model="editTagInput" placeholder="Add tag, press Enter" @keydown="onEditTagKeydown" />
@@ -709,7 +691,7 @@ onMounted(load)
                 class="flex-1 py-1.5 px-2 rounded-lg text-xs font-medium border transition-colors"
                 :class="editForm.type === t
                   ? 'bg-primary-500/20 border-primary-500 text-primary-300'
-                  : 'border-slate-700 text-slate-400 hover:border-slate-600'"
+                  : 'border-(--ui-border-accented) text-(--ui-text-muted) hover:border-(--ui-border-accented)'"
                 @click="editForm.type = t"
               >
                 {{ t === 'BOOLEAN' ? '✓ Done' : t === 'NUMERIC' ? '# Metric' : '↓ Limit' }}
@@ -727,7 +709,7 @@ onMounted(load)
                 step="any"
                 class="w-28"
               />
-              <span class="text-sm text-slate-500">per day</span>
+              <span class="text-sm text-(--ui-text-dimmed)">per day</span>
             </div>
           </UFormField>
 
@@ -739,8 +721,8 @@ onMounted(load)
                 :key="s"
                 class="flex-1 py-1.5 px-1 rounded-lg text-xs font-medium border transition-colors"
                 :class="editForm.schedule_type === s
-                  ? 'bg-slate-700 border-slate-500 text-slate-100'
-                  : 'border-slate-700 text-slate-400 hover:border-slate-600'"
+                  ? 'bg-(--ui-bg-accented) border-(--ui-border-accented) text-(--ui-text)'
+                  : 'border-(--ui-border-accented) text-(--ui-text-muted) hover:border-(--ui-border-accented)'"
                 @click="editForm.schedule_type = s"
               >
                 {{ s === 'DAILY' ? 'Daily' : s === 'WEEKLY_FLEX' ? 'N× week' : 'Specific days' }}
@@ -748,15 +730,15 @@ onMounted(load)
             </div>
 
             <div v-if="editForm.schedule_type === 'WEEKLY_FLEX'" class="flex items-center gap-2">
-              <span class="text-sm text-slate-400">Times per week:</span>
+              <span class="text-sm text-(--ui-text-muted)">Times per week:</span>
               <div class="flex items-center gap-1">
                 <button
-                  class="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 flex items-center justify-center text-sm"
+                  class="w-7 h-7 rounded-lg bg-(--ui-bg-elevated) border border-(--ui-border-accented) text-(--ui-text-toned) flex items-center justify-center text-sm"
                   @click="editForm.frequency_count = Math.max(1, editForm.frequency_count - 1)"
                 >−</button>
                 <span class="w-5 text-center text-sm font-medium">{{ editForm.frequency_count }}</span>
                 <button
-                  class="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 flex items-center justify-center text-sm"
+                  class="w-7 h-7 rounded-lg bg-(--ui-bg-elevated) border border-(--ui-border-accented) text-(--ui-text-toned) flex items-center justify-center text-sm"
                   @click="editForm.frequency_count = Math.min(7, editForm.frequency_count + 1)"
                 >+</button>
               </div>
@@ -769,7 +751,7 @@ onMounted(load)
                 class="w-8 h-8 rounded-full text-xs font-medium border transition-colors"
                 :class="editForm.days_of_week.includes(i)
                   ? 'bg-primary-500/20 border-primary-500 text-primary-300'
-                  : 'border-slate-700 text-slate-500 hover:border-slate-600'"
+                  : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented)'"
                 @click="toggleEditDay(i)"
               >
                 {{ label }}
@@ -780,7 +762,7 @@ onMounted(load)
           <!-- Due time -->
           <div>
             <button
-              class="text-xs text-slate-500 hover:text-slate-400 flex items-center gap-1"
+              class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1"
               @click="editForm.show_due_time = !editForm.show_due_time"
             >
               <UIcon :name="editForm.show_due_time ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5" />
@@ -794,7 +776,7 @@ onMounted(load)
           <!-- Annotations (collapsible) -->
           <div>
             <button
-              class="text-xs text-slate-500 hover:text-slate-400 flex items-center gap-1"
+              class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1"
               @click="editShowAnnotations = !editShowAnnotations"
             >
               <UIcon :name="editShowAnnotations ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5" />
@@ -809,7 +791,7 @@ onMounted(load)
                   <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
                 </button>
               </div>
-              <button class="text-xs text-slate-500 hover:text-slate-400 flex items-center gap-1" @click="addEditAnnotationEntry">
+              <button class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1" @click="addEditAnnotationEntry">
                 <UIcon name="i-heroicons-plus" class="w-3 h-3" /> Add annotation
               </button>
             </div>
@@ -840,7 +822,7 @@ onMounted(load)
             </div>
             <div class="space-y-1">
               <p class="font-semibold">Pause "{{ habit?.name }}"</p>
-              <p class="text-sm text-slate-400">Choose when to resume. The habit will be hidden until then.</p>
+              <p class="text-sm text-(--ui-text-muted)">Choose when to resume. The habit will be hidden until then.</p>
             </div>
           </div>
           <UFormField label="Resume on">
@@ -870,7 +852,7 @@ onMounted(load)
             </div>
             <div class="space-y-1">
               <p class="font-semibold">Archive "{{ habit?.name }}"?</p>
-              <p class="text-sm text-slate-400">The habit and all its history will be preserved in your archive.</p>
+              <p class="text-sm text-(--ui-text-muted)">The habit and all its history will be preserved in your archive.</p>
             </div>
           </div>
           <div class="flex justify-end gap-2">

@@ -283,7 +283,7 @@ await (async () => {
         // @ts-expect-error — sqlite-wasm types don't model rowMode:'object' callback
         callback: (row: Record<string, unknown>) => rows.push({ ...row }),
       })
-      let userVersion = (rows[0]?.['user_version'] as number) ?? 0
+      let userVersion = (rows[0]?.user_version as number) ?? 0
 
       // Schema squashed at v10 (includes all tables via CREATE TABLE IF NOT EXISTS above).
       // Add future migrations here at key 11+.
@@ -1006,82 +1006,80 @@ await (async () => {
 
     function parseHabit(row: Record<string, unknown>): Habit {
       return {
-        id: row['id'] as string,
-        name: row['name'] as string,
-        description: row['description'] as string,
-        color: row['color'] as string,
-        icon: row['icon'] as string,
-        frequency: row['frequency'] as string,
-        created_at: row['created_at'] as string,
-        archived_at: (row['archived_at'] as string | null) ?? null,
-        tags: safeJsonParse(row['tags'] as string | null, []),
-        annotations: safeJsonParse(row['annotations'] as string | null, {}),
-        type: ((row['type'] as string) ?? 'BOOLEAN') as 'BOOLEAN' | 'NUMERIC' | 'LIMIT',
-        target_value: (row['target_value'] as number) ?? 1,
-        paused_until: (row['paused_until'] as string | null) ?? null,
+        id: row.id as string,
+        name: row.name as string,
+        description: row.description as string,
+        color: row.color as string,
+        icon: row.icon as string,
+        frequency: row.frequency as string,
+        created_at: row.created_at as string,
+        archived_at: (row.archived_at as string | null) ?? null,
+        tags: safeJsonParse(row.tags as string | null, []),
+        annotations: safeJsonParse(row.annotations as string | null, {}),
+        type: ((row.type as string) ?? 'BOOLEAN') as 'BOOLEAN' | 'NUMERIC' | 'LIMIT',
+        target_value: (row.target_value as number) ?? 1,
+        paused_until: (row.paused_until as string | null) ?? null,
       }
     }
 
     function parseHabitWithSchedule(row: Record<string, unknown>): HabitWithSchedule {
       const habit = parseHabit(row)
-      const schedId = row['sched_id'] as string | null
+      const schedId = row.sched_id as string | null
       if (!schedId) return { ...habit, schedule: null }
       return {
         ...habit,
         schedule: {
           id: schedId,
           habit_id: habit.id,
-          schedule_type: ((row['schedule_type'] as string) ?? 'DAILY') as
+          schedule_type: ((row.schedule_type as string) ?? 'DAILY') as
             | 'DAILY'
             | 'WEEKLY_FLEX'
             | 'SPECIFIC_DAYS',
-          frequency_count:
-            row['frequency_count'] != null ? (row['frequency_count'] as number) : null,
-          days_of_week: safeJsonParse(row['days_of_week'] as string | null, null),
-          due_time: (row['due_time'] as string | null) ?? null,
-          start_date: (row['start_date'] as string | null) ?? null,
-          end_date: (row['end_date'] as string | null) ?? null,
+          frequency_count: row.frequency_count != null ? (row.frequency_count as number) : null,
+          days_of_week: safeJsonParse(row.days_of_week as string | null, null),
+          due_time: (row.due_time as string | null) ?? null,
+          start_date: (row.start_date as string | null) ?? null,
+          end_date: (row.end_date as string | null) ?? null,
         },
       }
     }
 
     function parseHabitSchedule(row: Record<string, unknown>): HabitSchedule {
       return {
-        id: row['id'] as string,
-        habit_id: row['habit_id'] as string,
-        schedule_type: ((row['schedule_type'] as string) ?? 'DAILY') as
+        id: row.id as string,
+        habit_id: row.habit_id as string,
+        schedule_type: ((row.schedule_type as string) ?? 'DAILY') as
           | 'DAILY'
           | 'WEEKLY_FLEX'
           | 'SPECIFIC_DAYS',
-        frequency_count: row['frequency_count'] != null ? (row['frequency_count'] as number) : null,
-        days_of_week:
-          row['days_of_week'] != null ? JSON.parse(row['days_of_week'] as string) : null,
-        due_time: (row['due_time'] as string | null) ?? null,
-        start_date: (row['start_date'] as string | null) ?? null,
-        end_date: (row['end_date'] as string | null) ?? null,
+        frequency_count: row.frequency_count != null ? (row.frequency_count as number) : null,
+        days_of_week: row.days_of_week != null ? JSON.parse(row.days_of_week as string) : null,
+        due_time: (row.due_time as string | null) ?? null,
+        start_date: (row.start_date as string | null) ?? null,
+        end_date: (row.end_date as string | null) ?? null,
       }
     }
 
     function parseHabitLog(row: Record<string, unknown>): HabitLog {
       return {
-        id: row['id'] as string,
-        habit_id: row['habit_id'] as string,
-        date: row['date'] as string,
-        logged_at: row['logged_at'] as string,
-        value: row['value'] as number,
-        notes: (row['notes'] as string) ?? '',
+        id: row.id as string,
+        habit_id: row.habit_id as string,
+        date: row.date as string,
+        logged_at: row.logged_at as string,
+        value: row.value as number,
+        notes: (row.notes as string) ?? '',
       }
     }
 
     function parseCompletion(row: Record<string, unknown>): Completion {
       return {
-        id: row['id'] as string,
-        habit_id: row['habit_id'] as string,
-        date: row['date'] as string,
-        completed_at: row['completed_at'] as string,
-        notes: row['notes'] as string,
-        tags: safeJsonParse(row['tags'] as string | null, []),
-        annotations: safeJsonParse(row['annotations'] as string | null, {}),
+        id: row.id as string,
+        habit_id: row.habit_id as string,
+        date: row.date as string,
+        completed_at: row.completed_at as string,
+        notes: row.notes as string,
+        tags: safeJsonParse(row.tags as string | null, []),
+        annotations: safeJsonParse(row.annotations as string | null, {}),
       }
     }
 
@@ -1259,7 +1257,7 @@ await (async () => {
 
     function integrityCheck(): string[] {
       // Returns ['ok'] if healthy, or one message per problem found.
-      return queryRaw('PRAGMA integrity_check').map((r) => String(r['integrity_check'] ?? ''))
+      return queryRaw('PRAGMA integrity_check').map((r) => String(r.integrity_check ?? ''))
     }
 
     function getDbInfo(): {
@@ -1268,7 +1266,7 @@ await (async () => {
       indices: Array<{ name: string; tbl_name: string; sql: string }>
     } {
       const versionRows = queryRaw('PRAGMA user_version')
-      const userVersion = (versionRows[0]?.['user_version'] as number) ?? 0
+      const userVersion = (versionRows[0]?.user_version as number) ?? 0
       const tableRows = queryRaw(
         "SELECT name, sql FROM sqlite_master WHERE type = 'table' ORDER BY name",
       )
@@ -1277,11 +1275,11 @@ await (async () => {
       )
       return {
         userVersion,
-        tables: tableRows.map((r) => ({ name: String(r['name']), sql: String(r['sql'] ?? '') })),
+        tables: tableRows.map((r) => ({ name: String(r.name), sql: String(r.sql ?? '') })),
         indices: indexRows.map((r) => ({
-          name: String(r['name']),
-          tbl_name: String(r['tbl_name']),
-          sql: String(r['sql'] ?? ''),
+          name: String(r.name),
+          tbl_name: String(r.tbl_name),
+          sql: String(r.sql ?? ''),
         })),
       }
     }
@@ -1329,15 +1327,15 @@ await (async () => {
       const habitRow = queryRaw('SELECT type, target_value FROM habits WHERE id = ?', [habit_id])[0]
       if (!habitRow) return { current: 0, longest: 0 }
 
-      const type = (habitRow['type'] as string) ?? 'BOOLEAN'
-      const target = (habitRow['target_value'] as number) ?? 1
+      const type = (habitRow.type as string) ?? 'BOOLEAN'
+      const target = (habitRow.target_value as number) ?? 1
 
       // BOOLEAN: a completion row = done for that day
       if (type === 'BOOLEAN') {
         const dates = queryRaw(
           'SELECT date FROM completions WHERE habit_id = ? ORDER BY date DESC',
           [habit_id],
-        ).map((r) => r['date'] as string)
+        ).map((r) => r.date as string)
         return calcStreaks(dates)
       }
 
@@ -1346,7 +1344,7 @@ await (async () => {
         const dates = queryRaw(
           'SELECT date FROM habit_logs WHERE habit_id = ? GROUP BY date HAVING SUM(value) >= ? ORDER BY date DESC',
           [habit_id, target],
-        ).map((r) => r['date'] as string)
+        ).map((r) => r.date as string)
         return calcStreaks(dates)
       }
 
@@ -1354,7 +1352,7 @@ await (async () => {
       const dates = queryRaw(
         'SELECT date FROM habit_logs WHERE habit_id = ? GROUP BY date HAVING SUM(value) < ? ORDER BY date DESC',
         [habit_id, target],
-      ).map((r) => r['date'] as string)
+      ).map((r) => r.date as string)
       return calcStreaks(dates)
     }
 
@@ -1444,43 +1442,40 @@ await (async () => {
 
     function parseCheckinEntry(row: Record<string, unknown>): CheckinEntry {
       return {
-        id: row['id'] as string,
-        entry_date: row['entry_date'] as string,
-        content: (row['content'] as string) ?? '',
-        created_at: row['created_at'] as string,
-        updated_at: row['updated_at'] as string,
+        id: row.id as string,
+        entry_date: row.entry_date as string,
+        content: (row.content as string) ?? '',
+        created_at: row.created_at as string,
+        updated_at: row.updated_at as string,
       }
     }
 
     function parseCheckinTemplate(row: Record<string, unknown>): CheckinTemplate {
       return {
-        id: row['id'] as string,
-        title: row['title'] as string,
-        schedule_type: ((row['schedule_type'] as string) ?? 'DAILY') as
-          | 'DAILY'
-          | 'WEEKLY'
-          | 'MONTHLY',
-        days_active: safeJsonParse(row['days_active'] as string | null, null),
+        id: row.id as string,
+        title: row.title as string,
+        schedule_type: ((row.schedule_type as string) ?? 'DAILY') as 'DAILY' | 'WEEKLY' | 'MONTHLY',
+        days_active: safeJsonParse(row.days_active as string | null, null),
       }
     }
 
     function parseCheckinQuestion(row: Record<string, unknown>): CheckinQuestion {
       return {
-        id: row['id'] as string,
-        template_id: row['template_id'] as string,
-        prompt: row['prompt'] as string,
-        response_type: ((row['response_type'] as string) ?? 'TEXT') as 'SCALE' | 'TEXT' | 'BOOLEAN',
-        display_order: (row['display_order'] as number) ?? 0,
+        id: row.id as string,
+        template_id: row.template_id as string,
+        prompt: row.prompt as string,
+        response_type: ((row.response_type as string) ?? 'TEXT') as 'SCALE' | 'TEXT' | 'BOOLEAN',
+        display_order: (row.display_order as number) ?? 0,
       }
     }
 
     function parseCheckinResponse(row: Record<string, unknown>): CheckinResponse {
       return {
-        id: row['id'] as string,
-        question_id: row['question_id'] as string,
-        logged_date: row['logged_date'] as string,
-        value_numeric: row['value_numeric'] != null ? (row['value_numeric'] as number) : null,
-        value_text: row['value_text'] != null ? (row['value_text'] as string) : null,
+        id: row.id as string,
+        question_id: row.question_id as string,
+        logged_date: row.logged_date as string,
+        value_numeric: row.value_numeric != null ? (row.value_numeric as number) : null,
+        value_text: row.value_text != null ? (row.value_text as string) : null,
       }
     }
 
@@ -1495,7 +1490,7 @@ await (async () => {
       const now = new Date().toISOString()
       const existing = queryRaw('SELECT id FROM checkin_entries WHERE entry_date = ?', [date])
       if (existing.length > 0) {
-        const id = existing[0]!['id'] as string
+        const id = existing[0]?.id as string
         exec('UPDATE checkin_entries SET content = ?, updated_at = ? WHERE id = ?', [
           content,
           now,
@@ -1644,7 +1639,7 @@ await (async () => {
         [question_id, logged_date],
       )
       if (existing.length > 0) {
-        const id = existing[0]!['id'] as string
+        const id = existing[0]?.id as string
         exec('UPDATE checkin_responses SET value_numeric = ?, value_text = ? WHERE id = ?', [
           value_numeric,
           value_text,
@@ -1673,13 +1668,13 @@ await (async () => {
 
     function parseScribble(row: Record<string, unknown>): Scribble {
       return {
-        id: row['id'] as string,
-        title: (row['title'] as string) ?? '',
-        content: (row['content'] as string) ?? '',
-        tags: safeJsonParse(row['tags'] as string | null, []),
-        annotations: safeJsonParse(row['annotations'] as string | null, {}),
-        created_at: row['created_at'] as string,
-        updated_at: row['updated_at'] as string,
+        id: row.id as string,
+        title: (row.title as string) ?? '',
+        content: (row.content as string) ?? '',
+        tags: safeJsonParse(row.tags as string | null, []),
+        annotations: safeJsonParse(row.annotations as string | null, {}),
+        created_at: row.created_at as string,
+        updated_at: row.updated_at as string,
       }
     }
 
@@ -1729,10 +1724,10 @@ await (async () => {
 
     function parseReminder(row: Record<string, unknown>): Reminder {
       return {
-        id: row['id'] as string,
-        habit_id: row['habit_id'] as string,
-        trigger_time: row['trigger_time'] as string,
-        days_active: safeJsonParse(row['days_active'] as string | null, null),
+        id: row.id as string,
+        habit_id: row.habit_id as string,
+        trigger_time: row.trigger_time as string,
+        days_active: safeJsonParse(row.days_active as string | null, null),
       }
     }
 
@@ -1770,10 +1765,10 @@ await (async () => {
 
     function parseCheckinReminder(row: Record<string, unknown>): CheckinReminder {
       return {
-        id: row['id'] as string,
-        template_id: row['template_id'] as string,
-        trigger_time: row['trigger_time'] as string,
-        days_active: safeJsonParse(row['days_active'] as string | null, null),
+        id: row.id as string,
+        template_id: row.template_id as string,
+        trigger_time: row.trigger_time as string,
+        days_active: safeJsonParse(row.days_active as string | null, null),
       }
     }
 
@@ -1826,9 +1821,9 @@ await (async () => {
      ORDER BY ct.title`,
         [date],
       ).map((r) => ({
-        template_id: r['template_id'] as string,
-        title: r['title'] as string,
-        response_count: r['response_count'] as number,
+        template_id: r.template_id as string,
+        title: r.title as string,
+        response_count: r.response_count as number,
       }))
     }
 
@@ -1841,66 +1836,64 @@ await (async () => {
     function getCheckinResponseDates(): Array<{ date: string; count: number }> {
       return queryRaw(
         'SELECT logged_date as date, COUNT(*) as count FROM checkin_responses GROUP BY logged_date ORDER BY logged_date DESC',
-      ).map((r) => ({ date: r['date'] as string, count: r['count'] as number }))
+      ).map((r) => ({ date: r.date as string, count: r.count as number }))
     }
 
     // ─── Bored + Todo deserializers ───────────────────────────────────────────────
 
     function parseBoredCategory(row: Record<string, unknown>): BoredCategory {
       return {
-        id: row['id'] as string,
-        name: row['name'] as string,
-        icon: row['icon'] as string,
-        color: row['color'] as string,
-        is_system: Boolean(row['is_system']),
-        sort_order: (row['sort_order'] as number) ?? 0,
-        created_at: row['created_at'] as string,
+        id: row.id as string,
+        name: row.name as string,
+        icon: row.icon as string,
+        color: row.color as string,
+        is_system: Boolean(row.is_system),
+        sort_order: (row.sort_order as number) ?? 0,
+        created_at: row.created_at as string,
       }
     }
 
     function parseBoredActivity(row: Record<string, unknown>): BoredActivity {
       return {
-        id: row['id'] as string,
-        title: row['title'] as string,
-        description: (row['description'] as string) ?? '',
-        category_id: row['category_id'] as string,
-        estimated_minutes:
-          row['estimated_minutes'] != null ? (row['estimated_minutes'] as number) : null,
-        tags: safeJsonParse(row['tags'] as string | null, []),
-        annotations: safeJsonParse(row['annotations'] as string | null, {}),
-        is_recurring: Boolean(row['is_recurring']),
-        recurrence_rule: (row['recurrence_rule'] as 'daily' | 'weekly' | 'monthly' | null) ?? null,
-        is_done: Boolean(row['is_done']),
-        done_at: (row['done_at'] as string | null) ?? null,
-        done_count: (row['done_count'] as number) ?? 0,
-        last_done_at: (row['last_done_at'] as string | null) ?? null,
-        archived_at: (row['archived_at'] as string | null) ?? null,
-        created_at: row['created_at'] as string,
+        id: row.id as string,
+        title: row.title as string,
+        description: (row.description as string) ?? '',
+        category_id: row.category_id as string,
+        estimated_minutes: row.estimated_minutes != null ? (row.estimated_minutes as number) : null,
+        tags: safeJsonParse(row.tags as string | null, []),
+        annotations: safeJsonParse(row.annotations as string | null, {}),
+        is_recurring: Boolean(row.is_recurring),
+        recurrence_rule: (row.recurrence_rule as 'daily' | 'weekly' | 'monthly' | null) ?? null,
+        is_done: Boolean(row.is_done),
+        done_at: (row.done_at as string | null) ?? null,
+        done_count: (row.done_count as number) ?? 0,
+        last_done_at: (row.last_done_at as string | null) ?? null,
+        archived_at: (row.archived_at as string | null) ?? null,
+        created_at: row.created_at as string,
       }
     }
 
     function parseTodo(row: Record<string, unknown>): Todo {
       return {
-        id: row['id'] as string,
-        title: row['title'] as string,
-        description: (row['description'] as string) ?? '',
-        due_date: (row['due_date'] as string | null) ?? null,
-        priority: ((row['priority'] as string) ?? 'medium') as 'high' | 'medium' | 'low',
-        estimated_minutes:
-          row['estimated_minutes'] != null ? (row['estimated_minutes'] as number) : null,
-        is_done: Boolean(row['is_done']),
-        done_at: (row['done_at'] as string | null) ?? null,
-        done_count: (row['done_count'] as number) ?? 0,
-        last_done_at: (row['last_done_at'] as string | null) ?? null,
-        tags: safeJsonParse(row['tags'] as string | null, []),
-        annotations: safeJsonParse(row['annotations'] as string | null, {}),
-        is_recurring: Boolean(row['is_recurring']),
-        recurrence_rule: (row['recurrence_rule'] as 'daily' | 'weekly' | 'monthly' | null) ?? null,
-        show_in_bored: Boolean(row['show_in_bored']),
-        bored_category_id: (row['bored_category_id'] as string | null) ?? null,
-        archived_at: (row['archived_at'] as string | null) ?? null,
-        created_at: row['created_at'] as string,
-        updated_at: row['updated_at'] as string,
+        id: row.id as string,
+        title: row.title as string,
+        description: (row.description as string) ?? '',
+        due_date: (row.due_date as string | null) ?? null,
+        priority: ((row.priority as string) ?? 'medium') as 'high' | 'medium' | 'low',
+        estimated_minutes: row.estimated_minutes != null ? (row.estimated_minutes as number) : null,
+        is_done: Boolean(row.is_done),
+        done_at: (row.done_at as string | null) ?? null,
+        done_count: (row.done_count as number) ?? 0,
+        last_done_at: (row.last_done_at as string | null) ?? null,
+        tags: safeJsonParse(row.tags as string | null, []),
+        annotations: safeJsonParse(row.annotations as string | null, {}),
+        is_recurring: Boolean(row.is_recurring),
+        recurrence_rule: (row.recurrence_rule as 'daily' | 'weekly' | 'monthly' | null) ?? null,
+        show_in_bored: Boolean(row.show_in_bored),
+        bored_category_id: (row.bored_category_id as string | null) ?? null,
+        archived_at: (row.archived_at as string | null) ?? null,
+        created_at: row.created_at as string,
+        updated_at: row.updated_at as string,
       }
     }
 

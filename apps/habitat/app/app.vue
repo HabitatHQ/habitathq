@@ -82,7 +82,7 @@ function dismissPermissionModal() {
         <div class="p-6 space-y-5">
           <div class="space-y-1.5">
             <h3 class="text-lg font-bold">Set up permissions</h3>
-            <p class="text-sm text-slate-400">
+            <p class="text-sm text-(--ui-text-muted)">
               Habitat needs a few permissions to deliver habit reminders reliably, even when the app is closed.
             </p>
           </div>
@@ -92,21 +92,21 @@ function dismissPermissionModal() {
               <UIcon name="i-heroicons-bell" class="w-5 h-5 text-primary-400 mt-0.5 shrink-0" />
               <div>
                 <p class="text-sm font-medium">Notifications</p>
-                <p class="text-xs text-slate-500">Show reminders for your habits and check-ins.</p>
+                <p class="text-xs text-(--ui-text-dimmed)">Show reminders for your habits and check-ins.</p>
               </div>
             </div>
             <div class="flex gap-3 items-start">
               <UIcon name="i-heroicons-clock" class="w-5 h-5 text-primary-400 mt-0.5 shrink-0" />
               <div>
                 <p class="text-sm font-medium">Exact alarms</p>
-                <p class="text-xs text-slate-500">Fire reminders at the exact time you scheduled them.</p>
+                <p class="text-xs text-(--ui-text-dimmed)">Fire reminders at the exact time you scheduled them.</p>
               </div>
             </div>
             <div class="flex gap-3 items-start">
               <UIcon name="i-heroicons-battery-100" class="w-5 h-5 text-primary-400 mt-0.5 shrink-0" />
               <div>
                 <p class="text-sm font-medium">Battery optimization exemption</p>
-                <p class="text-xs text-slate-500">Keep reminders working when the app is in the background.</p>
+                <p class="text-xs text-(--ui-text-dimmed)">Keep reminders working when the app is in the background.</p>
               </div>
             </div>
           </div>

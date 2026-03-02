@@ -122,18 +122,6 @@ async function saveCell() {
 
 // ─── Day header helpers ───────────────────────────────────────────────────────
 
-function dayLabel(date: string): string {
-  if (date === today) return 'Today'
-  return new Date(`${date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short' })
-}
-
-function dayNum(date: string): string {
-  return new Date(`${date}T12:00:00`).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  })
-}
-
 onMounted(load)
 </script>
 
@@ -158,7 +146,7 @@ onMounted(load)
         </svg>
       </div>
       <div class="text-center">
-        <p class="text-sm text-slate-500">Quick fill</p>
+        <p class="text-sm text-(--ui-text-dimmed)">Quick fill</p>
         <h2 class="text-2xl font-bold">Week</h2>
       </div>
     </header>
@@ -168,7 +156,7 @@ onMounted(load)
       v-if="!loading && habits.length === 0"
       class="flex flex-col items-center justify-center gap-4 py-8 text-center"
     >
-      <p class="font-semibold text-slate-200">No habits yet</p>
+      <p class="font-semibold text-(--ui-text)">No habits yet</p>
       <UButton to="/habits" size="sm" variant="soft" color="neutral">Add habits</UButton>
     </div>
 
@@ -177,7 +165,7 @@ onMounted(load)
       <div class="min-w-max">
 
         <!-- Header row -->
-        <div class="flex items-end pb-2 border-b border-slate-800">
+        <div class="flex items-end pb-2 border-b border-(--ui-border)">
           <div class="w-32 shrink-0 pr-2" />
           <div
             v-for="date in days"
@@ -186,8 +174,8 @@ onMounted(load)
           >
             <p
               class="text-[10px] font-semibold"
-              :class="date === today ? 'text-primary-400' : 'text-slate-500'"
-            >{{ dayLabel(date) }}</p>
+              :class="date === today ? 'text-primary-400' : 'text-(--ui-text-dimmed)'"
+            >{{ dayLabel(date, today) }}</p>
             <p class="text-[9px] text-slate-600">{{ dayNum(date) }}</p>
           </div>
         </div>
@@ -196,7 +184,7 @@ onMounted(load)
         <div
           v-for="habit in habits"
           :key="habit.id"
-          class="flex items-center border-b border-slate-800/40 py-1.5"
+          class="flex items-center border-b border-(--ui-border)/40 py-1.5"
         >
           <!-- Habit name + icon -->
           <div class="w-32 shrink-0 pr-2 flex items-center gap-2 min-w-0">
@@ -206,7 +194,7 @@ onMounted(load)
             >
               <UIcon :name="habit.icon" class="w-3.5 h-3.5" :style="{ color: habit.color }" />
             </div>
-            <span class="text-xs font-medium text-slate-200 truncate">{{ habit.name }}</span>
+            <span class="text-xs font-medium text-(--ui-text) truncate">{{ habit.name }}</span>
           </div>
 
           <!-- Day cells -->
@@ -221,7 +209,7 @@ onMounted(load)
               class="w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all duration-150"
               :class="isDone(habit, date)
                 ? 'bg-primary-500 border-primary-500'
-                : 'border-slate-700 hover:border-slate-500 bg-transparent'"
+                : 'border-(--ui-border-accented) hover:border-(--ui-border-accented) bg-transparent'"
               :disabled="toggling.has(`${habit.id}:${date}`)"
               @click="toggle(habit, date)"
             >
@@ -238,10 +226,10 @@ onMounted(load)
                     ? 'bg-primary-500/20 border-primary-500/40 text-primary-300'
                     : 'bg-amber-500/20 border-amber-500/40 text-amber-300'
                   : getLogSum(habit.id, date) > 0
-                    ? 'border-slate-600 text-slate-300 bg-slate-800/60'
-                    : 'border-slate-800 text-slate-700',
+                    ? 'border-(--ui-border-accented) text-(--ui-text-toned) bg-(--ui-bg-elevated)/60'
+                    : 'border-(--ui-border) text-slate-700',
                 cellEdit?.habit.id === habit.id && cellEdit?.date === date
-                  ? 'ring-2 ring-primary-500 ring-offset-1 ring-offset-slate-950'
+                  ? 'ring-2 ring-primary-500 ring-offset-1 ring-offset-(--ui-bg)'
                   : '',
               ]"
               @click="openCell(habit, date)"
@@ -267,11 +255,11 @@ onMounted(load)
     <Transition name="slide-up">
       <div
         v-if="cellEdit"
-        class="fixed inset-x-0 bottom-0 z-50 bg-slate-900 border-t border-slate-700"
+        class="fixed inset-x-0 bottom-0 z-50 bg-(--ui-bg-muted) border-t border-(--ui-border-accented)"
       >
         <!-- Drag handle -->
         <div class="flex justify-center pt-2.5 pb-1">
-          <div class="w-10 h-1 rounded-full bg-slate-700" />
+          <div class="w-10 h-1 rounded-full bg-(--ui-bg-accented)" />
         </div>
 
         <!-- Habit info row -->
@@ -283,16 +271,16 @@ onMounted(load)
             <UIcon :name="cellEdit.habit.icon" class="w-4 h-4" :style="{ color: cellEdit.habit.color }" />
           </div>
           <div class="flex-1 min-w-0">
-            <p class="text-sm font-semibold text-slate-100 truncate">{{ cellEdit.habit.name }}</p>
-            <p class="text-xs text-slate-400">
-              {{ dayLabel(cellEdit.date) }}, {{ dayNum(cellEdit.date) }}
+            <p class="text-sm font-semibold text-(--ui-text) truncate">{{ cellEdit.habit.name }}</p>
+            <p class="text-xs text-(--ui-text-muted)">
+              {{ dayLabel(cellEdit.date, today) }}, {{ dayNum(cellEdit.date) }}
               · {{ cellEdit.habit.type === 'NUMERIC' ? `target ${cellEdit.habit.target_value}` : `limit ${cellEdit.habit.target_value}` }}
               <template v-if="settings.logInputMode === 'increment'">
                 · now: {{ getLogSum(cellEdit.habit.id, cellEdit.date) }}
               </template>
             </p>
           </div>
-          <button class="p-2 text-slate-500 hover:text-slate-300 transition-colors" @click="cellEdit = null">
+          <button class="p-2 text-(--ui-text-dimmed) hover:text-(--ui-text-toned) transition-colors" @click="cellEdit = null">
             <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
           </button>
         </div>
@@ -305,11 +293,11 @@ onMounted(load)
             type="number"
             min="0"
             step="any"
-            class="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-xl font-semibold text-slate-100 text-center focus:outline-none focus:border-primary-500 transition-colors"
+            class="flex-1 bg-(--ui-bg-elevated) border border-(--ui-border-accented) rounded-xl px-4 py-3 text-xl font-semibold text-(--ui-text) text-center focus:outline-none focus:border-primary-500 transition-colors"
             @keydown.enter="saveCell"
             @keydown.escape="cellEdit = null"
           />
-          <span class="text-sm text-slate-500 shrink-0 w-10">
+          <span class="text-sm text-(--ui-text-dimmed) shrink-0 w-10">
             {{ settings.logInputMode === 'increment' ? 'add' : (cellEdit.habit.type === 'NUMERIC' ? 'total' : 'total') }}
           </span>
           <button

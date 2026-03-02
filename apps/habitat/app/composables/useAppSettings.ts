@@ -31,7 +31,7 @@ const DEFAULTS: AppSettings = {
   showAnnotationsOnHabits: false,
   showTagsOnToday: false,
   showAnnotationsOnToday: false,
-  stickyNav: false,
+  stickyNav: true,
   navExtraPadding: false,
   headerExtraPadding: true,
   logInputMode: 'absolute',

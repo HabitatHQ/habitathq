@@ -35,9 +35,9 @@ function isActive(to: string) {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+  <div class="min-h-screen bg-(--ui-bg) text-(--ui-text) flex flex-col">
     <header
-      class="border-b border-slate-800 px-4 pb-3 flex items-center justify-between"
+      class="border-b border-(--ui-border) px-4 pb-3 flex items-center justify-between"
       :style="{ paddingTop: settings.headerExtraPadding
         ? 'calc(1.25rem + env(safe-area-inset-top))'
         : 'calc(0.75rem + env(safe-area-inset-top))' }"
@@ -116,8 +116,8 @@ function isActive(to: string) {
     </main>
 
     <nav
-      class="border-t border-slate-800 py-1 flex justify-around overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
-      :class="settings.stickyNav ? 'fixed bottom-0 inset-x-0 z-30 bg-slate-950' : 'safe-area-bottom'"
+      class="border-t border-(--ui-border) py-1 flex justify-around overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
+      :class="settings.stickyNav ? 'fixed bottom-0 inset-x-0 z-30 bg-(--ui-bg)' : 'safe-area-bottom'"
       :style="settings.stickyNav
         ? { paddingBottom: settings.navExtraPadding
             ? 'calc(1.25rem + env(safe-area-inset-bottom))'

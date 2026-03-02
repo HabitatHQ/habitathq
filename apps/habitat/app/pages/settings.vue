@@ -182,7 +182,7 @@ async function onImportFileSelected(e: Event) {
       showImportModal.value = true
       return
     }
-    const ver = (raw as Record<string, unknown>)['version']
+    const ver = (raw as Record<string, unknown>).version
     if (typeof ver !== 'number') {
       importError.value = 'Missing version field — not a Habitat export.'
       showImportModal.value = true
@@ -267,6 +267,7 @@ const showJotsExportModal = ref(false)
 const exportingJots = ref(false)
 const jotsExportSel = reactive({ text: true, voice: true, images: true })
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: sequential export pipeline
 async function exportJotsZip() {
   exportingJots.value = true
   try {
@@ -729,6 +730,7 @@ onMounted(async () => {
   } else {
     await checkPersistentStorage()
   }
+  await checkMediaPermissions()
 })
 
 // ─── Licenses ─────────────────────────────────────────────────────────────────
@@ -780,11 +782,35 @@ async function requestPersistStorage() {
   storagePersisted.value = await navigator.storage.persist()
 }
 
+// ─── Microphone / Camera permissions ─────────────────────────────────────────
+
+const micPermission = ref<PermissionState | null>(null)
+const cameraPermission = ref<PermissionState | null>(null)
+
+async function checkMediaPermissions() {
+  if (!navigator.permissions) return
+  for (const [name, target] of [
+    ['microphone', micPermission],
+    ['camera', cameraPermission],
+  ] as const) {
+    try {
+      const status = await navigator.permissions.query({ name: name as PermissionName })
+      target.value = status.state
+      status.onchange = () => {
+        target.value = status.state
+      }
+    } catch {
+      // Not supported in this browser (e.g. Firefox for camera)
+    }
+  }
+}
+
 // ─── Collapsible section state ────────────────────────────────────────────────
 
 const aboutOpen = ref(false)
 const diagOpen = ref(false)
 const dragonsOpen = ref(false)
+const showNotifLog = ref(false)
 
 watch(diagOpen, (open) => {
   if (open) loadStorageEstimate()
@@ -794,19 +820,19 @@ watch(diagOpen, (open) => {
 <template>
   <div class="space-y-6">
     <header>
-      <p class="text-sm text-slate-500">Preferences</p>
+      <p class="text-sm text-(--ui-text-dimmed)">Preferences</p>
       <h2 class="text-2xl font-bold">Settings</h2>
     </header>
 
     <!-- ── Display ───────────────────────────────────────────────────────────── -->
     <section class="space-y-2">
-      <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">Display</p>
+      <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Display</p>
       <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
 
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">24-hour time</p>
-            <p class="text-xs text-slate-500">Show times as 17:34 instead of 5:34 PM.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Show times as 17:34 instead of 5:34 PM.</p>
           </div>
           <USwitch
             :model-value="appSettings.use24HourTime"
@@ -817,7 +843,7 @@ watch(diagOpen, (open) => {
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Sticky bottom bar</p>
-            <p class="text-xs text-slate-500">Keep the nav bar fixed at the bottom when scrolling.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Keep the nav bar fixed at the bottom when scrolling.</p>
           </div>
           <USwitch
             :model-value="appSettings.stickyNav"
@@ -828,7 +854,7 @@ watch(diagOpen, (open) => {
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Extra bottom padding</p>
-            <p class="text-xs text-slate-500">Add space below the nav for Android gesture buttons.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Add space below the nav for Android gesture buttons.</p>
           </div>
           <USwitch
             :model-value="appSettings.navExtraPadding"
@@ -839,7 +865,7 @@ watch(diagOpen, (open) => {
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Extra top padding</p>
-            <p class="text-xs text-slate-500">Add space above the header for the status bar.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Add space above the header for the status bar.</p>
           </div>
           <USwitch
             :model-value="appSettings.headerExtraPadding"
@@ -853,7 +879,7 @@ watch(diagOpen, (open) => {
         <div class="flex items-center justify-between px-4 py-3">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Today tab</p>
-            <p class="text-xs text-slate-500">Show daily progress and log habits for today.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Show daily progress and log habits for today.</p>
           </div>
           <USwitch
             :model-value="appSettings.enableToday"
@@ -864,7 +890,7 @@ watch(diagOpen, (open) => {
           <div class="flex items-center justify-between px-4 py-3">
             <div class="space-y-0.5">
               <p class="text-sm font-medium">Week view</p>
-              <p class="text-xs text-slate-500">Quick-fill view for logging multiple days at once.</p>
+              <p class="text-xs text-(--ui-text-dimmed)">Quick-fill view for logging multiple days at once.</p>
             </div>
             <USwitch
               :model-value="appSettings.enableWeek"
@@ -872,15 +898,15 @@ watch(diagOpen, (open) => {
             />
           </div>
           <div v-if="appSettings.enableWeek" class="flex items-center justify-between px-4 pb-3">
-            <p class="text-sm text-slate-400">Days to show</p>
+            <p class="text-sm text-(--ui-text-muted)">Days to show</p>
             <div class="flex items-center gap-2">
               <button
-                class="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 flex items-center justify-center text-sm"
+                class="w-7 h-7 rounded-lg bg-(--ui-bg-elevated) border border-(--ui-border-accented) text-(--ui-text-toned) flex items-center justify-center text-sm"
                 @click="setAppSetting('weekDays', Math.max(3, (appSettings.weekDays || 3) - 1))"
               >−</button>
               <span class="w-4 text-center text-sm font-medium tabular-nums">{{ appSettings.weekDays || 3 }}</span>
               <button
-                class="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 flex items-center justify-center text-sm"
+                class="w-7 h-7 rounded-lg bg-(--ui-bg-elevated) border border-(--ui-border-accented) text-(--ui-text-toned) flex items-center justify-center text-sm"
                 @click="setAppSetting('weekDays', Math.min(7, (appSettings.weekDays || 3) + 1))"
               >+</button>
             </div>
@@ -893,7 +919,7 @@ watch(diagOpen, (open) => {
         <div class="flex items-center justify-between px-4 py-3">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Show tags</p>
-            <p class="text-xs text-slate-500">Display habit tags in the habits list.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Display habit tags in the habits list.</p>
           </div>
           <USwitch
             :model-value="appSettings.showTagsOnHabits"
@@ -903,7 +929,7 @@ watch(diagOpen, (open) => {
         <div class="flex items-center justify-between px-4 py-3">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Show annotations</p>
-            <p class="text-xs text-slate-500">Display key:value metadata in the habits list.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Display key:value metadata in the habits list.</p>
           </div>
           <USwitch
             :model-value="appSettings.showAnnotationsOnHabits"
@@ -917,7 +943,7 @@ watch(diagOpen, (open) => {
         <div class="flex items-center justify-between px-4 py-3">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Show tags</p>
-            <p class="text-xs text-slate-500">Display habit tags in today's list.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Display habit tags in today's list.</p>
           </div>
           <USwitch
             :model-value="appSettings.showTagsOnToday"
@@ -927,7 +953,7 @@ watch(diagOpen, (open) => {
         <div class="flex items-center justify-between px-4 py-3">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Show annotations</p>
-            <p class="text-xs text-slate-500">Display key:value metadata in today's list.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Display key:value metadata in today's list.</p>
           </div>
           <USwitch
             :model-value="appSettings.showAnnotationsOnToday"
@@ -940,13 +966,13 @@ watch(diagOpen, (open) => {
         </div>
         <div class="px-4 py-3 pb-4 space-y-2">
           <p class="text-sm font-medium">Input mode</p>
-          <p class="text-xs text-slate-500 mb-2">How numeric values are applied when logging a habit.</p>
+          <p class="text-xs text-(--ui-text-dimmed) mb-2">How numeric values are applied when logging a habit.</p>
           <div class="flex gap-2">
             <button
               class="flex-1 py-2 px-3 rounded-xl text-xs font-medium border transition-colors"
               :class="appSettings.logInputMode === 'increment'
                 ? 'bg-primary-500/15 border-primary-500/40 text-primary-300'
-                : 'bg-slate-800 border-slate-700 text-slate-400'"
+                : 'bg-(--ui-bg-elevated) border-(--ui-border-accented) text-(--ui-text-muted)'"
               @click="setAppSetting('logInputMode', 'increment')"
             >
               Add to total
@@ -955,7 +981,7 @@ watch(diagOpen, (open) => {
               class="flex-1 py-2 px-3 rounded-xl text-xs font-medium border transition-colors"
               :class="appSettings.logInputMode === 'absolute'
                 ? 'bg-primary-500/15 border-primary-500/40 text-primary-300'
-                : 'bg-slate-800 border-slate-700 text-slate-400'"
+                : 'bg-(--ui-bg-elevated) border-(--ui-border-accented) text-(--ui-text-muted)'"
               @click="setAppSetting('logInputMode', 'absolute')"
             >
               Set total
@@ -968,13 +994,13 @@ watch(diagOpen, (open) => {
 
     <!-- ── Features ──────────────────────────────────────────────────────────── -->
     <section class="space-y-2">
-      <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">Features</p>
+      <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Features</p>
       <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
 
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Enable Journalling</p>
-            <p class="text-xs text-slate-500">Show Check-in, Scribbles, and Voice in the navigation.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Show Check-in, Scribbles, and Voice in the navigation.</p>
           </div>
           <USwitch
             :model-value="appSettings.enableJournalling"
@@ -985,7 +1011,7 @@ watch(diagOpen, (open) => {
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Enable Health</p>
-            <p class="text-xs text-slate-500">Track daily steps and meal calories.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Track daily steps and meal calories.</p>
           </div>
           <USwitch
             :model-value="appSettings.enableHealth"
@@ -996,7 +1022,7 @@ watch(diagOpen, (open) => {
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Enable TODOs</p>
-            <p class="text-xs text-slate-500">Standalone task tracker with due dates, priorities, and recurring tasks.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Standalone task tracker with due dates, priorities, and recurring tasks.</p>
           </div>
           <USwitch
             :model-value="appSettings.enableTodos"
@@ -1007,7 +1033,7 @@ watch(diagOpen, (open) => {
         <div v-if="appSettings.enableTodos" class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Enable "I'm Bored" Mode</p>
-            <p class="text-xs text-slate-500">Magic 8-ball oracle that suggests activities from curated categories.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Magic 8-ball oracle that suggests activities from curated categories.</p>
           </div>
           <USwitch
             :model-value="appSettings.enableBored"
@@ -1018,7 +1044,7 @@ watch(diagOpen, (open) => {
         <div v-if="appSettings.enableJournalling" class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Save transcriptions</p>
-            <p class="text-xs text-slate-500">After recording, offer to save the speech-to-text transcript as a Scribble tagged <code class="text-slate-400">habitat-transcribed</code>.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">After recording, offer to save the speech-to-text transcript as a Scribble tagged <code class="text-(--ui-text-muted)">habitat-transcribed</code>.</p>
           </div>
           <USwitch
             :model-value="appSettings.saveTranscribedNotes"
@@ -1037,7 +1063,7 @@ watch(diagOpen, (open) => {
         <div v-else class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Install Habitat</p>
-            <p class="text-xs text-slate-500">Add to your home screen for offline access and notifications</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Add to your home screen for offline access and notifications</p>
           </div>
           <UButton
             size="sm"
@@ -1057,17 +1083,17 @@ watch(diagOpen, (open) => {
 
     <!-- ── Permissions ─────────────────────────────────────────────────────── -->
     <section class="space-y-2">
-      <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">Permissions</p>
+      <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Permissions</p>
       <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
 
         <!-- Notifications -->
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5 min-w-0">
             <div class="flex items-center gap-2">
-              <UIcon name="i-heroicons-bell" class="w-4 h-4 text-slate-400 shrink-0" />
+              <UIcon name="i-heroicons-bell" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
               <p class="text-sm font-medium">Notifications</p>
             </div>
-            <p class="text-xs text-slate-500">Deliver reminders for habits and check-ins.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Deliver reminders for habits and check-ins.</p>
           </div>
           <div class="shrink-0 flex items-center gap-2">
             <UBadge
@@ -1100,10 +1126,10 @@ watch(diagOpen, (open) => {
         <div v-if="isNativeApp" class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5 min-w-0">
             <div class="flex items-center gap-2">
-              <UIcon name="i-heroicons-clock" class="w-4 h-4 text-slate-400 shrink-0" />
+              <UIcon name="i-heroicons-clock" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
               <p class="text-sm font-medium">Exact alarms</p>
             </div>
-            <p class="text-xs text-slate-500">Fire reminders at the exact time you scheduled them.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Fire reminders at the exact time you scheduled them.</p>
           </div>
           <div class="shrink-0 flex items-center gap-2">
             <UBadge
@@ -1132,10 +1158,10 @@ watch(diagOpen, (open) => {
         <div v-if="isNativeApp" class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5 min-w-0">
             <div class="flex items-center gap-2">
-              <UIcon name="i-heroicons-battery-100" class="w-4 h-4 text-slate-400 shrink-0" />
+              <UIcon name="i-heroicons-battery-100" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
               <p class="text-sm font-medium">Battery optimization</p>
             </div>
-            <p class="text-xs text-slate-500">Exempt the app so reminders fire even when closed.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Exempt the app so reminders fire even when closed.</p>
           </div>
           <div class="shrink-0 flex items-center gap-2">
             <UBadge
@@ -1164,10 +1190,14 @@ watch(diagOpen, (open) => {
         <div v-if="!isNativeApp" class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5 min-w-0">
             <div class="flex items-center gap-2">
-              <UIcon name="i-heroicons-server-stack" class="w-4 h-4 text-slate-400 shrink-0" />
+              <UIcon
+                :name="persistentStorage === 'granted' ? 'i-heroicons-lock-closed' : 'i-heroicons-lock-open'"
+                class="w-4 h-4 shrink-0"
+                :class="persistentStorage === 'granted' ? 'text-green-400' : 'text-(--ui-text-muted)'"
+              />
               <p class="text-sm font-medium">Persistent storage</p>
             </div>
-            <p class="text-xs text-slate-500">Prevent the browser from evicting your offline data.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Prevent the browser from evicting your offline data.</p>
           </div>
           <div class="shrink-0 flex items-center gap-2">
             <UBadge
@@ -1192,18 +1222,76 @@ watch(diagOpen, (open) => {
           </div>
         </div>
 
+        <!-- Microphone -->
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5 min-w-0">
+            <div class="flex items-center gap-2">
+              <UIcon name="i-heroicons-microphone" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
+              <p class="text-sm font-medium">Microphone</p>
+            </div>
+            <p class="text-xs text-(--ui-text-dimmed)">Required for voice recordings in Jots.</p>
+          </div>
+          <div class="shrink-0 flex items-center gap-2">
+            <UBadge
+              v-if="micPermission === 'granted'"
+              label="Granted" variant="subtle" color="success" size="xs" class="rounded-full"
+            />
+            <UBadge
+              v-else-if="micPermission === 'denied'"
+              label="Blocked" variant="subtle" color="error" size="xs" class="rounded-full"
+            />
+            <UBadge
+              v-else-if="micPermission === 'prompt'"
+              label="Not yet asked" variant="subtle" color="neutral" size="xs" class="rounded-full"
+            />
+            <UBadge
+              v-else
+              label="Unknown" variant="subtle" color="neutral" size="xs" class="rounded-full"
+            />
+          </div>
+        </div>
+
+        <!-- Camera -->
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5 min-w-0">
+            <div class="flex items-center gap-2">
+              <UIcon name="i-heroicons-camera" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
+              <p class="text-sm font-medium">Camera</p>
+            </div>
+            <p class="text-xs text-(--ui-text-dimmed)">Required to capture photos in Jots.</p>
+          </div>
+          <div class="shrink-0 flex items-center gap-2">
+            <UBadge
+              v-if="cameraPermission === 'granted'"
+              label="Granted" variant="subtle" color="success" size="xs" class="rounded-full"
+            />
+            <UBadge
+              v-else-if="cameraPermission === 'denied'"
+              label="Blocked" variant="subtle" color="error" size="xs" class="rounded-full"
+            />
+            <UBadge
+              v-else-if="cameraPermission === 'prompt'"
+              label="Not yet asked" variant="subtle" color="neutral" size="xs" class="rounded-full"
+            />
+            <UBadge
+              v-else
+              label="Unknown" variant="subtle" color="neutral" size="xs" class="rounded-full"
+            />
+          </div>
+        </div>
+
       </UCard>
     </section>
 
     <!-- ── Data ──────────────────────────────────────────────────────────────── -->
     <section class="space-y-2">
-      <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">Data</p>
+      <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Data</p>
       <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
 
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Export data</p>
-            <p class="text-xs text-slate-500">Download selected data as a versioned JSON file.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Download selected data as a versioned JSON file.</p>
           </div>
           <UButton
             icon="i-heroicons-arrow-down-tray"
@@ -1218,7 +1306,7 @@ watch(diagOpen, (open) => {
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Import data</p>
-            <p class="text-xs text-slate-500">Merge from a Habitat JSON export. Existing records are kept.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Merge from a Habitat JSON export. Existing records are kept.</p>
           </div>
           <input ref="importInput" type="file" accept=".json" class="hidden" @change="onImportFileSelected" />
           <UButton
@@ -1234,7 +1322,7 @@ watch(diagOpen, (open) => {
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Export SQLite</p>
-            <p class="text-xs text-slate-500">Download the raw <span class="font-mono">.sqlite3</span> database file.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Download the raw <span class="font-mono">.sqlite3</span> database file.</p>
           </div>
           <UButton
             icon="i-heroicons-circle-stack"
@@ -1250,7 +1338,7 @@ watch(diagOpen, (open) => {
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Export Jots</p>
-            <p class="text-xs text-slate-500">Download text notes, voice recordings, and images as a <span class="font-mono">.zip</span>.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Download text notes, voice recordings, and images as a <span class="font-mono">.zip</span>.</p>
           </div>
           <UButton
             icon="i-heroicons-document-text"
@@ -1267,88 +1355,88 @@ watch(diagOpen, (open) => {
     <!-- ── About (collapsible) ───────────────────────────────────────────────── -->
     <section class="space-y-2">
       <button class="w-full flex items-center justify-between px-1 py-0.5" @click="aboutOpen = !aboutOpen">
-        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">About</p>
+        <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed)">About</p>
         <UIcon :name="aboutOpen ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-slate-600" />
       </button>
       <UCard v-if="aboutOpen" :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
 
         <div class="flex items-center justify-between px-4 py-3.5">
-          <p class="text-sm text-slate-400">App</p>
+          <p class="text-sm text-(--ui-text-muted)">App</p>
           <p class="text-sm font-medium">Habitat</p>
         </div>
         <div class="flex items-center justify-between px-4 py-3.5">
-          <p class="text-sm text-slate-400">Version</p>
+          <p class="text-sm text-(--ui-text-muted)">Version</p>
           <p class="text-sm font-mono font-medium">{{ runtimeConfig.public.appVersion || '—' }}</p>
         </div>
         <div class="flex items-center justify-between px-4 py-3.5">
-          <p class="text-sm text-slate-400">Commit</p>
-          <p class="text-sm font-mono text-slate-300">{{ runtimeConfig.public.commitSha || '—' }}</p>
+          <p class="text-sm text-(--ui-text-muted)">Commit</p>
+          <p class="text-sm font-mono text-(--ui-text-toned)">{{ runtimeConfig.public.commitSha || '—' }}</p>
         </div>
         <div v-if="runtimeConfig.public.gitTag.length > 0" class="flex items-center justify-between px-4 py-3.5">
-          <p class="text-sm text-slate-400">Tag</p>
+          <p class="text-sm text-(--ui-text-muted)">Tag</p>
           <UBadge :label="runtimeConfig.public.gitTag" variant="subtle" color="primary" size="sm" class="rounded-full font-mono" />
         </div>
         <div class="flex items-center justify-between px-4 py-3.5">
-          <p class="text-sm text-slate-400">Build</p>
+          <p class="text-sm text-(--ui-text-muted)">Build</p>
           <UBadge :label="runtimeConfig.public.buildTarget" variant="subtle" color="neutral" size="sm" class="rounded-full font-mono" />
         </div>
         <div class="flex items-center justify-between px-4 py-3.5">
-          <p class="text-sm text-slate-400">Built</p>
-          <p class="text-sm font-mono text-slate-300">{{ runtimeConfig.public.buildTime ? new Date(runtimeConfig.public.buildTime).toLocaleString() : '—' }}</p>
+          <p class="text-sm text-(--ui-text-muted)">Built</p>
+          <p class="text-sm font-mono text-(--ui-text-toned)">{{ runtimeConfig.public.buildTime ? new Date(runtimeConfig.public.buildTime).toLocaleString() : '—' }}</p>
         </div>
         <div class="flex items-center justify-between px-4 py-3.5">
-          <p class="text-sm text-slate-400">Storage</p>
+          <p class="text-sm text-(--ui-text-muted)">Storage</p>
           <p class="text-sm font-medium">On-device (OPFS)</p>
         </div>
         <button class="w-full flex items-center justify-between px-4 py-3.5 text-left" @click="openLicenses">
-          <p class="text-sm text-slate-400">Open source licenses</p>
-          <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-slate-500 shrink-0" />
+          <p class="text-sm text-(--ui-text-muted)">Open source licenses</p>
+          <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-(--ui-text-dimmed) shrink-0" />
         </button>
 
         <!-- DB schema -->
         <div>
           <button class="w-full flex items-center justify-between px-4 py-3.5 text-left" @click="toggleDbInfo">
             <div class="space-y-0.5">
-              <p class="text-sm text-slate-400">Database schema</p>
+              <p class="text-sm text-(--ui-text-muted)">Database schema</p>
             </div>
             <div class="flex items-center gap-2 shrink-0">
               <UBadge v-if="dbInfo" :label="`v${dbInfo.userVersion}`" variant="subtle" color="neutral" size="sm" class="font-mono rounded-full" />
-              <UIcon :name="dbInfoOpen ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-4 h-4 text-slate-500" />
+              <UIcon :name="dbInfoOpen ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-4 h-4 text-(--ui-text-dimmed)" />
             </div>
           </button>
-          <div v-if="dbInfoOpen" class="border-t border-slate-800 px-4 py-3 space-y-2">
-            <div v-if="dbInfoLoading" class="flex items-center gap-2 text-xs text-slate-500">
+          <div v-if="dbInfoOpen" class="border-t border-(--ui-border) px-4 py-3 space-y-2">
+            <div v-if="dbInfoLoading" class="flex items-center gap-2 text-xs text-(--ui-text-dimmed)">
               <UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 animate-spin" /> Loading…
             </div>
             <template v-else-if="dbInfo">
               <div class="flex items-center gap-2 mb-3">
-                <span class="text-xs text-slate-500">Schema version:</span>
-                <span class="font-mono text-xs text-slate-200">{{ dbInfo.userVersion }}</span>
+                <span class="text-xs text-(--ui-text-dimmed)">Schema version:</span>
+                <span class="font-mono text-xs text-(--ui-text)">{{ dbInfo.userVersion }}</span>
               </div>
-              <div v-for="table in dbInfo.tables" :key="table.name" class="rounded-lg border border-slate-800 overflow-hidden">
+              <div v-for="table in dbInfo.tables" :key="table.name" class="rounded-lg border border-(--ui-border) overflow-hidden">
                 <button
-                  class="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-slate-800/40 transition-colors"
+                  class="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-(--ui-bg-elevated)/40 transition-colors"
                   @click="expandedTable = expandedTable === table.name ? null : table.name"
                 >
-                  <span class="text-xs font-mono text-slate-300">{{ table.name }}</span>
+                  <span class="text-xs font-mono text-(--ui-text-toned)">{{ table.name }}</span>
                   <UIcon :name="expandedTable === table.name ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5 text-slate-600" />
                 </button>
-                <pre v-if="expandedTable === table.name" class="text-[10px] leading-relaxed font-mono text-slate-400 bg-slate-950 px-3 py-2 overflow-x-auto border-t border-slate-800">{{ table.sql }}</pre>
+                <pre v-if="expandedTable === table.name" class="text-[10px] leading-relaxed font-mono text-(--ui-text-muted) bg-(--ui-bg) px-3 py-2 overflow-x-auto border-t border-(--ui-border)">{{ table.sql }}</pre>
               </div>
               <template v-if="dbInfo.indices.length > 0">
                 <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-600 pt-1">Indices</p>
-                <div v-for="idx in dbInfo.indices" :key="idx.name" class="rounded-lg border border-slate-800 overflow-hidden">
+                <div v-for="idx in dbInfo.indices" :key="idx.name" class="rounded-lg border border-(--ui-border) overflow-hidden">
                   <button
-                    class="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-slate-800/40 transition-colors"
+                    class="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-(--ui-bg-elevated)/40 transition-colors"
                     @click="expandedTable = expandedTable === idx.name ? null : idx.name"
                   >
                     <div class="min-w-0 text-left">
-                      <span class="text-xs font-mono text-slate-400">{{ idx.name }}</span>
+                      <span class="text-xs font-mono text-(--ui-text-muted)">{{ idx.name }}</span>
                       <span class="text-[10px] text-slate-600 ml-2">on {{ idx.tbl_name }}</span>
                     </div>
                     <UIcon :name="expandedTable === idx.name ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5 text-slate-600 shrink-0" />
                   </button>
-                  <pre v-if="expandedTable === idx.name" class="text-[10px] leading-relaxed font-mono text-slate-400 bg-slate-950 px-3 py-2 overflow-x-auto border-t border-slate-800">{{ idx.sql }}</pre>
+                  <pre v-if="expandedTable === idx.name" class="text-[10px] leading-relaxed font-mono text-(--ui-text-muted) bg-(--ui-bg) px-3 py-2 overflow-x-auto border-t border-(--ui-border)">{{ idx.sql }}</pre>
                 </div>
               </template>
             </template>
@@ -1361,7 +1449,7 @@ watch(diagOpen, (open) => {
     <!-- ── Diagnostics (collapsible) ─────────────────────────────────────────── -->
     <section class="space-y-2">
       <button class="w-full flex items-center justify-between px-1 py-0.5" @click="diagOpen = !diagOpen">
-        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Diagnostics</p>
+        <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed)">Diagnostics</p>
         <UIcon :name="diagOpen ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-slate-600" />
       </button>
       <UCard v-if="diagOpen" :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
@@ -1370,7 +1458,7 @@ watch(diagOpen, (open) => {
         <div class="flex items-start justify-between px-4 py-3.5 gap-3">
           <div class="space-y-0.5 min-w-0">
             <p class="text-sm font-medium">Integrity check</p>
-            <p class="text-xs text-slate-500">Runs SQLite <span class="font-mono">PRAGMA integrity_check</span></p>
+            <p class="text-xs text-(--ui-text-dimmed)">Runs SQLite <span class="font-mono">PRAGMA integrity_check</span></p>
             <div v-if="integrityResults !== null" class="mt-1.5">
               <p v-if="integrityOk" class="text-xs text-green-400 flex items-center gap-1">
                 <UIcon name="i-heroicons-check-circle" class="w-3.5 h-3.5 shrink-0" /> ok
@@ -1388,40 +1476,11 @@ watch(diagOpen, (open) => {
           />
         </div>
 
-        <!-- OPFS files -->
-        <div>
-          <button class="w-full flex items-center justify-between px-4 py-3.5 text-left" @click="toggleOpfs">
-            <div class="space-y-0.5">
-              <p class="text-sm font-medium">OPFS files</p>
-              <p class="text-xs text-slate-500">All files in the origin private file system</p>
-            </div>
-            <div class="flex items-center gap-2 shrink-0">
-              <span v-if="opfsFiles.length > 0" class="text-xs text-slate-500">{{ opfsFiles.length }} file{{ opfsFiles.length !== 1 ? 's' : '' }}</span>
-              <UIcon :name="opfsOpen ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-4 h-4 text-slate-500" />
-            </div>
-          </button>
-          <div v-if="opfsOpen" class="border-t border-slate-800 px-4 py-3">
-            <div v-if="opfsLoading" class="flex items-center gap-2 text-xs text-slate-500">
-              <UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 animate-spin" /> Scanning…
-            </div>
-            <div v-else-if="opfsFiles.length === 0" class="text-xs text-slate-500">No files found.</div>
-            <ul v-else class="space-y-1.5">
-              <li v-for="f in opfsFiles" :key="f.path" class="flex items-center justify-between gap-4">
-                <span class="text-[11px] font-mono text-slate-300 truncate">{{ f.path }}</span>
-                <span class="text-[11px] font-mono text-slate-500 shrink-0">{{ formatBytes(f.size) }}</span>
-              </li>
-            </ul>
-            <button class="mt-3 text-xs text-slate-600 hover:text-slate-400 flex items-center gap-1 transition-colors" @click="loadOpfsFiles">
-              <UIcon name="i-heroicons-arrow-path" class="w-3 h-3" /> Refresh
-            </button>
-          </div>
-        </div>
-
         <!-- Test notification -->
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Test notification (instant)</p>
-            <p class="text-xs text-slate-500">Fire via schedule.at — confirms the plugin works.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Fire via schedule.at — confirms the plugin works.</p>
           </div>
           <UButton
             size="sm" variant="ghost" color="neutral"
@@ -1435,7 +1494,7 @@ watch(diagOpen, (open) => {
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Test schedule.on (≈2 min)</p>
-            <p class="text-xs text-slate-500">Schedules a repeating alarm for 2 min from now. Same API as real reminders.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Schedules a repeating alarm for 2 min from now. Same API as real reminders.</p>
           </div>
           <UButton
             size="sm" variant="ghost" color="neutral"
@@ -1445,48 +1504,114 @@ watch(diagOpen, (open) => {
           />
         </div>
 
-        <!-- Storage estimate -->
-        <div class="px-4 py-3.5 space-y-2">
-          <div class="flex items-center justify-between">
+        <!-- Notification log (gated) -->
+        <div>
+          <div class="flex items-center justify-between px-4 py-3.5">
             <div class="space-y-0.5">
-              <p class="text-sm font-medium">Storage</p>
-              <p class="text-xs text-slate-500">Browser quota and current usage.</p>
+              <p class="text-sm font-medium">Notification log</p>
+              <p class="text-xs text-(--ui-text-dimmed)">Recent notification events (scheduled, received, tapped).</p>
             </div>
-            <UButton size="sm" variant="ghost" color="neutral" icon="i-heroicons-arrow-path" @click="loadStorageEstimate" />
+            <div class="flex items-center gap-2 shrink-0">
+              <UBadge v-if="showNotifLog && notifLog.length > 0" :label="String(notifLog.length)" variant="subtle" color="neutral" size="xs" class="rounded-full font-mono" />
+              <USwitch :model-value="showNotifLog" @update:model-value="showNotifLog = $event" />
+            </div>
           </div>
-          <template v-if="storageEstimate">
-            <div class="space-y-1">
-              <div class="flex justify-between text-xs text-slate-400">
-                <span>{{ formatBytes(storageEstimate.usage ?? 0) }} used</span>
-                <span>{{ formatBytes(storageEstimate.quota ?? 0) }} quota</span>
-              </div>
-              <div class="h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                <div
-                  class="h-full rounded-full bg-primary-500 transition-all"
-                  :style="{ width: `${Math.min(100, ((storageEstimate.usage ?? 0) / (storageEstimate.quota ?? 1)) * 100).toFixed(1)}%` }"
-                />
+          <div v-if="showNotifLog" class="border-t border-(--ui-border) px-4 pb-4 pt-3">
+            <div v-if="notifLog.length > 0" class="max-h-48 overflow-y-auto rounded-lg bg-(--ui-bg) border border-(--ui-border) p-2 space-y-1 text-[11px] font-mono leading-snug">
+              <div v-for="(entry, i) in notifLog" :key="i" class="break-all">
+                <span class="text-slate-600 shrink-0">{{ entry.ts.slice(11, 19) }}</span>
+                <span class="text-primary-400 ml-2">{{ entry.event }}</span>
+                <span v-if="entry.msg" class="text-(--ui-text-muted) ml-1"> {{ entry.msg }}</span>
+                <template v-for="(val, key) in entry.fields" :key="key">
+                  <span class="text-amber-400/70 ml-1">{{ key }}=</span><span class="text-(--ui-text-muted)">{{ val }}</span>
+                </template>
               </div>
             </div>
-            <div class="flex items-center justify-between gap-2">
-              <div class="flex items-center gap-1.5 text-xs">
-                <UIcon
-                  :name="storagePersisted ? 'i-heroicons-lock-closed' : 'i-heroicons-lock-open'"
-                  class="w-3.5 h-3.5"
-                  :class="storagePersisted ? 'text-green-400' : 'text-amber-400'"
-                />
-                <span :class="storagePersisted ? 'text-green-400' : 'text-amber-400'">
-                  {{ storagePersisted === null ? 'Checking…' : storagePersisted ? 'Persistent storage' : 'Storage not persisted' }}
-                </span>
+            <p v-else class="text-xs text-slate-600 italic">No events yet. Schedule or test a notification to see activity here.</p>
+          </div>
+        </div>
+
+        <!-- Storage estimate + OPFS files subsection -->
+        <div>
+          <div class="px-4 py-3.5 space-y-2">
+            <div class="flex items-center justify-between">
+              <div class="space-y-0.5">
+                <p class="text-sm font-medium">Storage</p>
+                <p class="text-xs text-(--ui-text-dimmed)">Browser quota and current usage.</p>
               </div>
-              <UButton
-                v-if="storagePersisted === false"
-                size="xs" variant="soft" color="primary"
-                @click="requestPersistStorage"
-              >
-                Request
-              </UButton>
+              <UButton size="sm" variant="ghost" color="neutral" icon="i-heroicons-arrow-path" @click="loadStorageEstimate" />
             </div>
-          </template>
+            <template v-if="storageEstimate">
+              <div class="space-y-1">
+                <div class="flex justify-between text-xs text-(--ui-text-muted)">
+                  <span>{{ formatBytes(storageEstimate.usage ?? 0) }} used</span>
+                  <span>{{ formatBytes(storageEstimate.quota ?? 0) }} quota</span>
+                </div>
+                <div class="h-1.5 rounded-full bg-(--ui-bg-elevated) overflow-hidden">
+                  <div
+                    class="h-full rounded-full bg-primary-500 transition-all"
+                    :style="{ width: `${Math.min(100, ((storageEstimate.usage ?? 0) / (storageEstimate.quota ?? 1)) * 100).toFixed(1)}%` }"
+                  />
+                </div>
+              </div>
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-1.5 text-xs">
+                  <UIcon
+                    :name="storagePersisted ? 'i-heroicons-lock-closed' : 'i-heroicons-lock-open'"
+                    class="w-3.5 h-3.5"
+                    :class="storagePersisted ? 'text-green-400' : 'text-amber-400'"
+                  />
+                  <span :class="storagePersisted ? 'text-green-400' : 'text-amber-400'">
+                    {{ storagePersisted === null ? 'Checking…' : storagePersisted ? 'Persistent storage' : 'Storage not persisted' }}
+                  </span>
+                </div>
+                <UButton
+                  v-if="storagePersisted === false"
+                  size="xs" variant="soft" color="primary"
+                  @click="requestPersistStorage"
+                >
+                  Request
+                </UButton>
+              </div>
+            </template>
+          </div>
+
+          <!-- OPFS files subsection -->
+          <div class="border-t border-(--ui-border)/60">
+            <button class="w-full flex items-center justify-between px-4 py-2.5 text-left" @click="toggleOpfs">
+              <p class="text-xs text-(--ui-text-dimmed)">OPFS files</p>
+              <div class="flex items-center gap-2 shrink-0">
+                <span v-if="opfsFiles.length > 0" class="text-xs text-(--ui-text-dimmed)">{{ opfsFiles.length }} file{{ opfsFiles.length !== 1 ? 's' : '' }}</span>
+                <UIcon :name="opfsOpen ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5 text-(--ui-text-dimmed)" />
+              </div>
+            </button>
+            <div v-if="opfsOpen" class="px-4 pb-3">
+              <div v-if="opfsLoading" class="flex items-center gap-2 text-xs text-(--ui-text-dimmed)">
+                <UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 animate-spin" /> Scanning…
+              </div>
+              <div v-else-if="opfsFiles.length === 0" class="text-xs text-(--ui-text-dimmed)">No files found.</div>
+              <ul v-else class="space-y-1.5">
+                <li v-for="f in opfsFiles" :key="f.path" class="flex items-center justify-between gap-4">
+                  <span class="text-[11px] font-mono text-(--ui-text-toned) truncate">{{ f.path }}</span>
+                  <span class="text-[11px] font-mono text-(--ui-text-dimmed) shrink-0">{{ formatBytes(f.size) }}</span>
+                </li>
+              </ul>
+              <button class="mt-3 text-xs text-slate-600 hover:text-(--ui-text-muted) flex items-center gap-1 transition-colors" @click="loadOpfsFiles">
+                <UIcon name="i-heroicons-arrow-path" class="w-3 h-3" /> Refresh
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Remote debugging (APK) -->
+        <div class="px-4 py-3.5 space-y-1">
+          <p class="text-sm font-medium">Remote debugging (APK)</p>
+          <ol class="text-xs text-(--ui-text-dimmed) list-decimal list-inside space-y-0.5">
+            <li>Enable <span class="text-(--ui-text-toned)">Developer Options</span> and <span class="text-(--ui-text-toned)">USB Debugging</span> on your Android device.</li>
+            <li>Connect via USB and open <span class="text-(--ui-text-toned) font-mono">chrome://inspect</span> in desktop Chrome.</li>
+            <li>Find the Habitat WebView under <span class="text-(--ui-text-toned)">Remote Target</span> and click <span class="text-(--ui-text-toned)">inspect</span>.</li>
+          </ol>
+          <p class="text-[11px] text-slate-600 mt-1">Console logs from this page will appear in the DevTools console.</p>
         </div>
 
       </UCard>
@@ -1500,40 +1625,10 @@ watch(diagOpen, (open) => {
       </button>
       <UCard v-if="dragonsOpen" :ui="{ root: 'rounded-2xl ring-1 ring-red-900/30', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
 
-        <!-- Notification event log -->
-        <div class="px-4 py-3.5 space-y-2">
-          <div class="flex items-center justify-between">
-            <div class="space-y-0.5">
-              <p class="text-sm font-medium">Notification log</p>
-              <p class="text-xs text-slate-500">Recent notification events (scheduled, received, tapped).</p>
-            </div>
-            <UBadge v-if="notifLog.length > 0" :label="String(notifLog.length)" variant="subtle" color="neutral" size="xs" class="rounded-full font-mono" />
-          </div>
-          <div v-if="notifLog.length > 0" class="max-h-48 overflow-y-auto rounded-lg bg-slate-900/50 border border-slate-800 p-2 space-y-1 text-[11px] font-mono leading-snug">
-            <div v-for="(entry, i) in notifLog" :key="i" class="flex gap-2">
-              <span class="text-slate-600 shrink-0">{{ entry.time }}</span>
-              <span class="text-primary-400 shrink-0">{{ entry.event }}</span>
-              <span class="text-slate-400 break-all">{{ entry.detail }}</span>
-            </div>
-          </div>
-          <p v-else class="text-xs text-slate-600 italic">No events yet. Schedule or test a notification to see activity here.</p>
-        </div>
-
-        <!-- USB debugging instructions -->
-        <div class="px-4 py-3.5 space-y-1">
-          <p class="text-sm font-medium">Remote debugging (APK)</p>
-          <ol class="text-xs text-slate-500 list-decimal list-inside space-y-0.5">
-            <li>Enable <span class="text-slate-300">Developer Options</span> and <span class="text-slate-300">USB Debugging</span> on your Android device.</li>
-            <li>Connect via USB and open <span class="text-slate-300 font-mono">chrome://inspect</span> in desktop Chrome.</li>
-            <li>Find the Habitat WebView under <span class="text-slate-300">Remote Target</span> and click <span class="text-slate-300">inspect</span>.</li>
-          </ol>
-          <p class="text-[11px] text-slate-600 mt-1">Console logs from this page (including the notification log above) will appear in the DevTools console.</p>
-        </div>
-
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Force reload</p>
-            <p class="text-xs text-slate-500">Unregister service worker, clear JS/CSS caches, and reload. OPFS data is preserved.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Unregister service worker, clear JS/CSS caches, and reload. OPFS data is preserved.</p>
           </div>
           <UButton
             size="sm" variant="ghost" color="neutral"
@@ -1545,7 +1640,7 @@ watch(diagOpen, (open) => {
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium text-red-400">Clear app data</p>
-            <p class="text-xs text-slate-500">Selectively delete habits, check-ins, scribbles, or voice notes.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Selectively delete habits, check-ins, scribbles, or voice notes.</p>
           </div>
           <UButton
             icon="i-heroicons-trash"
@@ -1558,7 +1653,7 @@ watch(diagOpen, (open) => {
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium text-red-400">Clear OPFS storage</p>
-            <p class="text-xs text-slate-500">Wipe all on-device file system storage including the database.</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Wipe all on-device file system storage including the database.</p>
           </div>
           <UButton
             icon="i-heroicons-fire"
@@ -1576,10 +1671,10 @@ watch(diagOpen, (open) => {
       <template #content>
         <div class="p-5 space-y-4 flex flex-col max-h-[80vh]">
           <div class="flex items-center justify-between shrink-0">
-            <h3 class="font-semibold text-slate-100">Open source licenses</h3>
+            <h3 class="font-semibold text-(--ui-text)">Open source licenses</h3>
             <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" @click="showLicensesModal = false" />
           </div>
-          <div v-if="licensesLoading" class="flex items-center justify-center py-8 text-slate-500 text-sm">
+          <div v-if="licensesLoading" class="flex items-center justify-center py-8 text-(--ui-text-dimmed) text-sm">
             Loading…
           </div>
           <div v-else-if="licensesError" class="text-sm text-red-400 py-4">
@@ -1593,10 +1688,10 @@ watch(diagOpen, (open) => {
                   :href="pkg.homepage"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="text-sm text-slate-200 hover:text-primary-400 transition-colors truncate block"
+                  class="text-sm text-(--ui-text) hover:text-primary-400 transition-colors truncate block"
                 >{{ pkg.name }}</a>
-                <span v-else class="text-sm text-slate-200 truncate block">{{ pkg.name }}</span>
-                <span class="text-xs text-slate-500 font-mono">v{{ pkg.version }}</span>
+                <span v-else class="text-sm text-(--ui-text) truncate block">{{ pkg.name }}</span>
+                <span class="text-xs text-(--ui-text-dimmed) font-mono">v{{ pkg.version }}</span>
               </div>
               <UBadge
                 :label="pkg.license ?? 'Unknown'"
@@ -1616,54 +1711,54 @@ watch(diagOpen, (open) => {
       <template #content>
         <div class="p-5 space-y-4">
           <div class="flex items-center justify-between">
-            <h3 class="font-semibold text-slate-100">Install Habitat</h3>
+            <h3 class="font-semibold text-(--ui-text)">Install Habitat</h3>
             <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" @click="showInstallModal = false" />
           </div>
 
           <!-- iOS Safari -->
           <template v-if="isIosSafari">
-            <ol class="space-y-3 text-sm text-slate-300">
+            <ol class="space-y-3 text-sm text-(--ui-text-toned)">
               <li class="flex items-start gap-3">
                 <span class="text-primary-400 font-semibold shrink-0">1.</span>
-                <span>Tap the <strong class="text-slate-100">Share</strong> button
-                  <UIcon name="i-heroicons-arrow-up-on-square" class="inline w-4 h-4 align-text-bottom text-slate-100" />
+                <span>Tap the <strong class="text-(--ui-text)">Share</strong> button
+                  <UIcon name="i-heroicons-arrow-up-on-square" class="inline w-4 h-4 align-text-bottom text-(--ui-text)" />
                   in the Safari toolbar</span>
               </li>
               <li class="flex items-start gap-3">
                 <span class="text-primary-400 font-semibold shrink-0">2.</span>
-                <span>Scroll down and tap <strong class="text-slate-100">Add to Home Screen</strong></span>
+                <span>Scroll down and tap <strong class="text-(--ui-text)">Add to Home Screen</strong></span>
               </li>
               <li class="flex items-start gap-3">
                 <span class="text-primary-400 font-semibold shrink-0">3.</span>
-                <span>Tap <strong class="text-slate-100">Add</strong> to confirm</span>
+                <span>Tap <strong class="text-(--ui-text)">Add</strong> to confirm</span>
               </li>
             </ol>
           </template>
 
           <!-- Chromium but no deferred prompt (not yet offered, or previously dismissed) -->
           <template v-else-if="isChromiumNoPrompt">
-            <p class="text-sm text-slate-400">Chrome hasn't offered an install prompt yet — use the browser menu instead:</p>
-            <ol class="space-y-3 text-sm text-slate-300">
+            <p class="text-sm text-(--ui-text-muted)">Chrome hasn't offered an install prompt yet — use the browser menu instead:</p>
+            <ol class="space-y-3 text-sm text-(--ui-text-toned)">
               <li class="flex items-start gap-3">
                 <span class="text-primary-400 font-semibold shrink-0">1.</span>
-                <span>Tap the <strong class="text-slate-100">⋮ menu</strong> in the top-right corner of Chrome</span>
+                <span>Tap the <strong class="text-(--ui-text)">⋮ menu</strong> in the top-right corner of Chrome</span>
               </li>
               <li class="flex items-start gap-3">
                 <span class="text-primary-400 font-semibold shrink-0">2.</span>
-                <span>Choose <strong class="text-slate-100">Install app</strong> or <strong class="text-slate-100">Add to Home Screen</strong></span>
+                <span>Choose <strong class="text-(--ui-text)">Install app</strong> or <strong class="text-(--ui-text)">Add to Home Screen</strong></span>
               </li>
             </ol>
           </template>
 
           <!-- Unsupported browser -->
           <template v-else>
-            <p class="text-sm text-slate-400">
+            <p class="text-sm text-(--ui-text-muted)">
               Your current browser doesn't support PWA installation.
-              Open Habitat in <strong class="text-slate-100">Chrome</strong>, <strong class="text-slate-100">Edge</strong>,
-              <strong class="text-slate-100">Brave</strong>, or <strong class="text-slate-100">Opera</strong>
+              Open Habitat in <strong class="text-(--ui-text)">Chrome</strong>, <strong class="text-(--ui-text)">Edge</strong>,
+              <strong class="text-(--ui-text)">Brave</strong>, or <strong class="text-(--ui-text)">Opera</strong>
               to install it as a standalone app.
             </p>
-            <p class="text-xs text-slate-500">
+            <p class="text-xs text-(--ui-text-dimmed)">
               These browsers also provide OPFS storage and background notifications.
             </p>
           </template>
@@ -1680,7 +1775,7 @@ watch(diagOpen, (open) => {
       <template #content>
         <div class="p-5 space-y-4">
           <div class="flex items-center justify-between">
-            <h3 class="font-semibold text-slate-100">Export data</h3>
+            <h3 class="font-semibold text-(--ui-text)">Export data</h3>
             <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" @click="showExportModal = false" />
           </div>
 
@@ -1693,21 +1788,21 @@ watch(diagOpen, (open) => {
               :indeterminate="!exportAllSelected && !exportNoneSelected"
               @change="toggleExportAll"
             />
-            <span class="text-sm text-slate-300 font-medium">Select all</span>
+            <span class="text-sm text-(--ui-text-toned) font-medium">Select all</span>
           </label>
 
           <!-- Groups -->
           <div class="space-y-3">
             <div v-for="group in EXPORT_GROUPS" :key="group.label" class="space-y-1.5">
-              <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">{{ group.label }}</p>
-              <div class="border border-slate-800 rounded-xl divide-y divide-slate-800 overflow-hidden">
+              <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed)">{{ group.label }}</p>
+              <div class="border border-(--ui-border) rounded-xl divide-y divide-slate-800 overflow-hidden">
                 <label
                   v-for="item in group.items"
                   :key="item.key"
-                  class="flex items-center gap-3 px-3.5 py-2.5 cursor-pointer hover:bg-slate-800/40 transition-colors"
+                  class="flex items-center gap-3 px-3.5 py-2.5 cursor-pointer hover:bg-(--ui-bg-elevated)/40 transition-colors"
                 >
                   <input v-model="exportSel[item.key]" type="checkbox" class="accent-primary-500 shrink-0" />
-                  <span class="text-sm text-slate-300">{{ item.label }}</span>
+                  <span class="text-sm text-(--ui-text-toned)">{{ item.label }}</span>
                 </label>
               </div>
             </div>
@@ -1746,32 +1841,32 @@ watch(diagOpen, (open) => {
       <template #content>
         <div class="p-5 space-y-4">
           <div class="flex items-center justify-between">
-            <h3 class="font-semibold text-slate-100">Export Jots</h3>
+            <h3 class="font-semibold text-(--ui-text)">Export Jots</h3>
             <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" @click="showJotsExportModal = false" />
           </div>
 
-          <p class="text-sm text-slate-400">Choose which types to include. All selected types are bundled into a single <span class="font-mono">.zip</span>.</p>
+          <p class="text-sm text-(--ui-text-muted)">Choose which types to include. All selected types are bundled into a single <span class="font-mono">.zip</span>.</p>
 
           <div class="space-y-3">
             <label class="flex items-start gap-3 cursor-pointer">
               <input v-model="jotsExportSel.text" type="checkbox" class="mt-0.5 accent-primary-500" />
               <div>
-                <p class="text-sm font-medium text-slate-100">Text notes</p>
-                <p class="text-xs text-slate-500">One <span class="font-mono">.txt</span> per note in <span class="font-mono">text/</span> + <span class="font-mono">jots.json</span></p>
+                <p class="text-sm font-medium text-(--ui-text)">Text notes</p>
+                <p class="text-xs text-(--ui-text-dimmed)">One <span class="font-mono">.txt</span> per note in <span class="font-mono">text/</span> + <span class="font-mono">jots.json</span></p>
               </div>
             </label>
             <label class="flex items-start gap-3 cursor-pointer">
               <input v-model="jotsExportSel.voice" type="checkbox" class="mt-0.5 accent-primary-500" />
               <div>
-                <p class="text-sm font-medium text-slate-100">Voice recordings</p>
-                <p class="text-xs text-slate-500">Audio files in a <span class="font-mono">voice/</span> folder</p>
+                <p class="text-sm font-medium text-(--ui-text)">Voice recordings</p>
+                <p class="text-xs text-(--ui-text-dimmed)">Audio files in a <span class="font-mono">voice/</span> folder</p>
               </div>
             </label>
             <label class="flex items-start gap-3 cursor-pointer">
               <input v-model="jotsExportSel.images" type="checkbox" class="mt-0.5 accent-primary-500" />
               <div>
-                <p class="text-sm font-medium text-slate-100">Images</p>
-                <p class="text-xs text-slate-500">Photos in an <span class="font-mono">images/</span> folder</p>
+                <p class="text-sm font-medium text-(--ui-text)">Images</p>
+                <p class="text-xs text-(--ui-text-dimmed)">Photos in an <span class="font-mono">images/</span> folder</p>
               </div>
             </label>
           </div>
@@ -1803,7 +1898,7 @@ watch(diagOpen, (open) => {
             </div>
             <div class="space-y-1">
               <p class="font-semibold">Cannot import</p>
-              <p class="text-sm text-slate-400">{{ importError }}</p>
+              <p class="text-sm text-(--ui-text-muted)">{{ importError }}</p>
             </div>
           </div>
           <div class="flex justify-end">
@@ -1819,7 +1914,7 @@ watch(diagOpen, (open) => {
             </div>
             <div class="space-y-1">
               <p class="font-semibold">Import complete</p>
-              <p class="text-sm text-slate-400">Records merged. Reload to see all updates.</p>
+              <p class="text-sm text-(--ui-text-muted)">Records merged. Reload to see all updates.</p>
             </div>
           </div>
           <div class="flex justify-end">
@@ -1835,13 +1930,13 @@ watch(diagOpen, (open) => {
             </div>
             <div class="space-y-1">
               <p class="font-semibold">Import data?</p>
-              <p class="text-sm text-slate-400">New records will be added; existing IDs are skipped.</p>
+              <p class="text-sm text-(--ui-text-muted)">New records will be added; existing IDs are skipped.</p>
             </div>
           </div>
 
           <!-- Summary -->
-          <div class="border border-slate-800 rounded-xl p-3 space-y-1">
-            <p class="text-xs text-slate-500 mb-2">
+          <div class="border border-(--ui-border) rounded-xl p-3 space-y-1">
+            <p class="text-xs text-(--ui-text-dimmed) mb-2">
               Version {{ importPreview.version }} export from {{ new Date(importPreview.exported_at).toLocaleDateString() }}
             </p>
             <template v-for="group in EXPORT_GROUPS" :key="group.label">
@@ -1850,8 +1945,8 @@ watch(diagOpen, (open) => {
                   v-if="(importPreview[item.key] ?? []).length > 0"
                   class="flex items-center justify-between text-xs"
                 >
-                  <span class="text-slate-400">{{ item.label }}</span>
-                  <span class="font-mono text-slate-300">{{ (importPreview[item.key] ?? []).length }}</span>
+                  <span class="text-(--ui-text-muted)">{{ item.label }}</span>
+                  <span class="font-mono text-(--ui-text-toned)">{{ (importPreview[item.key] ?? []).length }}</span>
                 </div>
               </template>
             </template>
@@ -1875,16 +1970,16 @@ watch(diagOpen, (open) => {
             </div>
             <div class="space-y-1">
               <p class="font-semibold">Clear app data?</p>
-              <p class="text-sm text-slate-400">Select what to delete. This cannot be undone.</p>
+              <p class="text-sm text-(--ui-text-muted)">Select what to delete. This cannot be undone.</p>
             </div>
           </div>
 
           <!-- Checkboxes -->
-          <div class="space-y-1 border border-slate-800 rounded-xl divide-y divide-slate-800 overflow-hidden">
+          <div class="space-y-1 border border-(--ui-border) rounded-xl divide-y divide-slate-800 overflow-hidden">
             <label
               v-for="item in clearItems"
               :key="item.key"
-              class="flex items-start gap-3 px-3.5 py-3 cursor-pointer hover:bg-slate-800/40 transition-colors"
+              class="flex items-start gap-3 px-3.5 py-3 cursor-pointer hover:bg-(--ui-bg-elevated)/40 transition-colors"
             >
               <input
                 v-model="clearSelection[item.key]"
@@ -1892,8 +1987,8 @@ watch(diagOpen, (open) => {
                 class="mt-0.5 accent-red-500 shrink-0"
               />
               <div class="min-w-0">
-                <p class="text-sm font-medium text-slate-200 leading-snug">{{ item.label }}</p>
-                <p class="text-xs text-slate-500 leading-snug">{{ item.description }}</p>
+                <p class="text-sm font-medium text-(--ui-text) leading-snug">{{ item.label }}</p>
+                <p class="text-xs text-(--ui-text-dimmed) leading-snug">{{ item.description }}</p>
               </div>
             </label>
           </div>
@@ -1924,7 +2019,7 @@ watch(diagOpen, (open) => {
             </div>
             <div class="space-y-1">
               <p class="font-semibold">All data wiped</p>
-              <p class="text-sm text-slate-400">Storage has been cleared. You can safely close this tab.</p>
+              <p class="text-sm text-(--ui-text-muted)">Storage has been cleared. You can safely close this tab.</p>
             </div>
           </div>
         </div>
@@ -1937,7 +2032,7 @@ watch(diagOpen, (open) => {
             </div>
             <div class="space-y-1">
               <p class="font-semibold">Wipe OPFS storage?</p>
-              <p class="text-sm text-slate-400">
+              <p class="text-sm text-(--ui-text-muted)">
                 Removes every file in the browser's origin private file system —
                 including the SQLite database. Voice recordings and check-in entries
                 will also be cleared.
@@ -1959,7 +2054,7 @@ watch(diagOpen, (open) => {
         <div class="p-5 space-y-5">
           <div>
             <h3 class="text-lg font-semibold">Set up Health Tracking</h3>
-            <p class="text-sm text-slate-400 mt-0.5">Choose what you'd like to track. Habits are created in your habit list.</p>
+            <p class="text-sm text-(--ui-text-muted) mt-0.5">Choose what you'd like to track. Habits are created in your habit list.</p>
           </div>
 
           <!-- Steps -->
@@ -1968,7 +2063,7 @@ watch(diagOpen, (open) => {
               <input v-model="healthSetup.enableSteps" type="checkbox" class="rounded" />
               <div>
                 <p class="text-sm font-medium">Track Steps</p>
-                <p class="text-xs text-slate-500">Creates a daily NUMERIC habit with your step goal.</p>
+                <p class="text-xs text-(--ui-text-dimmed)">Creates a daily NUMERIC habit with your step goal.</p>
               </div>
             </label>
             <div v-if="healthSetup.enableSteps" class="ml-7">
@@ -1990,7 +2085,7 @@ watch(diagOpen, (open) => {
               <input v-model="healthSetup.enableMeals" type="checkbox" class="rounded" />
               <div>
                 <p class="text-sm font-medium">Track Meals</p>
-                <p class="text-xs text-slate-500">Creates LIMIT habits for calorie tracking per meal.</p>
+                <p class="text-xs text-(--ui-text-dimmed)">Creates LIMIT habits for calorie tracking per meal.</p>
               </div>
             </label>
             <div v-if="healthSetup.enableMeals" class="ml-7 space-y-2">
@@ -2003,12 +2098,12 @@ watch(diagOpen, (open) => {
                   step="50"
                   class="w-24"
                 />
-                <span class="text-xs text-slate-500 shrink-0">kcal</span>
+                <span class="text-xs text-(--ui-text-dimmed) shrink-0">kcal</span>
                 <button class="text-slate-700 hover:text-red-400 transition-colors shrink-0" @click="removeMeal(i)">
                   <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
                 </button>
               </div>
-              <button class="text-xs text-slate-500 hover:text-slate-400 flex items-center gap-1 mt-1" @click="addMeal">
+              <button class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1 mt-1" @click="addMeal">
                 <UIcon name="i-heroicons-plus" class="w-3 h-3" /> Add meal
               </button>
             </div>
@@ -2020,7 +2115,7 @@ watch(diagOpen, (open) => {
               <input v-model="healthSetup.enableWater" type="checkbox" class="rounded" />
               <div>
                 <p class="text-sm font-medium">Track Water</p>
-                <p class="text-xs text-slate-500">Creates a daily NUMERIC habit to count glasses.</p>
+                <p class="text-xs text-(--ui-text-dimmed)">Creates a daily NUMERIC habit to count glasses.</p>
               </div>
             </label>
             <div v-if="healthSetup.enableWater" class="ml-7">
@@ -2043,7 +2138,7 @@ watch(diagOpen, (open) => {
               <input v-model="healthSetup.enableSleep" type="checkbox" class="rounded" />
               <div>
                 <p class="text-sm font-medium">Track Sleep</p>
-                <p class="text-xs text-slate-500">Creates a daily NUMERIC habit for hours slept.</p>
+                <p class="text-xs text-(--ui-text-dimmed)">Creates a daily NUMERIC habit for hours slept.</p>
               </div>
             </label>
             <div v-if="healthSetup.enableSleep" class="ml-7">

@@ -14,6 +14,17 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
 
+/* ── Dark mode token overrides ────────────────────────────────────────────────
+   Nuxt UI dark defaults use neutral-900 as the page background, but Habitat's
+   design uses a deeper neutral-950 base so cards (neutral-900) have contrast.
+   We also brighten --ui-text to neutral-100 (vs the default neutral-200).
+   ─────────────────────────────────────────────────────────────────────────── */
+.dark {
+  --ui-bg: var(--ui-color-neutral-950);
+  --ui-bg-muted: var(--ui-color-neutral-900);
+  --ui-text: var(--ui-color-neutral-100);
+}
+
 /* Safe-area inset utilities for iOS notch / home indicator.
    Used by layouts/default.vue: class="… safe-area-bottom"        */
 /* ── Plant logo fill-up animation ─────────────────────────────────────────── */

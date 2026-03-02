@@ -38,7 +38,7 @@ const completionsByDate = computed(() => {
   const map = new Map<string, Set<string>>()
   for (const c of completions.value) {
     if (!map.has(c.date)) map.set(c.date, new Set())
-    map.get(c.date)!.add(c.habit_id)
+    map.get(c.date)?.add(c.habit_id)
   }
   return map
 })
@@ -47,8 +47,11 @@ const completionsByDate = computed(() => {
 const logsByDate = computed(() => {
   const map = new Map<string, Map<string, number>>()
   for (const l of habitLogs.value) {
-    if (!map.has(l.date)) map.set(l.date, new Map())
-    const dm = map.get(l.date)!
+    let dm = map.get(l.date)
+    if (!dm) {
+      dm = new Map()
+      map.set(l.date, dm)
+    }
     dm.set(l.habit_id, (dm.get(l.habit_id) ?? 0) + l.value)
   }
   return map
@@ -107,7 +110,7 @@ const bestStreak = computed(() => Math.max(0, ...habits.value.map(habitCurrentSt
 const avgCompletion = computed(() => {
   if (!habits.value.length) return 0
   let done = 0
-  for (let i = 0; i < 30; i++) done += doneCountByDate.value.get(allDateStrings[i]!) ?? 0
+  for (let i = 0; i < 30; i++) done += doneCountByDate.value.get(allDateStrings[i] ?? '') ?? 0
   return Math.round((done / (habits.value.length * 30)) * 100)
 })
 
@@ -205,14 +208,20 @@ function weekMonthLabel(week: HeatmapDay[]): string {
 }
 
 // 5-level color scale: empty → dim cyan → bright cyan
-const HEAT_COLORS = ['#1e293b', '#083344', '#0e4d6c', '#0e7490', '#22d3ee']
+const HEAT_COLORS: [string, string, string, string, string] = [
+  '#1e293b',
+  '#083344',
+  '#0e4d6c',
+  '#0e7490',
+  '#22d3ee',
+]
 
 function heatColor(day: HeatmapDay): string {
-  if (day.isFuture || day.total === 0 || day.rate === 0) return HEAT_COLORS[0]!
-  if (day.rate <= 33) return HEAT_COLORS[1]!
-  if (day.rate <= 66) return HEAT_COLORS[2]!
-  if (day.rate < 100) return HEAT_COLORS[3]!
-  return HEAT_COLORS[4]!
+  if (day.isFuture || day.total === 0 || day.rate === 0) return HEAT_COLORS[0]
+  if (day.rate <= 33) return HEAT_COLORS[1]
+  if (day.rate <= 66) return HEAT_COLORS[2]
+  if (day.rate < 100) return HEAT_COLORS[3]
+  return HEAT_COLORS[4]
 }
 
 const selectedDay = ref<HeatmapDay | null>(null)
@@ -230,32 +239,32 @@ onMounted(load)
 <template>
   <div class="space-y-5">
     <header>
-      <p class="text-sm text-slate-500">Overview</p>
+      <p class="text-sm text-(--ui-text-dimmed)">Overview</p>
       <h2 class="text-2xl font-bold">Analytics</h2>
     </header>
 
     <!-- ── Summary cards ────────────────────────────────────────────────────── -->
     <div class="grid grid-cols-3 gap-2">
       <UCard :ui="{ root: 'rounded-2xl', body: 'p-3 sm:p-3 space-y-1 text-center' }">
-        <p class="text-[10px] text-slate-500 uppercase tracking-wide">Habits</p>
-        <p class="text-2xl font-bold text-slate-100">{{ totalHabits }}</p>
+        <p class="text-[10px] text-(--ui-text-dimmed) uppercase tracking-wide">Habits</p>
+        <p class="text-2xl font-bold text-(--ui-text)">{{ totalHabits }}</p>
         <p class="text-[10px] text-slate-600">active</p>
       </UCard>
       <UCard :ui="{ root: 'rounded-2xl', body: 'p-3 sm:p-3 space-y-1 text-center' }">
-        <p class="text-[10px] text-slate-500 uppercase tracking-wide">Streak</p>
-        <p class="text-2xl font-bold text-slate-100">{{ bestStreak }}</p>
+        <p class="text-[10px] text-(--ui-text-dimmed) uppercase tracking-wide">Streak</p>
+        <p class="text-2xl font-bold text-(--ui-text)">{{ bestStreak }}</p>
         <p class="text-[10px] text-slate-600">days best</p>
       </UCard>
       <UCard :ui="{ root: 'rounded-2xl', body: 'p-3 sm:p-3 space-y-1 text-center' }">
-        <p class="text-[10px] text-slate-500 uppercase tracking-wide">Avg</p>
-        <p class="text-2xl font-bold text-slate-100">{{ avgCompletion }}%</p>
+        <p class="text-[10px] text-(--ui-text-dimmed) uppercase tracking-wide">Avg</p>
+        <p class="text-2xl font-bold text-(--ui-text)">{{ avgCompletion }}%</p>
         <p class="text-[10px] text-slate-600">30 days</p>
       </UCard>
     </div>
 
     <!-- ── Heatmap ───────────────────────────────────────────────────────────── -->
     <UCard :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-3' }">
-      <p class="text-xs font-semibold text-slate-400">Daily Completion</p>
+      <p class="text-xs font-semibold text-(--ui-text-muted)">Daily Completion</p>
 
       <div v-if="loading" class="flex items-center justify-center py-6">
         <p class="text-xs text-slate-600">Loading…</p>
@@ -271,7 +280,7 @@ onMounted(load)
             <div
               v-for="(week, wi) in heatmapWeeks"
               :key="wi"
-              class="w-3.5 flex-shrink-0 h-3 text-[9px] text-slate-500 leading-none"
+              class="w-3.5 flex-shrink-0 h-3 text-[9px] text-(--ui-text-dimmed) leading-none"
             >{{ weekMonthLabel(week) }}</div>
           </div>
 
@@ -309,10 +318,10 @@ onMounted(load)
           <div class="h-6 flex items-center ml-5">
             <transition name="fade">
               <p v-if="selectedDay" class="text-xs">
-                <span class="text-slate-300 font-medium">{{ selectedDay.date }}</span>
-                <span class="text-slate-500 mx-1">—</span>
+                <span class="text-(--ui-text-toned) font-medium">{{ selectedDay.date }}</span>
+                <span class="text-(--ui-text-dimmed) mx-1">—</span>
                 <span v-if="selectedDay.isFuture" class="text-slate-600">future</span>
-                <span v-else class="text-slate-400">{{ selectedDay.doneCount }}/{{ selectedDay.total }} habits</span>
+                <span v-else class="text-(--ui-text-muted)">{{ selectedDay.doneCount }}/{{ selectedDay.total }} habits</span>
                 <span v-if="!selectedDay.isFuture && selectedDay.doneCount === selectedDay.total && selectedDay.total > 0" class="text-cyan-400 ml-1">✓ Perfect day</span>
               </p>
               <p v-else class="text-[10px] text-slate-700">Tap any cell</p>
@@ -337,7 +346,7 @@ onMounted(load)
 
     <!-- ── Monthly completion rate ───────────────────────────────────────────── -->
     <UCard :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-3' }">
-      <p class="text-xs font-semibold text-slate-400">Monthly Completion Rate</p>
+      <p class="text-xs font-semibold text-(--ui-text-muted)">Monthly Completion Rate</p>
 
       <div v-if="!totalHabits" class="flex items-center justify-center py-6">
         <p class="text-xs text-slate-600">No data yet</p>
@@ -355,7 +364,7 @@ onMounted(load)
           <div class="w-full flex-1 flex items-end">
             <div
               class="w-full rounded-t transition-all duration-700"
-              :class="month.rate >= 70 ? 'bg-emerald-500' : month.rate >= 40 ? 'bg-amber-400' : month.rate > 0 ? 'bg-rose-500' : 'bg-slate-800'"
+              :class="month.rate >= 70 ? 'bg-emerald-500' : month.rate >= 40 ? 'bg-amber-400' : month.rate > 0 ? 'bg-rose-500' : 'bg-(--ui-bg-elevated)'"
               :style="{ height: `${Math.max(month.rate > 0 ? 4 : 0, month.rate)}%` }"
             />
           </div>
@@ -367,13 +376,13 @@ onMounted(load)
     <!-- ── Habit completion bars ─────────────────────────────────────────────── -->
     <UCard :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-3' }">
       <div class="flex items-center justify-between">
-        <p class="text-xs font-semibold text-slate-400">Habit Completion</p>
+        <p class="text-xs font-semibold text-(--ui-text-muted)">Habit Completion</p>
         <div class="flex gap-0.5">
           <button
             v-for="d in [7, 14, 30, 90]"
             :key="d"
             class="px-2 py-0.5 rounded text-[10px] font-medium transition-colors"
-            :class="completionDays === d ? 'bg-slate-700 text-slate-100' : 'text-slate-500 hover:text-slate-400'"
+            :class="completionDays === d ? 'bg-(--ui-bg-accented) text-(--ui-text)' : 'text-(--ui-text-dimmed) hover:text-(--ui-text-muted)'"
             @click="completionDays = d"
           >{{ d }}d</button>
         </div>
@@ -390,14 +399,14 @@ onMounted(load)
           >
             <UIcon :name="item.habit.icon" class="w-3 h-3" :style="{ color: item.habit.color }" />
           </div>
-          <p class="w-20 text-xs text-slate-400 truncate flex-shrink-0">{{ item.habit.name }}</p>
-          <div class="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+          <p class="w-20 text-xs text-(--ui-text-muted) truncate flex-shrink-0">{{ item.habit.name }}</p>
+          <div class="flex-1 h-1.5 bg-(--ui-bg-elevated) rounded-full overflow-hidden">
             <div
               class="h-full rounded-full transition-all duration-700"
               :style="{ width: `${item.rate}%`, backgroundColor: item.habit.color }"
             />
           </div>
-          <span class="w-7 text-[11px] text-slate-500 text-right flex-shrink-0">{{ item.rate }}%</span>
+          <span class="w-7 text-[11px] text-(--ui-text-dimmed) text-right flex-shrink-0">{{ item.rate }}%</span>
         </div>
       </div>
     </UCard>

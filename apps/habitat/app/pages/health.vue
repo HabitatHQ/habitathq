@@ -119,7 +119,7 @@ async function saveSteps() {
   if (!stepsHabit.value || !db.isAvailable) return
   savingSteps.value = true
   try {
-    const existing = todayLogs.value.filter((l) => l.habit_id === stepsHabit.value!.id)
+    const existing = todayLogs.value.filter((l) => l.habit_id === stepsHabit.value?.id)
     await Promise.all(existing.map((l) => db.deleteHabitLog(l.id)))
     if (stepsInput.value > 0) {
       await db.logHabitValue(stepsHabit.value.id, today, stepsInput.value)
@@ -143,7 +143,7 @@ async function setWater(glasses: number) {
   if (!waterHabit.value || !db.isAvailable || savingWater.value) return
   savingWater.value = true
   try {
-    const existing = todayLogs.value.filter((l) => l.habit_id === waterHabit.value!.id)
+    const existing = todayLogs.value.filter((l) => l.habit_id === waterHabit.value?.id)
     await Promise.all(existing.map((l) => db.deleteHabitLog(l.id)))
     if (glasses > 0) await db.logHabitValue(waterHabit.value.id, today, glasses)
     await refreshLogs()
@@ -173,7 +173,10 @@ const weeklySleep = computed(() => {
     return {
       date,
       label: d.toLocaleDateString('en-US', { weekday: 'narrow' }),
-      hours: logSumFor(sid, weekLogs.value.filter((l) => l.date === date)),
+      hours: logSumFor(
+        sid,
+        weekLogs.value.filter((l) => l.date === date),
+      ),
       isToday: date === today,
     }
   })
@@ -192,7 +195,7 @@ async function saveSleep() {
   if (!sleepHabit.value || !db.isAvailable) return
   savingSleep.value = true
   try {
-    const existing = todayLogs.value.filter((l) => l.habit_id === sleepHabit.value!.id)
+    const existing = todayLogs.value.filter((l) => l.habit_id === sleepHabit.value?.id)
     await Promise.all(existing.map((l) => db.deleteHabitLog(l.id)))
     if (sleepInput.value > 0) await db.logHabitValue(sleepHabit.value.id, today, sleepInput.value)
     await refreshLogs()
@@ -252,7 +255,7 @@ onMounted(load)
 <template>
   <div class="space-y-5">
     <header>
-      <p class="text-sm text-slate-500">Wellness</p>
+      <p class="text-sm text-(--ui-text-dimmed)">Wellness</p>
       <h2 class="text-2xl font-bold">Health</h2>
     </header>
 
@@ -261,12 +264,12 @@ onMounted(load)
       v-if="!loading && habits.length === 0"
       class="flex flex-col items-center justify-center gap-4 py-12 text-center"
     >
-      <div class="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center">
+      <div class="w-16 h-16 rounded-full bg-(--ui-bg-elevated) flex items-center justify-center">
         <UIcon name="i-heroicons-heart" class="w-8 h-8 text-rose-400" />
       </div>
       <div class="space-y-1">
-        <p class="font-semibold text-slate-200">No health habits yet</p>
-        <p class="text-sm text-slate-500">Enable Health in Settings to set up step and meal tracking.</p>
+        <p class="font-semibold text-(--ui-text)">No health habits yet</p>
+        <p class="text-sm text-(--ui-text-dimmed)">Enable Health in Settings to set up step and meal tracking.</p>
       </div>
       <UButton to="/settings" variant="soft" color="neutral" size="sm">Open Settings</UButton>
     </div>
@@ -278,7 +281,7 @@ onMounted(load)
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
             <UIcon name="i-heroicons-fire" class="w-4 h-4 text-rose-400" />
-            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Steps Today</p>
+            <p class="text-xs font-semibold text-(--ui-text-muted) uppercase tracking-wide">Steps Today</p>
           </div>
           <UButton
             icon="i-heroicons-pencil-square"
@@ -296,7 +299,7 @@ onMounted(load)
             <div
               v-for="(digit, i) in odometerDigits"
               :key="i"
-              class="w-11 h-16 overflow-hidden bg-slate-900 rounded-xl border border-slate-700/60 relative shadow-inner"
+              class="w-11 h-16 overflow-hidden bg-(--ui-bg-muted) rounded-xl border border-(--ui-border-accented)/60 relative shadow-inner"
             >
               <!-- Rolling track: 10 digits stacked -->
               <div
@@ -306,24 +309,24 @@ onMounted(load)
                 <div
                   v-for="n in 10"
                   :key="n"
-                  class="w-11 h-16 flex items-center justify-center text-3xl font-mono font-bold text-slate-100 select-none"
+                  class="w-11 h-16 flex items-center justify-center text-3xl font-mono font-bold text-(--ui-text) select-none"
                 >{{ n - 1 }}</div>
               </div>
               <!-- Drum edge gradient -->
-              <div class="absolute inset-0 bg-gradient-to-b from-slate-900/80 via-transparent to-slate-900/80 pointer-events-none rounded-xl" />
+              <div class="absolute inset-0 bg-gradient-to-b from-(--ui-bg-muted)/80 via-transparent to-(--ui-bg-muted)/80 pointer-events-none rounded-xl" />
               <!-- Center highlight line -->
               <div class="absolute inset-x-0 top-1/2 -translate-y-px h-px bg-slate-600/60 pointer-events-none" />
             </div>
           </div>
 
-          <p class="text-xs text-slate-500 tracking-wide">
+          <p class="text-xs text-(--ui-text-dimmed) tracking-wide">
             / {{ stepsGoal.toLocaleString() }} steps goal
           </p>
         </div>
 
         <!-- Progress bar -->
         <div class="space-y-1.5">
-          <div class="h-2.5 bg-slate-800 rounded-full overflow-hidden">
+          <div class="h-2.5 bg-(--ui-bg-elevated) rounded-full overflow-hidden">
             <div
               class="h-full rounded-full transition-all duration-700"
               :class="stepsToday >= stepsGoal ? 'bg-emerald-500' : 'bg-rose-500'"
@@ -350,7 +353,7 @@ onMounted(load)
                 <div
                   class="w-full rounded-t-sm transition-all duration-500"
                   :class="[
-                    day.steps >= stepsGoal ? 'bg-emerald-500' : day.isToday ? 'bg-rose-500' : 'bg-slate-700',
+                    day.steps >= stepsGoal ? 'bg-emerald-500' : day.isToday ? 'bg-rose-500' : 'bg-(--ui-bg-accented)',
                     day.steps === 0 ? 'opacity-0' : '',
                   ]"
                   :style="{ height: `${maxWeeklySteps > 0 ? Math.round((day.steps / maxWeeklySteps) * 100) : 0}%` }"
@@ -364,14 +367,14 @@ onMounted(load)
           <!-- Goal line annotation -->
           <div class="relative h-px">
             <div
-              class="absolute right-0 left-0 border-t border-dashed border-slate-700"
+              class="absolute right-0 left-0 border-t border-dashed border-(--ui-border-accented)"
               :style="{ bottom: `${maxWeeklySteps > 0 ? Math.round((stepsGoal / maxWeeklySteps) * 56) : 0}px` }"
             />
           </div>
         </div>
 
         <!-- Log inline input -->
-        <div v-if="showStepsInput" class="flex items-center gap-2 pt-2 border-t border-slate-800">
+        <div v-if="showStepsInput" class="flex items-center gap-2 pt-2 border-t border-(--ui-border)">
           <UInput
             v-model.number="stepsInput"
             type="number"
@@ -393,23 +396,23 @@ onMounted(load)
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
             <UIcon name="i-heroicons-beaker" class="w-4 h-4 text-sky-400" />
-            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Water Today</p>
+            <p class="text-xs font-semibold text-(--ui-text-muted) uppercase tracking-wide">Water Today</p>
           </div>
           <div class="flex items-center gap-2">
-            <span class="text-xs text-slate-500">
-              <span class="font-semibold text-slate-300 tabular-nums">{{ Math.round(waterToday) }}</span>
+            <span class="text-xs text-(--ui-text-dimmed)">
+              <span class="font-semibold text-(--ui-text-toned) tabular-nums">{{ Math.round(waterToday) }}</span>
               / {{ waterGoal }} glasses
             </span>
             <div class="flex items-center gap-1">
               <button
-                class="w-7 h-7 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 hover:text-slate-200 disabled:opacity-30 transition-colors"
+                class="w-7 h-7 rounded-lg bg-(--ui-bg-elevated) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) disabled:opacity-30 transition-colors"
                 :disabled="savingWater || waterToday <= 0"
                 @click="setWater(Math.max(0, Math.round(waterToday) - 1))"
               >
                 <UIcon name="i-heroicons-minus" class="w-3.5 h-3.5" />
               </button>
               <button
-                class="w-7 h-7 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 hover:text-sky-400 disabled:opacity-30 transition-colors"
+                class="w-7 h-7 rounded-lg bg-(--ui-bg-elevated) flex items-center justify-center text-(--ui-text-muted) hover:text-sky-400 disabled:opacity-30 transition-colors"
                 :disabled="savingWater || waterToday >= waterGoal"
                 @click="setWater(Math.round(waterToday) + 1)"
               >
@@ -427,7 +430,7 @@ onMounted(load)
             class="w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-200 active:scale-90"
             :class="i <= waterToday
               ? 'bg-sky-500/20 border border-sky-500/50 text-sky-400'
-              : 'bg-slate-800 border border-slate-700 text-slate-700'"
+              : 'bg-(--ui-bg-elevated) border border-(--ui-border-accented) text-slate-700'"
             :disabled="savingWater"
             @click="setWater(i === Math.round(waterToday) ? i - 1 : i)"
           >
@@ -436,7 +439,7 @@ onMounted(load)
         </div>
 
         <!-- Progress bar -->
-        <div class="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+        <div class="h-1.5 bg-(--ui-bg-elevated) rounded-full overflow-hidden">
           <div
             class="h-full rounded-full transition-all duration-500"
             :class="waterToday >= waterGoal ? 'bg-sky-400' : 'bg-sky-500'"
@@ -450,7 +453,7 @@ onMounted(load)
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
             <UIcon name="i-heroicons-moon" class="w-4 h-4 text-indigo-400" />
-            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Sleep Last Night</p>
+            <p class="text-xs font-semibold text-(--ui-text-muted) uppercase tracking-wide">Sleep Last Night</p>
           </div>
           <UButton
             icon="i-heroicons-pencil-square"
@@ -465,14 +468,14 @@ onMounted(load)
         <div class="flex items-end gap-1.5">
           <span
             class="text-4xl font-bold tabular-nums leading-none"
-            :class="sleepToday >= sleepGoal ? 'text-indigo-400' : sleepToday > 0 ? 'text-slate-100' : 'text-slate-700'"
+            :class="sleepToday >= sleepGoal ? 'text-indigo-400' : sleepToday > 0 ? 'text-(--ui-text)' : 'text-slate-700'"
           >{{ sleepToday > 0 ? sleepToday % 1 === 0 ? sleepToday : sleepToday.toFixed(1) : '—' }}</span>
-          <span class="text-slate-500 text-sm mb-1">hrs / {{ sleepGoal }} goal</span>
+          <span class="text-(--ui-text-dimmed) text-sm mb-1">hrs / {{ sleepGoal }} goal</span>
         </div>
 
         <!-- Progress bar -->
         <div v-if="sleepToday > 0" class="space-y-1.5">
-          <div class="h-2.5 bg-slate-800 rounded-full overflow-hidden">
+          <div class="h-2.5 bg-(--ui-bg-elevated) rounded-full overflow-hidden">
             <div
               class="h-full rounded-full transition-all duration-700"
               :class="sleepToday >= sleepGoal ? 'bg-indigo-400' : 'bg-indigo-500'"
@@ -497,7 +500,7 @@ onMounted(load)
                 <div
                   class="w-full rounded-t-sm transition-all duration-500"
                   :class="[
-                    day.hours >= sleepGoal ? 'bg-indigo-400' : day.isToday ? 'bg-indigo-500' : 'bg-slate-700',
+                    day.hours >= sleepGoal ? 'bg-indigo-400' : day.isToday ? 'bg-indigo-500' : 'bg-(--ui-bg-accented)',
                     day.hours === 0 ? 'opacity-0' : '',
                   ]"
                   :style="{ height: `${maxWeeklySleep > 0 ? Math.round((day.hours / maxWeeklySleep) * 100) : 0}%` }"
@@ -511,7 +514,7 @@ onMounted(load)
         </div>
 
         <!-- Log inline input -->
-        <div v-if="showSleepInput" class="flex items-center gap-2 pt-2 border-t border-slate-800">
+        <div v-if="showSleepInput" class="flex items-center gap-2 pt-2 border-t border-(--ui-border)">
           <UInput
             v-model.number="sleepInput"
             type="number"
@@ -534,10 +537,10 @@ onMounted(load)
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
             <UIcon name="i-heroicons-scale" class="w-4 h-4 text-amber-400" />
-            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Meals</p>
+            <p class="text-xs font-semibold text-(--ui-text-muted) uppercase tracking-wide">Meals</p>
           </div>
-          <p class="text-xs text-slate-500">
-            <span class="font-semibold text-slate-300">{{ totalCaloriesToday.toLocaleString() }}</span>
+          <p class="text-xs text-(--ui-text-dimmed)">
+            <span class="font-semibold text-(--ui-text-toned)">{{ totalCaloriesToday.toLocaleString() }}</span>
             kcal today
           </p>
         </div>
@@ -546,14 +549,14 @@ onMounted(load)
           <div
             v-for="meal in mealHabits"
             :key="meal.id"
-            class="rounded-xl border border-slate-800 overflow-hidden"
+            class="rounded-xl border border-(--ui-border) overflow-hidden"
           >
             <!-- Meal row -->
             <div class="flex items-center justify-between px-3 py-3">
               <div class="flex items-center gap-2">
                 <UIcon
                   :name="MEAL_ICONS[meal.name] ?? 'i-heroicons-beaker'"
-                  class="w-4 h-4 text-slate-400"
+                  class="w-4 h-4 text-(--ui-text-muted)"
                 />
                 <span class="text-sm font-medium">{{ meal.name }}</span>
               </div>
@@ -561,12 +564,12 @@ onMounted(load)
                 <div class="text-right leading-tight">
                   <span
                     class="text-base font-semibold tabular-nums"
-                    :class="(mealTotals.get(meal.id) ?? 0) >= meal.target_value ? 'text-amber-400' : 'text-slate-200'"
+                    :class="(mealTotals.get(meal.id) ?? 0) >= meal.target_value ? 'text-amber-400' : 'text-(--ui-text)'"
                   >{{ mealTotals.get(meal.id) ?? 0 }}</span>
                   <span class="text-xs text-slate-600"> / {{ meal.target_value }} kcal</span>
                 </div>
                 <button
-                  class="w-7 h-7 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 hover:text-slate-200 transition-colors"
+                  class="w-7 h-7 rounded-lg bg-(--ui-bg-elevated) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors"
                   @click="openMealLog(meal.id)"
                 >
                   <UIcon name="i-heroicons-pencil" class="w-3.5 h-3.5" />
@@ -575,7 +578,7 @@ onMounted(load)
             </div>
 
             <!-- Calorie bar -->
-            <div class="h-1 bg-slate-800/80">
+            <div class="h-1 bg-(--ui-bg-elevated)/80">
               <div
                 class="h-full transition-all duration-500"
                 :class="(mealTotals.get(meal.id) ?? 0) >= meal.target_value ? 'bg-amber-400' : 'bg-emerald-500'"
@@ -586,7 +589,7 @@ onMounted(load)
             <!-- Inline log input -->
             <div
               v-if="mealEdit?.habitId === meal.id"
-              class="flex items-center gap-2 px-3 py-2.5 border-t border-slate-800 bg-slate-900/50"
+              class="flex items-center gap-2 px-3 py-2.5 border-t border-(--ui-border) bg-(--ui-bg-muted)/50"
             >
               <UInput
                 v-model.number="mealEdit.value"

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { formatTime } from '~/composables/useAppSettings'
 import type { Scribble } from '~/types/database'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -119,6 +118,11 @@ declare global {
 const dbComposable = useDatabase()
 const { settings: appSettings } = useAppSettings()
 
+// ─── Modal query-param sync ────────────────────────────────────────────────────
+
+const _route = useRoute()
+const _router = useRouter()
+
 // ─── Speech Recognition ───────────────────────────────────────────────────────
 
 const SpeechRecognitionAPI: (() => SpeechRecognizer) | null = import.meta.client
@@ -137,7 +141,31 @@ const finalTranscript = ref('')
 // ─── Modal state ──────────────────────────────────────────────────────────────
 
 type ModalKind = 'picker' | 'text' | 'record' | 'image' | 'transcript' | null
-const activeModal = ref<ModalKind>(null)
+
+// URL modals — 'transcript' is internal-only and never written to the URL.
+const JOTS_URL_MODALS = ['picker', 'text', 'record', 'image'] as const
+
+// Initialise synchronously from URL to avoid a one-frame flash on direct navigation.
+// biome-ignore lint/complexity/useLiteralKeys: noPropertyAccessFromIndexSignature requires bracket notation
+const _initialModal = _route.query['modal']
+const activeModal = ref<ModalKind>(
+  typeof _initialModal === 'string' &&
+    (JOTS_URL_MODALS as readonly string[]).includes(_initialModal)
+    ? (_initialModal as (typeof JOTS_URL_MODALS)[number])
+    : null,
+)
+
+watch(activeModal, (val) => {
+  const query = { ..._route.query }
+  if (val !== null && val !== 'transcript') {
+    // biome-ignore lint/complexity/useLiteralKeys: noPropertyAccessFromIndexSignature requires bracket notation
+    query['modal'] = val
+  } else {
+    // biome-ignore lint/complexity/useLiteralKeys: noPropertyAccessFromIndexSignature requires bracket notation
+    delete query['modal']
+  }
+  _router.replace({ query })
+})
 
 function closeModal() {
   activeModal.value = null
@@ -181,13 +209,6 @@ const annotationCount = computed(() => Object.keys(textForm.annotations).length)
 const canSaveText = computed(
   () => textForm.title.trim().length > 0 || textForm.content.trim().length > 0,
 )
-
-function splitTag(tag: string): { parent: string | null; leaf: string } {
-  const idx = tag.lastIndexOf('/')
-  return idx === -1
-    ? { parent: null, leaf: tag }
-    : { parent: tag.slice(0, idx), leaf: tag.slice(idx + 1) }
-}
 
 function commitTag() {
   const t = tagInput.value.replace(/,+$/, '').trim()
@@ -370,31 +391,6 @@ function pickMimeType(): string {
   return ''
 }
 
-function fmtDuration(secs: number): string {
-  const m = Math.floor(secs / 60)
-  const s = secs % 60
-  return `${m}:${String(s).padStart(2, '0')}`
-}
-
-function fmtDate(iso: string): string {
-  const d = new Date(iso)
-  const today = new Date()
-  const yesterday = new Date(today)
-  yesterday.setDate(today.getDate() - 1)
-
-  const sameDay = (a: Date, b: Date) =>
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-
-  const time = formatTime(d, appSettings.value.use24HourTime)
-  if (sameDay(d, today)) return `Today, ${time}`
-  if (sameDay(d, yesterday)) return `Yesterday, ${time}`
-  return (
-    new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(d) + `, ${time}`
-  )
-}
-
 async function startRecording() {
   errorMsg.value = null
   let stream: MediaStream
@@ -412,7 +408,7 @@ async function startRecording() {
     if (e.data.size > 0) chunks.push(e.data)
   }
   mediaRecorder.onstop = async () => {
-    stream.getTracks().forEach((t) => t.stop())
+    for (const t of stream.getTracks()) t.stop()
     const blob = new Blob(chunks, { type: mimeType || 'audio/webm' })
     const note: Omit<VoiceNote, 'url'> = {
       id: crypto.randomUUID(),
@@ -654,36 +650,6 @@ async function deleteImageNote(note: ImageNote) {
 
 const gridView = ref(false)
 
-// ─── Display helpers ──────────────────────────────────────────────────────────
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const m = Math.floor(diff / 60000)
-  if (m < 1) return 'just now'
-  if (m < 60) return `${m}m ago`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h ago`
-  const d = Math.floor(h / 24)
-  if (d < 7) return `${d}d ago`
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
-
-function previewTitle(s: Scribble): string {
-  if (s.title) return s.title
-  const first = s.content.split('\n')[0]?.trim() ?? ''
-  return first.slice(0, 72) || 'Untitled'
-}
-
-function previewBody(s: Scribble): string {
-  if (!s.title) return ''
-  return s.content.split('\n').slice(0, 2).join(' ').trim().slice(0, 120)
-}
-
-function gridBody(s: Scribble): string {
-  if (s.title) return s.content.split('\n').slice(0, 4).join(' ').trim().slice(0, 200)
-  return s.content.split('\n').slice(1).join(' ').trim().slice(0, 180)
-}
-
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
 
 onMounted(async () => {
@@ -699,7 +665,7 @@ onMounted(async () => {
   imageNotes.value = storedImages.map((n) => ({ ...n, url: URL.createObjectURL(n.blob) }))
 })
 
-watch(gridView, v => localStorage.setItem('jots-view', v ? 'grid' : 'list'))
+watch(gridView, (v) => localStorage.setItem('jots-view', v ? 'grid' : 'list'))
 
 onUnmounted(() => {
   stopRecording()
@@ -711,7 +677,7 @@ onUnmounted(() => {
     if (n.url) URL.revokeObjectURL(n.url)
   })
   if (imagePreviewing.value) URL.revokeObjectURL(imagePreviewing.value.url)
-  audioMap.forEach((a) => a.pause())
+  for (const a of audioMap.values()) a.pause()
 })
 </script>
 
@@ -749,12 +715,12 @@ onUnmounted(() => {
       v-if="timeline.length === 0"
       class="flex flex-col items-center justify-center gap-4 py-12 text-center"
     >
-      <div class="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center">
-        <UIcon name="i-heroicons-document-text" class="w-8 h-8 text-slate-400" />
+      <div class="w-16 h-16 rounded-full bg-(--ui-bg-elevated) flex items-center justify-center">
+        <UIcon name="i-heroicons-document-text" class="w-8 h-8 text-(--ui-text-muted)" />
       </div>
       <div class="space-y-1">
-        <p class="font-semibold text-slate-200">No jots yet</p>
-        <p class="text-sm text-slate-500">Tap New to add a text note, voice recording, or photo.</p>
+        <p class="font-semibold text-(--ui-text)">No jots yet</p>
+        <p class="text-sm text-(--ui-text-dimmed)">Tap New to add a text note, voice recording, or photo.</p>
       </div>
     </section>
 
@@ -765,7 +731,7 @@ onUnmounted(() => {
         <!-- Text jot -->
         <li
           v-if="item.kind === 'text'"
-          class="p-3 rounded-xl bg-slate-900 border border-slate-800 active:opacity-70 transition-opacity cursor-pointer"
+          class="p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border) active:opacity-70 transition-opacity cursor-pointer"
           @click="openEditText(item.data)"
         >
           <div class="flex items-start gap-2.5">
@@ -774,16 +740,16 @@ onUnmounted(() => {
             </div>
             <div class="flex-1 min-w-0">
               <div class="flex items-start justify-between gap-2">
-                <p class="font-medium text-sm text-slate-100 leading-snug">{{ previewTitle(item.data) }}</p>
+                <p class="font-medium text-sm text-(--ui-text) leading-snug">{{ previewTitle(item.data) }}</p>
                 <span class="text-[11px] text-slate-600 shrink-0 mt-0.5">{{ timeAgo(item.data.updated_at) }}</span>
               </div>
-              <p v-if="previewBody(item.data)" class="text-xs text-slate-500 mt-0.5 line-clamp-2">{{ previewBody(item.data) }}</p>
+              <p v-if="previewBody(item.data)" class="text-xs text-(--ui-text-dimmed) mt-0.5 line-clamp-2">{{ previewBody(item.data) }}</p>
               <div v-if="item.data.tags.length > 0" class="flex flex-wrap gap-1 mt-2">
                 <span
                   v-for="tag in item.data.tags.slice(0, 5)"
                   :key="tag"
                   class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px]
-                         text-slate-400 bg-slate-800 border border-slate-700"
+                         text-(--ui-text-muted) bg-(--ui-bg-elevated) border border-(--ui-border-accented)"
                 >
                   <span v-if="splitTag(tag).parent" class="text-slate-600">{{ splitTag(tag).parent }}/</span>
                   <span>{{ splitTag(tag).leaf }}</span>
@@ -797,7 +763,7 @@ onUnmounted(() => {
         <!-- Voice jot -->
         <li
           v-else-if="item.kind === 'voice'"
-          class="p-3 rounded-xl bg-slate-900 border border-slate-800"
+          class="p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border)"
         >
           <div class="flex items-center gap-3">
             <div class="w-6 h-6 rounded-full bg-rose-500/10 flex items-center justify-center shrink-0">
@@ -813,10 +779,10 @@ onUnmounted(() => {
               @click="transcribingExistingId === item.data.id ? undefined : togglePlay(item.data)"
             />
             <div class="flex-1 min-w-0">
-              <p class="text-sm text-slate-300 truncate">{{ fmtDate(item.data.created_at) }}</p>
+              <p class="text-sm text-(--ui-text-toned) truncate">{{ fmtDate(item.data.created_at, appSettings.use24HourTime) }}</p>
               <p
                 class="text-xs tabular-nums"
-                :class="transcribingExistingId === item.data.id ? 'text-primary-400 animate-pulse' : 'text-slate-500'"
+                :class="transcribingExistingId === item.data.id ? 'text-primary-400 animate-pulse' : 'text-(--ui-text-dimmed)'"
               >
                 {{ transcribingExistingId === item.data.id ? 'Transcribing…' : fmtDuration(item.data.duration) }}
               </p>
@@ -847,7 +813,7 @@ onUnmounted(() => {
         <!-- Image jot -->
         <li
           v-else-if="item.kind === 'image'"
-          class="p-3 rounded-xl bg-slate-900 border border-slate-800"
+          class="p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border)"
         >
           <div class="flex items-center gap-3">
             <div class="w-6 h-6 rounded-full bg-sky-500/10 flex items-center justify-center shrink-0">
@@ -860,8 +826,8 @@ onUnmounted(() => {
               class="w-16 h-16 object-cover rounded-lg shrink-0"
             />
             <div class="flex-1 min-w-0">
-              <p class="text-sm text-slate-300 truncate">{{ item.data.filename }}</p>
-              <p class="text-xs text-slate-500">{{ fmtDate(item.data.created_at) }}</p>
+              <p class="text-sm text-(--ui-text-toned) truncate">{{ item.data.filename }}</p>
+              <p class="text-xs text-(--ui-text-dimmed)">{{ fmtDate(item.data.created_at, appSettings.use24HourTime) }}</p>
             </div>
             <UButton
               icon="i-heroicons-trash"
@@ -884,16 +850,16 @@ onUnmounted(() => {
         <!-- Text tile (Google Keep card) -->
         <li
           v-if="item.kind === 'text'"
-          class="rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden cursor-pointer active:scale-[0.97] transition-transform"
+          class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) overflow-hidden cursor-pointer active:scale-[0.97] transition-transform"
           @click="openEditText(item.data)"
         >
           <!-- Amber accent stripe -->
           <div class="h-0.5 bg-gradient-to-r from-amber-500/70 to-amber-600/30" />
           <div class="p-3 flex flex-col gap-2">
-            <p class="font-semibold text-sm text-slate-100 leading-snug line-clamp-2">
+            <p class="font-semibold text-sm text-(--ui-text) leading-snug line-clamp-2">
               {{ previewTitle(item.data) }}
             </p>
-            <p v-if="gridBody(item.data)" class="text-xs text-slate-500 line-clamp-5 leading-relaxed">
+            <p v-if="gridBody(item.data)" class="text-xs text-(--ui-text-dimmed) line-clamp-5 leading-relaxed">
               {{ gridBody(item.data) }}
             </p>
             <div class="flex items-end justify-between gap-1 mt-auto pt-1">
@@ -901,7 +867,7 @@ onUnmounted(() => {
                 <span
                   v-for="tag in item.data.tags.slice(0, 2)"
                   :key="tag"
-                  class="px-1.5 py-0.5 rounded-full text-[9px] bg-slate-800 text-slate-500 border border-slate-700/60 truncate max-w-[72px]"
+                  class="px-1.5 py-0.5 rounded-full text-[9px] bg-(--ui-bg-elevated) text-(--ui-text-dimmed) border border-(--ui-border-accented)/60 truncate max-w-[72px]"
                 >{{ splitTag(tag).leaf }}</span>
                 <span v-if="item.data.tags.length > 2" class="text-[9px] text-slate-600 self-center">+{{ item.data.tags.length - 2 }}</span>
               </div>
@@ -913,7 +879,7 @@ onUnmounted(() => {
         <!-- Voice tile (Windows-style tile) -->
         <li
           v-else-if="item.kind === 'voice'"
-          class="rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden"
+          class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) overflow-hidden"
         >
           <div class="h-0.5 bg-gradient-to-r from-rose-500/70 to-rose-600/30" />
           <div class="p-3 flex flex-col items-center gap-2.5 text-center">
@@ -925,7 +891,7 @@ onUnmounted(() => {
             <div>
               <p
                 class="text-sm font-mono tabular-nums font-medium"
-                :class="transcribingExistingId === item.data.id ? 'text-primary-400 animate-pulse' : 'text-slate-300'"
+                :class="transcribingExistingId === item.data.id ? 'text-primary-400 animate-pulse' : 'text-(--ui-text-toned)'"
               >
                 {{ transcribingExistingId === item.data.id ? '…' : fmtDuration(item.data.duration) }}
               </p>
@@ -970,7 +936,7 @@ onUnmounted(() => {
         <!-- Image tile -->
         <li
           v-else-if="item.kind === 'image'"
-          class="rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden"
+          class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) overflow-hidden"
         >
           <!-- Image fills top -->
           <img
@@ -979,13 +945,13 @@ onUnmounted(() => {
             :alt="item.data.filename"
             class="w-full aspect-square object-cover"
           />
-          <div v-else class="w-full aspect-square bg-slate-800 flex items-center justify-center">
+          <div v-else class="w-full aspect-square bg-(--ui-bg-elevated) flex items-center justify-center">
             <UIcon name="i-heroicons-photo" class="w-8 h-8 text-slate-600" />
           </div>
           <!-- Footer -->
           <div class="px-2.5 py-2 flex items-center justify-between gap-1">
             <div class="min-w-0">
-              <p class="text-[11px] text-slate-400 truncate leading-tight">{{ item.data.filename }}</p>
+              <p class="text-[11px] text-(--ui-text-muted) truncate leading-tight">{{ item.data.filename }}</p>
               <p class="text-[10px] text-slate-600 mt-0.5">{{ timeAgo(item.data.created_at) }}</p>
             </div>
             <UButton
@@ -1006,35 +972,35 @@ onUnmounted(() => {
     <Teleport to="body">
       <div v-if="activeModal === 'picker'" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
         <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="closeModal" />
-        <div class="relative w-full sm:max-w-sm bg-slate-900 border border-slate-800 rounded-t-3xl sm:rounded-2xl p-5 space-y-3">
+        <div class="relative w-full sm:max-w-sm bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-3">
           <h3 class="text-base font-semibold text-center">New Jot</h3>
           <div class="grid grid-cols-3 gap-3">
             <button
-              class="flex flex-col items-center gap-2 p-4 rounded-2xl bg-slate-800 border border-slate-700 active:opacity-70 transition-opacity"
+              class="flex flex-col items-center gap-2 p-4 rounded-2xl bg-(--ui-bg-elevated) border border-(--ui-border-accented) active:opacity-70 transition-opacity"
               @click="openNewText"
             >
               <div class="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center">
                 <UIcon name="i-heroicons-pencil" class="w-5 h-5 text-amber-400" />
               </div>
-              <span class="text-xs text-slate-300">Text</span>
+              <span class="text-xs text-(--ui-text-toned)">Text</span>
             </button>
             <button
-              class="flex flex-col items-center gap-2 p-4 rounded-2xl bg-slate-800 border border-slate-700 active:opacity-70 transition-opacity"
+              class="flex flex-col items-center gap-2 p-4 rounded-2xl bg-(--ui-bg-elevated) border border-(--ui-border-accented) active:opacity-70 transition-opacity"
               @click="activeModal = 'record'"
             >
               <div class="w-10 h-10 rounded-full bg-rose-500/10 flex items-center justify-center">
                 <UIcon name="i-heroicons-microphone" class="w-5 h-5 text-rose-400" />
               </div>
-              <span class="text-xs text-slate-300">Voice</span>
+              <span class="text-xs text-(--ui-text-toned)">Voice</span>
             </button>
             <button
-              class="flex flex-col items-center gap-2 p-4 rounded-2xl bg-slate-800 border border-slate-700 active:opacity-70 transition-opacity"
+              class="flex flex-col items-center gap-2 p-4 rounded-2xl bg-(--ui-bg-elevated) border border-(--ui-border-accented) active:opacity-70 transition-opacity"
               @click="activeModal = 'image'"
             >
               <div class="w-10 h-10 rounded-full bg-sky-500/10 flex items-center justify-center">
                 <UIcon name="i-heroicons-photo" class="w-5 h-5 text-sky-400" />
               </div>
-              <span class="text-xs text-slate-300">Image</span>
+              <span class="text-xs text-(--ui-text-toned)">Image</span>
             </button>
           </div>
         </div>
@@ -1046,7 +1012,7 @@ onUnmounted(() => {
       <template #content>
         <div class="flex flex-col max-h-[90dvh]">
 
-          <div class="flex items-center justify-between px-4 pt-4 pb-3 border-b border-slate-800 shrink-0">
+          <div class="flex items-center justify-between px-4 pt-4 pb-3 border-b border-(--ui-border) shrink-0">
             <h3 class="text-base font-semibold">{{ textEditing ? 'Edit Jot' : 'New Jot' }}</h3>
             <div class="flex items-center gap-2">
               <span v-if="textEditing" class="text-[11px] text-slate-600">
@@ -1068,11 +1034,11 @@ onUnmounted(() => {
             <input
               v-model="textForm.title"
               placeholder="Title (optional)"
-              class="w-full bg-transparent text-base font-medium text-slate-100
+              class="w-full bg-transparent text-base font-medium text-(--ui-text)
                      placeholder-slate-600 outline-none border-0"
             />
 
-            <div class="border-t border-slate-800/60" />
+            <div class="border-t border-(--ui-border)/60" />
 
             <UTextarea
               v-model="textForm.content"
@@ -1081,30 +1047,30 @@ onUnmounted(() => {
               :rows="6"
               variant="none"
               class="w-full"
-              :ui="{ base: 'resize-none bg-transparent text-slate-200 placeholder-slate-600 text-sm leading-relaxed' }"
+              :ui="{ base: 'resize-none bg-transparent text-(--ui-text) placeholder-slate-600 text-sm leading-relaxed' }"
             />
 
-            <div class="border-t border-slate-800 pt-3 space-y-2">
+            <div class="border-t border-(--ui-border) pt-3 space-y-2">
               <p class="text-[10px] font-semibold text-slate-600 uppercase tracking-wider">Tags</p>
               <div class="flex flex-wrap items-center gap-1.5 min-h-[20px]">
                 <span
                   v-for="tag in textForm.tags"
                   :key="tag"
                   class="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full text-[11px]
-                         bg-slate-800 text-slate-300 border border-slate-700"
+                         bg-(--ui-bg-elevated) text-(--ui-text-toned) border border-(--ui-border-accented)"
                 >
-                  <span v-if="splitTag(tag).parent" class="text-slate-500">{{ splitTag(tag).parent }}/</span>
+                  <span v-if="splitTag(tag).parent" class="text-(--ui-text-dimmed)">{{ splitTag(tag).parent }}/</span>
                   {{ splitTag(tag).leaf }}
                   <button
                     class="ml-0.5 w-5 h-5 flex items-center justify-center rounded-full
-                           text-slate-500 hover:text-slate-200 hover:bg-slate-700 transition-colors"
+                           text-(--ui-text-dimmed) hover:text-(--ui-text) hover:bg-(--ui-bg-accented) transition-colors"
                     @click.stop="removeTag(tag)"
                   >×</button>
                 </span>
                 <input
                   v-model="tagInput"
                   placeholder="+ add tag"
-                  class="text-[11px] bg-transparent text-slate-400 placeholder-slate-600
+                  class="text-[11px] bg-transparent text-(--ui-text-muted) placeholder-slate-600
                          outline-none border-0 min-w-0 w-20"
                   @keydown="onTagKeydown"
                   @blur="commitTag"
@@ -1112,9 +1078,9 @@ onUnmounted(() => {
               </div>
             </div>
 
-            <div class="border-t border-slate-800 pt-3 pb-1">
+            <div class="border-t border-(--ui-border) pt-3 pb-1">
               <button
-                class="text-xs text-slate-500 hover:text-slate-400 flex items-center gap-1.5 transition-colors"
+                class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1.5 transition-colors"
                 @click="annotExpanded = !annotExpanded"
               >
                 <UIcon
@@ -1133,8 +1099,8 @@ onUnmounted(() => {
                   :key="key"
                   class="flex items-center gap-2"
                 >
-                  <span class="text-[11px] text-slate-500 font-mono shrink-0">{{ key }}</span>
-                  <span class="text-[11px] text-slate-400 flex-1 min-w-0 truncate">{{ val }}</span>
+                  <span class="text-[11px] text-(--ui-text-dimmed) font-mono shrink-0">{{ key }}</span>
+                  <span class="text-[11px] text-(--ui-text-muted) flex-1 min-w-0 truncate">{{ val }}</span>
                   <UButton
                     icon="i-heroicons-x-mark"
                     color="neutral"
@@ -1168,7 +1134,7 @@ onUnmounted(() => {
 
           </div>
 
-          <div class="flex justify-end gap-2 px-4 py-3 border-t border-slate-800 shrink-0">
+          <div class="flex justify-end gap-2 px-4 py-3 border-t border-(--ui-border) shrink-0">
             <UButton variant="ghost" color="neutral" @click="closeModal">Cancel</UButton>
             <UButton
               :loading="textSaving"
@@ -1187,7 +1153,7 @@ onUnmounted(() => {
     <Teleport to="body">
       <div v-if="activeModal === 'record'" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
         <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="() => { if (!recording) closeModal() }" />
-        <div class="relative w-full sm:max-w-md bg-slate-900 border border-slate-800 rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
+        <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
 
           <div class="flex items-center justify-between">
             <h3 class="text-base font-semibold">Voice Note</h3>
@@ -1206,14 +1172,14 @@ onUnmounted(() => {
               class="w-24 h-24 rounded-full flex items-center justify-center transition-all duration-200 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
               :class="recording
                 ? 'bg-red-500 shadow-xl shadow-red-500/30 scale-105'
-                : 'bg-slate-800 hover:bg-slate-700'"
+                : 'bg-(--ui-bg-elevated) hover:bg-(--ui-bg-accented)'"
               :aria-label="recording ? 'Stop recording' : 'Start recording'"
               @click="toggleRecording"
             >
               <UIcon
                 :name="recording ? 'i-heroicons-stop' : 'i-heroicons-microphone'"
                 class="w-10 h-10"
-                :class="recording ? 'text-white' : 'text-slate-300'"
+                :class="recording ? 'text-white' : 'text-(--ui-text-toned)'"
               />
             </button>
 
@@ -1223,14 +1189,14 @@ onUnmounted(() => {
             <p v-else-if="transcriptionPending" class="text-xs text-primary-400 animate-pulse">
               Finishing transcription…
             </p>
-            <p v-else class="text-xs text-slate-500">Tap to record</p>
+            <p v-else class="text-xs text-(--ui-text-dimmed)">Tap to record</p>
 
             <div
               v-if="recording && speechSupported && (finalTranscript || interimTranscript)"
-              class="w-full max-w-sm bg-slate-800/60 rounded-2xl px-4 py-3 text-sm text-slate-300 min-h-[3rem]"
+              class="w-full max-w-sm bg-(--ui-bg-elevated)/60 rounded-2xl px-4 py-3 text-sm text-(--ui-text-toned) min-h-[3rem]"
             >
               <span>{{ finalTranscript }}</span>
-              <span class="text-slate-500 italic">{{ interimTranscript }}</span>
+              <span class="text-(--ui-text-dimmed) italic">{{ interimTranscript }}</span>
             </div>
           </div>
 
@@ -1242,7 +1208,7 @@ onUnmounted(() => {
     <Teleport to="body">
       <div v-if="activeModal === 'image'" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
         <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="() => { cancelImagePreview(); closeModal() }" />
-        <div class="relative w-full sm:max-w-md bg-slate-900 border border-slate-800 rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
+        <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
 
           <div class="flex items-center justify-between">
             <h3 class="text-base font-semibold">Add Image</h3>
@@ -1260,9 +1226,9 @@ onUnmounted(() => {
             <img
               :src="imagePreviewing.url"
               :alt="imagePreviewing.filename"
-              class="w-full max-h-64 object-contain rounded-xl bg-slate-800"
+              class="w-full max-h-64 object-contain rounded-xl bg-(--ui-bg-elevated)"
             />
-            <p class="text-xs text-slate-500 truncate">{{ imagePreviewing.filename }}</p>
+            <p class="text-xs text-(--ui-text-dimmed) truncate">{{ imagePreviewing.filename }}</p>
             <div class="flex gap-2">
               <UButton class="flex-1" @click="saveImage">Save</UButton>
               <UButton variant="outline" color="neutral" @click="cancelImagePreview">Choose another</UButton>
@@ -1272,10 +1238,10 @@ onUnmounted(() => {
           <!-- Picker buttons -->
           <div v-else class="grid grid-cols-2 gap-3">
             <label
-              class="flex flex-col items-center gap-2 p-5 rounded-2xl bg-slate-800 border border-slate-700 cursor-pointer active:opacity-70 transition-opacity"
+              class="flex flex-col items-center gap-2 p-5 rounded-2xl bg-(--ui-bg-elevated) border border-(--ui-border-accented) cursor-pointer active:opacity-70 transition-opacity"
             >
               <UIcon name="i-heroicons-photo" class="w-8 h-8 text-sky-400" />
-              <span class="text-sm text-slate-300">Gallery</span>
+              <span class="text-sm text-(--ui-text-toned)">Gallery</span>
               <input
                 type="file"
                 accept="image/*"
@@ -1284,10 +1250,10 @@ onUnmounted(() => {
               />
             </label>
             <label
-              class="flex flex-col items-center gap-2 p-5 rounded-2xl bg-slate-800 border border-slate-700 cursor-pointer active:opacity-70 transition-opacity"
+              class="flex flex-col items-center gap-2 p-5 rounded-2xl bg-(--ui-bg-elevated) border border-(--ui-border-accented) cursor-pointer active:opacity-70 transition-opacity"
             >
               <UIcon name="i-heroicons-camera" class="w-8 h-8 text-sky-400" />
-              <span class="text-sm text-slate-300">Camera</span>
+              <span class="text-sm text-(--ui-text-toned)">Camera</span>
               <input
                 type="file"
                 accept="image/*"
@@ -1306,7 +1272,7 @@ onUnmounted(() => {
     <Teleport to="body">
       <div v-if="activeModal === 'transcript'" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
         <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="closeTranscriptModal" />
-        <div class="relative w-full sm:max-w-md bg-slate-900 border border-slate-800 rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
+        <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
 
           <div class="flex items-center justify-between">
             <h3 class="text-base font-semibold">Save transcription</h3>
@@ -1314,26 +1280,26 @@ onUnmounted(() => {
           </div>
 
           <div class="space-y-1">
-            <label class="text-xs text-slate-500 font-medium">Title</label>
+            <label class="text-xs text-(--ui-text-dimmed) font-medium">Title</label>
             <input
               v-model="transcriptTitle"
               type="text"
-              class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-primary-500"
+              class="w-full bg-(--ui-bg-elevated) border border-(--ui-border-accented) rounded-xl px-3 py-2 text-sm text-(--ui-text) focus:outline-none focus:ring-1 focus:ring-primary-500"
             />
           </div>
 
           <div class="space-y-1">
-            <label class="text-xs text-slate-500 font-medium">Transcript</label>
+            <label class="text-xs text-(--ui-text-dimmed) font-medium">Transcript</label>
             <textarea
               v-model="transcriptText"
               rows="5"
-              class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-primary-500 resize-none"
+              class="w-full bg-(--ui-bg-elevated) border border-(--ui-border-accented) rounded-xl px-3 py-2 text-sm text-(--ui-text) focus:outline-none focus:ring-1 focus:ring-primary-500 resize-none"
             />
           </div>
 
           <label v-if="transcribingNoteId" class="flex items-center gap-2 cursor-pointer">
-            <input v-model="deleteAfterTranscribe" type="checkbox" class="rounded border-slate-600 bg-slate-800 text-primary-500 focus:ring-primary-500" />
-            <span class="text-sm text-slate-400">Delete voice recording after saving</span>
+            <input v-model="deleteAfterTranscribe" type="checkbox" class="rounded border-(--ui-border-accented) bg-(--ui-bg-elevated) text-primary-500 focus:ring-primary-500" />
+            <span class="text-sm text-(--ui-text-muted)">Delete voice recording after saving</span>
           </label>
 
           <div class="flex gap-2">

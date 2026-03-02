@@ -163,7 +163,7 @@ async function archiveActivity(a: BoredActivity) {
         <div class="flex items-center gap-2">
           <UIcon :name="cat.icon" class="w-4 h-4" :style="{ color: cat.color }" />
           <span class="font-semibold text-sm">{{ cat.name }}</span>
-          <span class="text-xs text-slate-500">({{ activitiesForCategory(cat.id).length }})</span>
+          <span class="text-xs text-(--ui-text-dimmed)">({{ activitiesForCategory(cat.id).length }})</span>
         </div>
         <div class="flex items-center gap-1">
           <UButton
@@ -196,21 +196,21 @@ async function archiveActivity(a: BoredActivity) {
         <div
           v-for="act in activitiesForCategory(cat.id)"
           :key="act.id"
-          class="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl px-4 py-3"
+          class="flex items-center justify-between bg-(--ui-bg-muted) border border-(--ui-border) rounded-xl px-4 py-3"
         >
           <div class="flex-1 min-w-0">
-            <p class="text-sm font-medium truncate" :class="act.is_done ? 'line-through text-slate-500' : ''">
+            <p class="text-sm font-medium truncate" :class="act.is_done ? 'line-through text-(--ui-text-dimmed)' : ''">
               {{ act.title }}
             </p>
             <div class="flex items-center gap-2 mt-0.5">
-              <span v-if="act.estimated_minutes" class="text-xs text-slate-500">
+              <span v-if="act.estimated_minutes" class="text-xs text-(--ui-text-dimmed)">
                 {{ act.estimated_minutes }}m
               </span>
-              <span v-if="act.is_recurring" class="text-xs text-slate-500 flex items-center gap-0.5">
+              <span v-if="act.is_recurring" class="text-xs text-(--ui-text-dimmed) flex items-center gap-0.5">
                 <UIcon name="i-heroicons-arrow-path" class="w-3 h-3" />
                 {{ act.recurrence_rule }}
               </span>
-              <span v-if="act.done_count > 0" class="text-xs text-slate-500">
+              <span v-if="act.done_count > 0" class="text-xs text-(--ui-text-dimmed)">
                 ×{{ act.done_count }}
               </span>
             </div>
@@ -242,7 +242,7 @@ async function archiveActivity(a: BoredActivity) {
     <!-- Category modal -->
     <div v-if="showCategoryModal" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
       <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="showCategoryModal = false" />
-      <div class="relative w-full sm:max-w-md bg-slate-900 border border-slate-800 rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
+      <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
         <h2 class="text-lg font-semibold">{{ editingCategory ? 'Edit Category' : 'New Category' }}</h2>
         <div class="space-y-3">
           <UFormField label="Name">
@@ -253,7 +253,7 @@ async function archiveActivity(a: BoredActivity) {
           </UFormField>
           <UFormField label="Color">
             <div class="flex items-center gap-2">
-              <input v-model="catForm.color" type="color" class="w-10 h-8 rounded border border-slate-700 bg-transparent cursor-pointer" />
+              <input v-model="catForm.color" type="color" class="w-10 h-8 rounded border border-(--ui-border-accented) bg-transparent cursor-pointer" />
               <UInput v-model="catForm.color" placeholder="#6366f1" class="flex-1" />
             </div>
           </UFormField>
@@ -268,7 +268,7 @@ async function archiveActivity(a: BoredActivity) {
     <!-- Activity modal -->
     <div v-if="showActivityModal" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
       <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="showActivityModal = false" />
-      <div class="relative w-full sm:max-w-md bg-slate-900 border border-slate-800 rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+      <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
         <h2 class="text-lg font-semibold">{{ editingActivity ? 'Edit Activity' : 'New Activity' }}</h2>
         <div class="space-y-3">
           <UFormField label="Title" required>
@@ -291,7 +291,7 @@ async function archiveActivity(a: BoredActivity) {
                   v-for="rule in ['daily', 'weekly', 'monthly'] as const"
                   :key="rule"
                   class="flex-1 py-1.5 rounded-lg text-sm font-medium capitalize transition-colors"
-                  :class="actForm.recurrence_rule === rule ? 'bg-primary-600 text-white' : 'bg-slate-800 text-slate-300'"
+                  :class="actForm.recurrence_rule === rule ? 'bg-primary-600 text-white' : 'bg-(--ui-bg-elevated) text-(--ui-text-toned)'"
                   @click="actForm.recurrence_rule = rule"
                 >
                   {{ rule }}

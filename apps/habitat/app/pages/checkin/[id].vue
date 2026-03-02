@@ -8,7 +8,7 @@ import type {
 
 const db = useDatabase()
 const route = useRoute()
-const templateId = computed(() => route.params['id'] as string)
+const templateId = computed(() => route.params.id as string)
 
 // ─── Template + questions ─────────────────────────────────────────────────────
 
@@ -318,7 +318,7 @@ onMounted(async () => {
         size="sm"
         to="/checkin"
       />
-      <span class="text-sm text-slate-500">Check-in</span>
+      <span class="text-sm text-(--ui-text-dimmed)">Check-in</span>
     </div>
 
     <!-- Loading -->
@@ -329,7 +329,7 @@ onMounted(async () => {
     <!-- Not found -->
     <div v-else-if="!template" class="flex flex-col items-center gap-3 py-12 text-center">
       <UIcon name="i-heroicons-exclamation-circle" class="w-8 h-8 text-slate-700" />
-      <p class="text-sm text-slate-500">Check-in not found.</p>
+      <p class="text-sm text-(--ui-text-dimmed)">Check-in not found.</p>
       <UButton variant="ghost" color="neutral" size="sm" to="/checkin">Go back</UButton>
     </div>
 
@@ -338,7 +338,7 @@ onMounted(async () => {
       <!-- ── Header ────────────────────────────────────────────────────────── -->
       <header class="flex items-start justify-between">
         <div>
-          <p class="text-xs text-slate-500">{{ scheduleLabel(template) }}</p>
+          <p class="text-xs text-(--ui-text-dimmed)">{{ scheduleLabel(template) }}</p>
           <h2 class="text-2xl font-bold leading-tight">{{ template.title }}</h2>
         </div>
         <div class="flex items-center gap-0.5 mt-1">
@@ -368,7 +368,7 @@ onMounted(async () => {
       </header>
 
       <!-- Date label -->
-      <p class="text-sm text-slate-400 -mt-2">{{ displayDate }}</p>
+      <p class="text-sm text-(--ui-text-muted) -mt-2">{{ displayDate }}</p>
 
       <!-- ── Questions ─────────────────────────────────────────────────────── -->
       <div class="space-y-4">
@@ -377,7 +377,7 @@ onMounted(async () => {
           class="flex flex-col items-center gap-3 py-8 text-center"
         >
           <UIcon name="i-heroicons-plus-circle" class="w-7 h-7 text-slate-700" />
-          <p class="text-sm text-slate-500">No questions yet. Add one below.</p>
+          <p class="text-sm text-(--ui-text-dimmed)">No questions yet. Add one below.</p>
         </div>
 
         <UCard
@@ -387,7 +387,7 @@ onMounted(async () => {
         >
           <!-- Question prompt + delete -->
           <div class="flex items-start justify-between gap-2">
-            <p class="text-sm font-medium text-slate-100 leading-snug">{{ q.prompt }}</p>
+            <p class="text-sm font-medium text-(--ui-text) leading-snug">{{ q.prompt }}</p>
             <button
               class="flex-shrink-0 text-slate-700 hover:text-red-400 transition-colors mt-0.5"
               :disabled="deletingQuestion.has(q.id)"
@@ -405,7 +405,7 @@ onMounted(async () => {
               class="w-8 h-8 rounded-full text-xs font-semibold border transition-colors"
               :class="responses.get(q.id)?.value_numeric === n
                 ? 'bg-primary-500/20 border-primary-500 text-primary-300'
-                : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400'"
+                : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented) hover:text-(--ui-text-muted)'"
               @click="onScale(q.id, n)"
             >
               {{ n }}
@@ -430,7 +430,7 @@ onMounted(async () => {
               class="flex-1 py-1.5 text-sm font-medium rounded-xl border transition-colors"
               :class="responses.get(q.id)?.value_numeric === 1
                 ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
-                : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400'"
+                : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented) hover:text-(--ui-text-muted)'"
               @click="onBoolean(q.id, 1)"
             >
               Yes
@@ -439,7 +439,7 @@ onMounted(async () => {
               class="flex-1 py-1.5 text-sm font-medium rounded-xl border transition-colors"
               :class="responses.get(q.id)?.value_numeric === 0
                 ? 'bg-red-500/20 border-red-500 text-red-300'
-                : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400'"
+                : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented) hover:text-(--ui-text-muted)'"
               @click="onBoolean(q.id, 0)"
             >
               No
@@ -451,7 +451,7 @@ onMounted(async () => {
       <!-- ── Add question ───────────────────────────────────────────────────── -->
       <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
         <div class="px-4 pt-3.5 pb-3 flex items-center justify-between">
-          <p class="text-xs font-semibold text-slate-400">Questions</p>
+          <p class="text-xs font-semibold text-(--ui-text-muted)">Questions</p>
           <UButton
             size="xs"
             variant="ghost"
@@ -470,7 +470,7 @@ onMounted(async () => {
           />
           <!-- Response type -->
           <div class="space-y-1">
-            <p class="text-[11px] text-slate-500">Response type</p>
+            <p class="text-[11px] text-(--ui-text-dimmed)">Response type</p>
             <div class="flex gap-1.5">
               <button
                 v-for="rt in (['TEXT', 'SCALE', 'BOOLEAN'] as const)"
@@ -478,7 +478,7 @@ onMounted(async () => {
                 class="flex-1 py-1 text-xs font-medium rounded-lg border transition-colors"
                 :class="newResponseType === rt
                   ? 'bg-primary-500/20 border-primary-500 text-primary-300'
-                  : 'border-slate-700 text-slate-500 hover:border-slate-600'"
+                  : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented)'"
                 @click="newResponseType = rt"
               >
                 {{ rt === 'TEXT' ? 'Text' : rt === 'SCALE' ? '1–10' : 'Yes/No' }}
@@ -502,7 +502,7 @@ onMounted(async () => {
       <!-- ── Reminders ─────────────────────────────────────────────────────── -->
       <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
         <div class="px-4 pt-3.5 pb-3 flex items-center justify-between">
-          <p class="text-xs font-semibold text-slate-400">Reminders</p>
+          <p class="text-xs font-semibold text-(--ui-text-muted)">Reminders</p>
           <UButton
             size="xs"
             variant="ghost"
@@ -518,8 +518,8 @@ onMounted(async () => {
           class="flex items-center justify-between px-4 py-2.5"
         >
           <div>
-            <p class="text-sm font-medium text-slate-200">{{ r.trigger_time }}</p>
-            <p class="text-[11px] text-slate-500">{{ reminderDaysLabel(r) }}</p>
+            <p class="text-sm font-medium text-(--ui-text)">{{ r.trigger_time }}</p>
+            <p class="text-[11px] text-(--ui-text-dimmed)">{{ reminderDaysLabel(r) }}</p>
           </div>
           <button
             class="text-slate-700 hover:text-red-400 transition-colors"
@@ -537,10 +537,10 @@ onMounted(async () => {
         <div v-if="showAddReminder" class="px-4 py-3 space-y-3">
           <div class="flex items-center gap-3">
             <UInput v-model="newReminderTime" type="time" class="w-32" />
-            <span class="text-xs text-slate-500">Remind me at this time</span>
+            <span class="text-xs text-(--ui-text-dimmed)">Remind me at this time</span>
           </div>
           <div class="space-y-1">
-            <p class="text-[11px] text-slate-500">Days (leave blank for every day)</p>
+            <p class="text-[11px] text-(--ui-text-dimmed)">Days (leave blank for every day)</p>
             <div class="flex gap-1.5">
               <button
                 v-for="(label, i) in DAY_LABELS"
@@ -548,7 +548,7 @@ onMounted(async () => {
                 class="w-8 h-8 rounded-full text-xs font-medium border transition-colors"
                 :class="newReminderDays.includes(i)
                   ? 'bg-primary-500/20 border-primary-500 text-primary-300'
-                  : 'border-slate-700 text-slate-500 hover:border-slate-600'"
+                  : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented)'"
                 @click="toggleNewReminderDay(i)"
               >
                 {{ label }}
@@ -591,16 +591,16 @@ onMounted(async () => {
       class="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
     >
       <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="showEdit = false" />
-      <div class="relative w-full sm:max-w-md bg-slate-900 border border-slate-800 rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
+      <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
         <div class="flex items-center justify-between">
-          <h3 class="font-semibold text-slate-100">Edit Check-in</h3>
+          <h3 class="font-semibold text-(--ui-text)">Edit Check-in</h3>
           <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" @click="showEdit = false" />
         </div>
 
         <UInput v-model="editTitle" placeholder="Name" @keydown.enter="saveEdit" />
 
         <div class="space-y-1.5">
-          <p class="text-xs text-slate-500">Schedule</p>
+          <p class="text-xs text-(--ui-text-dimmed)">Schedule</p>
           <div class="flex gap-1.5">
             <button
               v-for="sched in (['DAILY', 'WEEKLY', 'MONTHLY'] as const)"
@@ -608,7 +608,7 @@ onMounted(async () => {
               class="flex-1 py-1.5 text-xs font-medium rounded-lg border transition-colors"
               :class="editSchedule === sched
                 ? 'bg-primary-500/20 border-primary-500 text-primary-300'
-                : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400'"
+                : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented) hover:text-(--ui-text-muted)'"
               @click="editSchedule = sched"
             >
               {{ sched === 'DAILY' ? 'Daily' : sched === 'WEEKLY' ? 'Weekly' : 'Monthly' }}
@@ -617,7 +617,7 @@ onMounted(async () => {
         </div>
 
         <div v-if="editSchedule === 'WEEKLY'" class="space-y-1.5">
-          <p class="text-xs text-slate-500">Days (leave blank for every day)</p>
+          <p class="text-xs text-(--ui-text-dimmed)">Days (leave blank for every day)</p>
           <div class="flex gap-1.5">
             <button
               v-for="(label, i) in DAY_LABELS"
@@ -625,7 +625,7 @@ onMounted(async () => {
               class="w-8 h-8 rounded-full text-xs font-medium border transition-colors"
               :class="editDays.includes(i)
                 ? 'bg-primary-500/20 border-primary-500 text-primary-300'
-                : 'border-slate-700 text-slate-500 hover:border-slate-600'"
+                : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented)'"
               @click="toggleEditDay(i)"
             >
               {{ label }}
@@ -646,10 +646,10 @@ onMounted(async () => {
       class="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
     >
       <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="showDeleteConfirm = false" />
-      <div class="relative w-full sm:max-w-sm bg-slate-900 border border-slate-800 rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
-        <h3 class="font-semibold text-slate-100">Delete check-in?</h3>
-        <p class="text-sm text-slate-400">
-          This will delete <span class="text-slate-200 font-medium">{{ template?.title }}</span>
+      <div class="relative w-full sm:max-w-sm bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
+        <h3 class="font-semibold text-(--ui-text)">Delete check-in?</h3>
+        <p class="text-sm text-(--ui-text-muted)">
+          This will delete <span class="text-(--ui-text) font-medium">{{ template?.title }}</span>
           along with all its questions and responses. This cannot be undone.
         </p>
         <div class="flex justify-end gap-2">

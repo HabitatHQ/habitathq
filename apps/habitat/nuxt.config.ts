@@ -4,11 +4,11 @@ import { resolve } from 'node:path'
 import { defineNuxtConfig } from 'nuxt/config'
 import license from 'rollup-plugin-license'
 
-const buildTarget = process.env['BUILD_TARGET'] // 'pwa' | 'native' | undefined (defaults to dev/pwa)
+const buildTarget = process.env.BUILD_TARGET // 'pwa' | 'native' | undefined (defaults to dev/pwa)
 
 // Base path for all pages — set via NUXT_APP_BASE_URL env var (e.g. '/habitat/' for GitHub Pages).
 // Nuxt automatically picks this up for routing and assets; we also use it for the PWA manifest.
-const appBaseURL = process.env['NUXT_APP_BASE_URL'] ?? '/'
+const appBaseURL = process.env.NUXT_APP_BASE_URL ?? '/'
 
 function gitExec(cmd: string): string | null {
   try {
@@ -180,7 +180,7 @@ export default defineNuxtConfig({
                     license: d.license,
                     homepage: d.homepage ?? null,
                   }))
-                  .sort((a, b) => a.name!.localeCompare(b.name!)),
+                  .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')),
               ),
           },
         },

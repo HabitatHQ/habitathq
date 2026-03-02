@@ -223,7 +223,7 @@ onMounted(load)
         </div>
         <div class="space-y-2 max-w-xs">
           <h2 class="text-2xl font-bold leading-snug">Welcome to Your<br>New Routine</h2>
-          <p class="text-sm text-slate-500 leading-relaxed">
+          <p class="text-sm text-(--ui-text-dimmed) leading-relaxed">
             Private, offline, and flexible habit tracking. Let's get started.
           </p>
         </div>
@@ -236,7 +236,7 @@ onMounted(load)
     <!-- ── Active state ─────────────────────────────────────────────────────── -->
     <template v-else-if="!loading">
       <header>
-        <p class="text-sm text-slate-500">{{ dateStr }}</p>
+        <p class="text-sm text-(--ui-text-dimmed)">{{ dateStr }}</p>
         <h2 class="text-2xl font-bold">{{ dayName }}</h2>
       </header>
 
@@ -245,7 +245,7 @@ onMounted(load)
         <div class="relative">
           <svg width="160" height="160" viewBox="0 0 100 100">
             <!-- Track -->
-            <circle cx="50" cy="50" :r="R" fill="none" stroke-width="8" stroke="#1e293b" />
+            <circle cx="50" cy="50" :r="R" fill="none" stroke-width="8" :style="{ stroke: 'var(--ui-border)' }" />
             <!-- Progress -->
             <circle
               cx="50" cy="50" :r="R"
@@ -259,12 +259,12 @@ onMounted(load)
           </svg>
           <div class="absolute inset-0 flex flex-col items-center justify-center gap-0.5">
             <span class="text-3xl font-bold tabular-nums leading-none">{{ doneCount }}</span>
-            <span class="text-xs text-slate-500">of {{ total }}</span>
+            <span class="text-xs text-(--ui-text-dimmed)">of {{ total }}</span>
           </div>
         </div>
         <p class="text-xs font-medium">
           <span v-if="doneCount === total && total > 0" class="text-primary-400">All done today!</span>
-          <span v-else class="text-slate-500">{{ total - doneCount }} remaining</span>
+          <span v-else class="text-(--ui-text-dimmed)">{{ total - doneCount }} remaining</span>
         </p>
       </div>
 
@@ -275,8 +275,8 @@ onMounted(load)
           :key="habit.id"
           class="flex items-center gap-3 p-3 rounded-xl border transition-all duration-200"
           :class="isHabitDone(habit)
-            ? 'bg-slate-900/50 border-slate-800/50 opacity-70'
-            : 'bg-slate-900 border-slate-800'"
+            ? 'bg-(--ui-bg-muted)/50 border-(--ui-border)/50 opacity-70'
+            : 'bg-(--ui-bg-muted) border-(--ui-border)'"
         >
           <!-- Icon -->
           <div
@@ -292,8 +292,8 @@ onMounted(load)
               <p
                 class="text-sm font-medium truncate transition-colors"
                 :class="isHabitDone(habit) && habit.type === 'BOOLEAN'
-                  ? 'line-through text-slate-500'
-                  : 'text-slate-100'"
+                  ? 'line-through text-(--ui-text-dimmed)'
+                  : 'text-(--ui-text)'"
               >{{ habit.name }}</p>
               <span
                 v-if="habit.type !== 'BOOLEAN'"
@@ -304,7 +304,7 @@ onMounted(load)
               >{{ habit.type === 'NUMERIC' ? '# Metric' : '↓ Limit' }}</span>
             </div>
             <!-- NUMERIC: logged / target -->
-            <p v-if="habit.type === 'NUMERIC'" class="text-xs text-slate-500">
+            <p v-if="habit.type === 'NUMERIC'" class="text-xs text-(--ui-text-dimmed)">
               {{ getTodayLogSum(habit.id) }} / {{ habit.target_value }}
               <span v-if="weeklyInfo(habit)" class="ml-2 text-slate-600">
                 · {{ weeklyInfo(habit)!.done }}/{{ weeklyInfo(habit)!.target }} this week
@@ -314,7 +314,7 @@ onMounted(load)
             <p
               v-else-if="habit.type === 'LIMIT'"
               class="text-xs"
-              :class="isOverLimit(habit) ? 'text-red-400' : 'text-slate-500'"
+              :class="isOverLimit(habit) ? 'text-red-400' : 'text-(--ui-text-dimmed)'"
             >
               {{ getTodayLogSum(habit.id) }} / {{ habit.target_value }} limit
               <span v-if="weeklyInfo(habit)" class="ml-2 text-slate-600">
@@ -322,7 +322,7 @@ onMounted(load)
               </span>
             </p>
             <!-- BOOLEAN weekly flex badge -->
-            <p v-else-if="weeklyInfo(habit)" class="text-xs text-slate-500">
+            <p v-else-if="weeklyInfo(habit)" class="text-xs text-(--ui-text-dimmed)">
               {{ weeklyInfo(habit)!.done }}/{{ weeklyInfo(habit)!.target }} this week
             </p>
             <div v-if="settings.showTagsOnToday && habit.tags.length" class="flex flex-wrap gap-1 mt-1">
@@ -330,7 +330,7 @@ onMounted(load)
                 v-for="tag in habit.tags"
                 :key="tag"
                 class="px-1.5 py-0.5 rounded text-[9px]"
-                :class="tag.startsWith('habitat-') ? 'bg-cyan-900/40 text-cyan-600' : 'bg-slate-800 text-slate-500'"
+                :class="tag.startsWith('habitat-') ? 'bg-cyan-900/40 text-cyan-600' : 'bg-(--ui-bg-elevated) text-(--ui-text-dimmed)'"
               >#{{ tag.startsWith('habitat-') ? tag.slice(8) : tag }}</span>
             </div>
             <div v-if="settings.showAnnotationsOnToday && Object.keys(habit.annotations).length" class="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
@@ -348,7 +348,7 @@ onMounted(load)
               class="w-7 h-7 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all duration-200"
               :class="isHabitDone(habit)
                 ? 'bg-primary-500 border-primary-500'
-                : 'border-slate-700 hover:border-slate-500 bg-transparent'"
+                : 'border-(--ui-border-accented) hover:border-(--ui-border-accented) bg-transparent'"
               :disabled="toggling.has(habit.id)"
               @click="toggle(habit)"
             >
@@ -364,7 +364,7 @@ onMounted(load)
                 type="number"
                 min="0"
                 step="any"
-                class="w-16 px-2 py-1 text-sm bg-slate-800 border border-slate-600 rounded-lg text-slate-100 text-center focus:outline-none"
+                class="w-16 px-2 py-1 text-sm bg-(--ui-bg-elevated) border border-(--ui-border-accented) rounded-lg text-(--ui-text) text-center focus:outline-none"
                 :class="habit.type === 'NUMERIC' ? 'focus:border-primary-500' : 'focus:border-amber-500'"
                 @keyup.enter="submitLog(habit)"
                 @keyup.escape="logInputOpen.delete(habit.id)"
@@ -378,7 +378,7 @@ onMounted(load)
                 <UIcon name="i-heroicons-check" class="w-3.5 h-3.5 text-white" />
               </button>
               <button
-                class="w-7 h-7 rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-500"
+                class="w-7 h-7 rounded-full border border-(--ui-border-accented) flex items-center justify-center flex-shrink-0 text-(--ui-text-dimmed)"
                 @click="logInputOpen.delete(habit.id)"
               >
                 <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
@@ -410,7 +410,7 @@ onMounted(load)
         v-if="todayCheckins.length > 0 || todayScribbles.length > 0 || todayVoiceCount > 0"
         class="space-y-2"
       >
-        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 px-1">Today's Activity</p>
+        <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Today's Activity</p>
 
         <div class="space-y-1.5">
 
@@ -419,14 +419,14 @@ onMounted(load)
             v-for="ci in todayCheckins"
             :key="ci.template_id"
             :to="`/checkin/${ci.template_id}`"
-            class="flex items-center gap-3 p-3 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 transition-colors"
+            class="flex items-center gap-3 p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border) hover:border-(--ui-border-accented) transition-colors"
           >
             <div class="w-8 h-8 rounded-full bg-primary-500/10 flex-shrink-0 flex items-center justify-center">
               <UIcon name="i-heroicons-pencil-square" class="w-4 h-4 text-primary-400" />
             </div>
             <div class="flex-1 min-w-0">
-              <p class="text-sm font-medium text-slate-100 truncate">{{ ci.title }}</p>
-              <p class="text-xs text-slate-500">{{ ci.response_count }} {{ ci.response_count === 1 ? 'response' : 'responses' }}</p>
+              <p class="text-sm font-medium text-(--ui-text) truncate">{{ ci.title }}</p>
+              <p class="text-xs text-(--ui-text-dimmed)">{{ ci.response_count }} {{ ci.response_count === 1 ? 'response' : 'responses' }}</p>
             </div>
             <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-slate-600 flex-shrink-0" />
           </NuxtLink>
@@ -435,14 +435,14 @@ onMounted(load)
           <NuxtLink
             v-if="todayScribbles.length > 0"
             to="/jots"
-            class="flex items-center gap-3 p-3 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 transition-colors"
+            class="flex items-center gap-3 p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border) hover:border-(--ui-border-accented) transition-colors"
           >
             <div class="w-8 h-8 rounded-full bg-amber-500/10 flex-shrink-0 flex items-center justify-center">
               <UIcon name="i-heroicons-pencil" class="w-4 h-4 text-amber-400" />
             </div>
             <div class="flex-1 min-w-0">
-              <p class="text-sm font-medium text-slate-100">Scribbles</p>
-              <p class="text-xs text-slate-500">
+              <p class="text-sm font-medium text-(--ui-text)">Scribbles</p>
+              <p class="text-xs text-(--ui-text-dimmed)">
                 {{ todayScribbles.length }} {{ todayScribbles.length === 1 ? 'note' : 'notes' }} updated today
               </p>
             </div>
@@ -453,14 +453,14 @@ onMounted(load)
           <NuxtLink
             v-if="todayVoiceCount > 0"
             to="/jots"
-            class="flex items-center gap-3 p-3 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 transition-colors"
+            class="flex items-center gap-3 p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border) hover:border-(--ui-border-accented) transition-colors"
           >
             <div class="w-8 h-8 rounded-full bg-rose-500/10 flex-shrink-0 flex items-center justify-center">
               <UIcon name="i-heroicons-microphone" class="w-4 h-4 text-rose-400" />
             </div>
             <div class="flex-1 min-w-0">
-              <p class="text-sm font-medium text-slate-100">Voice Notes</p>
-              <p class="text-xs text-slate-500">
+              <p class="text-sm font-medium text-(--ui-text)">Voice Notes</p>
+              <p class="text-xs text-(--ui-text-dimmed)">
                 {{ todayVoiceCount }} {{ todayVoiceCount === 1 ? 'recording' : 'recordings' }} today
               </p>
             </div>

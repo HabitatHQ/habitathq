@@ -21,14 +21,6 @@ async function loadHabits() {
   loadingHabits.value = false
 }
 
-function fmtArchived(iso: string) {
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
-}
-
 // ─── Check-in history ─────────────────────────────────────────────────────────
 
 interface CheckinDay {
@@ -47,7 +39,7 @@ async function loadCheckins() {
     const rows = await db.getCheckinResponseDates()
     checkinDays.value = rows.map((r) => ({
       date: r.date,
-      label: new Date(r.date + 'T12:00:00').toLocaleDateString('en-US', {
+      label: new Date(`${r.date}T12:00:00`).toLocaleDateString('en-US', {
         weekday: 'short',
         month: 'short',
         day: 'numeric',
@@ -78,7 +70,7 @@ onMounted(loadHabits)
         size="sm"
         to="/habits"
       />
-      <span class="text-sm text-slate-500">Habits</span>
+      <span class="text-sm text-(--ui-text-dimmed)">Habits</span>
     </div>
 
     <header>
@@ -86,17 +78,17 @@ onMounted(loadHabits)
     </header>
 
     <!-- Tabs -->
-    <div class="flex gap-1 bg-slate-900 rounded-xl p-1">
+    <div class="flex gap-1 bg-(--ui-bg-muted) rounded-xl p-1">
       <button
         class="flex-1 py-1.5 text-sm font-medium rounded-lg transition-colors"
-        :class="tab === 'habits' ? 'bg-slate-800 text-slate-100' : 'text-slate-500 hover:text-slate-400'"
+        :class="tab === 'habits' ? 'bg-(--ui-bg-elevated) text-(--ui-text)' : 'text-(--ui-text-dimmed) hover:text-(--ui-text-muted)'"
         @click="tab = 'habits'"
       >
         Habits
       </button>
       <button
         class="flex-1 py-1.5 text-sm font-medium rounded-lg transition-colors"
-        :class="tab === 'checkin' ? 'bg-slate-800 text-slate-100' : 'text-slate-500 hover:text-slate-400'"
+        :class="tab === 'checkin' ? 'bg-(--ui-bg-elevated) text-(--ui-text)' : 'text-(--ui-text-dimmed) hover:text-(--ui-text-muted)'"
         @click="tab = 'checkin'"
       >
         Check-in
@@ -110,14 +102,14 @@ onMounted(loadHabits)
         class="flex flex-col items-center gap-3 py-12 text-center"
       >
         <UIcon name="i-heroicons-archive-box" class="w-8 h-8 text-slate-700" />
-        <p class="text-sm text-slate-500">No archived habits yet.</p>
+        <p class="text-sm text-(--ui-text-dimmed)">No archived habits yet.</p>
       </section>
 
       <ul v-else class="space-y-2">
         <li
           v-for="habit in archivedHabits"
           :key="habit.id"
-          class="flex items-center gap-3 p-3 rounded-xl bg-slate-900 border border-slate-800"
+          class="flex items-center gap-3 p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border)"
         >
           <div
             class="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center opacity-60"
@@ -126,7 +118,7 @@ onMounted(loadHabits)
             <UIcon :name="habit.icon" class="w-5 h-5" :style="{ color: habit.color }" />
           </div>
           <div class="flex-1 min-w-0">
-            <p class="text-sm font-medium text-slate-400 truncate">{{ habit.name }}</p>
+            <p class="text-sm font-medium text-(--ui-text-muted) truncate">{{ habit.name }}</p>
             <p class="text-xs text-slate-600">
               Archived {{ habit.archived_at ? fmtArchived(habit.archived_at) : '' }}
             </p>
@@ -137,7 +129,7 @@ onMounted(loadHabits)
 
     <!-- ── Check-in tab ─────────────────────────────────────────────────────────── -->
     <template v-else>
-      <div v-if="loadingCheckins" class="flex items-center gap-2 text-xs text-slate-500 py-4">
+      <div v-if="loadingCheckins" class="flex items-center gap-2 text-xs text-(--ui-text-dimmed) py-4">
         <UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 animate-spin" />
         Loading…
       </div>
@@ -146,20 +138,20 @@ onMounted(loadHabits)
         class="flex flex-col items-center gap-3 py-12 text-center"
       >
         <UIcon name="i-heroicons-pencil-square" class="w-8 h-8 text-slate-700" />
-        <p class="text-sm text-slate-500">No check-in responses yet.</p>
+        <p class="text-sm text-(--ui-text-dimmed)">No check-in responses yet.</p>
       </section>
 
       <ul v-else class="space-y-2">
         <li
           v-for="day in checkinDays"
           :key="day.date"
-          class="flex items-center gap-3 p-3 rounded-xl bg-slate-900 border border-slate-800"
+          class="flex items-center gap-3 p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border)"
         >
-          <div class="w-9 h-9 rounded-full bg-slate-800 flex items-center justify-center flex-shrink-0">
-            <UIcon name="i-heroicons-pencil-square" class="w-4 h-4 text-slate-400" />
+          <div class="w-9 h-9 rounded-full bg-(--ui-bg-elevated) flex items-center justify-center flex-shrink-0">
+            <UIcon name="i-heroicons-pencil-square" class="w-4 h-4 text-(--ui-text-muted)" />
           </div>
           <div class="flex-1 min-w-0">
-            <p class="text-sm font-medium text-slate-300 truncate">{{ day.label }}</p>
+            <p class="text-sm font-medium text-(--ui-text-toned) truncate">{{ day.label }}</p>
             <p class="text-xs text-slate-600">{{ day.count }} {{ day.count === 1 ? 'response' : 'responses' }}</p>
           </div>
         </li>

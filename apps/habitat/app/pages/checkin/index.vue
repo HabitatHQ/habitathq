@@ -20,24 +20,13 @@ onMounted(loadTemplates)
 
 // ─── Schedule label ───────────────────────────────────────────────────────────
 
-const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-
-function scheduleLabel(t: CheckinTemplate): string {
-  if (t.schedule_type === 'DAILY') return 'Daily'
-  if (t.schedule_type === 'MONTHLY') return 'Monthly'
-  if (!t.days_active || t.days_active.length === 0) return 'Weekly'
-  return `Weekly · ${t.days_active.map((d) => DAY_NAMES[d]).join(', ')}`
-}
-
 // ─── Create template ─────────────────────────────────────────────────────────
 
-const showCreate = ref(false)
+const showCreate = useBoolModalQuery('create')
 const creating = ref(false)
 const newTitle = ref('')
 const newSchedule = ref<'DAILY' | 'WEEKLY' | 'MONTHLY'>('DAILY')
 const newDays = ref<number[]>([])
-
-const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 
 function toggleDay(day: number) {
   const idx = newDays.value.indexOf(day)
@@ -101,12 +90,12 @@ async function createTemplate() {
         v-for="t in templates"
         :key="t.id"
         :to="`/checkin/${t.id}`"
-        class="flex items-center justify-between p-4 rounded-2xl bg-slate-900 border border-slate-800
-               hover:border-slate-700 transition-colors"
+        class="flex items-center justify-between p-4 rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border)
+               hover:border-(--ui-border-accented) transition-colors"
       >
         <div>
-          <p class="font-semibold text-slate-100">{{ t.title }}</p>
-          <p class="text-xs text-slate-500 mt-0.5">{{ scheduleLabel(t) }}</p>
+          <p class="font-semibold text-(--ui-text)">{{ t.title }}</p>
+          <p class="text-xs text-(--ui-text-dimmed) mt-0.5">{{ checkinScheduleLabel(t) }}</p>
         </div>
         <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-slate-600 flex-shrink-0" />
       </NuxtLink>
@@ -116,7 +105,7 @@ async function createTemplate() {
         class="flex flex-col items-center gap-3 py-12 text-center"
       >
         <UIcon name="i-heroicons-pencil-square" class="w-8 h-8 text-slate-700" />
-        <p class="text-sm text-slate-500">No check-ins yet. Create one to get started.</p>
+        <p class="text-sm text-(--ui-text-dimmed)">No check-ins yet. Create one to get started.</p>
       </div>
     </div>
 
@@ -129,9 +118,9 @@ async function createTemplate() {
         class="absolute inset-0 bg-black/60 backdrop-blur-sm"
         @click="showCreate = false"
       />
-      <div class="relative w-full sm:max-w-md bg-slate-900 border border-slate-800 rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
+      <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
         <div class="flex items-center justify-between">
-          <h3 class="font-semibold text-slate-100">New Check-in</h3>
+          <h3 class="font-semibold text-(--ui-text)">New Check-in</h3>
           <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" @click="showCreate = false" />
         </div>
 
@@ -145,7 +134,7 @@ async function createTemplate() {
 
         <!-- Schedule -->
         <div class="space-y-1.5">
-          <p class="text-xs text-slate-500">Schedule</p>
+          <p class="text-xs text-(--ui-text-dimmed)">Schedule</p>
           <div class="flex gap-1.5">
             <button
               v-for="sched in (['DAILY', 'WEEKLY', 'MONTHLY'] as const)"
@@ -153,7 +142,7 @@ async function createTemplate() {
               class="flex-1 py-1.5 text-xs font-medium rounded-lg border transition-colors"
               :class="newSchedule === sched
                 ? 'bg-primary-500/20 border-primary-500 text-primary-300'
-                : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-400'"
+                : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented) hover:text-(--ui-text-muted)'"
               @click="newSchedule = sched"
             >
               {{ sched === 'DAILY' ? 'Daily' : sched === 'WEEKLY' ? 'Weekly' : 'Monthly' }}
@@ -163,15 +152,15 @@ async function createTemplate() {
 
         <!-- Day picker (WEEKLY only) -->
         <div v-if="newSchedule === 'WEEKLY'" class="space-y-1.5">
-          <p class="text-xs text-slate-500">Days (leave blank for every day)</p>
+          <p class="text-xs text-(--ui-text-dimmed)">Days (leave blank for every day)</p>
           <div class="flex gap-1.5">
             <button
-              v-for="(label, i) in DAY_LABELS"
+              v-for="(label, i) in CHECKIN_DAY_LABELS"
               :key="i"
               class="w-8 h-8 rounded-full text-xs font-medium border transition-colors"
               :class="newDays.includes(i)
                 ? 'bg-primary-500/20 border-primary-500 text-primary-300'
-                : 'border-slate-700 text-slate-500 hover:border-slate-600'"
+                : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented)'"
               @click="toggleDay(i)"
             >
               {{ label }}

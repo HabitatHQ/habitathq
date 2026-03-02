@@ -109,7 +109,7 @@ const resultTags = computed(() => {
         class="px-3 py-1 rounded-full text-sm font-medium transition-colors"
         :class="maxMinutes === tf.value
           ? 'bg-primary-600 text-white'
-          : 'bg-slate-800 text-slate-300 hover:bg-slate-700'"
+          : 'bg-(--ui-bg-elevated) text-(--ui-text-toned) hover:bg-(--ui-bg-accented)'"
         @click="maxMinutes = tf.value"
       >
         {{ tf.label }}
@@ -123,7 +123,7 @@ const resultTags = computed(() => {
         :key="cat.id"
         class="flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium transition-colors border"
         :class="excludedCategories.includes(cat.id)
-          ? 'border-slate-700 text-slate-500 bg-slate-900'
+          ? 'border-(--ui-border-accented) text-(--ui-text-dimmed) bg-(--ui-bg-muted)'
           : 'border-transparent text-white'"
         :style="excludedCategories.includes(cat.id) ? {} : { backgroundColor: cat.color + '33', borderColor: cat.color + '88', color: cat.color }"
         @click="toggleCategory(cat.id)"
@@ -136,7 +136,7 @@ const resultTags = computed(() => {
     <!-- 8-ball oracle -->
     <div class="flex flex-col items-center gap-5 py-4">
       <button
-        class="ball select-none outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-4 focus-visible:ring-offset-slate-950"
+        class="ball select-none outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-4 focus-visible:ring-offset-(--ui-bg)"
         :class="{ 'ball-shake': shaking }"
         aria-label="Roll the oracle"
         @click="roll"
@@ -169,7 +169,7 @@ const resultTags = computed(() => {
         </div>
       </button>
 
-      <p class="text-sm text-slate-500 text-center">
+      <p class="text-sm text-(--ui-text-dimmed) text-center">
         {{ shaking ? 'Consulting the oracle…' : currentResult ? 'Tap to roll again' : 'Tap to get a suggestion' }}
       </p>
     </div>
@@ -180,7 +180,7 @@ const resultTags = computed(() => {
       enter-from-class="opacity-0 translate-y-2"
       enter-to-class="opacity-100 translate-y-0"
     >
-      <div v-if="currentResult && !shaking" class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+      <div v-if="currentResult && !shaking" class="bg-(--ui-bg-muted) border border-(--ui-border) rounded-2xl p-5 space-y-4">
         <!-- Title + badges -->
         <div class="space-y-2">
           <h2 class="text-lg font-semibold leading-snug">{{ resultTitle }}</h2>
@@ -193,7 +193,7 @@ const resultTags = computed(() => {
               <UIcon :name="resultCategory.icon" class="w-3 h-3" />
               {{ resultCategory.name }}
             </span>
-            <span v-if="resultEstimate" class="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">
+            <span v-if="resultEstimate" class="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-(--ui-bg-elevated) text-(--ui-text-toned)">
               <UIcon name="i-heroicons-clock" class="w-3 h-3" />
               {{ resultEstimate }}
             </span>
@@ -204,14 +204,14 @@ const resultTags = computed(() => {
         </div>
 
         <!-- Description -->
-        <p v-if="resultDescription" class="text-sm text-slate-400">{{ resultDescription }}</p>
+        <p v-if="resultDescription" class="text-sm text-(--ui-text-muted)">{{ resultDescription }}</p>
 
         <!-- Tags -->
         <div v-if="resultTags.length" class="flex flex-wrap gap-1.5">
           <span
             v-for="tag in resultTags"
             :key="tag"
-            class="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-400"
+            class="text-xs px-2 py-0.5 rounded-full bg-(--ui-bg-elevated) text-(--ui-text-muted)"
           >
             {{ tag }}
           </span>
@@ -264,10 +264,10 @@ const resultTags = computed(() => {
 
     <!-- Empty state after roll -->
     <div v-if="currentResult === null && !shaking" class="text-center py-4">
-      <p v-if="hasRolled" class="text-slate-500 text-sm">
+      <p v-if="hasRolled" class="text-(--ui-text-dimmed) text-sm">
         Nothing matches your current filters. Try adjusting categories or time.
       </p>
-      <p v-else-if="categories.length === 0" class="text-slate-500 text-sm">
+      <p v-else-if="categories.length === 0" class="text-(--ui-text-dimmed) text-sm">
         No activities yet. <NuxtLink to="/bored/activities" class="text-primary-400 underline">Add some</NuxtLink> to get started.
       </p>
     </div>

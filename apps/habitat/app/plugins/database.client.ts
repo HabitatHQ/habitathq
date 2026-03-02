@@ -15,7 +15,7 @@ export function sendToWorker<T>(req: WorkerRequestBody): Promise<T> {
   const id = crypto.randomUUID()
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve: resolve as (v: unknown) => void, reject })
-    worker!.postMessage({ ...req, id })
+    worker?.postMessage({ ...req, id })
   })
 }
 
@@ -53,33 +53,34 @@ export default defineNuxtPlugin(async () => {
       resolve()
     }, 10_000)
 
-    worker!.addEventListener('message', function handler(e: MessageEvent) {
+    worker?.addEventListener('message', function handler(e: MessageEvent) {
       const type = e.data?.type
       if (type === 'READY') {
         clearTimeout(t)
-        worker!.removeEventListener('message', handler)
+        worker?.removeEventListener('message', handler)
         resolve()
       } else if (type === 'LOCK_UNAVAILABLE') {
         clearTimeout(t)
-        worker!.removeEventListener('message', handler)
+        worker?.removeEventListener('message', handler)
         dbError.value =
           'Habitat is already open in another tab. Close that tab and refresh this one.'
         resolve()
       } else if (type === 'INIT_ERROR') {
         clearTimeout(t)
-        worker!.removeEventListener('message', handler)
+        worker?.removeEventListener('message', handler)
         dbError.value = `Database failed to start: ${(e.data as { message: string }).message}`
         resolve()
       }
     })
 
-    worker!.onerror = () => {
-      clearTimeout(t)
-      if (!dbError.value) {
-        dbError.value = 'Database failed to initialize. Try refreshing.'
+    if (worker)
+      worker.onerror = () => {
+        clearTimeout(t)
+        if (!dbError.value) {
+          dbError.value = 'Database failed to initialize. Try refreshing.'
+        }
+        resolve()
       }
-      resolve()
-    }
   })
 
   return {
