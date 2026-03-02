@@ -29,6 +29,7 @@ export interface AppSettings {
   use24HourTime: boolean
   theme: AppTheme
   reduceMotion: boolean
+  strictCsp: boolean
 }
 
 const KEY = 'habitat-app-settings'
@@ -61,6 +62,7 @@ const DEFAULTS: AppSettings = {
   use24HourTime: false,
   theme: 'habitat',
   reduceMotion: false,
+  strictCsp: false,
 }
 
 /**

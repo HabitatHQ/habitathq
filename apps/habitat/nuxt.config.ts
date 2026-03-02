@@ -31,12 +31,31 @@ export default defineNuxtConfig({
   },
   compatibilityDate: '2025-01-01',
 
-  // Required for SharedArrayBuffer (SQLite WASM OPFS persistence)
+  // Required for SharedArrayBuffer (SQLite WASM OPFS persistence) + CSP
   routeRules: {
     '/**': {
       headers: {
         'Cross-Origin-Opener-Policy': 'same-origin',
         'Cross-Origin-Embedder-Policy': 'require-corp',
+        'Content-Security-Policy': [
+          "default-src 'self'",
+          // 'wasm-unsafe-eval' is required for SQLite WASM compilation
+          "script-src 'self' 'wasm-unsafe-eval'",
+          // 'unsafe-inline' needed for Vue :style bindings (e.g. category colours)
+          "style-src 'self' 'unsafe-inline'",
+          // blob: for IDB image/voice playback & export downloads; data: for SVG bg-images
+          "img-src 'self' blob: data:",
+          "media-src 'self' blob:",
+          "font-src 'self'",
+          "connect-src 'self'",
+          // blob: covers DB worker bundled as a blob URL by some bundlers
+          "worker-src 'self' blob:",
+          "child-src 'self' blob:",
+          "object-src 'none'",
+          "base-uri 'self'",
+          "form-action 'self'",
+          "frame-ancestors 'none'",
+        ].join('; '),
       },
     },
   },
@@ -153,6 +172,22 @@ export default defineNuxtConfig({
       headers: {
         'Cross-Origin-Opener-Policy': 'same-origin',
         'Cross-Origin-Embedder-Policy': 'require-corp',
+        // Mirror routeRules CSP for the Vite dev server
+        'Content-Security-Policy': [
+          "default-src 'self'",
+          "script-src 'self' 'wasm-unsafe-eval'",
+          "style-src 'self' 'unsafe-inline'",
+          "img-src 'self' blob: data:",
+          "media-src 'self' blob:",
+          "font-src 'self'",
+          "connect-src 'self'",
+          "worker-src 'self' blob:",
+          "child-src 'self' blob:",
+          "object-src 'none'",
+          "base-uri 'self'",
+          "form-action 'self'",
+          "frame-ancestors 'none'",
+        ].join('; '),
       },
     },
     define: {
@@ -200,6 +235,23 @@ export default defineNuxtConfig({
         { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },
         { name: 'apple-mobile-web-app-title', content: 'Habitat' },
         { name: 'theme-color', content: '#0f172a' },
+        {
+          'http-equiv': 'Content-Security-Policy',
+          content: [
+            "default-src 'self'",
+            "script-src 'self' 'wasm-unsafe-eval'",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' blob: data:",
+            "media-src 'self' blob:",
+            "font-src 'self'",
+            "connect-src 'self'",
+            "worker-src 'self' blob:",
+            "child-src 'self' blob:",
+            "object-src 'none'",
+            "base-uri 'self'",
+            "form-action 'self'",
+          ].join('; '),
+        },
       ],
       link: [
         { rel: 'icon', href: `${appBaseURL}favicon.svg`, type: 'image/svg+xml' },

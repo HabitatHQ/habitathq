@@ -835,6 +835,23 @@ async function checkMediaPermissions() {
   }
 }
 
+// ─── Strict CSP ───────────────────────────────────────────────────────────────
+
+// Was the strict CSP already active when this page loaded?
+// Set by strict-csp.client.ts plugin at startup; false before plugin runs.
+const strictCspSessionActive = useState<boolean>('strict-csp-session-active', () => false)
+
+function enableStrictCspAndReload(value: boolean) {
+  if (!value) return // toggle can only go from off → on this way; disable uses its own button
+  setAppSetting('strictCsp', true)
+  window.location.reload()
+}
+
+function disableStrictCspAndReload() {
+  setAppSetting('strictCsp', false)
+  window.location.reload()
+}
+
 // ─── Collapsible section state ────────────────────────────────────────────────
 
 const aboutOpen = ref(false)
@@ -1683,12 +1700,18 @@ watch(diagOpen, (open) => {
               </ul>
             </div>
           </div>
-          <UButton
-            size="sm" variant="ghost" color="neutral"
-            :loading="integrityLoading" :disabled="!db.isAvailable"
-            icon="i-heroicons-shield-check" class="shrink-0"
-            @click="runIntegrityCheck"
-          />
+          <span
+            class="shrink-0"
+            :class="!db.isAvailable ? 'cursor-not-allowed' : ''"
+            :title="!db.isAvailable ? 'Database not ready' : undefined"
+          >
+            <UButton
+              size="sm" variant="ghost" color="neutral"
+              :loading="integrityLoading" :disabled="!db.isAvailable"
+              icon="i-heroicons-shield-check"
+              @click="runIntegrityCheck"
+            />
+          </span>
         </div>
 
         <!-- Test notification -->
@@ -1697,12 +1720,18 @@ watch(diagOpen, (open) => {
             <p class="text-sm font-medium">Test notification (instant)</p>
             <p class="text-xs text-(--ui-text-dimmed)">Fire via schedule.at — confirms the plugin works.</p>
           </div>
-          <UButton
-            size="sm" variant="ghost" color="neutral"
-            icon="i-heroicons-bell"
-            :disabled="notifPermission !== 'granted'"
-            @click="sendTestNotification"
-          />
+          <span
+            class="shrink-0"
+            :class="notifPermission !== 'granted' ? 'cursor-not-allowed' : ''"
+            :title="notifPermission !== 'granted' ? 'Notifications not granted' : undefined"
+          >
+            <UButton
+              size="sm" variant="ghost" color="neutral"
+              icon="i-heroicons-bell"
+              :disabled="notifPermission !== 'granted'"
+              @click="sendTestNotification"
+            />
+          </span>
         </div>
 
         <!-- Test schedule.on -->
@@ -1711,12 +1740,18 @@ watch(diagOpen, (open) => {
             <p class="text-sm font-medium">Test schedule.on (≈2 min)</p>
             <p class="text-xs text-(--ui-text-dimmed)">Schedules a repeating alarm for 2 min from now. Same API as real reminders.</p>
           </div>
-          <UButton
-            size="sm" variant="ghost" color="neutral"
-            icon="i-heroicons-clock"
-            :disabled="notifPermission !== 'granted'"
-            @click="testScheduleOn"
-          />
+          <span
+            class="shrink-0"
+            :class="notifPermission !== 'granted' || !isNativeApp ? 'cursor-not-allowed' : ''"
+            :title="!isNativeApp ? 'Native only' : notifPermission !== 'granted' ? 'Notifications not granted' : undefined"
+          >
+            <UButton
+              size="sm" variant="ghost" color="neutral"
+              icon="i-heroicons-clock"
+              :disabled="notifPermission !== 'granted' || !isNativeApp"
+              @click="testScheduleOn"
+            />
+          </span>
         </div>
 
         <!-- Notification log (gated) -->
@@ -1840,6 +1875,39 @@ watch(diagOpen, (open) => {
       </button>
       <UCard v-if="dragonsOpen" :ui="{ root: 'rounded-2xl ring-1 ring-red-900/30', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
 
+        <!-- Strict network isolation -->
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5 mr-4">
+            <p class="text-sm font-medium">Strict network isolation</p>
+            <p class="text-xs text-(--ui-text-dimmed)">
+              Blocks all fetch and XHR. Allows cached assets and on-device SQLite.
+              <template v-if="strictCspSessionActive">
+                <span class="text-orange-400">Active this session — reload to change.</span>
+              </template>
+              <template v-else>
+                Requires a reload to activate or deactivate.
+              </template>
+            </p>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <template v-if="strictCspSessionActive">
+              <UBadge color="warning" variant="subtle" size="xs" class="shrink-0">Active</UBadge>
+              <UButton
+                size="sm" variant="ghost" color="neutral"
+                icon="i-heroicons-arrow-path"
+                aria-label="Disable strict CSP and reload"
+                @click="disableStrictCspAndReload"
+              />
+            </template>
+            <USwitch
+              v-else
+              :model-value="appSettings.strictCsp"
+              aria-label="Enable strict network isolation"
+              @update:model-value="enableStrictCspAndReload"
+            />
+          </div>
+        </div>
+
         <!-- Force reload — PWA only -->
         <div v-if="!isNativeApp" class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
@@ -1858,12 +1926,18 @@ watch(diagOpen, (open) => {
             <p class="text-sm font-medium text-red-400">Clear app data</p>
             <p class="text-xs text-(--ui-text-dimmed)">Selectively delete habits, check-ins, scribbles, or voice notes.</p>
           </div>
-          <UButton
-            icon="i-heroicons-trash"
-            variant="ghost" color="error" size="sm"
-            :disabled="!db.isAvailable"
-            @click="showClearModal = true"
-          />
+          <span
+            class="shrink-0"
+            :class="!db.isAvailable ? 'cursor-not-allowed' : ''"
+            :title="!db.isAvailable ? 'Database not ready' : undefined"
+          >
+            <UButton
+              icon="i-heroicons-trash"
+              variant="ghost" color="error" size="sm"
+              :disabled="!db.isAvailable"
+              @click="showClearModal = true"
+            />
+          </span>
         </div>
 
         <div class="flex items-center justify-between px-4 py-3.5">
@@ -1871,12 +1945,18 @@ watch(diagOpen, (open) => {
             <p class="text-sm font-medium text-red-400">Clear OPFS storage</p>
             <p class="text-xs text-(--ui-text-dimmed)">Wipe all on-device file system storage including the database.</p>
           </div>
-          <UButton
-            icon="i-heroicons-fire"
-            variant="ghost" color="error" size="sm"
-            :disabled="!db.isAvailable"
-            @click="showNukeModal = true"
-          />
+          <span
+            class="shrink-0"
+            :class="!db.isAvailable ? 'cursor-not-allowed' : ''"
+            :title="!db.isAvailable ? 'Database not ready' : undefined"
+          >
+            <UButton
+              icon="i-heroicons-fire"
+              variant="ghost" color="error" size="sm"
+              :disabled="!db.isAvailable"
+              @click="showNukeModal = true"
+            />
+          </span>
         </div>
 
       </UCard>
