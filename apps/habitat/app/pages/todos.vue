@@ -1,9 +1,73 @@
 <script setup lang="ts">
+import type { TimerMode } from '~/composables/useTimer'
 import type { BoredCategory, Todo } from '~/types/database'
 
 const db = useDatabase()
 const { settings: appSettings, set: setAppSetting } = useAppSettings()
 const { anyActive, matchesContext } = useContextFilter()
+
+// ── Timer ─────────────────────────────────────────────────────────────────────
+
+const timer = useTimer()
+
+const modeMenuItemId = ref<string | null>(null)
+const modeMenuMinutes = ref(25)
+let longPressTimeout: ReturnType<typeof setTimeout> | null = null
+let longPressActivated = false
+
+function startLongPress(todo: Todo) {
+  longPressActivated = false
+  longPressTimeout = setTimeout(() => {
+    longPressActivated = true
+    modeMenuMinutes.value = todo.estimated_minutes ?? 25
+    modeMenuItemId.value = todo.id
+  }, 600)
+}
+
+function cancelLongPress() {
+  if (longPressTimeout) {
+    clearTimeout(longPressTimeout)
+    longPressTimeout = null
+  }
+}
+
+function pomodoroConfig() {
+  return {
+    workSeconds: appSettings.value.pomodoroWorkMinutes * 60,
+    shortBreakSeconds: appSettings.value.pomodoroShortBreakMinutes * 60,
+    longBreakSeconds: appSettings.value.pomodoroLongBreakMinutes * 60,
+    cyclesBeforeLong: appSettings.value.pomodoroCyclesBeforeLong,
+  }
+}
+
+function handleTodoStart(todo: Todo) {
+  if (longPressActivated) return
+  modeMenuItemId.value = null
+  if (todo.estimated_minutes) {
+    timer.startTimer(
+      todo.id,
+      'todo',
+      todo.title,
+      'countdown',
+      todo.estimated_minutes * 60,
+      pomodoroConfig(),
+    )
+  } else {
+    modeMenuMinutes.value = 25
+    modeMenuItemId.value = todo.id
+  }
+}
+
+function startMode(todo: Todo, mode: TimerMode) {
+  modeMenuItemId.value = null
+  const secs = mode === 'countdown' ? modeMenuMinutes.value * 60 : 0
+  timer.startTimer(todo.id, 'todo', todo.title, mode, secs, pomodoroConfig())
+}
+
+async function finishTimerAndDone(todo: Todo) {
+  timer.stopTimer()
+  await toggleTodo(todo)
+}
 
 const calendarView = computed({
   get: () => appSettings.value.todoCalendarView,
@@ -469,6 +533,93 @@ function jotKindIcon(kind: string | undefined): string {
                   class="text-xs px-1.5 py-0.5 rounded bg-(--ui-bg-elevated) text-(--ui-text-muted)"
                 >{{ tag }}</span>
               </div>
+
+              <!-- Timer area (feature-gated, non-done items only) -->
+              <template v-if="appSettings.enableTimer && !todo.is_done">
+                <!-- Running timer on THIS card -->
+                <div v-if="timer.timer?.itemId === todo.id" class="flex items-center gap-2 mt-2 pt-2 border-t border-(--ui-border)/50">
+                  <time
+                    class="text-sm font-mono font-medium tabular-nums"
+                    :class="timer.isOvertime ? 'text-red-400 animate-pulse' : 'text-(--ui-text)'"
+                  >{{ timer.displayTime }}</time>
+                  <UButton
+                    size="xs"
+                    variant="ghost"
+                    color="neutral"
+                    :icon="timer.isRunning ? 'i-heroicons-pause' : 'i-heroicons-play'"
+                    :aria-label="timer.isRunning ? 'Pause timer' : 'Resume timer'"
+                    @click="timer.isRunning ? timer.pauseTimer() : timer.resumeTimer()"
+                  />
+                  <UButton
+                    size="xs"
+                    variant="soft"
+                    color="success"
+                    icon="i-heroicons-check"
+                    aria-label="Done"
+                    @click="finishTimerAndDone(todo)"
+                  >Done</UButton>
+                  <UButton
+                    size="xs"
+                    variant="ghost"
+                    color="neutral"
+                    icon="i-heroicons-x-mark"
+                    aria-label="Stop timer"
+                    @click="timer.stopTimer()"
+                  />
+                </div>
+
+                <!-- Start button (no active timer on this card) -->
+                <div v-else class="relative mt-1.5">
+                  <div v-if="modeMenuItemId === todo.id" class="fixed inset-0 z-40" @click="modeMenuItemId = null" />
+                  <UButton
+                    size="xs"
+                    variant="soft"
+                    color="neutral"
+                    icon="i-heroicons-play"
+                    aria-label="Start timer"
+                    @click="handleTodoStart(todo)"
+                    @pointerdown="startLongPress(todo)"
+                    @pointerup="cancelLongPress"
+                    @pointerleave="cancelLongPress"
+                    @pointermove="cancelLongPress"
+                  >Start</UButton>
+                  <!-- Mode menu (long-press or no-estimate tap) -->
+                  <div
+                    v-if="modeMenuItemId === todo.id"
+                    role="menu"
+                    class="absolute bottom-full left-0 mb-1 bg-(--ui-bg) border border-(--ui-border) rounded-xl shadow-xl p-1 z-50 min-w-44 space-y-0.5"
+                  >
+                    <button
+                      role="menuitem"
+                      class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-(--ui-bg-muted) flex items-center gap-2"
+                      @click="startMode(todo, 'stopwatch')"
+                    >
+                      <UIcon name="i-heroicons-play" class="w-4 h-4" /> Stopwatch
+                    </button>
+                    <div role="menuitem" class="flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-(--ui-bg-muted)">
+                      <UIcon name="i-heroicons-clock" class="w-4 h-4 shrink-0" />
+                      <input
+                        v-model.number="modeMenuMinutes"
+                        type="number"
+                        min="1"
+                        max="480"
+                        class="w-14 px-1.5 py-0.5 text-sm bg-(--ui-bg-elevated) border border-(--ui-border) rounded text-center"
+                        aria-label="Countdown minutes"
+                        @click.stop
+                      />
+                      <span class="text-(--ui-text-muted) text-xs">min</span>
+                      <button class="ml-auto text-primary-400 text-xs font-medium" @click="startMode(todo, 'countdown')">Start</button>
+                    </div>
+                    <button
+                      role="menuitem"
+                      class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-(--ui-bg-muted) flex items-center gap-2"
+                      @click="startMode(todo, 'pomodoro')"
+                    >
+                      🍅 Pomodoro
+                    </button>
+                  </div>
+                </div>
+              </template>
             </div>
 
             <!-- Actions -->

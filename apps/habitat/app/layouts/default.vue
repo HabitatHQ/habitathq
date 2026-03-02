@@ -9,6 +9,17 @@ const { settings, set: setAppSetting } = useAppSettings()
 const colorMode = useColorMode()
 const db = useDatabase()
 
+// ── Timer interval ────────────────────────────────────────────────────────────
+
+const timerComp = useTimer()
+const { impact } = useHaptics()
+
+let timerInterval: ReturnType<typeof setInterval> | null = null
+
+onUnmounted(() => {
+  if (timerInterval) clearInterval(timerInterval)
+})
+
 // ── Context filter ────────────────────────────────────────────────────────────
 
 const {
@@ -51,6 +62,12 @@ onMounted(() => {
     isDesktop.value = e.matches
   })
   if (settings.value.enableContextFilter) void loadContextTags(db)
+
+  timerInterval = setInterval(() => {
+    const { overtime, phaseTransition } = timerComp.onTick()
+    if (overtime) void impact('heavy')
+    if (phaseTransition) void impact('medium')
+  }, 1000)
 })
 
 function navLabel(item: { to: string; label: string }): string {
@@ -211,6 +228,20 @@ function toggleColorMode() {
 
       <!-- Right: action buttons -->
       <div class="flex items-center gap-1 ml-auto shrink-0">
+        <!-- Active timer chip -->
+        <NuxtLink
+          v-if="settings.enableTimer && timerComp.isActive"
+          :to="timerComp.timer?.itemType === 'todo' ? '/todos' : '/bored'"
+          class="flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-mono transition-colors"
+          :class="timerComp.isRunning
+            ? 'border-primary-500/40 text-primary-400 bg-primary-500/10'
+            : 'border-(--ui-border) text-(--ui-text-muted)'"
+          :aria-label="`Timer: ${timerComp.displayTime}. Go to ${timerComp.timer?.itemType}`"
+        >
+          <span :class="{ 'animate-pulse': timerComp.isRunning }" aria-hidden="true">⏱</span>
+          {{ timerComp.displayTime }}
+        </NuxtLink>
+
         <!-- Context filter toggle (only when feature on and tags exist) -->
         <UButton
           v-if="settings.enableContextFilter && contextTags.length > 0"

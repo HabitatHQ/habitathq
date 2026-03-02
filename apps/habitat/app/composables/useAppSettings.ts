@@ -8,6 +8,11 @@ export interface AppSettings {
   enableTodos: boolean
   enableBored: boolean
   enableContextFilter: boolean
+  enableTimer: boolean
+  pomodoroWorkMinutes: number
+  pomodoroShortBreakMinutes: number
+  pomodoroLongBreakMinutes: number
+  pomodoroCyclesBeforeLong: number
   weekDays: number
   matrixReverseDays: boolean
   todoCalendarView: boolean
@@ -35,6 +40,11 @@ const DEFAULTS: AppSettings = {
   enableTodos: false,
   enableBored: false,
   enableContextFilter: false,
+  enableTimer: false,
+  pomodoroWorkMinutes: 25,
+  pomodoroShortBreakMinutes: 5,
+  pomodoroLongBreakMinutes: 15,
+  pomodoroCyclesBeforeLong: 4,
   weekDays: 3,
   matrixReverseDays: false,
   todoCalendarView: false,

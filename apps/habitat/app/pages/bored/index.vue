@@ -1,9 +1,107 @@
 <script setup lang="ts">
+import type { TimerMode } from '~/composables/useTimer'
 import type { BoredCategory, BoredOracleResult } from '~/types/database'
 
 const db = useDatabase()
 const { settings } = useAppSettings()
 const eggs = useEasterEggs()
+
+// ── Timer ─────────────────────────────────────────────────────────────────────
+
+const timer = useTimer()
+const modeMenuOpen = ref(false)
+const modeMenuMinutes = ref(25)
+let longPressTimeout: ReturnType<typeof setTimeout> | null = null
+let longPressActivated = false
+
+function startLongPress() {
+  longPressActivated = false
+  longPressTimeout = setTimeout(() => {
+    longPressActivated = true
+    modeMenuMinutes.value = getBoredEstimate() ?? 25
+    modeMenuOpen.value = true
+  }, 600)
+}
+
+function cancelLongPress() {
+  if (longPressTimeout) {
+    clearTimeout(longPressTimeout)
+    longPressTimeout = null
+  }
+}
+
+function pomodoroConfig() {
+  return {
+    workSeconds: settings.value.pomodoroWorkMinutes * 60,
+    shortBreakSeconds: settings.value.pomodoroShortBreakMinutes * 60,
+    longBreakSeconds: settings.value.pomodoroLongBreakMinutes * 60,
+    cyclesBeforeLong: settings.value.pomodoroCyclesBeforeLong,
+  }
+}
+
+function getBoredItemId(): string {
+  if (!currentResult.value) return ''
+  return currentResult.value.source === 'activity'
+    ? currentResult.value.activity.id
+    : currentResult.value.todo.id
+}
+
+function getBoredItemType(): 'todo' | 'bored' {
+  return currentResult.value?.source === 'todo' ? 'todo' : 'bored'
+}
+
+function getBoredTitle(): string {
+  if (!currentResult.value) return ''
+  return currentResult.value.source === 'activity'
+    ? currentResult.value.activity.title
+    : currentResult.value.todo.title
+}
+
+function getBoredEstimate(): number | null {
+  if (!currentResult.value) return null
+  return currentResult.value.source === 'activity'
+    ? currentResult.value.activity.estimated_minutes
+    : currentResult.value.todo.estimated_minutes
+}
+
+function handleBoredStart() {
+  if (longPressActivated) return
+  if (!currentResult.value) return
+  const est = getBoredEstimate()
+  if (est) {
+    timer.startTimer(
+      getBoredItemId(),
+      getBoredItemType(),
+      getBoredTitle(),
+      'countdown',
+      est * 60,
+      pomodoroConfig(),
+    )
+    modeMenuOpen.value = false
+  } else {
+    modeMenuMinutes.value = 25
+    modeMenuOpen.value = true
+  }
+}
+
+function startBoredMode(mode: TimerMode) {
+  if (!currentResult.value) return
+  const secs = mode === 'countdown' ? modeMenuMinutes.value * 60 : 0
+  timer.startTimer(
+    getBoredItemId(),
+    getBoredItemType(),
+    getBoredTitle(),
+    mode,
+    secs,
+    pomodoroConfig(),
+  )
+  modeMenuOpen.value = false
+}
+
+async function finishBoredTimerAndDone() {
+  timer.stopTimer()
+  await markDone()
+}
 
 const categories = ref<BoredCategory[]>([])
 const currentResult = ref<BoredOracleResult | null>(null)
@@ -417,46 +515,132 @@ const oracleHint = computed(() => {
         </div>
 
         <!-- Actions -->
-        <div class="flex gap-2 pt-1">
-          <UButton
-            variant="soft"
-            color="success"
-            size="sm"
-            icon="i-heroicons-check"
-            :loading="marking"
-            @click="markDone"
-          >
-            Done
-          </UButton>
-          <UButton
-            variant="soft"
-            color="neutral"
-            size="sm"
-            icon="i-heroicons-arrow-path"
-            @click="roll"
-          >
-            Roll again
-          </UButton>
-          <UButton
-            v-if="currentResult.source === 'todo'"
-            to="/todos"
-            variant="ghost"
-            color="neutral"
-            size="sm"
-            icon="i-heroicons-arrow-right"
-          >
-            View TODO
-          </UButton>
-          <UButton
-            v-else
-            to="/bored/activities"
-            variant="ghost"
-            color="neutral"
-            size="sm"
-            icon="i-heroicons-arrow-right"
-          >
-            View all
-          </UButton>
+        <div class="flex flex-wrap gap-2 pt-1">
+          <!-- Timer controls when this item is being timed -->
+          <template v-if="settings.enableTimer && timer.timer?.itemId === getBoredItemId()">
+            <time
+              class="text-sm font-mono self-center"
+              :class="timer.isOvertime ? 'text-red-400 animate-pulse' : 'text-(--ui-text)'"
+            >{{ timer.displayTime }}</time>
+            <UButton
+              size="sm"
+              variant="ghost"
+              color="neutral"
+              :icon="timer.isRunning ? 'i-heroicons-pause' : 'i-heroicons-play'"
+              :aria-label="timer.isRunning ? 'Pause timer' : 'Resume timer'"
+              @click="timer.isRunning ? timer.pauseTimer() : timer.resumeTimer()"
+            />
+            <UButton
+              size="sm"
+              variant="soft"
+              color="success"
+              icon="i-heroicons-check"
+              :loading="marking"
+              @click="finishBoredTimerAndDone"
+            >Done</UButton>
+            <UButton
+              size="sm"
+              variant="ghost"
+              color="neutral"
+              icon="i-heroicons-x-mark"
+              aria-label="Stop timer"
+              @click="timer.stopTimer()"
+            />
+          </template>
+
+          <!-- Default action buttons (no active timer for this item) -->
+          <template v-else>
+            <UButton
+              variant="soft"
+              color="success"
+              size="sm"
+              icon="i-heroicons-check"
+              :loading="marking"
+              @click="markDone"
+            >
+              Done
+            </UButton>
+
+            <!-- Start timer button -->
+            <div v-if="settings.enableTimer && !shaking" class="relative">
+              <div v-if="modeMenuOpen" class="fixed inset-0 z-40" @click="modeMenuOpen = false" />
+              <UButton
+                size="sm"
+                variant="soft"
+                color="neutral"
+                icon="i-heroicons-play"
+                @click="handleBoredStart"
+                @pointerdown="startLongPress"
+                @pointerup="cancelLongPress"
+                @pointerleave="cancelLongPress"
+                @pointermove="cancelLongPress"
+              >Start</UButton>
+              <div
+                v-if="modeMenuOpen"
+                role="menu"
+                class="absolute bottom-full left-0 mb-1 bg-(--ui-bg) border border-(--ui-border) rounded-xl shadow-xl p-1 z-50 min-w-44 space-y-0.5"
+              >
+                <button
+                  role="menuitem"
+                  class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-(--ui-bg-muted) flex items-center gap-2"
+                  @click="startBoredMode('stopwatch')"
+                >
+                  <UIcon name="i-heroicons-play" class="w-4 h-4" /> Stopwatch
+                </button>
+                <div role="menuitem" class="flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-(--ui-bg-muted)">
+                  <UIcon name="i-heroicons-clock" class="w-4 h-4 shrink-0" />
+                  <input
+                    v-model.number="modeMenuMinutes"
+                    type="number"
+                    min="1"
+                    max="480"
+                    class="w-14 px-1.5 py-0.5 text-sm bg-(--ui-bg-elevated) border border-(--ui-border) rounded text-center"
+                    aria-label="Countdown minutes"
+                    @click.stop
+                  />
+                  <span class="text-(--ui-text-muted) text-xs">min</span>
+                  <button class="ml-auto text-primary-400 text-xs font-medium" @click="startBoredMode('countdown')">Start</button>
+                </div>
+                <button
+                  role="menuitem"
+                  class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-(--ui-bg-muted) flex items-center gap-2"
+                  @click="startBoredMode('pomodoro')"
+                >
+                  🍅 Pomodoro
+                </button>
+              </div>
+            </div>
+
+            <UButton
+              variant="soft"
+              color="neutral"
+              size="sm"
+              icon="i-heroicons-arrow-path"
+              @click="roll"
+            >
+              Roll again
+            </UButton>
+            <UButton
+              v-if="currentResult.source === 'todo'"
+              to="/todos"
+              variant="ghost"
+              color="neutral"
+              size="sm"
+              icon="i-heroicons-arrow-right"
+            >
+              View TODO
+            </UButton>
+            <UButton
+              v-else
+              to="/bored/activities"
+              variant="ghost"
+              color="neutral"
+              size="sm"
+              icon="i-heroicons-arrow-right"
+            >
+              View all
+            </UButton>
+          </template>
         </div>
       </div>
     </Transition>

@@ -1132,6 +1132,17 @@ watch(diagOpen, (open) => {
           />
         </div>
 
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Timer & Focus</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Start button on TODOs and Bored activities with stopwatch, countdown, and Pomodoro modes.</p>
+          </div>
+          <USwitch
+            :model-value="appSettings.enableTimer"
+            @update:model-value="setAppSetting('enableTimer', $event)"
+          />
+        </div>
+
         <div v-if="appSettings.enableJournalling" class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Save transcriptions</p>
@@ -1143,17 +1154,98 @@ watch(diagOpen, (open) => {
           />
         </div>
 
+      </UCard>
+    </section>
+
+    <!-- ── Pomodoro ──────────────────────────────────────────────────────────── -->
+    <section v-if="appSettings.enableTimer" class="space-y-2">
+      <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Pomodoro</p>
+      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <p class="text-sm font-medium">Work block</p>
+          <div class="flex items-center gap-1.5">
+            <input
+              type="number"
+              min="1"
+              max="90"
+              :value="appSettings.pomodoroWorkMinutes"
+              class="w-14 px-2 py-1 text-sm bg-(--ui-bg-elevated) border border-(--ui-border) rounded-lg text-center"
+              @change="setAppSetting('pomodoroWorkMinutes', +($event.target as HTMLInputElement).value)"
+            />
+            <span class="text-xs text-(--ui-text-dimmed)">min</span>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <p class="text-sm font-medium">Short break</p>
+          <div class="flex items-center gap-1.5">
+            <input
+              type="number"
+              min="1"
+              max="60"
+              :value="appSettings.pomodoroShortBreakMinutes"
+              class="w-14 px-2 py-1 text-sm bg-(--ui-bg-elevated) border border-(--ui-border) rounded-lg text-center"
+              @change="setAppSetting('pomodoroShortBreakMinutes', +($event.target as HTMLInputElement).value)"
+            />
+            <span class="text-xs text-(--ui-text-dimmed)">min</span>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <p class="text-sm font-medium">Long break</p>
+          <div class="flex items-center gap-1.5">
+            <input
+              type="number"
+              min="1"
+              max="60"
+              :value="appSettings.pomodoroLongBreakMinutes"
+              class="w-14 px-2 py-1 text-sm bg-(--ui-bg-elevated) border border-(--ui-border) rounded-lg text-center"
+              @change="setAppSetting('pomodoroLongBreakMinutes', +($event.target as HTMLInputElement).value)"
+            />
+            <span class="text-xs text-(--ui-text-dimmed)">min</span>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <p class="text-sm font-medium">Cycles before long break</p>
+          <div class="flex items-center gap-1.5">
+            <input
+              type="number"
+              min="1"
+              max="10"
+              :value="appSettings.pomodoroCyclesBeforeLong"
+              class="w-14 px-2 py-1 text-sm bg-(--ui-bg-elevated) border border-(--ui-border) rounded-lg text-center"
+              @change="setAppSetting('pomodoroCyclesBeforeLong', +($event.target as HTMLInputElement).value)"
+            />
+          </div>
+        </div>
+
+      </UCard>
+    </section>
+
+    <!-- ── Permissions ─────────────────────────────────────────────────────── -->
+    <section class="space-y-2">
+      <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Permissions</p>
+      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+
         <!-- Install -->
         <div v-if="isInstalled" class="flex items-center justify-between px-4 py-3.5">
-          <div class="space-y-0.5">
-            <p class="text-sm font-medium">Habitat is installed</p>
+          <div class="space-y-0.5 min-w-0">
+            <div class="flex items-center gap-2">
+              <UIcon name="i-heroicons-arrow-down-tray" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
+              <p class="text-sm font-medium">Habitat is installed</p>
+            </div>
             <p class="text-xs text-green-400">{{ isNativeApp ? 'Running as a native app' : 'Running as a standalone app' }}</p>
           </div>
           <div class="w-2 h-2 rounded-full bg-green-400 mx-2 shrink-0" />
         </div>
         <div v-else class="flex items-center justify-between px-4 py-3.5">
-          <div class="space-y-0.5">
-            <p class="text-sm font-medium">Install Habitat</p>
+          <div class="space-y-0.5 min-w-0">
+            <div class="flex items-center gap-2">
+              <UIcon name="i-heroicons-arrow-down-tray" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
+              <p class="text-sm font-medium">Install Habitat</p>
+            </div>
             <p class="text-xs text-(--ui-text-dimmed)">Add to your home screen for offline access and notifications</p>
           </div>
           <UButton
@@ -1168,14 +1260,6 @@ watch(diagOpen, (open) => {
             Install
           </UButton>
         </div>
-
-      </UCard>
-    </section>
-
-    <!-- ── Permissions ─────────────────────────────────────────────────────── -->
-    <section class="space-y-2">
-      <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Permissions</p>
-      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
 
         <!-- Notifications -->
         <div class="flex items-center justify-between px-4 py-3.5">
