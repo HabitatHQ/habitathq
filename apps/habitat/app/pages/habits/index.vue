@@ -3,6 +3,7 @@ import type { HabitWithSchedule } from '~/types/database'
 
 const db = useDatabase()
 const { settings } = useAppSettings()
+const { anyActive, matchesContext } = useContextFilter()
 const habits = ref<HabitWithSchedule[]>([])
 const isOpen = useBoolModalQuery('create')
 const saving = ref(false)
@@ -278,6 +279,7 @@ onMounted(loadHabits)
         :key="habit.id"
         :to="`/habits/${habit.id}`"
         class="flex items-center gap-3 p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border) active:opacity-70 transition-opacity"
+        :class="{ 'opacity-40': anyActive && !matchesContext(habit.tags) }"
       >
         <div
           class="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"

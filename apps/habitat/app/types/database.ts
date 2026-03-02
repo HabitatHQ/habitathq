@@ -312,6 +312,7 @@ export type WorkerRequest =
   | { id: string; type: 'ARCHIVE_TODO'; payload: { id: string } }
   | { id: string; type: 'TOGGLE_TODO'; payload: { id: string } }
   | { id: string; type: 'DELETE_ALL_TODOS' }
+  | { id: string; type: 'GET_CONTEXT_TAGS' }
 
 export interface CheckinDaySummary {
   template_id: string

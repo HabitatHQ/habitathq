@@ -3,6 +3,7 @@ import type { BoredCategory, Todo } from '~/types/database'
 
 const db = useDatabase()
 const { settings: appSettings, set: setAppSetting } = useAppSettings()
+const { anyActive, matchesContext } = useContextFilter()
 
 const calendarView = computed({
   get: () => appSettings.value.todoCalendarView,
@@ -412,7 +413,10 @@ function jotKindIcon(kind: string | undefined): string {
             :key="todo.id"
             :id="`todo-${todo.id}`"
             class="flex items-start gap-3 bg-(--ui-bg-muted) border border-(--ui-border) rounded-xl px-3 py-3 transition-shadow"
-            :class="highlightedTodoId === todo.id ? 'ring-2 ring-primary-500 ring-offset-1 ring-offset-(--ui-bg)' : ''"
+            :class="[
+              highlightedTodoId === todo.id ? 'ring-2 ring-primary-500 ring-offset-1 ring-offset-(--ui-bg)' : '',
+              anyActive && !matchesContext(todo.tags) ? 'opacity-40' : '',
+            ]"
           >
             <!-- Priority stripe -->
             <div class="w-1 self-stretch rounded-full shrink-0 mt-0.5" :class="priorityColor(todo.priority)" />

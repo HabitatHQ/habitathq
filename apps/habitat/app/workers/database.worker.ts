@@ -2108,6 +2108,44 @@ await (async () => {
       return null
     }
 
+    // ─── Context tag discovery ─────────────────────────────────────────────────
+
+    function getContextTags(): string[] {
+      const rows = queryRaw(`
+        WITH
+          ht AS (
+            SELECT t.value AS tag, MAX(h.created_at) AS latest
+            FROM habits h, json_each(h.tags) t
+            WHERE h.archived_at IS NULL
+            GROUP BY t.value
+          ),
+          tt AS (
+            SELECT t.value AS tag, MAX(td.created_at) AS latest
+            FROM todos td, json_each(td.tags) t
+            WHERE td.archived_at IS NULL
+            GROUP BY t.value
+          ),
+          bt AS (
+            SELECT t.value AS tag, MAX(b.created_at) AS latest
+            FROM bored_activities b, json_each(b.tags) t
+            WHERE b.archived_at IS NULL
+            GROUP BY t.value
+          ),
+          all_tags AS (
+            SELECT tag, 'h' AS src, latest FROM ht
+            UNION ALL SELECT tag, 't' AS src, latest FROM tt
+            UNION ALL SELECT tag, 'b' AS src, latest FROM bt
+          )
+        SELECT tag FROM (
+          SELECT tag, COUNT(DISTINCT src) AS cnt, MAX(latest) AS recent
+          FROM all_tags
+          GROUP BY tag
+          HAVING cnt >= 2 AND tag NOT LIKE 'habitat-%'
+        ) ORDER BY recent DESC LIMIT 6
+      `)
+      return rows.map((r) => String(r['tag']))
+    }
+
     // ─── Todo handlers ────────────────────────────────────────────────────────────
 
     function getTodos(): Todo[] {
@@ -2506,6 +2544,9 @@ await (async () => {
             break
           case 'DELETE_ALL_TODOS':
             result = deleteAllTodos()
+            break
+          case 'GET_CONTEXT_TAGS':
+            result = getContextTags()
             break
           case 'NUKE_OPFS': {
             // Close DB to release all OPFS sync-access handles, then wipe every

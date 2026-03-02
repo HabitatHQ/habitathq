@@ -7,6 +7,40 @@ const evictionDetected = useState('eviction-detected', () => false)
 const opfsUnsupported = useState('opfs-unsupported', () => false)
 const { settings, set: setAppSetting } = useAppSettings()
 const colorMode = useColorMode()
+const db = useDatabase()
+
+// ── Context filter ────────────────────────────────────────────────────────────
+
+const {
+  contextTags,
+  anyActive,
+  toggleContext,
+  clearAll,
+  isActive: isTagActive,
+  loadContextTags,
+} = useContextFilter()
+const showFilterStrip = ref(false)
+const filterStripVisible = computed(
+  () => settings.value.enableContextFilter && contextTags.value.length > 0 && showFilterStrip.value,
+)
+
+function toggleFilterStrip() {
+  showFilterStrip.value = !showFilterStrip.value
+  if (!showFilterStrip.value) clearAll()
+}
+
+// Keep strip shown while a context is active
+watch(anyActive, (val) => {
+  if (val) showFilterStrip.value = true
+})
+
+// Load cross-type tags once per session
+watch(
+  () => settings.value.enableContextFilter,
+  (val) => {
+    if (val) void loadContextTags(db)
+  },
+)
 
 const isDesktop = ref(false)
 
@@ -16,6 +50,7 @@ onMounted(() => {
   mq.addEventListener('change', (e) => {
     isDesktop.value = e.matches
   })
+  if (settings.value.enableContextFilter) void loadContextTags(db)
 })
 
 function navLabel(item: { to: string; label: string }): string {
@@ -120,12 +155,13 @@ function toggleColorMode() {
 <template>
   <div class="min-h-screen bg-(--ui-bg) text-(--ui-text) flex flex-col">
     <header
-      class="border-b border-(--ui-border) px-4 pb-3 flex items-center justify-between"
+      class="border-b border-(--ui-border) px-4 pb-3 flex items-center gap-2"
       :style="{ paddingTop: settings.headerExtraPadding
         ? 'calc(1.25rem + env(safe-area-inset-top))'
         : 'calc(0.75rem + env(safe-area-inset-top))' }"
     >
-      <div class="flex items-center gap-2">
+      <!-- Left: logo + title (or tag icon when filter strip is open) -->
+      <div class="flex items-center gap-2 shrink-0">
         <!-- Plant sprout logo — stroke-dashoffset draw animation on tap/mount -->
         <svg
           ref="logoSvgRef"
@@ -148,9 +184,45 @@ function toggleColorMode() {
           <!-- Soil mound (draws last, 4th) -->
           <path class="sprout-soil" d="M 8,40 C 12,37 28,37 32,40" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" pathLength="1" />
         </svg>
-        <span class="text-lg font-semibold tracking-tight">Habitat</span>
+        <span v-if="!filterStripVisible" class="text-lg font-semibold tracking-tight">Habitat</span>
+        <UIcon v-else name="i-heroicons-tag" class="w-4 h-4 text-(--ui-text-muted)" aria-hidden="true" />
       </div>
-      <div class="flex items-center gap-1">
+
+      <!-- Middle: context filter chip strip (flex-1, only when strip open) -->
+      <div
+        v-if="filterStripVisible"
+        role="group"
+        aria-label="Context filter"
+        class="flex-1 flex items-center gap-1.5 overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
+      >
+        <button
+          v-for="tag in contextTags"
+          :key="tag"
+          class="shrink-0 text-xs px-2.5 py-1 rounded-full border transition-colors"
+          :class="isTagActive(tag)
+            ? 'bg-primary-500/15 border-primary-500 text-primary-400'
+            : 'border-(--ui-border) text-(--ui-text-muted) hover:border-(--ui-border-muted) hover:text-(--ui-text)'"
+          :aria-pressed="isTagActive(tag)"
+          @click="toggleContext(tag)"
+        >
+          {{ tag }}
+        </button>
+      </div>
+
+      <!-- Right: action buttons -->
+      <div class="flex items-center gap-1 ml-auto shrink-0">
+        <!-- Context filter toggle (only when feature on and tags exist) -->
+        <UButton
+          v-if="settings.enableContextFilter && contextTags.length > 0"
+          :icon="showFilterStrip ? 'i-heroicons-x-mark' : 'i-heroicons-tag'"
+          variant="ghost"
+          color="neutral"
+          size="sm"
+          :class="anyActive ? 'text-primary-400' : ''"
+          :aria-label="showFilterStrip ? 'Close context filter' : 'Filter by context tag'"
+          @click="toggleFilterStrip"
+        />
+
         <!-- Dark / light mode toggle -->
         <UButton
           :icon="colorMode.value === 'dark' ? 'i-heroicons-sun' : 'i-heroicons-moon'"

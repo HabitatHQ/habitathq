@@ -1121,6 +1121,17 @@ watch(diagOpen, (open) => {
           />
         </div>
 
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Context Filter</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Tag icon in the header lets you filter habits, todos, and bored suggestions by shared tags.</p>
+          </div>
+          <USwitch
+            :model-value="appSettings.enableContextFilter"
+            @update:model-value="setAppSetting('enableContextFilter', $event)"
+          />
+        </div>
+
         <div v-if="appSettings.enableJournalling" class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Save transcriptions</p>

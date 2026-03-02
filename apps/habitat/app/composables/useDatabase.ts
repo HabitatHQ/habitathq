@@ -220,5 +220,6 @@ export function useDatabase() {
     toggleTodo: (id: string): Promise<Todo> =>
       sendToWorker({ type: 'TOGGLE_TODO', payload: { id } }),
     deleteAllTodos: (): Promise<null> => sendToWorker({ type: 'DELETE_ALL_TODOS' }),
+    getContextTags: (): Promise<string[]> => sendToWorker({ type: 'GET_CONTEXT_TAGS' }),
   }
 }

@@ -12,6 +12,7 @@ import type {
 const db = useDatabase()
 const { impact } = useHaptics()
 const { settings } = useAppSettings()
+const { anyActive, activeContexts, matchesContext } = useContextFilter()
 
 watchEffect(() => {
   if (!settings.value.enableToday) void navigateTo('/habits')
@@ -48,9 +49,11 @@ const todos = ref<Todo[]>([])
 const todoToggledIds = reactive(new Set<string>())
 const todoToggling = reactive(new Set<string>())
 
-const todayTodos = computed(() =>
-  todos.value.filter((t) => !t.is_done && !t.archived_at && t.due_date === today).slice(0, 5),
-)
+const todayTodos = computed(() => {
+  const base = todos.value.filter((t) => !t.is_done && !t.archived_at && t.due_date === today)
+  const filtered = anyActive.value ? base.filter((t) => matchesContext(t.tags)) : base
+  return filtered.slice(0, 5)
+})
 
 async function toggleTodoLocal(todo: Todo) {
   if (todoToggling.has(todo.id)) return
@@ -69,6 +72,7 @@ async function toggleTodoLocal(todo: Todo) {
 const boredSectionShown = ref(false)
 const boredDismissed = ref(false)
 const boredOracleResult = ref<BoredOracleResult | null>(null)
+const boredContextMatch = ref(true)
 const boredRolling = ref(false)
 const boredMarking = ref(false)
 const boredShaking = ref(false)
@@ -135,10 +139,32 @@ async function rollBored() {
   if (!isMotionReduced()) {
     boredShaking.value = true
     await new Promise((r) => setTimeout(r, 500))
+    boredShaking.value = false
   }
-  boredOracleResult.value = await db.getBoredOracle([], null)
+
+  // Try to find a context-matching result (up to 5 silent re-rolls)
+  let result = await db.getBoredOracle([], null)
+  let matched = true
+  if (anyActive.value) {
+    const firstTags = result.source === 'activity' ? result.activity.tags : result.todo.tags
+    if (!matchesContext(firstTags)) {
+      matched = false
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const r = await db.getBoredOracle([], null)
+        const t = r.source === 'activity' ? r.activity.tags : r.todo.tags
+        if (matchesContext(t)) {
+          result = r
+          matched = true
+          break
+        }
+        result = r
+      }
+    }
+  }
+
+  boredOracleResult.value = result
+  boredContextMatch.value = matched
   boredRolling.value = false
-  boredShaking.value = false
 }
 
 async function markBoredDone() {
@@ -226,6 +252,17 @@ const visibleHabits = computed(() =>
     return true
   }),
 )
+
+// Context-aware habit split: matching first, non-matching ("Others") last
+const contextHabits = computed(() => {
+  if (!anyActive.value) return visibleHabits.value
+  return visibleHabits.value.filter((h) => matchesContext(h.tags))
+})
+const otherHabits = computed(() => {
+  if (!anyActive.value) return []
+  return visibleHabits.value.filter((h) => !matchesContext(h.tags))
+})
+const sortedHabits = computed(() => [...contextHabits.value, ...otherHabits.value])
 
 // ─── Type-aware helpers ───────────────────────────────────────────────────────
 
@@ -394,14 +431,19 @@ onMounted(async () => {
 
       <!-- ── Habit list ───────────────────────────────────────────────────────── -->
       <ul class="space-y-2">
-        <li
-          v-for="habit in visibleHabits"
-          :key="habit.id"
-          class="flex items-center gap-3 p-3 rounded-xl border transition-all duration-200"
-          :class="isHabitDone(habit)
-            ? 'bg-(--ui-bg-muted)/50 border-(--ui-border)/50 opacity-70'
-            : 'bg-(--ui-bg-muted) border-(--ui-border)'"
-        >
+        <template v-for="(habit, i) in sortedHabits" :key="habit.id">
+          <!-- "Others" section label — inserted before first non-matching habit -->
+          <li v-if="anyActive && i === contextHabits.length && otherHabits.length > 0" class="list-none pt-1 pb-0.5" aria-hidden="true">
+            <p class="text-xs font-semibold uppercase tracking-wider px-1" style="opacity: 0.4">Others</p>
+          </li>
+          <li
+            class="flex items-center gap-3 p-3 rounded-xl border transition-all duration-200"
+            :class="anyActive && !matchesContext(habit.tags)
+              ? 'bg-(--ui-bg-muted)/30 border-(--ui-border)/30 opacity-40'
+              : isHabitDone(habit)
+                ? 'bg-(--ui-bg-muted)/50 border-(--ui-border)/50 opacity-70'
+                : 'bg-(--ui-bg-muted) border-(--ui-border)'"
+          >
           <!-- Icon -->
           <div
             class="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center"
@@ -527,11 +569,12 @@ onMounted(async () => {
               </div>
             </template>
           </template>
-        </li>
+          </li>
+        </template>
       </ul>
       <!-- ── On your plate (today TODOs) ─────────────────────────────────────── -->
-      <section v-if="settings.enableTodos && todayTodos.length > 0" class="space-y-2">
-        <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">On your plate</p>
+      <section v-if="settings.enableTodos && todayTodos.length > 0" class="space-y-2" aria-label="On your plate">
+        <h3 class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">On your plate</h3>
 
         <ul class="space-y-1.5">
           <li
@@ -547,10 +590,11 @@ onMounted(async () => {
               class="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors"
               :class="todoToggledIds.has(todo.id) ? 'border-green-500 bg-green-500' : 'border-(--ui-border-accented)'"
               :disabled="todoToggling.has(todo.id)"
+              :aria-label="todoToggledIds.has(todo.id) ? `Mark '${todo.title}' not done` : `Mark '${todo.title}' done`"
               @click="toggleTodoLocal(todo)"
             >
-              <UIcon v-if="todoToggledIds.has(todo.id)" name="i-heroicons-check" class="w-3 h-3 text-white" />
-              <UIcon v-else-if="todo.is_recurring" name="i-heroicons-arrow-path" class="w-2.5 h-2.5 text-(--ui-text-dimmed)" />
+              <UIcon v-if="todoToggledIds.has(todo.id)" name="i-heroicons-check" class="w-3 h-3 text-white" aria-hidden="true" />
+              <UIcon v-else-if="todo.is_recurring" name="i-heroicons-arrow-path" class="w-2.5 h-2.5 text-(--ui-text-dimmed)" aria-hidden="true" />
             </button>
 
             <!-- Title + estimate -->
@@ -567,7 +611,7 @@ onMounted(async () => {
           </li>
         </ul>
 
-        <UButton to="/todos" variant="ghost" color="neutral" size="xs" icon="i-heroicons-arrow-right" trailing>
+        <UButton to="/todos" variant="ghost" color="neutral" size="xs" icon="i-heroicons-arrow-right" trailing aria-label="See all todos">
           See all
         </UButton>
       </section>
@@ -581,9 +625,9 @@ onMounted(async () => {
         leave-from-class="opacity-100 translate-y-0"
         leave-to-class="opacity-0 translate-y-1"
       >
-        <section v-if="boredSectionVisible" class="space-y-3 border-t border-(--ui-border) pt-3">
+        <section v-if="boredSectionVisible" class="space-y-3 border-t border-(--ui-border) pt-3" aria-label="What's next suggestion">
           <div class="flex items-center justify-between px-1">
-            <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed)">All done! What's next?</p>
+            <h3 class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed)">All done! What's next?</h3>
             <button
               class="p-1 text-(--ui-text-dimmed) hover:text-(--ui-text-toned) transition-colors"
               aria-label="Dismiss"
@@ -667,6 +711,9 @@ onMounted(async () => {
                     {{ boredEstimate }}
                   </span>
                 </div>
+                <p v-if="anyActive && !boredContextMatch" class="text-xs text-(--ui-text-dimmed) mt-1.5 italic">
+                  Not tagged {{ activeContexts.join(' / ') }}, but might interest you
+                </p>
               </template>
               <p v-else class="text-sm text-(--ui-text-dimmed)">{{ boredIdleHint }}</p>
             </div>

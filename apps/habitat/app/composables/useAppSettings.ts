@@ -7,6 +7,7 @@ export interface AppSettings {
   enableWeek: boolean
   enableTodos: boolean
   enableBored: boolean
+  enableContextFilter: boolean
   weekDays: number
   matrixReverseDays: boolean
   todoCalendarView: boolean
@@ -33,6 +34,7 @@ const DEFAULTS: AppSettings = {
   enableWeek: false,
   enableTodos: false,
   enableBored: false,
+  enableContextFilter: false,
   weekDays: 3,
   matrixReverseDays: false,
   todoCalendarView: false,
