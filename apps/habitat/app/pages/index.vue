@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import type {
+  BoredOracleResult,
   CheckinDaySummary,
   Completion,
   HabitLog,
   HabitWithSchedule,
   Scribble,
+  Todo,
 } from '~/types/database'
 
 const db = useDatabase()
@@ -40,6 +42,121 @@ const logging = reactive(new Set<string>())
 const logInputOpen = reactive(new Set<string>())
 const logInputValues = reactive<Record<string, number>>({})
 
+// ─── TODOs ────────────────────────────────────────────────────────────────────
+
+const todos = ref<Todo[]>([])
+const todoToggledIds = reactive(new Set<string>())
+const todoToggling = reactive(new Set<string>())
+
+const todayTodos = computed(() =>
+  todos.value.filter((t) => !t.is_done && !t.archived_at && t.due_date === today).slice(0, 5),
+)
+
+async function toggleTodoLocal(todo: Todo) {
+  if (todoToggling.has(todo.id)) return
+  todoToggling.add(todo.id)
+  try {
+    await db.toggleTodo(todo.id)
+    todoToggledIds.add(todo.id)
+    await impact('light')
+  } finally {
+    todoToggling.delete(todo.id)
+  }
+}
+
+// ─── Bored suggestion ─────────────────────────────────────────────────────────
+
+const boredSectionShown = ref(false)
+const boredDismissed = ref(false)
+const boredOracleResult = ref<BoredOracleResult | null>(null)
+const boredRolling = ref(false)
+const boredMarking = ref(false)
+const boredShaking = ref(false)
+
+const boredSectionVisible = computed(
+  () =>
+    boredSectionShown.value &&
+    !boredDismissed.value &&
+    doneCount.value === total.value &&
+    total.value > 0 &&
+    settings.value.enableBored,
+)
+
+const boredTitle = computed(() => {
+  if (!boredOracleResult.value) return ''
+  return boredOracleResult.value.source === 'activity'
+    ? boredOracleResult.value.activity.title
+    : boredOracleResult.value.todo.title
+})
+
+const boredCategory = computed(() => {
+  if (!boredOracleResult.value) return null
+  return boredOracleResult.value.category
+})
+
+const boredEstimate = computed(() => {
+  if (!boredOracleResult.value) return null
+  const mins =
+    boredOracleResult.value.source === 'activity'
+      ? boredOracleResult.value.activity.estimated_minutes
+      : boredOracleResult.value.todo.estimated_minutes
+  if (!mins) return null
+  return mins < 60 ? `${mins}m` : `${Math.round((mins / 60) * 10) / 10}h`
+})
+
+const ORACLE_COPY_TODAY: Record<string, { rolling: string; idle: string }> = {
+  forest: { rolling: 'The stone awakens…', idle: 'Tap to read the runes' },
+  ocean: { rolling: 'The depths stir…', idle: 'Tap to consult the deep' },
+  habitat: { rolling: 'Consulting the oracle…', idle: 'Tap to get a suggestion' },
+}
+
+const boredIdleHint = computed(
+  () => ORACLE_COPY_TODAY[settings.value.theme]?.idle ?? 'Tap to get a suggestion',
+)
+const boredRollingHint = computed(
+  () => ORACLE_COPY_TODAY[settings.value.theme]?.rolling ?? 'Consulting the oracle…',
+)
+
+const miniOracleClass = computed(() => {
+  if (settings.value.theme === 'forest') return 'mini-stone'
+  if (settings.value.theme === 'ocean') return 'mini-jellyfish'
+  return 'mini-ball'
+})
+
+function isMotionReduced(): boolean {
+  if (!import.meta.client) return true
+  if (settings.value.reduceMotion) return true
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+async function rollBored() {
+  if (boredRolling.value) return
+  boredRolling.value = true
+  if (!isMotionReduced()) {
+    boredShaking.value = true
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  boredOracleResult.value = await db.getBoredOracle([], null)
+  boredRolling.value = false
+  boredShaking.value = false
+}
+
+async function markBoredDone() {
+  if (!boredOracleResult.value || boredMarking.value) return
+  boredMarking.value = true
+  try {
+    if (boredOracleResult.value.source === 'activity') {
+      await db.markBoredActivityDone(boredOracleResult.value.activity.id)
+    } else {
+      await db.toggleTodo(boredOracleResult.value.todo.id)
+    }
+    boredOracleResult.value = null
+    await impact('light')
+  } finally {
+    boredMarking.value = false
+  }
+}
+
 // ─── Today's activity summaries ───────────────────────────────────────────────
 
 const todayCheckins = ref<CheckinDaySummary[]>([])
@@ -74,7 +191,7 @@ async function load() {
     loading.value = false
     return
   }
-  const [h, c, l, wc, wl, ci, sc] = await Promise.all([
+  const [h, c, l, wc, wl, ci, sc, td] = await Promise.all([
     db.getHabits(),
     db.getCompletionsForDate(today),
     db.getHabitLogsForDate(today),
@@ -82,6 +199,7 @@ async function load() {
     db.getHabitLogsForDateRange(weekStart, today),
     db.getCheckinSummaryForDate(today),
     db.getScribblesForDate(today),
+    db.getTodos(),
   ])
   habits.value = h
   completions.value = c
@@ -90,6 +208,7 @@ async function load() {
   weekLogs.value = wl
   todayCheckins.value = ci
   todayScribbles.value = sc
+  todos.value = td
   loading.value = false
   void loadVoiceCount()
 }
@@ -197,7 +316,12 @@ async function submitLog(habit: HabitWithSchedule) {
   }
 }
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+  if (doneCount.value === total.value && total.value > 0 && settings.value.enableBored) {
+    boredSectionShown.value = true
+  }
+})
 </script>
 
 <template>
@@ -405,6 +529,164 @@ onMounted(load)
           </template>
         </li>
       </ul>
+      <!-- ── On your plate (today TODOs) ─────────────────────────────────────── -->
+      <section v-if="settings.enableTodos && todayTodos.length > 0" class="space-y-2">
+        <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">On your plate</p>
+
+        <ul class="space-y-1.5">
+          <li
+            v-for="todo in todayTodos"
+            :key="todo.id"
+            class="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border)"
+          >
+            <!-- Priority stripe -->
+            <div class="w-1 self-stretch rounded-full shrink-0" :class="priorityColor(todo.priority)" />
+
+            <!-- Checkbox -->
+            <button
+              class="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors"
+              :class="todoToggledIds.has(todo.id) ? 'border-green-500 bg-green-500' : 'border-(--ui-border-accented)'"
+              :disabled="todoToggling.has(todo.id)"
+              @click="toggleTodoLocal(todo)"
+            >
+              <UIcon v-if="todoToggledIds.has(todo.id)" name="i-heroicons-check" class="w-3 h-3 text-white" />
+              <UIcon v-else-if="todo.is_recurring" name="i-heroicons-arrow-path" class="w-2.5 h-2.5 text-(--ui-text-dimmed)" />
+            </button>
+
+            <!-- Title + estimate -->
+            <div class="flex-1 min-w-0">
+              <p
+                class="text-sm font-medium truncate transition-colors"
+                :class="todoToggledIds.has(todo.id) ? 'line-through text-(--ui-text-dimmed)' : 'text-(--ui-text)'"
+              >{{ todo.title }}</p>
+              <p v-if="todo.estimated_minutes" class="text-xs text-(--ui-text-dimmed) flex items-center gap-0.5 mt-0.5">
+                <UIcon name="i-heroicons-clock" class="w-3 h-3" />
+                {{ todo.estimated_minutes }}m
+              </p>
+            </div>
+          </li>
+        </ul>
+
+        <UButton to="/todos" variant="ghost" color="neutral" size="xs" icon="i-heroicons-arrow-right" trailing>
+          See all
+        </UButton>
+      </section>
+
+      <!-- ── All done — bored suggestion ──────────────────────────────────────── -->
+      <Transition
+        enter-active-class="transition-all duration-300"
+        enter-from-class="opacity-0 translate-y-2"
+        enter-to-class="opacity-100 translate-y-0"
+        leave-active-class="transition-all duration-200"
+        leave-from-class="opacity-100 translate-y-0"
+        leave-to-class="opacity-0 translate-y-1"
+      >
+        <section v-if="boredSectionVisible" class="space-y-3 border-t border-(--ui-border) pt-3">
+          <div class="flex items-center justify-between px-1">
+            <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed)">All done! What's next?</p>
+            <button
+              class="p-1 text-(--ui-text-dimmed) hover:text-(--ui-text-toned) transition-colors"
+              aria-label="Dismiss"
+              @click="boredDismissed = true"
+            >
+              <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
+            </button>
+          </div>
+
+          <!-- Oracle + content row -->
+          <div class="flex items-center gap-4">
+            <!-- Mini oracle button — tap to roll again -->
+            <button
+              class="shrink-0 relative flex items-center justify-center"
+              :class="[miniOracleClass, { 'mini-shake': boredShaking }]"
+              :disabled="boredRolling"
+              aria-label="Roll the oracle"
+              @click="rollBored"
+            >
+              <!-- Habitat ball: specular + window -->
+              <template v-if="settings.theme === 'habitat'">
+                <div class="mini-ball-specular" />
+                <div class="mini-ball-window">
+                  <UIcon
+                    v-if="boredOracleResult && !boredShaking && boredCategory"
+                    :name="boredCategory.icon"
+                    class="w-3 h-3"
+                    :style="{ color: boredCategory.color }"
+                  />
+                  <span v-else class="mini-idle-symbol">?</span>
+                </div>
+              </template>
+
+              <!-- Forest stone: carved face -->
+              <template v-else-if="settings.theme === 'forest'">
+                <div class="mini-stone-moss" />
+                <div class="mini-stone-face">
+                  <UIcon
+                    v-if="boredOracleResult && !boredShaking && boredCategory"
+                    :name="boredCategory.icon"
+                    class="w-3 h-3"
+                    :style="{ color: boredCategory.color }"
+                  />
+                  <span v-else class="mini-idle-symbol rune">ᛟ</span>
+                </div>
+              </template>
+
+              <!-- Ocean jellyfish: rim glow + bubbles -->
+              <template v-else>
+                <div class="mini-jelly-rim" />
+                <div class="mini-bubble mini-bubble-1" />
+                <div class="mini-bubble mini-bubble-2" />
+                <div class="mini-bubble mini-bubble-3" />
+                <UIcon
+                  v-if="boredOracleResult && !boredShaking && boredCategory"
+                  :name="boredCategory.icon"
+                  class="w-3 h-3 relative z-10"
+                  :style="{ color: boredCategory.color }"
+                />
+                <span v-else class="mini-idle-symbol ocean relative z-10">✦</span>
+              </template>
+            </button>
+
+            <!-- Right side: idle hint or result -->
+            <div class="flex-1 min-w-0">
+              <p v-if="boredRolling" class="text-sm text-(--ui-text-dimmed) animate-pulse">
+                {{ boredRollingHint }}
+              </p>
+              <template v-else-if="boredOracleResult">
+                <p class="text-sm font-semibold leading-snug">{{ boredTitle }}</p>
+                <div class="flex flex-wrap items-center gap-1.5 mt-1.5">
+                  <span
+                    v-if="boredCategory"
+                    class="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium"
+                    :style="{ backgroundColor: boredCategory.color + '22', color: boredCategory.color }"
+                  >
+                    <UIcon :name="boredCategory.icon" class="w-3 h-3" />
+                    {{ boredCategory.name }}
+                  </span>
+                  <span v-if="boredEstimate" class="text-xs px-2 py-0.5 rounded-full bg-(--ui-bg-elevated) text-(--ui-text-toned)">
+                    {{ boredEstimate }}
+                  </span>
+                </div>
+              </template>
+              <p v-else class="text-sm text-(--ui-text-dimmed)">{{ boredIdleHint }}</p>
+            </div>
+          </div>
+
+          <!-- Done button (below oracle row, only when result is showing) -->
+          <UButton
+            v-if="boredOracleResult && !boredRolling"
+            variant="soft"
+            color="success"
+            size="sm"
+            icon="i-heroicons-check"
+            :loading="boredMarking"
+            @click="markBoredDone"
+          >
+            Done
+          </UButton>
+        </section>
+      </Transition>
+
       <!-- ── Today's activity ──────────────────────────────────────────────────── -->
       <section
         v-if="todayCheckins.length > 0 || todayScribbles.length > 0 || todayVoiceCount > 0"
@@ -474,3 +756,223 @@ onMounted(load)
 
   </div>
 </template>
+
+<style scoped>
+/* ── Mini 8-ball (Habitat) ──────────────────────────────── */
+.mini-ball {
+  width: 5rem;
+  height: 5rem;
+  border-radius: 50%;
+  cursor: pointer;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 30% 27%, rgba(255,255,255,0.09) 0%, transparent 30%),
+    radial-gradient(ellipse at 48% 52%, #111827 0%, #050d1f 55%, #000 100%);
+  box-shadow:
+    0 8px 20px rgba(0,0,0,0.85),
+    0 3px 8px rgba(0,0,0,0.6),
+    inset 0 -2px 5px rgba(79,70,229,0.12),
+    0 0 0 1px rgba(255,255,255,0.04);
+  transition: transform 0.15s ease;
+}
+
+.mini-ball:active:not(.mini-shake) {
+  transform: scale(0.94);
+}
+
+.mini-ball-specular {
+  position: absolute;
+  top: 7%;
+  left: 11%;
+  width: 32%;
+  height: 26%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 38% 32%,
+    rgba(255,255,255,0.55) 0%,
+    rgba(255,255,255,0.18) 30%,
+    transparent 68%
+  );
+  filter: blur(1.5px);
+  pointer-events: none;
+}
+
+.mini-ball-window {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 44%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background:
+    radial-gradient(circle at 36% 30%, #1d2478, #0a0d30 52%, #040510 100%) padding-box,
+    linear-gradient(145deg, #64748b 0%, #334155 28%, #1e293b 50%, #2d3748 72%, #64748b 100%) border-box;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.88), inset 0 1px 5px rgba(0,0,0,0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Mini moss stone (Forest) ───────────────────────────── */
+.mini-stone {
+  width: 5rem;
+  height: 4.5rem;
+  border-radius: 52% 48% 56% 44% / 44% 52% 48% 56%;
+  cursor: pointer;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 28% 25%, rgba(55,90,50,0.4) 0%, transparent 45%),
+    radial-gradient(ellipse at 50% 50%, #222b1e 0%, #181f14 55%, #0f1a0b 100%);
+  box-shadow:
+    0 8px 20px rgba(0,0,0,0.8),
+    0 3px 8px rgba(0,0,0,0.55),
+    inset 0 -2px 6px rgba(0,0,0,0.5);
+  transition: transform 0.15s ease;
+}
+
+.mini-stone:active:not(.mini-shake) {
+  transform: scale(0.96);
+}
+
+.mini-stone-moss {
+  position: absolute;
+  top: 4%;
+  left: 6%;
+  width: 44%;
+  height: 36%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 40% 40%,
+    rgba(32,138,101,0.55) 0%,
+    rgba(32,138,101,0.18) 50%,
+    transparent 70%
+  );
+  filter: blur(4px);
+  pointer-events: none;
+  animation: moss-sway 5s ease-in-out infinite;
+}
+
+.mini-stone-face {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 42%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background:
+    radial-gradient(circle at 50% 45%, #0b160a, #060f05 70%) padding-box,
+    linear-gradient(145deg, #3a6e3a 0%, #204d20 30%, #122a12 55%, #4a7e4a 100%) border-box;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.85), inset 0 1px 5px rgba(0,0,0,0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Mini jellyfish orb (Ocean) ─────────────────────────── */
+.mini-jellyfish {
+  width: 5rem;
+  height: 5rem;
+  border-radius: 50%;
+  cursor: pointer;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 50% 85%, rgba(34,211,238,0.07) 0%, transparent 55%),
+    radial-gradient(ellipse at 50% 50%, #041520 0%, #020c14 60%, #010810 100%);
+  box-shadow:
+    0 0 18px rgba(99,102,241,0.35),
+    0 0 36px rgba(99,102,241,0.12),
+    0 8px 20px rgba(0,0,0,0.9),
+    0 0 0 1px rgba(255,255,255,0.04);
+  transition: transform 0.15s ease;
+}
+
+.mini-jellyfish:active:not(.mini-shake) {
+  transform: scale(0.96);
+}
+
+.mini-jelly-rim {
+  position: absolute;
+  bottom: -4%;
+  left: 0;
+  right: 0;
+  height: 40%;
+  background: radial-gradient(ellipse at 50% 100%,
+    rgba(34,211,238,0.55) 0%,
+    rgba(99,102,241,0.22) 42%,
+    transparent 70%
+  );
+  border-radius: 0 0 50% 50%;
+  filter: blur(4px);
+  pointer-events: none;
+  animation: rim-breathe 3s ease-in-out infinite;
+}
+
+/* Ocean bubbles (clipped inside 5rem orb) */
+.mini-bubble {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(34,211,238,0.22);
+  border: 1px solid rgba(34,211,238,0.4);
+  pointer-events: none;
+}
+
+.mini-bubble-1 { width: 4px;  height: 4px;  left: 34%; bottom: 12%; animation: mini-bubble-rise 4.5s ease-in infinite 0.8s; }
+.mini-bubble-2 { width: 3px;  height: 3px;  left: 60%; bottom: 20%; animation: mini-bubble-rise 6s   ease-in infinite 2.5s; }
+.mini-bubble-3 { width: 3px;  height: 3px;  left: 48%; bottom: 16%; animation: mini-bubble-rise 5s   ease-in infinite 4s;   }
+
+/* ── Idle symbols ───────────────────────────────────────── */
+.mini-idle-symbol {
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: rgba(148,163,184,0.55);
+  user-select: none;
+  line-height: 1;
+}
+
+.mini-idle-symbol.rune {
+  font-weight: 400;
+  color: rgba(32,138,101,0.5);
+}
+
+.mini-idle-symbol.ocean {
+  font-weight: 400;
+  color: rgba(34,211,238,0.55);
+}
+
+/* ── Shake animation ────────────────────────────────────── */
+.mini-shake {
+  animation: mini-shake-anim 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+@keyframes mini-shake-anim {
+  0%   { transform: translate(0, 0)     rotate(0deg);  }
+  10%  { transform: translate(-6px,-4px) rotate(-5deg); }
+  22%  { transform: translate(8px, 3px)  rotate(5deg);  }
+  33%  { transform: translate(-6px, 5px) rotate(-4deg); }
+  45%  { transform: translate(7px,-5px)  rotate(5deg);  }
+  57%  { transform: translate(-4px, 3px) rotate(-3deg); }
+  68%  { transform: translate(4px,-3px)  rotate(2deg);  }
+  80%  { transform: translate(-2px, 2px) rotate(-1deg); }
+  92%  { transform: translate(1px,-1px)  rotate(1deg);  }
+  100% { transform: translate(0, 0)     rotate(0deg);  }
+}
+
+/* ── Shared keyframes ───────────────────────────────────── */
+@keyframes mini-bubble-rise {
+  0%   { transform: translateY(0)     translateX(0);   opacity: 0.6; }
+  50%  { transform: translateY(-30px) translateX(2px); opacity: 0.8; }
+  100% { transform: translateY(-60px) translateX(-1px); opacity: 0;  }
+}
+
+@keyframes moss-sway {
+  0%, 100% { opacity: 0.8; transform: scale(1);    }
+  50%       { opacity: 1;   transform: scale(1.04); }
+}
+
+@keyframes rim-breathe {
+  0%, 100% { opacity: 0.7; }
+  50%       { opacity: 1;   }
+}
+</style>
