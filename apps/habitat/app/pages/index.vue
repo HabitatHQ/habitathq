@@ -412,7 +412,7 @@ onMounted(async () => {
       <!-- Progress ring -->
       <div class="flex flex-col items-center gap-1.5 py-2">
         <div class="relative">
-          <svg width="160" height="160" viewBox="0 0 100 100">
+          <svg width="160" height="160" viewBox="0 0 100 100" style="overflow: visible">
             <!-- Track -->
             <circle cx="50" cy="50" :r="R" fill="none" stroke-width="8" :style="{ stroke: 'var(--ui-border)' }" />
             <!-- Progress -->
@@ -1037,12 +1037,12 @@ onMounted(async () => {
 
 /* ── All-done ring glow ──────────────────────────────────── */
 .ring-complete {
-  animation: ring-glow-pulse 2s ease-in-out infinite;
+  animation: ring-glow-pulse 2.5s ease-in-out infinite;
 }
 
 @keyframes ring-glow-pulse {
-  0%, 100% { filter: drop-shadow(0 0 3px rgba(34, 211, 238, 0.45)); }
-  50%       { filter: drop-shadow(0 0 10px rgba(34, 211, 238, 0.85)); }
+  0%, 100% { filter: drop-shadow(0 0 3px rgba(34, 211, 238, 0.35)); }
+  50%       { filter: drop-shadow(0 0 7px rgba(34, 211, 238, 0.65)); }
 }
 
 /* ── Habit completion flash ──────────────────────────────── */
