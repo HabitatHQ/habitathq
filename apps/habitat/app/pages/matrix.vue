@@ -6,18 +6,33 @@ const { settings } = useAppSettings()
 
 const today = new Date().toISOString().slice(0, 10)
 
-// Always load 7 days so the grid updates live when weekDays changes in settings
-const sevenDaysAgo = (() => {
+// Always load 30 days so both mobile (weekDays) and desktop (month) are covered
+const thirtyDaysAgo = (() => {
   const d = new Date()
-  d.setDate(d.getDate() - 6)
+  d.setDate(d.getDate() - 29)
   return d.toISOString().slice(0, 10)
 })()
+
+// ─── Responsive: desktop shows a full month, mobile shows weekDays ────────────
+
+const isDesktop = ref(false)
+
+onMounted(() => {
+  const mq = window.matchMedia('(min-width: 640px)')
+  isDesktop.value = mq.matches
+  mq.addEventListener('change', (e) => {
+    isDesktop.value = e.matches
+  })
+})
+
+const pageTitle = computed(() => (isDesktop.value ? 'Month' : 'Week'))
 
 // ─── Days to display ──────────────────────────────────────────────────────────
 
 const days = computed(() => {
+  const count = isDesktop.value ? 30 : settings.value.weekDays
   const result: string[] = []
-  for (let i = settings.value.weekDays - 1; i >= 0; i--) {
+  for (let i = count - 1; i >= 0; i--) {
     const d = new Date()
     d.setDate(d.getDate() - i)
     result.push(d.toISOString().slice(0, 10))
@@ -39,8 +54,8 @@ async function load() {
   }
   const [h, c, l] = await Promise.all([
     db.getHabits(),
-    db.getCompletionsForDateRange(sevenDaysAgo, today),
-    db.getHabitLogsForDateRange(sevenDaysAgo, today),
+    db.getCompletionsForDateRange(thirtyDaysAgo, today),
+    db.getHabitLogsForDateRange(thirtyDaysAgo, today),
   ])
   habits.value = h
   completions.value = c
@@ -75,7 +90,7 @@ async function toggle(habit: HabitWithSchedule, date: string) {
   toggling.add(key)
   try {
     await db.toggleCompletion(habit.id, date)
-    completions.value = await db.getCompletionsForDateRange(sevenDaysAgo, today)
+    completions.value = await db.getCompletionsForDateRange(thirtyDaysAgo, today)
   } finally {
     toggling.delete(key)
   }
@@ -113,7 +128,7 @@ async function saveCell() {
     } else {
       await db.logHabitValue(habit.id, date, value)
     }
-    habitLogs.value = await db.getHabitLogsForDateRange(sevenDaysAgo, today)
+    habitLogs.value = await db.getHabitLogsForDateRange(thirtyDaysAgo, today)
     cellEdit.value = null
   } finally {
     savingCell.value = false
@@ -147,7 +162,7 @@ onMounted(load)
       </div>
       <div class="text-center">
         <p class="text-sm text-(--ui-text-dimmed)">Quick fill</p>
-        <h2 class="text-2xl font-bold">Week</h2>
+        <h2 class="text-2xl font-bold">{{ pageTitle }}</h2>
       </div>
     </header>
 

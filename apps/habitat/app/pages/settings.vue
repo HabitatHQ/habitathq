@@ -889,8 +889,8 @@ watch(diagOpen, (open) => {
         <div>
           <div class="flex items-center justify-between px-4 py-3">
             <div class="space-y-0.5">
-              <p class="text-sm font-medium">Week view</p>
-              <p class="text-xs text-(--ui-text-dimmed)">Quick-fill view for logging multiple days at once.</p>
+              <p class="text-sm font-medium">Matrix view</p>
+              <p class="text-xs text-(--ui-text-dimmed)">Quick-fill grid — week on mobile, month on desktop.</p>
             </div>
             <USwitch
               :model-value="appSettings.enableWeek"
@@ -898,7 +898,7 @@ watch(diagOpen, (open) => {
             />
           </div>
           <div v-if="appSettings.enableWeek" class="flex items-center justify-between px-4 pb-3">
-            <p class="text-sm text-(--ui-text-muted)">Days to show</p>
+            <p class="text-sm text-(--ui-text-muted)">Days to show (mobile)</p>
             <div class="flex items-center gap-2">
               <button
                 class="w-7 h-7 rounded-lg bg-(--ui-bg-elevated) border border-(--ui-border-accented) text-(--ui-text-toned) flex items-center justify-center text-sm"

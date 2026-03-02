@@ -41,10 +41,11 @@ test.describe('Navigation smoke tests', () => {
     await expect(page.getByRole('heading', { name: 'Check-in' })).toBeVisible()
   })
 
-  test('/week route renders week heading', async ({ page }) => {
-    await page.goto('/week')
+  test('/matrix route renders month heading on desktop', async ({ page }) => {
+    await page.goto('/matrix')
     await page.waitForLoadState('networkidle')
-    await expect(page.getByRole('heading', { name: 'Week' })).toBeVisible()
+    // Playwright default viewport (1280×720) is desktop → heading shows "Month"
+    await expect(page.getByRole('heading', { name: /Week|Month/ })).toBeVisible()
   })
 
   test('/stats route renders stats heading', async ({ page }) => {

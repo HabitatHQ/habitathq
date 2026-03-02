@@ -5,9 +5,24 @@ const evictionDetected = useState('eviction-detected', () => false)
 const opfsUnsupported = useState('opfs-unsupported', () => false)
 const { settings } = useAppSettings()
 
+const isDesktop = ref(false)
+
+onMounted(() => {
+  const mq = window.matchMedia('(min-width: 640px)')
+  isDesktop.value = mq.matches
+  mq.addEventListener('change', (e) => {
+    isDesktop.value = e.matches
+  })
+})
+
+function navLabel(item: { to: string; label: string }): string {
+  if (item.to === '/matrix') return isDesktop.value ? 'Month' : 'Week'
+  return item.label
+}
+
 const ALL_NAV_ITEMS = [
   { to: '/', icon: 'i-heroicons-home', label: 'Today', today: true },
-  { to: '/week', icon: 'i-heroicons-calendar-days', label: 'Week', week: true },
+  { to: '/matrix', icon: 'i-heroicons-calendar-days', label: 'Week', week: true },
   { to: '/habits', icon: 'i-heroicons-list-bullet', label: 'Habits' },
   { to: '/health', icon: 'i-heroicons-heart', label: 'Health', health: true },
   { to: '/todos', icon: 'i-heroicons-check-circle', label: 'TODOs', todos: true },
@@ -135,7 +150,7 @@ function isActive(to: string) {
           ? { base: 'flex-shrink-0 h-auto py-2.5 px-2.5' }
           : { base: 'flex-col gap-0.5 h-auto py-2 px-3 text-xs' }"
       >
-        <span v-if="navItems.length <= 5">{{ item.label }}</span>
+        <span v-if="navItems.length <= 5">{{ navLabel(item) }}</span>
       </UButton>
     </nav>
   </div>
