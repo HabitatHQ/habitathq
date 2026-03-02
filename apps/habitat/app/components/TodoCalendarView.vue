@@ -372,49 +372,88 @@ function onDayClick(date: string) {
           </div>
         </div>
 
-        <!-- ── Week view ───────────────────────────────────────────────────── -->
-        <div v-else>
-
-          <!-- Day headers -->
-          <div class="grid grid-cols-7 gap-1 mb-1">
-            <div v-for="date in weekDayDates" :key="date" class="text-center">
-              <p class="text-[10px] font-semibold text-(--ui-text-dimmed)">
-                {{ new Date(`${date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short' }) }}
-              </p>
-              <div
-                class="mx-auto mt-0.5 w-6 h-6 text-xs flex items-center justify-center rounded-full font-medium"
-                :class="date === today ? 'bg-primary-500 text-white' : 'text-(--ui-text-muted)'"
-              >{{ Number(date.slice(8)) }}</div>
-            </div>
-          </div>
-
-          <!-- Week cells -->
-          <div class="grid grid-cols-7 gap-1">
+        <!-- ── Week view — vertical list, empty days collapse ──────────────── -->
+        <div v-else class="space-y-1">
+          <div
+            v-for="date in weekDayDates"
+            :key="date"
+            class="rounded-xl border overflow-hidden transition-colors"
+            :class="date === today
+              ? 'border-primary-500/50 bg-primary-500/5'
+              : 'border-(--ui-border)/60'"
+          >
+            <!-- Day header row -->
             <div
-              v-for="date in weekDayDates"
-              :key="date"
-              class="min-h-[120px] rounded-lg border border-(--ui-border)/60 p-1.5 cursor-pointer select-none transition-colors hover:bg-(--ui-bg-elevated)/50"
-              :class="date === today ? 'bg-primary-500/5 border-primary-500/30' : ''"
+              class="flex items-center gap-2.5 px-3 py-2 cursor-pointer select-none"
+              :class="date === today ? 'border-l-4 border-primary-500' : 'border-l-4 border-transparent'"
               @click="onDayClick(date)"
               @pointerdown="onDayPointerDown(date)"
               @pointerup="onDayPointerCancel()"
               @pointerleave="onDayPointerCancel()"
             >
-              <div class="flex flex-col gap-0.5">
-                <template v-for="(todo, ti) in todosByDate.get(date) ?? []" :key="todo.id">
-                  <div
-                    v-if="ti < 5"
-                    class="text-[11px] rounded px-1 py-0.5 truncate leading-tight cursor-pointer"
-                    :class="[chipBorderClass(todo), chipBgClass(todo), todo.is_done ? 'line-through' : '']"
-                    @click.stop="emit('edit', todo)"
-                  >{{ todo.title }}</div>
-                </template>
+              <!-- Day number circle -->
+              <div
+                class="w-7 h-7 rounded-full flex items-center justify-center text-sm font-semibold shrink-0"
+                :class="date === today ? 'bg-primary-500 text-white' : 'text-(--ui-text-muted)'"
+              >{{ Number(date.slice(8)) }}</div>
+
+              <!-- Day name -->
+              <p
+                class="text-sm font-medium flex-1 min-w-0"
+                :class="date === today ? 'text-(--ui-text)' : 'text-(--ui-text-muted)'"
+              >
+                {{ new Date(`${date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long' }) }}
+                <span v-if="date === today" class="ml-1 text-xs font-normal text-primary-400">Today</span>
+              </p>
+
+              <!-- Todo count badge (when there are todos) -->
+              <span
+                v-if="(todosByDate.get(date) ?? []).length > 0"
+                class="text-xs px-1.5 py-0.5 rounded-full bg-(--ui-bg-elevated) text-(--ui-text-muted) font-mono shrink-0"
+              >{{ (todosByDate.get(date) ?? []).length }}</span>
+            </div>
+
+            <!-- Inline todo list — only rendered when day has todos -->
+            <div v-if="(todosByDate.get(date) ?? []).length > 0" class="px-2 pb-2 space-y-0.5">
+              <template v-for="(todo, ti) in todosByDate.get(date) ?? []" :key="todo.id">
                 <div
-                  v-if="(todosByDate.get(date) ?? []).length > 5"
-                  class="text-[11px] text-(--ui-text-dimmed) hover:text-(--ui-text-toned) cursor-pointer px-1"
-                  @click.stop="onDayClick(date)"
-                >+{{ (todosByDate.get(date) ?? []).length - 5 }} more</div>
-              </div>
+                  v-if="ti < 5"
+                  class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg cursor-pointer hover:bg-(--ui-bg-elevated)/60 transition-colors group"
+                  :class="todo.is_done ? 'opacity-50' : ''"
+                  @click.stop="emit('edit', todo)"
+                >
+                  <!-- Priority dot -->
+                  <span
+                    class="w-1.5 h-1.5 rounded-full shrink-0"
+                    :class="todo.priority === 'high' ? 'bg-red-500' : todo.priority === 'medium' ? 'bg-amber-500' : 'bg-slate-400'"
+                  />
+                  <!-- Title -->
+                  <span
+                    class="text-sm flex-1 truncate"
+                    :class="todo.is_done ? 'line-through text-(--ui-text-dimmed)' : 'text-(--ui-text)'"
+                  >{{ todo.title }}</span>
+                  <!-- Est. time -->
+                  <span v-if="todo.estimated_minutes" class="text-xs text-(--ui-text-dimmed) shrink-0">
+                    {{ todo.estimated_minutes }}m
+                  </span>
+                  <!-- Inline toggle -->
+                  <button
+                    class="shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors"
+                    :class="todo.is_done
+                      ? 'border-green-500 bg-green-500'
+                      : 'border-(--ui-border-accented) hover:border-primary-400'"
+                    @click.stop="emit('toggle', todo)"
+                  >
+                    <UIcon v-if="todo.is_done" name="i-heroicons-check" class="w-3 h-3 text-white" />
+                  </button>
+                </div>
+              </template>
+              <!-- Overflow link -->
+              <div
+                v-if="(todosByDate.get(date) ?? []).length > 5"
+                class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-toned) cursor-pointer px-2 py-1"
+                @click.stop="onDayClick(date)"
+              >+{{ (todosByDate.get(date) ?? []).length - 5 }} more</div>
             </div>
           </div>
         </div>
