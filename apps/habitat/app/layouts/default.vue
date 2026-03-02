@@ -6,20 +6,19 @@ const opfsUnsupported = useState('opfs-unsupported', () => false)
 const { settings } = useAppSettings()
 
 const ALL_NAV_ITEMS = [
-  { to: '/',          icon: 'i-heroicons-home',           label: 'Today',    today: true },
-  { to: '/week',      icon: 'i-heroicons-calendar-days',  label: 'Week',     week: true },
-  { to: '/habits',    icon: 'i-heroicons-list-bullet',    label: 'Habits'   },
-  { to: '/health',    icon: 'i-heroicons-heart',          label: 'Health',   health: true },
-  { to: '/todos',     icon: 'i-heroicons-check-circle',   label: 'TODOs',    todos: true },
-  { to: '/bored',     icon: 'i-heroicons-face-smile',     label: 'Bored',    bored: true },
-  { to: '/checkin',   icon: 'i-heroicons-pencil-square',  label: 'Check-in', journalling: true },
-  { to: '/scribbles', icon: 'i-heroicons-pencil',         label: 'Scribbles', journalling: true },
-  { to: '/voice',     icon: 'i-heroicons-microphone',     label: 'Voice',    journalling: true },
-  { to: '/stats',     icon: 'i-heroicons-chart-bar',      label: 'Stats'    },
+  { to: '/', icon: 'i-heroicons-home', label: 'Today', today: true },
+  { to: '/week', icon: 'i-heroicons-calendar-days', label: 'Week', week: true },
+  { to: '/habits', icon: 'i-heroicons-list-bullet', label: 'Habits' },
+  { to: '/health', icon: 'i-heroicons-heart', label: 'Health', health: true },
+  { to: '/todos', icon: 'i-heroicons-check-circle', label: 'TODOs', todos: true },
+  { to: '/bored', icon: 'i-heroicons-face-smile', label: 'Bored', bored: true },
+  { to: '/checkin', icon: 'i-heroicons-pencil-square', label: 'Check-in', journalling: true },
+  { to: '/jots', icon: 'i-heroicons-document-text', label: 'Jots', journalling: true },
+  { to: '/stats', icon: 'i-heroicons-chart-bar', label: 'Stats' },
 ]
 
 const navItems = computed(() =>
-  ALL_NAV_ITEMS.filter(i => {
+  ALL_NAV_ITEMS.filter((i) => {
     if (i.today && !settings.value.enableToday) return false
     if (i.week && !settings.value.enableWeek) return false
     if (i.health && !settings.value.enableHealth) return false

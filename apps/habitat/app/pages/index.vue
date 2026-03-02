@@ -1,5 +1,11 @@
 <script setup lang="ts">
-import type { HabitWithSchedule, Completion, HabitLog, Scribble, CheckinDaySummary } from '~/types/database'
+import type {
+  CheckinDaySummary,
+  Completion,
+  HabitLog,
+  HabitWithSchedule,
+  Scribble,
+} from '~/types/database'
 
 const db = useDatabase()
 const { impact } = useHaptics()
@@ -57,14 +63,17 @@ async function loadVoiceCount() {
       req.onsuccess = () => resolve(req.result as Array<{ created_at: string }>)
       req.onerror = () => reject(req.error)
     })
-    todayVoiceCount.value = notes.filter(n => n.created_at.slice(0, 10) === today).length
+    todayVoiceCount.value = notes.filter((n) => n.created_at.slice(0, 10) === today).length
   } catch {
     todayVoiceCount.value = 0
   }
 }
 
 async function load() {
-  if (!db.isAvailable) { loading.value = false; return }
+  if (!db.isAvailable) {
+    loading.value = false
+    return
+  }
   const [h, c, l, wc, wl, ci, sc] = await Promise.all([
     db.getHabits(),
     db.getCompletionsForDate(today),
@@ -87,27 +96,27 @@ async function load() {
 
 // ─── Filtering ────────────────────────────────────────────────────────────────
 
-const visibleHabits = computed(() => habits.value.filter(h => {
-  if (h.paused_until && h.paused_until >= today) return false
-  const sched = h.schedule
-  if (!sched) return true
-  if (sched.schedule_type === 'SPECIFIC_DAYS') {
-    return sched.days_of_week?.includes(todayDayOfWeek) ?? false
-  }
-  return true
-}))
+const visibleHabits = computed(() =>
+  habits.value.filter((h) => {
+    if (h.paused_until && h.paused_until >= today) return false
+    const sched = h.schedule
+    if (!sched) return true
+    if (sched.schedule_type === 'SPECIFIC_DAYS') {
+      return sched.days_of_week?.includes(todayDayOfWeek) ?? false
+    }
+    return true
+  }),
+)
 
 // ─── Type-aware helpers ───────────────────────────────────────────────────────
 
 function getTodayLogSum(habitId: string): number {
-  return logs.value
-    .filter(l => l.habit_id === habitId)
-    .reduce((s, l) => s + l.value, 0)
+  return logs.value.filter((l) => l.habit_id === habitId).reduce((s, l) => s + l.value, 0)
 }
 
 function isHabitDone(habit: HabitWithSchedule): boolean {
   if (habit.type === 'BOOLEAN') {
-    return completions.value.some(c => c.habit_id === habit.id)
+    return completions.value.some((c) => c.habit_id === habit.id)
   }
   if (habit.type === 'NUMERIC') {
     return getTodayLogSum(habit.id) >= habit.target_value
@@ -125,17 +134,17 @@ function weeklyInfo(habit: HabitWithSchedule): { done: number; target: number } 
   if (habit.schedule?.schedule_type !== 'WEEKLY_FLEX') return null
   const target = habit.schedule.frequency_count ?? 7
   if (habit.type === 'BOOLEAN') {
-    return { done: weekCompletions.value.filter(c => c.habit_id === habit.id).length, target }
+    return { done: weekCompletions.value.filter((c) => c.habit_id === habit.id).length, target }
   }
-  const days = new Set(weekLogs.value.filter(l => l.habit_id === habit.id).map(l => l.date))
+  const days = new Set(weekLogs.value.filter((l) => l.habit_id === habit.id).map((l) => l.date))
   return { done: days.size, target }
 }
 
 // ─── Progress ring ────────────────────────────────────────────────────────────
 
-const doneCount = computed(() => visibleHabits.value.filter(h => isHabitDone(h)).length)
+const doneCount = computed(() => visibleHabits.value.filter((h) => isHabitDone(h)).length)
 const total = computed(() => visibleHabits.value.length)
-const pct = computed(() => total.value > 0 ? doneCount.value / total.value : 0)
+const pct = computed(() => (total.value > 0 ? doneCount.value / total.value : 0))
 
 const R = 42
 const CIRC = 2 * Math.PI * R
@@ -160,9 +169,8 @@ async function toggle(habit: HabitWithSchedule) {
 // ─── NUMERIC log ─────────────────────────────────────────────────────────────
 
 function openLogInput(habit: HabitWithSchedule) {
-  logInputValues[habit.id] = settings.value.logInputMode === 'absolute'
-    ? getTodayLogSum(habit.id)
-    : 1
+  logInputValues[habit.id] =
+    settings.value.logInputMode === 'absolute' ? getTodayLogSum(habit.id) : 1
   logInputOpen.add(habit.id)
 }
 
@@ -174,8 +182,8 @@ async function submitLog(habit: HabitWithSchedule) {
   logging.add(habit.id)
   try {
     if (isAbsolute) {
-      const existing = logs.value.filter(l => l.habit_id === habit.id)
-      await Promise.all(existing.map(l => db.deleteHabitLog(l.id)))
+      const existing = logs.value.filter((l) => l.habit_id === habit.id)
+      await Promise.all(existing.map((l) => db.deleteHabitLog(l.id)))
       if (value > 0) await db.logHabitValue(habit.id, today, value)
     } else {
       await db.logHabitValue(habit.id, today, value)
@@ -188,7 +196,6 @@ async function submitLog(habit: HabitWithSchedule) {
     logging.delete(habit.id)
   }
 }
-
 
 onMounted(load)
 </script>
@@ -427,7 +434,7 @@ onMounted(load)
           <!-- Scribbles updated today -->
           <NuxtLink
             v-if="todayScribbles.length > 0"
-            to="/scribbles"
+            to="/jots"
             class="flex items-center gap-3 p-3 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 transition-colors"
           >
             <div class="w-8 h-8 rounded-full bg-amber-500/10 flex-shrink-0 flex items-center justify-center">
@@ -445,7 +452,7 @@ onMounted(load)
           <!-- Voice notes recorded today -->
           <NuxtLink
             v-if="todayVoiceCount > 0"
-            to="/voice"
+            to="/jots"
             class="flex items-center gap-3 p-3 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 transition-colors"
           >
             <div class="w-8 h-8 rounded-full bg-rose-500/10 flex-shrink-0 flex items-center justify-center">

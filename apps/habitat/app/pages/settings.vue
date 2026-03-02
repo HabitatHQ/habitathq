@@ -16,11 +16,11 @@ const EXPORT_GROUPS: ExportGroup[] = [
   {
     label: 'Habits',
     items: [
-      { key: 'habits',         label: 'Habits' },
-      { key: 'completions',    label: 'Completions',    parent: 'habits' },
-      { key: 'habit_logs',     label: 'Habit logs',     parent: 'habits' },
-      { key: 'habit_schedules',label: 'Habit schedules',parent: 'habits' },
-      { key: 'reminders',      label: 'Habit reminders',parent: 'habits' },
+      { key: 'habits', label: 'Habits' },
+      { key: 'completions', label: 'Completions', parent: 'habits' },
+      { key: 'habit_logs', label: 'Habit logs', parent: 'habits' },
+      { key: 'habit_schedules', label: 'Habit schedules', parent: 'habits' },
+      { key: 'reminders', label: 'Habit reminders', parent: 'habits' },
     ],
   },
   {
@@ -35,14 +35,14 @@ const EXPORT_GROUPS: ExportGroup[] = [
   {
     label: 'Other',
     items: [
-      { key: 'scribbles',     label: 'Scribbles' },
-      { key: 'checkin_entries',label: 'Journal entries' },
+      { key: 'scribbles', label: 'Scribbles' },
+      { key: 'checkin_entries', label: 'Journal entries' },
     ],
   },
   {
     label: 'TODOs & Bored',
     items: [
-      { key: 'todos',            label: 'TODOs' },
+      { key: 'todos', label: 'TODOs' },
       { key: 'bored_categories', label: 'Bored categories' },
       { key: 'bored_activities', label: 'Bored activities', parent: 'bored_categories' },
     ],
@@ -51,10 +51,20 @@ const EXPORT_GROUPS: ExportGroup[] = [
 
 function defaultExportSelection(): ExportSelection {
   return {
-    habits: true, completions: true, habit_logs: true, habit_schedules: true, reminders: true,
-    checkin_templates: true, checkin_questions: true, checkin_responses: true, checkin_reminders: true,
-    scribbles: true, checkin_entries: true,
-    todos: true, bored_categories: true, bored_activities: true,
+    habits: true,
+    completions: true,
+    habit_logs: true,
+    habit_schedules: true,
+    reminders: true,
+    checkin_templates: true,
+    checkin_questions: true,
+    checkin_responses: true,
+    checkin_reminders: true,
+    scribbles: true,
+    checkin_entries: true,
+    todos: true,
+    bored_categories: true,
+    bored_activities: true,
   }
 }
 
@@ -64,8 +74,8 @@ const exportSel = reactive<ExportSelection>(defaultExportSelection())
 const exportErrors = ref<string[]>([])
 
 const exportAllKeys = Object.keys(defaultExportSelection()) as ExportKey[]
-const exportAllSelected = computed(() => exportAllKeys.every(k => exportSel[k]))
-const exportNoneSelected = computed(() => exportAllKeys.every(k => !exportSel[k]))
+const exportAllSelected = computed(() => exportAllKeys.every((k) => exportSel[k]))
+const exportNoneSelected = computed(() => exportAllKeys.every((k) => !exportSel[k]))
 
 function toggleExportAll() {
   const next = !exportAllSelected.value
@@ -81,18 +91,18 @@ function openExportModal() {
 function validateExportFk(): string[] {
   type Rule = [child: ExportKey, parent: ExportKey, childLabel: string, parentLabel: string]
   const rules: Rule[] = [
-    ['completions',    'habits',            'Completions',    'Habits'],
-    ['habit_logs',     'habits',            'Habit logs',     'Habits'],
-    ['habit_schedules','habits',            'Habit schedules','Habits'],
-    ['reminders',      'habits',            'Habit reminders','Habits'],
-    ['checkin_questions','checkin_templates','Questions',      'Check-in templates'],
-    ['checkin_responses','checkin_questions','Responses',      'Check-in questions'],
-    ['checkin_reminders','checkin_templates','Check-in reminders','Check-in templates'],
-    ['bored_activities','bored_categories','Bored activities','Bored categories'],
+    ['completions', 'habits', 'Completions', 'Habits'],
+    ['habit_logs', 'habits', 'Habit logs', 'Habits'],
+    ['habit_schedules', 'habits', 'Habit schedules', 'Habits'],
+    ['reminders', 'habits', 'Habit reminders', 'Habits'],
+    ['checkin_questions', 'checkin_templates', 'Questions', 'Check-in templates'],
+    ['checkin_responses', 'checkin_questions', 'Responses', 'Check-in questions'],
+    ['checkin_reminders', 'checkin_templates', 'Check-in reminders', 'Check-in templates'],
+    ['bored_activities', 'bored_categories', 'Bored activities', 'Bored categories'],
   ]
   return rules
     .filter(([child, parent]) => exportSel[child] && !exportSel[parent])
-    .map(([,,childLabel, parentLabel]) => `${childLabel} require ${parentLabel}`)
+    .map(([, , childLabel, parentLabel]) => `${childLabel} require ${parentLabel}`)
 }
 
 async function downloadJson() {
@@ -167,10 +177,22 @@ async function onImportFileSelected(e: Event) {
   ;(e.target as HTMLInputElement).value = ''
   try {
     const raw = JSON.parse(await file.text()) as unknown
-    if (typeof raw !== 'object' || raw === null) { importError.value = 'Invalid file.'; showImportModal.value = true; return }
+    if (typeof raw !== 'object' || raw === null) {
+      importError.value = 'Invalid file.'
+      showImportModal.value = true
+      return
+    }
     const ver = (raw as Record<string, unknown>)['version']
-    if (typeof ver !== 'number') { importError.value = 'Missing version field — not a Habitat export.'; showImportModal.value = true; return }
-    if (ver !== 1) { importError.value = `Unsupported version ${ver}. This app supports version 1.`; showImportModal.value = true; return }
+    if (typeof ver !== 'number') {
+      importError.value = 'Missing version field — not a Habitat export.'
+      showImportModal.value = true
+      return
+    }
+    if (ver !== 1) {
+      importError.value = `Unsupported version ${ver}. This app supports version 1.`
+      showImportModal.value = true
+      return
+    }
     importPreview.value = raw as HabitatExport
     showImportModal.value = true
   } catch {
@@ -179,7 +201,9 @@ async function onImportFileSelected(e: Event) {
   }
 }
 
-function reloadPage() { window.location.reload() }
+function reloadPage() {
+  window.location.reload()
+}
 
 async function confirmImport() {
   if (!importPreview.value || !db.isAvailable) return
@@ -193,14 +217,31 @@ async function confirmImport() {
   }
 }
 
-// ─── Voice notes ZIP ──────────────────────────────────────────────────────────
+// ─── Jots ZIP export ──────────────────────────────────────────────────────────
 
-interface VoiceNoteRaw { id: string; blob: Blob; mimeType: string; created_at: string }
+interface VoiceNoteRaw {
+  id: string
+  blob: Blob
+  mimeType: string
+  created_at: string
+}
 
-function openVoiceIdb(): Promise<IDBDatabase> {
+interface ImageNoteRaw {
+  id: string
+  blob: Blob
+  mimeType: string
+  filename: string
+  created_at: string
+}
+
+function openJotsIdb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open('habitat', 1)
-    req.onupgradeneeded = () => req.result.createObjectStore('voice_notes', { keyPath: 'id' })
+    const req = indexedDB.open('habitat', 2)
+    req.onupgradeneeded = (e) => {
+      const idb = req.result
+      if (e.oldVersion < 1) idb.createObjectStore('voice_notes', { keyPath: 'id' })
+      if (e.oldVersion < 2) idb.createObjectStore('image_notes', { keyPath: 'id' })
+    }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
   })
@@ -214,34 +255,77 @@ function idbGetAllNotes(idb: IDBDatabase): Promise<VoiceNoteRaw[]> {
   })
 }
 
-const exportingVoiceZip = ref(false)
+function idbGetAllImages(idb: IDBDatabase): Promise<ImageNoteRaw[]> {
+  return new Promise((resolve, reject) => {
+    const req = idb.transaction('image_notes', 'readonly').objectStore('image_notes').getAll()
+    req.onsuccess = () => resolve(req.result as ImageNoteRaw[])
+    req.onerror = () => reject(req.error)
+  })
+}
 
-async function exportVoiceNotesZip() {
-  exportingVoiceZip.value = true
+const showJotsExportModal = ref(false)
+const exportingJots = ref(false)
+const jotsExportSel = reactive({ text: true, voice: true, images: true })
+
+async function exportJotsZip() {
+  exportingJots.value = true
   try {
-    const idb = await openVoiceIdb()
-    const notes = await idbGetAllNotes(idb)
-    if (notes.length === 0) return
     const files: Record<string, Uint8Array> = {}
-    for (const note of notes) {
-      const ext = note.mimeType.split('/')[1]?.split(';')[0] ?? 'audio'
-      const ts = note.created_at.slice(0, 19).replace(/[:.]/g, '-')
-      files[`${ts}.${ext}`] = new Uint8Array(await note.blob.arrayBuffer())
+
+    if (jotsExportSel.text && db.isAvailable) {
+      const textJots = await db.getScribbles()
+      const json = JSON.stringify(
+        { version: 1, exported_at: new Date().toISOString(), text: textJots },
+        null,
+        2,
+      )
+      files['jots.json'] = new TextEncoder().encode(json)
+      for (const jot of textJots) {
+        const body = jot.title ? `${jot.title}\n\n${jot.content}` : jot.content
+        const ts = jot.updated_at.slice(0, 19).replace(/[:.]/g, '-')
+        files[`text/${ts}.txt`] = new TextEncoder().encode(body)
+      }
     }
+
+    if (jotsExportSel.voice || jotsExportSel.images) {
+      const idb = await openJotsIdb()
+      if (jotsExportSel.voice) {
+        const notes = await idbGetAllNotes(idb)
+        for (const note of notes) {
+          const ext = note.mimeType.split('/')[1]?.split(';')[0] ?? 'audio'
+          const ts = note.created_at.slice(0, 19).replace(/[:.]/g, '-')
+          files[`voice/${ts}.${ext}`] = new Uint8Array(await note.blob.arrayBuffer())
+        }
+      }
+      if (jotsExportSel.images) {
+        const images = await idbGetAllImages(idb)
+        for (const img of images) {
+          const ext = img.mimeType.split('/')[1] ?? 'jpg'
+          const ts = img.created_at.slice(0, 19).replace(/[:.]/g, '-')
+          files[`images/${ts}.${ext}`] = new Uint8Array(await img.blob.arrayBuffer())
+        }
+      }
+    }
+
+    if (Object.keys(files).length === 0) return
+
     const zipped = zipSync(files)
-    const url = URL.createObjectURL(new Blob([zipped.buffer as ArrayBuffer], { type: 'application/zip' }))
+    const url = URL.createObjectURL(
+      new Blob([zipped.buffer as ArrayBuffer], { type: 'application/zip' }),
+    )
     try {
       const a = document.createElement('a')
       a.href = url
-      a.download = `habitat-voice-${new Date().toISOString().slice(0, 10)}.zip`
+      a.download = `habitat-jots-${new Date().toISOString().slice(0, 10)}.zip`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
     } finally {
       URL.revokeObjectURL(url)
     }
+    showJotsExportModal.value = false
   } finally {
-    exportingVoiceZip.value = false
+    exportingJots.value = false
   }
 }
 
@@ -252,7 +336,7 @@ function clearIdb(): Promise<void> {
   return new Promise((resolve) => {
     const req = indexedDB.deleteDatabase('habitat')
     req.onsuccess = () => resolve()
-    req.onerror = () => resolve()   // best-effort
+    req.onerror = () => resolve() // best-effort
     req.onblocked = () => resolve()
   })
 }
@@ -275,7 +359,7 @@ const wiped = ref(false)
  */
 async function fullWipe(reload: boolean): Promise<void> {
   localStorage.removeItem('habitat-has-data')
-  await db.nukeOpfs()   // worker closes DB + removes every OPFS entry
+  await db.nukeOpfs() // worker closes DB + removes every OPFS entry
   await clearIdb()
   clearLocalStorage()
   // journal entries live in localStorage under journal-YYYY-MM-DD keys
@@ -305,14 +389,18 @@ const healthSetup = reactive({
   ] as { name: string; calories: number }[],
 })
 
-function addMeal() { healthSetup.meals.push({ name: '', calories: 600 }) }
-function removeMeal(i: number) { healthSetup.meals.splice(i, 1) }
+function addMeal() {
+  healthSetup.meals.push({ name: '', calories: 600 })
+}
+function removeMeal(i: number) {
+  healthSetup.meals.splice(i, 1)
+}
 
 async function onHealthToggle(value: boolean) {
   setAppSetting('enableHealth', value)
   if (value && db.isAvailable) {
     const allHabits = await db.getHabits()
-    if (!allHabits.some(h => h.tags.includes('habitat-health'))) {
+    if (!allHabits.some((h) => h.tags.includes('habitat-health'))) {
       showHealthSetup.value = true
     }
   }
@@ -371,20 +459,48 @@ const clearSelection = reactive({
 })
 
 const clearItems = [
-  { key: 'habits',         label: 'Habits & completions',           description: 'All habits, logs, and completion history' },
-  { key: 'checkinEntries', label: 'Check-in entries',               description: 'Daily check-in answers stored in the DB' },
-  { key: 'checkins',       label: 'Check-in templates & responses', description: 'All templates, questions, and recorded answers' },
-  { key: 'scribbles',      label: 'Scribbles',                      description: 'All free-form notes' },
-  { key: 'voiceNotes',     label: 'Voice recordings',               description: 'IndexedDB audio data' },
-  { key: 'todos',          label: 'TODOs',                          description: 'All tasks and their history' },
-  { key: 'boredData',      label: 'Bored activities',               description: 'All custom activities (system categories preserved)' },
-  { key: 'appliedDefaults', label: 'Applied defaults',              description: 'Re-enables seeding of default check-in templates' },
+  {
+    key: 'habits',
+    label: 'Habits & completions',
+    description: 'All habits, logs, and completion history',
+  },
+  {
+    key: 'checkinEntries',
+    label: 'Check-in entries',
+    description: 'Daily check-in answers stored in the DB',
+  },
+  {
+    key: 'checkins',
+    label: 'Check-in templates & responses',
+    description: 'All templates, questions, and recorded answers',
+  },
+  { key: 'scribbles', label: 'Scribbles', description: 'All free-form notes' },
+  { key: 'voiceNotes', label: 'Voice recordings', description: 'IndexedDB audio data' },
+  { key: 'todos', label: 'TODOs', description: 'All tasks and their history' },
+  {
+    key: 'boredData',
+    label: 'Bored activities',
+    description: 'All custom activities (system categories preserved)',
+  },
+  {
+    key: 'appliedDefaults',
+    label: 'Applied defaults',
+    description: 'Re-enables seeding of default check-in templates',
+  },
 ] as const
 
-const nothingSelected = computed(() =>
-  !(clearSelection.habits || clearSelection.checkinEntries || clearSelection.checkins ||
-    clearSelection.scribbles || clearSelection.voiceNotes || clearSelection.todos ||
-    clearSelection.boredData || clearSelection.appliedDefaults),
+const nothingSelected = computed(
+  () =>
+    !(
+      clearSelection.habits ||
+      clearSelection.checkinEntries ||
+      clearSelection.checkins ||
+      clearSelection.scribbles ||
+      clearSelection.voiceNotes ||
+      clearSelection.todos ||
+      clearSelection.boredData ||
+      clearSelection.appliedDefaults
+    ),
 )
 
 async function clearAppData() {
@@ -392,17 +508,17 @@ async function clearAppData() {
   clearing.value = true
   try {
     const ops: Promise<unknown>[] = []
-    if (clearSelection.habits)         ops.push(db.deleteAllHabits())
+    if (clearSelection.habits) ops.push(db.deleteAllHabits())
     if (clearSelection.checkinEntries) ops.push(db.deleteAllCheckinEntries())
-    if (clearSelection.checkins)       ops.push(db.deleteAllCheckinData())
-    if (clearSelection.scribbles)      ops.push(db.deleteAllScribbles())
-    if (clearSelection.todos)          ops.push(db.deleteAllTodos())
-    if (clearSelection.boredData)      ops.push(db.deleteAllBoredData())
+    if (clearSelection.checkins) ops.push(db.deleteAllCheckinData())
+    if (clearSelection.scribbles) ops.push(db.deleteAllScribbles())
+    if (clearSelection.todos) ops.push(db.deleteAllTodos())
+    if (clearSelection.boredData) ops.push(db.deleteAllBoredData())
     if (clearSelection.appliedDefaults) ops.push(db.clearAppliedDefaults())
     await Promise.all(ops)
     if (clearSelection.checkinEntries) clearLocalStorage()
     if (clearSelection.voiceNotes) await clearIdb()
-    if (clearSelection.habits)     localStorage.removeItem('habitat-has-data')
+    if (clearSelection.habits) localStorage.removeItem('habitat-has-data')
     showClearModal.value = false
   } finally {
     clearing.value = false
@@ -442,17 +558,18 @@ async function runIntegrityCheck() {
   }
 }
 
-const integrityOk = computed(() =>
-  integrityResults.value !== null &&
-  integrityResults.value.length === 1 &&
-  integrityResults.value[0] === 'ok',
+const integrityOk = computed(
+  () =>
+    integrityResults.value !== null &&
+    integrityResults.value.length === 1 &&
+    integrityResults.value[0] === 'ok',
 )
 
 // ─── Advanced: DB info ────────────────────────────────────────────────────────
 
-import { zipSync } from 'fflate'
 import { Capacitor } from '@capacitor/core'
-import type { DbInfo, HabitatExport, ExportSelection } from '~/types/database'
+import { zipSync } from 'fflate'
+import type { DbInfo, ExportSelection, HabitatExport } from '~/types/database'
 
 const dbInfoOpen = ref(false)
 const dbInfo = ref<DbInfo | null>(null)
@@ -488,7 +605,7 @@ async function walkOpfs(dir: FileSystemDirectoryHandle, prefix = ''): Promise<Op
   for await (const [name, handle] of dir.entries()) {
     const path = prefix ? `${prefix}/${name}` : name
     if ((handle as FileSystemHandle).kind === 'directory') {
-      out.push(...await walkOpfs(handle as FileSystemDirectoryHandle, path))
+      out.push(...(await walkOpfs(handle as FileSystemDirectoryHandle, path)))
     } else {
       const file = await (handle as FileSystemFileHandle).getFile()
       out.push({ path, size: file.size })
@@ -528,12 +645,12 @@ async function forceReload() {
     // Unregister every SW for this origin so the browser installs a fresh one
     if ('serviceWorker' in navigator) {
       const registrations = await navigator.serviceWorker.getRegistrations()
-      await Promise.all(registrations.map(r => r.unregister()))
+      await Promise.all(registrations.map((r) => r.unregister()))
     }
     // Clear all Cache API caches (SW asset caches) — OPFS is unaffected
     if ('caches' in window) {
       const keys = await caches.keys()
-      await Promise.all(keys.map(k => caches.delete(k)))
+      await Promise.all(keys.map((k) => caches.delete(k)))
     }
     window.location.reload()
   } catch {
@@ -543,7 +660,8 @@ async function forceReload() {
 
 // ─── Install ──────────────────────────────────────────────────────────────────
 
-const { isInstalled, canInstall, isIosSafari, isChromiumNoPrompt, installing, install } = useInstall()
+const { isInstalled, canInstall, isIosSafari, isChromiumNoPrompt, installing, install } =
+  useInstall()
 const isNativeApp = Capacitor.isNativePlatform()
 const showInstallModal = ref(false)
 
@@ -589,7 +707,12 @@ onMounted(async () => {
 
 // ─── Licenses ─────────────────────────────────────────────────────────────────
 
-interface LicenseEntry { name: string; version: string; license: string | null; homepage: string | null }
+interface LicenseEntry {
+  name: string
+  version: string
+  license: string | null
+  homepage: string | null
+}
 const showLicensesModal = ref(false)
 const licenses = ref<LicenseEntry[]>([])
 const licensesLoading = ref(false)
@@ -637,7 +760,9 @@ const aboutOpen = ref(false)
 const diagOpen = ref(false)
 const dragonsOpen = ref(false)
 
-watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
+watch(diagOpen, (open) => {
+  if (open) loadStorageEstimate()
+})
 </script>
 
 <template>
@@ -1098,16 +1223,15 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
 
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
-            <p class="text-sm font-medium">Export voice notes</p>
-            <p class="text-xs text-slate-500">Download all voice recordings as a <span class="font-mono">.zip</span> archive.</p>
+            <p class="text-sm font-medium">Export Jots</p>
+            <p class="text-xs text-slate-500">Download text notes, voice recordings, and images as a <span class="font-mono">.zip</span>.</p>
           </div>
           <UButton
-            icon="i-heroicons-musical-note"
+            icon="i-heroicons-document-text"
             variant="ghost"
             color="neutral"
             size="sm"
-            :loading="exportingVoiceZip"
-            @click="exportVoiceNotesZip"
+            @click="showJotsExportModal = true"
           />
         </div>
 
@@ -1586,6 +1710,57 @@ watch(diagOpen, (open) => { if (open) loadStorageEstimate() })
             >
               Download
             </UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
+
+    <!-- ── Jots export modal ─────────────────────────────────────────────────── -->
+    <UModal v-model:open="showJotsExportModal">
+      <template #content>
+        <div class="p-5 space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="font-semibold text-slate-100">Export Jots</h3>
+            <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" @click="showJotsExportModal = false" />
+          </div>
+
+          <p class="text-sm text-slate-400">Choose which types to include. All selected types are bundled into a single <span class="font-mono">.zip</span>.</p>
+
+          <div class="space-y-3">
+            <label class="flex items-start gap-3 cursor-pointer">
+              <input v-model="jotsExportSel.text" type="checkbox" class="mt-0.5 accent-primary-500" />
+              <div>
+                <p class="text-sm font-medium text-slate-100">Text notes</p>
+                <p class="text-xs text-slate-500">One <span class="font-mono">.txt</span> per note in <span class="font-mono">text/</span> + <span class="font-mono">jots.json</span></p>
+              </div>
+            </label>
+            <label class="flex items-start gap-3 cursor-pointer">
+              <input v-model="jotsExportSel.voice" type="checkbox" class="mt-0.5 accent-primary-500" />
+              <div>
+                <p class="text-sm font-medium text-slate-100">Voice recordings</p>
+                <p class="text-xs text-slate-500">Audio files in a <span class="font-mono">voice/</span> folder</p>
+              </div>
+            </label>
+            <label class="flex items-start gap-3 cursor-pointer">
+              <input v-model="jotsExportSel.images" type="checkbox" class="mt-0.5 accent-primary-500" />
+              <div>
+                <p class="text-sm font-medium text-slate-100">Images</p>
+                <p class="text-xs text-slate-500">Photos in an <span class="font-mono">images/</span> folder</p>
+              </div>
+            </label>
+          </div>
+
+          <div class="flex gap-2 pt-1">
+            <UButton
+              class="flex-1"
+              icon="i-heroicons-arrow-down-tray"
+              :loading="exportingJots"
+              :disabled="!jotsExportSel.text && !jotsExportSel.voice && !jotsExportSel.images"
+              @click="exportJotsZip"
+            >
+              Download .zip
+            </UButton>
+            <UButton variant="outline" color="neutral" @click="showJotsExportModal = false">Cancel</UButton>
           </div>
         </div>
       </template>
