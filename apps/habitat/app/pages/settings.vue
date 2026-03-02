@@ -911,6 +911,13 @@ watch(diagOpen, (open) => {
               >+</button>
             </div>
           </div>
+          <div v-if="appSettings.enableWeek" class="flex items-center justify-between px-4 pb-3">
+            <p class="text-sm text-(--ui-text-muted)">Newest day first</p>
+            <USwitch
+              :model-value="appSettings.matrixReverseDays"
+              @update:model-value="setAppSetting('matrixReverseDays', $event)"
+            />
+          </div>
         </div>
 
         <div class="px-4 pt-3 pb-1">

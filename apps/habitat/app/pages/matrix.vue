@@ -37,7 +37,7 @@ const days = computed(() => {
     d.setDate(d.getDate() - i)
     result.push(d.toISOString().slice(0, 10))
   }
-  return result
+  return settings.value.matrixReverseDays ? result.reverse() : result
 })
 
 // ─── Data ─────────────────────────────────────────────────────────────────────

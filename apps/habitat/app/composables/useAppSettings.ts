@@ -6,6 +6,7 @@ export interface AppSettings {
   enableTodos: boolean
   enableBored: boolean
   weekDays: number
+  matrixReverseDays: boolean
   showTagsOnHabits: boolean
   showAnnotationsOnHabits: boolean
   showTagsOnToday: boolean
@@ -27,6 +28,7 @@ const DEFAULTS: AppSettings = {
   enableTodos: false,
   enableBored: false,
   weekDays: 3,
+  matrixReverseDays: false,
   showTagsOnHabits: false,
   showAnnotationsOnHabits: false,
   showTagsOnToday: false,
