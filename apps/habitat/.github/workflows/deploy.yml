@@ -3,6 +3,19 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '*.md'
+      - '.claude/**'
+      - '.gitignore'
+      - '.idea/**'
+      - 'capacitor.config.ts'
+      - 'biome.json'
+      - 'tsconfig.json'
+      - 'vitest.config*.ts'
+      - 'playwright*.config.ts'
+      - 'tests/**'
+      - 'android/**'
+      - '.github/workflows/build-android.yml'
   workflow_dispatch:
 
 # Allow the workflow to push to gh-pages
