@@ -1,10 +1,14 @@
-# Nuxt
+# Build output
 .nuxt/
 .output/
 .data/
-dist/
+.cache/
+coverage/
+playwright-report/
+test-results/
+dist
 
-# Node
+# Node and pnpm
 node_modules/
 .pnpm-debug.log*
 
@@ -16,16 +20,46 @@ ios/
 .env.*
 !.env.example
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
-logs/
-*.log
-
 # TypeScript
 *.tsbuildinfo
 
 # Generated at build time
 public/licenses.json
+
+### OS Files ###
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+*.lnk
+
+### Editor and IDE Files ###
+.idea
+*.iws
+*.sublime-workspace
+*.swp
+*.tmp
+.vscode/
+.vs/
+.aider*
+
+### Others ###
+
+# local only files
+scratch/
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+*.log
