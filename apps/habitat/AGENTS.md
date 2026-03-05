@@ -32,14 +32,17 @@ Both paths share the same `WorkerRequest` / `WorkerResponse<T>` message types.
 | `app/composables/useDatabase.ts` | All DB ops exposed to pages |
 | `app/composables/useAppSettings.ts` | Feature flags + UI prefs (localStorage) |
 | `app/composables/useNotifications.ts` | Notifications (web + native) |
+| `app/composables/useTimer.ts` | Timer/Focus feature (stopwatch, countdown, pomodoro) |
 | `app/types/database.ts` | All types, WorkerRequest union, export types |
 | `app/layouts/default.vue` | Header + bottom nav (filtered by settings flags) |
+| `app/utils/` | Pure helpers: `format.ts`, `scribble.ts`, `habit-helpers.ts`, `checkin-helpers.ts`, `todos-helpers.ts` |
 
 ## Schema (user_version = 11)
 
 habits, completions, habit_schedules, habit_logs, checkin_templates, checkin_questions, checkin_responses, checkin_reminders, scribbles, reminders, bored_categories, bored_activities, todos, applied_defaults
 
 Journal entries: localStorage (`journal-YYYY-MM-DD`).
+Voice notes + image notes: IndexedDB (`habitat` DB, version 2).
 
 ## Adding a DB Operation
 
@@ -54,13 +57,13 @@ Schema changes: increment `user_version`, add migration ALTER TABLE, mirror in `
 
 Pass-through parents (`habits.vue`, `checkin.vue`, `bored.vue`) contain only `<NuxtPage />` — required for nested routing. Dynamic children use `[id].vue`.
 
-Routes: `/`, `/week`, `/habits`, `/habits/[id]`, `/health`, `/todos`, `/bored`, `/bored/activities`, `/checkin`, `/checkin/[id]`, `/scribbles`, `/voice`, `/stats`, `/archive`, `/settings`
+Routes: `/`, `/week`, `/habits`, `/habits/[id]`, `/health`, `/todos`, `/bored`, `/bored/activities`, `/checkin`, `/checkin/[id]`, `/jots`, `/stats`, `/archive`, `/settings`
 
 ## Conventions
 
 **TypeScript**: `exactOptionalPropertyTypes`, `noPropertyAccessFromIndexSignature` — use bracket notation for index properties, no `as` casts to suppress errors.
 
-**Feature flags**: add to `AppSettings` in `useAppSettings.ts`, gate nav item in `default.vue`.
+**Feature flags**: add to `AppSettings` in `useAppSettings.ts`, gate nav item in `default.vue`. Current flags: `enableTodos`, `enableBored`, `enableTimer`, `journalling`.
 
 **Platform guard**: `if (!Capacitor.isNativePlatform())` before any OPFS logic.
 

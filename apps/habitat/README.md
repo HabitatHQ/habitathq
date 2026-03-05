@@ -13,9 +13,13 @@ The same codebase ships as a PWA (installable web app) and as native iOS/Android
 - **Habits** — daily/custom frequency, streaks, completion history
 - **Check-ins** — templated questionnaires for reflection (morning, evening, weekly)
 - **Journal** — daily freeform notes (stored in localStorage)
-- **TODOs** — recurring and one-off tasks
+- **Jots** — unified timeline for text notes, voice recordings, and images (stored in IndexedDB)
+- **TODOs** — recurring and one-off tasks with priority, due dates, and timer integration
+- **Bored oracle** — random activity picker from user-defined categories
+- **Timer/Focus** — stopwatch, countdown, and pomodoro timer attached to any task or habit
 - **Stats** — completion trends and streaks
-- **Export/Import** — full JSON backup, voice notes ZIP
+- **Themes** — Habitat (cyan), Forest, Ocean; light/dark mode per theme
+- **Export/Import** — full JSON backup + ZIP export for jots (text, voice, images)
 
 ## Tech Stack
 
@@ -38,12 +42,13 @@ On native, the same message types are dispatched directly to `@capacitor-communi
 app/
   pages/          # File-based routes
   layouts/        # default.vue — header + bottom nav
-  composables/    # useDatabase, useHaptics, usePlatform
+  composables/    # useDatabase, useTimer, useHaptics, usePlatform, useNotifications
   plugins/        # database.client.ts — worker/native bridge
   workers/        # database.worker.ts — SQLite WASM engine
   types/          # Shared types (Habit, Completion, worker messages)
   lib/            # db-native.ts — Capacitor SQLite implementation
-  assets/css/     # Tailwind + safe-area utilities
+  utils/          # Pure helpers: format, scribble, habit/checkin/todos helpers
+  assets/css/     # Tailwind + themes + safe-area utilities
 ```
 
 ## Getting Started
@@ -77,8 +82,18 @@ pnpm check:fix    # auto-fix
 pnpm typecheck    # TypeScript
 ```
 
+## Testing
+
+```bash
+pnpm test           # unit tests (Vitest + happy-dom)
+pnpm test:e2e       # E2E tests (Playwright)
+pnpm test:a11y      # accessibility tests (axe-core)
+```
+
+Unit tests live in `tests/unit/`, E2E in `tests/e2e/`, a11y in `tests/a11y/`.
+
 ## Notes
 
-- No tests exist in this project.
 - OPFS requires `Cross-Origin-Isolation` headers (`COOP`/`COEP`), handled by `coi-serviceworker` in dev and the PWA service worker in production.
 - The `BUILD_TARGET` env var (`pwa` | `native`) controls whether the PWA manifest/service worker are bundled.
+- Feature flags in `useAppSettings.ts` gate optional pages (Todos, Bored, Timer, Jots) to keep the nav uncluttered by default.
