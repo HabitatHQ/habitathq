@@ -1,2 +1,4 @@
-// @palladium/react — implementation pending
-export {};
+// @palladium/react — public API
+export { PalladiumProvider, usePalladium } from "./provider.js";
+export { useLiveQuery } from "./use-live-query.js";
+export { useSyncStatus } from "./use-sync-status.js";
