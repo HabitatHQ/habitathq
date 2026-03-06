@@ -1,0 +1,87 @@
+#!/usr/bin/env just --justfile
+
+# List available recipes
+default:
+    @just --list
+
+# ── TypeScript ────────────────────────────────────────────────────────────────
+
+# Lint all TypeScript with Biome (runs once from repo root)
+lint-ts:
+    pnpm exec biome check .
+
+# Format all TypeScript with Biome (runs once from repo root)
+fmt-ts:
+    pnpm exec biome format --write .
+
+# Run all TypeScript tests via Vitest workspace
+test-ts:
+    pnpm exec vitest run
+
+# Type-check all TypeScript packages
+typecheck-ts:
+    pnpm -r run typecheck
+
+# Build all TypeScript packages
+build-ts:
+    pnpm -r run build
+
+# ── Rust ──────────────────────────────────────────────────────────────────────
+
+# Lint Rust workspace with Clippy
+lint-rust:
+    cargo clippy --workspace --all-features --all-targets -- -D warnings
+
+# Format Rust workspace
+fmt-rust:
+    cargo fmt --all
+
+# Run all Rust tests
+test-rust:
+    cargo test --workspace --all-features
+
+# Check Rust workspace (no codegen)
+check-rust:
+    cargo check --workspace --all-features
+
+# Build Rust workspace
+build-rust:
+    cargo build --workspace --all-features
+
+# Build Rust workspace (release)
+build-rust-release:
+    cargo build --workspace --all-features --release
+
+# ── Security / Auditing ───────────────────────────────────────────────────────
+
+# Run cargo-deny license + advisory checks
+deny:
+    cargo deny check
+
+# Run cargo-audit vulnerability scan
+audit:
+    cargo audit
+
+# Check for unused dependencies
+machete:
+    cargo machete
+
+# ── Combined ──────────────────────────────────────────────────────────────────
+
+# Lint everything
+lint: lint-ts lint-rust
+
+# Format everything
+fmt: fmt-ts fmt-rust
+
+# Test everything
+test: test-ts test-rust
+
+# Build everything
+build: build-ts build-rust
+
+# Full CI check (matches CI pipeline)
+ci: lint test deny audit
+
+# Pre-release check (includes machete)
+preflight: ci machete typecheck-ts
