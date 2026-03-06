@@ -1,2 +1,2 @@
-// @palladium/kysely — implementation pending
-export {};
+// @palladium/kysely — public API
+export { PalladiumDialect } from "./dialect.js";

@@ -51,8 +51,8 @@ export class MemoryAdapter implements StorageAdapter {
 
     const allRows = [...(this.#store.get(table)?.values() ?? [])];
 
-    // WHERE id = <value>
-    const idMatch = /WHERE\s+id\s*=\s*(.+)/i.exec(expanded);
+    // WHERE id = <value> (also handles backtick-quoted `id` from Kysely)
+    const idMatch = /WHERE\s+`?id`?\s*=\s*(.+)/i.exec(expanded);
     if (idMatch !== null) {
       const rawVal = idMatch[1]?.trim();
       const id = parseJsonValue(rawVal);
@@ -73,7 +73,8 @@ export class MemoryAdapter implements StorageAdapter {
 }
 
 function extractTable(sql: string): string | null {
-  const m = /FROM\s+([a-zA-Z_][a-zA-Z0-9_]*)/i.exec(sql);
+  // Match bare names and backtick-quoted names (e.g. from Kysely's MySQL compiler).
+  const m = /FROM\s+`?([a-zA-Z_][a-zA-Z0-9_]*)`?/i.exec(sql);
   return m?.[1]?.toLowerCase() ?? null;
 }
 
