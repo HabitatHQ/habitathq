@@ -148,4 +148,69 @@ describe("LiveQuery", () => {
     await lq.notifyTables(["tasks"]);
     expect(cb).toHaveBeenCalledTimes(2);
   });
+
+  // cancel() must set #cancelled so the guard blocks even when listeners are re-added.
+  it("cancel() blocks notifyTables even if a listener is added after cancellation", async () => {
+    const adapter = makeAdapter([]);
+    const lq = new LiveQuery(makeQuery(), adapter);
+    lq.cancel();
+
+    const cb = vi.fn();
+    lq.on("change", cb);
+    await lq.notifyTables(["tasks"]);
+    expect(cb).not.toHaveBeenCalled();
+  });
+
+  it("notifyTables does not call the adapter after cancel()", async () => {
+    const adapter = makeAdapter([]);
+    const lq = new LiveQuery(makeQuery(), adapter);
+    lq.cancel();
+    await lq.notifyTables(["tasks"]);
+    expect(adapter.exec).not.toHaveBeenCalled();
+  });
+
+  it("refresh() does not call the adapter after cancel()", async () => {
+    const adapter = makeAdapter([]);
+    const lq = new LiveQuery(makeQuery(), adapter);
+    lq.cancel();
+    await lq.refresh();
+    expect(adapter.exec).not.toHaveBeenCalled();
+  });
+
+  // Error isolation in #runAndNotify.
+  it("single throwing listener re-throws the raw error", async () => {
+    const adapter = makeAdapter([]);
+    const lq = new LiveQuery(makeQuery(), adapter);
+    const err = new Error("boom");
+    lq.on("change", () => {
+      throw err;
+    });
+    await expect(lq.notifyTables(["tasks"])).rejects.toBe(err);
+  });
+
+  it("multiple throwing listeners wrap errors in AggregateError with the right message", async () => {
+    const adapter = makeAdapter([]);
+    const lq = new LiveQuery(makeQuery(), adapter);
+    lq.on("change", () => {
+      throw new Error("e1");
+    });
+    lq.on("change", () => {
+      throw new Error("e2");
+    });
+    await expect(lq.notifyTables(["tasks"])).rejects.toMatchObject({
+      message: "One or more LiveQuery listeners threw",
+    });
+  });
+
+  it("non-throwing listeners still run even if a prior listener throws", async () => {
+    const adapter = makeAdapter([]);
+    const lq = new LiveQuery(makeQuery(), adapter);
+    const cb = vi.fn();
+    lq.on("change", () => {
+      throw new Error("first");
+    });
+    lq.on("change", cb);
+    await lq.notifyTables(["tasks"]).catch(() => {});
+    expect(cb).toHaveBeenCalledOnce();
+  });
 });

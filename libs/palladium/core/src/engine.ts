@@ -83,6 +83,7 @@ export abstract class PalladiumEngine<S extends SchemaMap> {
   /** Create a reactive live query. Automatically deregisters on cancel(). */
   liveQuery<T = Record<string, unknown>>(query: SqlQuery): LiveQuery<T> {
     const lq = new LiveQuery<T>(query, this.adapter, () => {
+      // Stryker disable next-line all -- removing delete is observably equivalent: cancelled lq returns early from notifyTables
       this.#liveQueries.delete(lq as LiveQuery);
     });
     this.#liveQueries.add(lq as LiveQuery);

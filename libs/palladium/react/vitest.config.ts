@@ -6,6 +6,8 @@ export default defineConfig({
     environment: "happy-dom",
     coverage: {
       provider: "v8",
+      include: ["src/**/*.ts", "src/**/*.tsx"],
+      exclude: ["src/**/__tests__/**", "src/index.ts", "src/index.tsx"],
       thresholds: {
         lines: 80,
         functions: 80,

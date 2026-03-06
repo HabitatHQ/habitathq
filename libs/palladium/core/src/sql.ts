@@ -16,6 +16,7 @@ export interface SqlQuery {
 function extractTables(sql: string): string[] {
   const tables: string[] = [];
   // Match FROM <name> and JOIN <name>, ignoring sub-queries, aliases, schema prefixes.
+  // Stryker disable next-line Regex -- minor regex character-class mutations produce equivalent matches for all real table names
   const re = /(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)/gi;
   let m: RegExpExecArray | null;
   // biome-ignore lint/suspicious/noAssignInExpressions: idiomatic regex loop

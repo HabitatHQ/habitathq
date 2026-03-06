@@ -133,4 +133,35 @@ describe("MemoryAdapter", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.id).toBe("t1");
   });
+
+  it("_patch on an existing table but non-existent row is a no-op", async () => {
+    const adapter = new MemoryAdapter();
+    adapter._put("tasks", "t1", { id: "t1", name: "A" });
+    adapter._patch("tasks", "ghost", { name: "X" });
+    const rows = await adapter.exec<Task>("SELECT * FROM tasks");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe("t1");
+  });
+
+  it("exec does not mutate the caller's params array", async () => {
+    const adapter = new MemoryAdapter();
+    adapter._put("tasks", "t1", { id: "t1" });
+    const params = ["t1"];
+    await adapter.exec("SELECT * FROM tasks WHERE id = ?", params);
+    expect(params).toEqual(["t1"]);
+  });
+
+  it("exec returns empty array for SQL with no FROM clause", async () => {
+    const adapter = new MemoryAdapter();
+    const rows = await adapter.exec("SELECT 1");
+    expect(rows).toEqual([]);
+  });
+
+  it("exec WHERE with a non-JSON bare value falls back to raw string match", async () => {
+    const adapter = new MemoryAdapter();
+    adapter._put("tasks", "t1", { id: "t1" });
+    // "t1" is not valid JSON; parseJsonValue returns the raw string.
+    const rows = await adapter.exec("SELECT * FROM tasks WHERE id = t1");
+    expect(rows).toHaveLength(1);
+  });
 });

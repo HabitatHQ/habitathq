@@ -26,6 +26,8 @@ export default defineConfig({
     environment: "node",
     coverage: {
       provider: "v8",
+      include: ["src/**/*.ts"],
+      exclude: ["src/**/__tests__/**", "src/index.ts"],
       thresholds: {
         lines: 80,
         functions: 80,

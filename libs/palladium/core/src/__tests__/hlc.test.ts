@@ -136,4 +136,120 @@ describe("Hlc", () => {
     const hlc = { wallMs: 1_700_000_000_000, counter: 0, nodeId: "node-a-b-c" };
     expect(hlcFromString(hlcToString(hlc))).toEqual(hlc);
   });
+
+  it("hlcFromString accepts a short unpadded string with firstDash at position 1", () => {
+    // Kills the UnaryOperator mutation that changes `firstDash === -1` to `firstDash === +1`:
+    // a valid string like "1-0-n" has firstDash=1, so the mutant would wrongly throw.
+    const parsed = hlcFromString("1-0-n");
+    expect(parsed.wallMs).toBe(1);
+    expect(parsed.counter).toBe(0);
+    expect(parsed.nodeId).toBe("n");
+  });
+
+  // recvHlc branch coverage: verify exact counter values for each code path.
+
+  it("recvHlc: local wallMs is the max — returns local.counter + 1", () => {
+    // Freeze now below local.wallMs so local wins.
+    vi.setSystemTime(500);
+    const local = { wallMs: 600, counter: 5, nodeId: "a" };
+    const remote = { wallMs: 400, counter: 10, nodeId: "b" };
+    const merged = recvHlc(local, remote);
+    expect(merged.wallMs).toBe(600);
+    expect(merged.counter).toBe(6); // local.counter + 1, NOT max(5,10)+1=11
+    expect(merged.nodeId).toBe("a");
+    vi.useRealTimers();
+  });
+
+  it("recvHlc: remote wallMs is the max — returns remote.counter + 1", () => {
+    vi.setSystemTime(500);
+    const local = { wallMs: 400, counter: 5, nodeId: "a" };
+    const remote = { wallMs: 600, counter: 10, nodeId: "b" };
+    const merged = recvHlc(local, remote);
+    expect(merged.wallMs).toBe(600);
+    expect(merged.counter).toBe(11); // remote.counter + 1
+    expect(merged.nodeId).toBe("a");
+    vi.useRealTimers();
+  });
+
+  it("recvHlc: remote wallMs is the max with local counter higher — still returns remote.counter + 1 not max", () => {
+    // Distinguishes the remote-wins branch from the all-equal branch:
+    // When remote.wallMs = maxWall but local.counter > remote.counter,
+    // result must be remote.counter+1 (not max(local,remote)+1).
+    vi.setSystemTime(300);
+    const local = { wallMs: 200, counter: 15, nodeId: "a" };
+    const remote = { wallMs: 600, counter: 2, nodeId: "b" };
+    const merged = recvHlc(local, remote);
+    expect(merged.wallMs).toBe(600);
+    expect(merged.counter).toBe(3); // remote.counter + 1, NOT max(15,2)+1=16
+    vi.useRealTimers();
+  });
+
+  it("recvHlc: now > both — resets counter to 0", () => {
+    vi.setSystemTime(700);
+    const local = { wallMs: 400, counter: 5, nodeId: "a" };
+    const remote = { wallMs: 500, counter: 10, nodeId: "b" };
+    const merged = recvHlc(local, remote);
+    expect(merged.wallMs).toBe(700);
+    expect(merged.counter).toBe(0);
+    vi.useRealTimers();
+  });
+
+  it("recvHlc: all three equal — picks max(local, remote) counter + 1", () => {
+    vi.setSystemTime(500);
+    const local = { wallMs: 500, counter: 3, nodeId: "a" };
+    const remote = { wallMs: 500, counter: 7, nodeId: "b" };
+    const merged = recvHlc(local, remote);
+    expect(merged.wallMs).toBe(500);
+    expect(merged.counter).toBe(8); // max(3,7) + 1
+    vi.useRealTimers();
+  });
+
+  // compareHlc: verify all three comparison paths return the right sign.
+
+  it("compareHlc: equal wallMs, equal counter, nodeId a > b returns 1", () => {
+    const a = { wallMs: 100, counter: 0, nodeId: "b" };
+    const b = { wallMs: 100, counter: 0, nodeId: "a" };
+    expect(compareHlc(a, b)).toBe(1);
+  });
+
+  it("compareHlc: wallMs a > b returns 1 regardless of counter", () => {
+    const a = { wallMs: 200, counter: 0, nodeId: "x" };
+    const b = { wallMs: 100, counter: 99, nodeId: "x" };
+    expect(compareHlc(a, b)).toBe(1);
+    expect(compareHlc(b, a)).toBe(-1);
+  });
+
+  it("compareHlc: equal wallMs, counter a > b returns 1", () => {
+    const a = { wallMs: 100, counter: 5, nodeId: "x" };
+    const b = { wallMs: 100, counter: 3, nodeId: "x" };
+    expect(compareHlc(a, b)).toBe(1);
+    expect(compareHlc(b, a)).toBe(-1);
+  });
+
+  // hlcFromString validation.
+
+  it("hlcFromString throws when there are no dashes", () => {
+    expect(() => hlcFromString("1234567890123456")).toThrow("Invalid HLC");
+  });
+
+  it("hlcFromString throws when there is only one dash (numeric suffix)", () => {
+    // Uses numeric parts so the L90 check won't catch this first — only L84 can.
+    expect(() => hlcFromString("1700000000000-0000000042")).toThrow("Invalid HLC");
+  });
+
+  it("hlcFromString throws when wallMs is NaN", () => {
+    expect(() => hlcFromString("abc-0-node")).toThrow("Invalid HLC");
+  });
+
+  it("hlcFromString throws when wallMs is Infinity", () => {
+    expect(() => hlcFromString("Infinity-0-node")).toThrow("Invalid HLC");
+  });
+
+  it("hlcFromString throws when counter is NaN", () => {
+    expect(() => hlcFromString("1700000000000-xyz-node")).toThrow("Invalid HLC");
+  });
+
+  it("hlcFromString throws when counter is Infinity", () => {
+    expect(() => hlcFromString("1700000000000-Infinity-node")).toThrow("Invalid HLC");
+  });
 });

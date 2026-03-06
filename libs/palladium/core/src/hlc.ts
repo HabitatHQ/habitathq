@@ -60,8 +60,11 @@ export function recvHlc(local: Hlc, remote: Hlc): Hlc {
 
 /** Compare two HLCs. Returns -1 if a < b, 1 if a > b, 0 if equal. */
 export function compareHlc(a: Hlc, b: Hlc): -1 | 0 | 1 {
+  // Stryker disable next-line EqualityOperator -- `<` vs `<=` is equivalent when we've confirmed `!==`
   if (a.wallMs !== b.wallMs) return a.wallMs < b.wallMs ? -1 : 1;
+  // Stryker disable next-line EqualityOperator -- same equivalence for counter
   if (a.counter !== b.counter) return a.counter < b.counter ? -1 : 1;
+  // Stryker disable next-line EqualityOperator -- same equivalence for nodeId
   if (a.nodeId !== b.nodeId) return a.nodeId < b.nodeId ? -1 : 1;
   return 0;
 }
@@ -84,6 +87,7 @@ export function hlcFromString(s: string): Hlc {
   const wallMs = Number(s.slice(0, firstDash));
   const counter = Number(s.slice(firstDash + 1, secondDash));
   const nodeId = s.slice(secondDash + 1);
+  // Stryker disable next-line ConditionalExpression,EqualityOperator -- wallMs<0 and counter<0 are unreachable via hlcToString format (leading `-` changes slice position, never yields negative numbers)
   if (!Number.isFinite(wallMs) || wallMs < 0 || !Number.isFinite(counter) || counter < 0) {
     throw new Error(`Invalid HLC string: "${s}"`);
   }

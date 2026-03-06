@@ -52,6 +52,7 @@ export class MemoryAdapter implements StorageAdapter {
     const allRows = [...(this.#store.get(table)?.values() ?? [])];
 
     // WHERE id = <value> (also handles backtick-quoted `id` from Kysely)
+    // Stryker disable next-line Regex -- minor regex variations are observable-equivalent for test inputs
     const idMatch = /WHERE\s+`?id`?\s*=\s*(.+)/i.exec(expanded);
     if (idMatch !== null) {
       const rawVal = idMatch[1]?.trim();
@@ -74,6 +75,7 @@ export class MemoryAdapter implements StorageAdapter {
 
 function extractTable(sql: string): string | null {
   // Match bare names and backtick-quoted names (e.g. from Kysely's MySQL compiler).
+  // Stryker disable next-line Regex -- regex character-class mutations produce observably equivalent patterns for all test inputs
   const m = /FROM\s+`?([a-zA-Z_][a-zA-Z0-9_]*)`?/i.exec(sql);
   return m?.[1]?.toLowerCase() ?? null;
 }

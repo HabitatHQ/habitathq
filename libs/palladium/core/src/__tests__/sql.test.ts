@@ -66,4 +66,31 @@ describe("sql tag", () => {
     const q = sql`INSERT INTO tasks VALUES (${42}, ${"hello"}, ${null}, ${true})`;
     expect(q.params).toEqual([42, "hello", null, true]);
   });
+
+  it("SQL with no FROM or JOIN has an empty tables array", () => {
+    const q = sql`SELECT 1`;
+    expect(q.tables).toEqual([]);
+  });
+
+  it("JOIN-only keywords without FROM are still extracted", () => {
+    const q = sql`SELECT t.id FROM orders JOIN customers ON orders.cid = customers.id`;
+    expect(q.tables).toContain("orders");
+    expect(q.tables).toContain("customers");
+  });
+
+  it("sql.join merges tables from all sub-queries", () => {
+    const a = sql`SELECT * FROM tasks WHERE id = ${1}`;
+    const b = sql`SELECT * FROM users WHERE id = ${2}`;
+    const q = sql.join([a, b], " UNION ");
+    expect(q.tables).toContain("tasks");
+    expect(q.tables).toContain("users");
+  });
+
+  it("string template with only a trailing value gets exactly one placeholder", () => {
+    // If `i < values.length` were mutated to `i <= values.length`,
+    // an extra '?' would appear at the end.
+    const q = sql`SELECT * FROM tasks WHERE id = ${"t1"}`;
+    expect(q.text).toBe("SELECT * FROM tasks WHERE id = ?");
+    expect(q.text.split("?")).toHaveLength(2); // exactly one '?'
+  });
 });

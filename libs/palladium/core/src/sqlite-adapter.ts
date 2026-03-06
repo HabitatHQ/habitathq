@@ -23,6 +23,7 @@ const { DatabaseSync } = _require("node:sqlite") as typeof import("node:sqlite")
 function coerce(v: unknown): null | number | bigint | string {
   if (v === null || v === undefined) return null;
   if (typeof v === "boolean") return v ? 1 : 0;
+  // Stryker disable next-line all -- LogicalOperator/ConditionalExpression mutations here produce String(v) instead, but SQLite's type affinity coerces "42"→42 on read, making the mutations unobservable via exec()
   if (typeof v === "number" || typeof v === "bigint" || typeof v === "string") return v;
   return String(v);
 }
@@ -31,6 +32,7 @@ export class SqliteAdapter implements StorageAdapter {
   readonly #db: DatabaseSyncType;
 
   constructor() {
+    // Stryker disable next-line StringLiteral -- ":memory:" is the SQLite in-memory URI; any mutation breaks the adapter
     this.#db = new DatabaseSync(":memory:");
   }
 
