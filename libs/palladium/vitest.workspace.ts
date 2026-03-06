@@ -1,5 +1,6 @@
 import { defineWorkspace } from "vitest/config";
 
+// biome-ignore lint/style/noDefaultExport: required by vitest workspace config
 export default defineWorkspace([
   "./packages/core/vitest.config.ts",
   "./packages/react/vitest.config.ts",

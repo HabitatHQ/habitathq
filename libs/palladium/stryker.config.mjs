@@ -1,13 +1,11 @@
 /** @type {import('@stryker-mutator/core').PartialStrykerOptions} */
+// biome-ignore lint/style/noDefaultExport: required by Stryker config
 export default {
   testRunner: "vitest",
   checkers: ["typescript"],
   tsconfigFile: "packages/core/tsconfig.json",
   // Explicit plugin list is required with pnpm (isolated node_modules).
-  plugins: [
-    "@stryker-mutator/vitest-runner",
-    "@stryker-mutator/typescript-checker",
-  ],
+  plugins: ["@stryker-mutator/vitest-runner", "@stryker-mutator/typescript-checker"],
   vitest: {
     configFile: "packages/core/vitest.config.ts",
   },

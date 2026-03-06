@@ -20,39 +20,56 @@ export function createHlc(nodeId: string): Hlc {
 }
 
 /**
+ * Maximum counter value — mirrors the Rust `u32::MAX` (4 294 967 295).
+ * When the counter would exceed this, wallMs is advanced by 1 ms and
+ * the counter is reset to 0, preserving the strictly-greater invariant.
+ */
+const COUNTER_MAX = 0xffff_ffff; // 2^32 − 1
+
+/** Increment a counter, advancing wallMs on overflow (mirrors Rust u32). */
+function nextCounter(wallMs: number, counter: number): { wallMs: number; counter: number } {
+  if (counter >= COUNTER_MAX) {
+    return { wallMs: wallMs + 1, counter: 0 };
+  }
+  return { wallMs, counter: counter + 1 };
+}
+
+/**
  * Advance an HLC before *sending* a message.
  * Guarantees the returned timestamp is strictly greater than `prev`.
+ * If the counter would overflow `COUNTER_MAX`, wallMs is advanced by 1 ms.
  */
 export function sendHlc(prev: Hlc): Hlc {
   const now = Date.now();
   if (now > prev.wallMs) {
     return { wallMs: now, counter: 0, nodeId: prev.nodeId };
   }
-  // Same millisecond — increment counter.
-  return { wallMs: prev.wallMs, counter: prev.counter + 1, nodeId: prev.nodeId };
+  // Same millisecond — increment counter (with overflow guard).
+  const next = nextCounter(prev.wallMs, prev.counter);
+  return { ...next, nodeId: prev.nodeId };
 }
 
 /**
  * Advance an HLC after *receiving* a remote message with timestamp `remote`.
  * The result is greater than both `local` and `remote`.
+ * If the counter would overflow `COUNTER_MAX`, wallMs is advanced by 1 ms.
  */
 export function recvHlc(local: Hlc, remote: Hlc): Hlc {
   const now = Date.now();
   const maxWall = Math.max(local.wallMs, remote.wallMs, now);
 
   if (maxWall === local.wallMs && maxWall === remote.wallMs) {
-    // Both clocks are at the same ms — pick max counter + 1.
-    return {
-      wallMs: maxWall,
-      counter: Math.max(local.counter, remote.counter) + 1,
-      nodeId: local.nodeId,
-    };
+    // Both clocks are at the same ms — pick max counter + 1 (with overflow guard).
+    const next = nextCounter(maxWall, Math.max(local.counter, remote.counter));
+    return { ...next, nodeId: local.nodeId };
   }
   if (maxWall === local.wallMs) {
-    return { wallMs: maxWall, counter: local.counter + 1, nodeId: local.nodeId };
+    const next = nextCounter(maxWall, local.counter);
+    return { ...next, nodeId: local.nodeId };
   }
   if (maxWall === remote.wallMs) {
-    return { wallMs: maxWall, counter: remote.counter + 1, nodeId: local.nodeId };
+    const next = nextCounter(maxWall, remote.counter);
+    return { ...next, nodeId: local.nodeId };
   }
   // Wall clock advanced past both — reset counter.
   return { wallMs: maxWall, counter: 0, nodeId: local.nodeId };

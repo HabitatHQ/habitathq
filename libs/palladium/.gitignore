@@ -3,7 +3,8 @@
 # Rust
 target/
 **/*.rs.bk
-Cargo.lock
+# Cargo.lock is intentionally committed (workspace contains a binary crate).
+# See https://doc.rust-lang.org/cargo/guide/cargo-toml-vs-cargo-lock.html
 
 # Node / pnpm
 node_modules/
@@ -17,6 +18,11 @@ dist/
 .idea/
 .vscode/
 
+# Environment files
+.env
+.env.local
+.env.*.local
+
 # cargo-mutants output
 mutants.out/
 mutants.out.old/
@@ -24,3 +30,10 @@ mutants.out.old/
 # Generated reports
 coverage/
 reports/
+
+# Playwright
+test-results/
+playwright-report/
+
+# CATS Docker report
+target/cats-report/

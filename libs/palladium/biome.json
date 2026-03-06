@@ -8,7 +8,16 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "ignore": ["dist", "node_modules", "target", "*.min.js", "pnpm-lock.yaml"]
+    "ignore": [
+      "dist",
+      "node_modules",
+      "target",
+      "*.min.js",
+      "pnpm-lock.yaml",
+      "**/*.vue",
+      "**/test-results/**",
+      "**/playwright-report/**"
+    ]
   },
   "formatter": {
     "enabled": true,

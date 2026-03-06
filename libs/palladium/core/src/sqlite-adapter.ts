@@ -19,6 +19,15 @@ const _require = createRequire(import.meta.url);
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
 const { DatabaseSync } = _require("node:sqlite") as typeof import("node:sqlite");
 
+/** Guard against SQL injection via interpolated identifiers (table/column names). */
+function assertIdentifier(name: string): void {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+    throw new TypeError(
+      `Invalid SQL identifier: ${JSON.stringify(name)}. Only [A-Za-z_][A-Za-z0-9_]* is allowed.`,
+    );
+  }
+}
+
 /** Coerce JS values to types accepted by node:sqlite. */
 function coerce(v: unknown): null | number | bigint | string {
   if (v === null || v === undefined) return null;
@@ -38,7 +47,9 @@ export class SqliteAdapter implements StorageAdapter {
 
   /** Low-level: insert or replace a row in a table. */
   _put(table: string, _id: string, row: Record<string, unknown>): void {
+    assertIdentifier(table);
     const keys = Object.keys(row);
+    for (const k of keys) assertIdentifier(k);
     const placeholders = keys.map(() => "?").join(", ");
     const sql = `INSERT OR REPLACE INTO ${table} (${keys.join(", ")}) VALUES (${placeholders})`;
     this.#db.prepare(sql).run(...keys.map((k) => coerce(row[k])));
@@ -46,8 +57,10 @@ export class SqliteAdapter implements StorageAdapter {
 
   /** Low-level: patch an existing row. */
   _patch(table: string, id: string, patch: Record<string, unknown>): void {
+    assertIdentifier(table);
     const keys = Object.keys(patch);
     if (keys.length === 0) return;
+    for (const k of keys) assertIdentifier(k);
     const sets = keys.map((k) => `${k} = ?`).join(", ");
     const sql = `UPDATE ${table} SET ${sets} WHERE id = ?`;
     this.#db.prepare(sql).run(...keys.map((k) => coerce(patch[k])), id);
@@ -55,6 +68,7 @@ export class SqliteAdapter implements StorageAdapter {
 
   /** Low-level: remove a row by id. */
   _remove(table: string, id: string): void {
+    assertIdentifier(table);
     this.#db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(id);
   }
 

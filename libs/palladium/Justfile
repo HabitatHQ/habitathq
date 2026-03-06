@@ -102,6 +102,22 @@ test-e2e: build-rust
     pnpm -C packages/core run build
     pnpm -C packages/e2e exec vitest run
 
+# ── Vue TODO example app ──────────────────────────────────────────────────────
+
+# Start the Vue TODO example app in dev mode
+dev-example-vue:
+    pnpm -C packages/example-vue exec vite
+
+# Install Playwright browsers (run once after first pnpm install)
+install-playwright:
+    pnpm -C packages/example-vue exec playwright install chromium
+
+# Run Playwright E2E tests for the Vue TODO example app
+test-example-vue:
+    pnpm -C packages/example-vue exec playwright test
+
+# ── CATS ─────────────────────────────────────────────────────────────────────
+
 # CATS contract + fuzz tests against the OpenAPI spec.
 # Runs CATS via testcontainers (Docker) against an in-process Axum server.
 # Requires Docker to be running.

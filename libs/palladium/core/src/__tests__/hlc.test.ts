@@ -252,4 +252,82 @@ describe("Hlc", () => {
   it("hlcFromString throws when counter is Infinity", () => {
     expect(() => hlcFromString("1700000000000-Infinity-node")).toThrow("Invalid HLC");
   });
+
+  // ── counter overflow (mirrors Rust u32::MAX semantics) ───────────────────
+  // Freeze Date.now() so the wall-clock branch never fires unexpectedly.
+
+  it("sendHlc advances wallMs when counter is at COUNTER_MAX", () => {
+    const COUNTER_MAX = 0xffff_ffff;
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    try {
+      const h = { wallMs: 1_000, counter: COUNTER_MAX, nodeId: "n" };
+      const h2 = sendHlc(h);
+      expect(h2.wallMs).toBe(1_001);
+      expect(h2.counter).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("sendHlc result is strictly greater than prev at COUNTER_MAX", () => {
+    const COUNTER_MAX = 0xffff_ffff;
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    try {
+      const h = { wallMs: 1_000, counter: COUNTER_MAX, nodeId: "n" };
+      expect(compareHlc(sendHlc(h), h)).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("recvHlc advances wallMs when both counters are at COUNTER_MAX", () => {
+    const COUNTER_MAX = 0xffff_ffff;
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    try {
+      const local = { wallMs: 1_000, counter: COUNTER_MAX, nodeId: "a" };
+      const remote = { wallMs: 1_000, counter: COUNTER_MAX, nodeId: "b" };
+      const merged = recvHlc(local, remote);
+      expect(merged.wallMs).toBe(1_001);
+      expect(merged.counter).toBe(0);
+      expect(compareHlc(merged, local)).toBe(1);
+      expect(compareHlc(merged, remote)).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("recvHlc advances wallMs when local counter is at COUNTER_MAX", () => {
+    const COUNTER_MAX = 0xffff_ffff;
+    vi.useFakeTimers();
+    vi.setSystemTime(2_000);
+    try {
+      const local = { wallMs: 2_000, counter: COUNTER_MAX, nodeId: "a" };
+      const remote = { wallMs: 1_000, counter: 5, nodeId: "b" };
+      const merged = recvHlc(local, remote);
+      expect(merged.wallMs).toBe(2_001);
+      expect(merged.counter).toBe(0);
+      expect(compareHlc(merged, local)).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("recvHlc advances wallMs when remote counter is at COUNTER_MAX", () => {
+    const COUNTER_MAX = 0xffff_ffff;
+    vi.useFakeTimers();
+    vi.setSystemTime(2_000);
+    try {
+      const local = { wallMs: 1_000, counter: 5, nodeId: "a" };
+      const remote = { wallMs: 2_000, counter: COUNTER_MAX, nodeId: "b" };
+      const merged = recvHlc(local, remote);
+      expect(merged.wallMs).toBe(2_001);
+      expect(merged.counter).toBe(0);
+      expect(compareHlc(merged, remote)).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
