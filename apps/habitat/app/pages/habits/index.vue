@@ -256,7 +256,7 @@ onMounted(loadHabits)
           title="Pause all habits"
           @click="openPauseAll"
         />
-        <UButton icon="i-heroicons-plus" size="sm" @click="isOpen = true">New</UButton>
+        <UButton icon="i-heroicons-plus" size="sm" class="min-h-[44px]" @click="isOpen = true">New</UButton>
       </div>
     </header>
 
@@ -330,7 +330,7 @@ onMounted(loadHabits)
     <!-- ── Pause all modal ───────────────────────────────────────────────────── -->
     <UModal v-model:open="showPauseAllModal">
       <template #content>
-        <div class="p-4 space-y-4">
+        <div class="p-5 space-y-4">
           <div>
             <h3 class="text-lg font-semibold">Pause all habits</h3>
             <p class="text-sm text-(--ui-text-muted) mt-0.5">All active habits will be hidden from Today until this date.</p>
@@ -356,7 +356,7 @@ onMounted(loadHabits)
     <!-- ── Create modal ──────────────────────────────────────────────────────── -->
     <UModal v-model:open="isOpen">
       <template #content>
-        <div class="p-4 space-y-4">
+        <div class="p-5 space-y-4">
           <h3 class="text-lg font-semibold">New Habit</h3>
 
           <!-- Name -->

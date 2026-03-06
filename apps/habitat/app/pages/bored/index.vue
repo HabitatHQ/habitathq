@@ -312,7 +312,7 @@ const oracleHint = computed(() => {
       <button
         v-for="tf in timeFilters"
         :key="String(tf.value)"
-        class="px-3 py-1 rounded-full text-sm font-medium transition-colors"
+        class="px-3 py-2.5 min-h-[44px] rounded-full text-sm font-medium transition-colors"
         :class="maxMinutes === tf.value
           ? 'bg-primary-600 text-white'
           : 'bg-(--ui-bg-elevated) text-(--ui-text-toned) hover:bg-(--ui-bg-accented)'"
@@ -327,7 +327,7 @@ const oracleHint = computed(() => {
       <button
         v-for="cat in categories"
         :key="cat.id"
-        class="flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium transition-colors border"
+        class="flex items-center gap-1.5 px-3 py-2.5 min-h-[44px] rounded-full text-sm font-medium transition-colors border"
         :class="excludedCategories.includes(cat.id)
           ? 'border-(--ui-border-accented) text-(--ui-text-dimmed) bg-(--ui-bg-muted)'
           : 'border-transparent text-white'"

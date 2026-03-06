@@ -432,7 +432,7 @@ function jotKindIcon(kind: string | undefined): string {
             @click="calendarView = true"
           ><UIcon name="i-heroicons-calendar-days" class="w-4 h-4" /></button>
         </div>
-        <UButton size="sm" icon="i-heroicons-plus" @click="openAdd">Add</UButton>
+        <UButton size="sm" class="min-h-[44px]" icon="i-heroicons-plus" @click="openAdd">Add</UButton>
       </div>
     </div>
 
@@ -441,7 +441,7 @@ function jotKindIcon(kind: string | undefined): string {
       <button
         v-for="f in [['all', 'All'], ['active', 'Active'], ['done', 'Done']] as const"
         :key="f[0]"
-        class="px-3 py-1 rounded-full text-sm font-medium transition-colors"
+        class="px-3 py-2.5 min-h-[44px] rounded-full text-sm font-medium transition-colors"
         :class="filter === f[0] ? 'bg-primary-600 text-white' : 'bg-(--ui-bg-elevated) text-(--ui-text-toned) hover:bg-(--ui-bg-accented)'"
         @click="filter = f[0]"
       >{{ f[1] }}</button>
@@ -791,6 +791,7 @@ function jotKindIcon(kind: string | undefined): string {
           />
           <UButton color="primary" class="flex-1" @click="saveTodo">Save</UButton>
         </div>
+        <div class="safe-area-bottom" aria-hidden="true" />
       </div>
     </div>
   </div>

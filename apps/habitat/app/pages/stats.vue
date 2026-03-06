@@ -381,7 +381,7 @@ onMounted(load)
           <button
             v-for="d in [7, 14, 30, 90]"
             :key="d"
-            class="px-2 py-0.5 rounded text-[10px] font-medium transition-colors"
+            class="px-2 py-0.5 min-h-[44px] rounded text-[10px] font-medium transition-colors"
             :class="completionDays === d ? 'bg-(--ui-bg-accented) text-(--ui-text)' : 'text-(--ui-text-dimmed) hover:text-(--ui-text-muted)'"
             @click="completionDays = d"
           >{{ d }}d</button>

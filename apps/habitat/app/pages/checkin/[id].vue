@@ -637,6 +637,7 @@ onMounted(async () => {
           <UButton variant="ghost" color="neutral" size="sm" @click="showEdit = false">Cancel</UButton>
           <UButton size="sm" :disabled="saving" :loading="saving" @click="saveEdit">Save</UButton>
         </div>
+        <div class="safe-area-bottom" aria-hidden="true" />
       </div>
     </div>
 
@@ -664,6 +665,7 @@ onMounted(async () => {
             Delete
           </UButton>
         </div>
+        <div class="safe-area-bottom" aria-hidden="true" />
       </div>
     </div>
 

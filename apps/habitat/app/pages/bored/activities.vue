@@ -262,6 +262,7 @@ async function archiveActivity(a: BoredActivity) {
           <UButton variant="soft" color="neutral" class="flex-1" @click="showCategoryModal = false">Cancel</UButton>
           <UButton color="primary" class="flex-1" :loading="saving" @click="saveCategory">Save</UButton>
         </div>
+        <div class="safe-area-bottom" aria-hidden="true" />
       </div>
     </div>
 
@@ -307,6 +308,7 @@ async function archiveActivity(a: BoredActivity) {
           <UButton variant="soft" color="neutral" class="flex-1" @click="showActivityModal = false">Cancel</UButton>
           <UButton color="primary" class="flex-1" :loading="saving" @click="saveActivity">Save</UButton>
         </div>
+        <div class="safe-area-bottom" aria-hidden="true" />
       </div>
     </div>
   </div>

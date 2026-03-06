@@ -73,6 +73,7 @@ async function createTemplate() {
         variant="soft"
         color="neutral"
         size="sm"
+        class="min-h-[44px]"
         @click="openCreate"
       >
         New
@@ -181,6 +182,7 @@ async function createTemplate() {
             Create
           </UButton>
         </div>
+        <div class="safe-area-bottom" aria-hidden="true" />
       </div>
     </div>
 

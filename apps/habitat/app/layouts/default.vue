@@ -283,6 +283,7 @@ function toggleColorMode() {
           variant="ghost"
           color="neutral"
           size="sm"
+          class="min-h-[44px]"
           :class="anyActive ? 'text-primary-400' : ''"
           :aria-label="showFilterStrip ? 'Close context filter' : 'Filter by context tag'"
           @click="toggleFilterStrip"
@@ -294,6 +295,7 @@ function toggleColorMode() {
           variant="ghost"
           color="neutral"
           size="sm"
+          class="min-h-[44px]"
           :aria-label="colorMode.value === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
           @click="toggleColorMode"
         />
@@ -305,6 +307,7 @@ function toggleColorMode() {
             variant="ghost"
             color="neutral"
             size="sm"
+            class="min-h-[44px]"
             aria-label="Change theme"
             @click="showThemePicker = !showThemePicker"
           />
