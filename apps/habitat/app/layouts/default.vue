@@ -95,20 +95,18 @@ function navLabel(item: { to: string; label: string }): string {
 
 const ALL_NAV_ITEMS = [
   { to: '/', icon: 'i-heroicons-home', label: 'Today', today: true },
-  { to: '/matrix', icon: 'i-heroicons-calendar-days', label: 'Week', week: true },
   { to: '/habits', icon: 'i-heroicons-list-bullet', label: 'Habits' },
   { to: '/health', icon: 'i-heroicons-heart', label: 'Health', health: true },
   { to: '/todos', icon: 'i-heroicons-check-circle', label: 'TODOs', todos: true },
   { to: '/bored', icon: 'i-heroicons-face-smile', label: 'Bored', bored: true },
   { to: '/checkin', icon: 'i-heroicons-pencil-square', label: 'Check-in', journalling: true },
   { to: '/jots', icon: 'i-heroicons-document-text', label: 'Jots', journalling: true },
-  { to: '/stats', icon: 'i-heroicons-chart-bar', label: 'Stats' },
 ]
 
 const navItems = computed(() =>
   ALL_NAV_ITEMS.filter((i) => {
     if (i.today && !settings.value.enableToday) return false
-    if (i.week && !settings.value.enableWeek) return false
+
     if (i.health && !settings.value.enableHealth) return false
     if (i.journalling && !settings.value.enableJournalling) return false
     if (i.todos && !settings.value.enableTodos) return false
@@ -173,6 +171,7 @@ const THEMES: { id: AppTheme; name: string; swatch: string }[] = [
 ]
 
 const showThemePicker = ref(false)
+const showAvatarMenu = ref(false)
 
 function setTheme(theme: AppTheme) {
   if (!import.meta.client) return
@@ -333,14 +332,64 @@ function toggleColorMode() {
           </div>
         </div>
 
-        <UButton
-          to="/settings"
-          icon="i-heroicons-cog-6-tooth"
-          variant="ghost"
-          color="neutral"
-          size="sm"
-          :class="isActive('/settings') ? 'text-primary-400' : ''"
-        />
+        <!-- Avatar menu -->
+        <div class="relative">
+          <button
+            class="w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 border-2"
+            :class="showAvatarMenu || isActive('/settings') || isActive('/stats') || isActive('/matrix')
+              ? 'border-primary-500 bg-primary-500/15 text-primary-400'
+              : 'border-(--ui-border-accented) text-(--ui-text-muted) hover:border-(--ui-border-accented) hover:text-(--ui-text)'"
+            aria-label="Profile menu"
+            @click="showAvatarMenu = !showAvatarMenu"
+          >
+            <UIcon name="i-heroicons-user-circle" class="w-5 h-5" />
+          </button>
+          <!-- Backdrop -->
+          <div
+            v-if="showAvatarMenu"
+            class="fixed inset-0 z-40"
+            @click="showAvatarMenu = false"
+          />
+          <!-- Dropdown -->
+          <div
+            v-if="showAvatarMenu"
+            class="absolute right-0 top-full mt-1 w-44 bg-(--ui-bg-muted) border border-(--ui-border) rounded-xl p-1.5 z-50 shadow-lg space-y-0.5"
+          >
+            <NuxtLink
+              to="/matrix"
+              class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+              :class="isActive('/matrix')
+                ? 'bg-primary-500/10 text-primary-400'
+                : 'text-(--ui-text) hover:bg-(--ui-bg-elevated)'"
+              @click="showAvatarMenu = false"
+            >
+              <UIcon name="i-heroicons-calendar-days" class="w-4 h-4" />
+              Matrix
+            </NuxtLink>
+            <NuxtLink
+              to="/stats"
+              class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+              :class="isActive('/stats')
+                ? 'bg-primary-500/10 text-primary-400'
+                : 'text-(--ui-text) hover:bg-(--ui-bg-elevated)'"
+              @click="showAvatarMenu = false"
+            >
+              <UIcon name="i-heroicons-chart-bar" class="w-4 h-4" />
+              Stats
+            </NuxtLink>
+            <NuxtLink
+              to="/settings"
+              class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+              :class="isActive('/settings')
+                ? 'bg-primary-500/10 text-primary-400'
+                : 'text-(--ui-text) hover:bg-(--ui-bg-elevated)'"
+              @click="showAvatarMenu = false"
+            >
+              <UIcon name="i-heroicons-cog-6-tooth" class="w-4 h-4" />
+              Settings
+            </NuxtLink>
+          </div>
+        </div>
       </div>
     </header>
 
