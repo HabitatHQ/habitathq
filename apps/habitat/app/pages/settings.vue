@@ -1004,38 +1004,29 @@ watch(diagOpen, (open) => {
             @update:model-value="setAppSetting('enableToday', $event)"
           />
         </div>
-        <div>
-          <div class="flex items-center justify-between px-4 py-3">
-            <div class="space-y-0.5">
-              <p class="text-sm font-medium">Matrix view</p>
-              <p class="text-xs text-(--ui-text-dimmed)">Quick-fill grid — week on mobile, month on desktop.</p>
-            </div>
-            <USwitch
-              :model-value="appSettings.enableWeek"
-              @update:model-value="setAppSetting('enableWeek', $event)"
-            />
+        <div class="px-4 pt-3 pb-1">
+          <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-600">Matrix view</p>
+        </div>
+        <div class="flex items-center justify-between px-4 pb-3">
+          <p class="text-sm text-(--ui-text-muted)">Days to show (mobile)</p>
+          <div class="flex items-center gap-2">
+            <button
+              class="w-7 h-7 rounded-lg bg-(--ui-bg-elevated) border border-(--ui-border-accented) text-(--ui-text-toned) flex items-center justify-center text-sm"
+              @click="setAppSetting('weekDays', Math.max(3, (appSettings.weekDays || 3) - 1))"
+            >−</button>
+            <span class="w-4 text-center text-sm font-medium tabular-nums">{{ appSettings.weekDays || 3 }}</span>
+            <button
+              class="w-7 h-7 rounded-lg bg-(--ui-bg-elevated) border border-(--ui-border-accented) text-(--ui-text-toned) flex items-center justify-center text-sm"
+              @click="setAppSetting('weekDays', Math.min(7, (appSettings.weekDays || 3) + 1))"
+            >+</button>
           </div>
-          <div v-if="appSettings.enableWeek" class="flex items-center justify-between px-4 pb-3">
-            <p class="text-sm text-(--ui-text-muted)">Days to show (mobile)</p>
-            <div class="flex items-center gap-2">
-              <button
-                class="w-7 h-7 rounded-lg bg-(--ui-bg-elevated) border border-(--ui-border-accented) text-(--ui-text-toned) flex items-center justify-center text-sm"
-                @click="setAppSetting('weekDays', Math.max(3, (appSettings.weekDays || 3) - 1))"
-              >−</button>
-              <span class="w-4 text-center text-sm font-medium tabular-nums">{{ appSettings.weekDays || 3 }}</span>
-              <button
-                class="w-7 h-7 rounded-lg bg-(--ui-bg-elevated) border border-(--ui-border-accented) text-(--ui-text-toned) flex items-center justify-center text-sm"
-                @click="setAppSetting('weekDays', Math.min(7, (appSettings.weekDays || 3) + 1))"
-              >+</button>
-            </div>
-          </div>
-          <div v-if="appSettings.enableWeek" class="flex items-center justify-between px-4 pb-3">
-            <p class="text-sm text-(--ui-text-muted)">Newest day first</p>
-            <USwitch
-              :model-value="appSettings.matrixReverseDays"
-              @update:model-value="setAppSetting('matrixReverseDays', $event)"
-            />
-          </div>
+        </div>
+        <div class="flex items-center justify-between px-4 pb-3">
+          <p class="text-sm text-(--ui-text-muted)">Newest day first</p>
+          <USwitch
+            :model-value="appSettings.matrixReverseDays"
+            @update:model-value="setAppSetting('matrixReverseDays', $event)"
+          />
         </div>
 
         <div class="px-4 pt-3 pb-1">
