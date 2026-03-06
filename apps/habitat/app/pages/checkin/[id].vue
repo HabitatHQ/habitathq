@@ -66,6 +66,8 @@ function nextDay() {
 const responses = ref<Map<string, CheckinResponse>>(new Map())
 const textValues = reactive<Record<string, string>>({})
 let saveTimer: ReturnType<typeof setTimeout> | null = null
+const savedIndicator = reactive<Record<string, boolean>>({})
+const savedTimers: Record<string, ReturnType<typeof setTimeout>> = {}
 
 async function loadResponses() {
   if (!db.isAvailable) return
@@ -100,8 +102,13 @@ async function setResponse(
 function onText(question_id: string, val: string) {
   textValues[question_id] = val
   if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => {
-    void setResponse(question_id, null, val.trim() || null)
+  saveTimer = setTimeout(async () => {
+    await setResponse(question_id, null, val.trim() || null)
+    savedIndicator[question_id] = true
+    if (savedTimers[question_id]) clearTimeout(savedTimers[question_id])
+    savedTimers[question_id] = setTimeout(() => {
+      savedIndicator[question_id] = false
+    }, 1500)
   }, 600)
 }
 
@@ -413,16 +420,32 @@ onMounted(async () => {
           </div>
 
           <!-- TEXT: textarea -->
-          <UTextarea
-            v-else-if="q.response_type === 'TEXT'"
-            :model-value="textValues[q.id] ?? ''"
-            placeholder="Write something…"
-            :rows="3"
-            autoresize
-            variant="outline"
-            class="w-full text-sm"
-            @update:model-value="onText(q.id, $event)"
-          />
+          <template v-else-if="q.response_type === 'TEXT'">
+            <UTextarea
+              :model-value="textValues[q.id] ?? ''"
+              placeholder="Write something…"
+              :rows="3"
+              autoresize
+              variant="outline"
+              class="w-full text-sm"
+              @update:model-value="onText(q.id, $event)"
+            />
+            <Transition
+              enter-active-class="transition-opacity duration-150"
+              leave-active-class="transition-opacity duration-500"
+              enter-from-class="opacity-0"
+              leave-to-class="opacity-0"
+            >
+              <span
+                v-if="savedIndicator[q.id]"
+                class="flex items-center gap-1 text-xs text-green-400 mt-1"
+                aria-live="polite"
+              >
+                <UIcon name="i-heroicons-check" class="w-3 h-3" />
+                Saved
+              </span>
+            </Transition>
+          </template>
 
           <!-- BOOLEAN: Yes / No -->
           <div v-else-if="q.response_type === 'BOOLEAN'" class="flex gap-2">

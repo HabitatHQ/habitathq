@@ -2000,6 +2000,13 @@ watch(diagOpen, (open) => {
       </UCard>
     </section>
 
+    <!-- ── Philosophy note ───────────────────────────────────────────────────── -->
+    <p class="text-xs text-(--ui-text-dimmed) text-center leading-relaxed px-4 pb-2">
+      Habitat is built around the idea that habits should fit your life — not the other way around.
+      There are no streaks to protect, no daily guilt. Just a quiet space to notice what you do,
+      and gently do more of what matters.
+    </p>
+
     <!-- ── Open source licenses modal ───────────────────────────────────────── -->
     <UModal v-model:open="showLicensesModal">
       <template #content>
