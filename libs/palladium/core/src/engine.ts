@@ -92,7 +92,8 @@ export abstract class PalladiumEngine<S extends SchemaMap> {
     event: K,
     listener: (payload: EngineEvents[K]) => void,
   ): () => void {
-    return this.emitter.on(event, listener as (payload: EngineEvents[K]) => void);
+    // Cast through unknown to bridge the Listener<T> conditional type.
+    return this.emitter.on(event, listener as unknown as Parameters<typeof this.emitter.on<K>>[1]);
   }
 
   /** Poll the current sync status. */
@@ -103,7 +104,11 @@ export abstract class PalladiumEngine<S extends SchemaMap> {
   async #applyOp(op: ReturnType<TxBuilder<S>["build"]>[number]): Promise<void> {
     const table = String(op.table);
     if (op.type === "insert") {
-      this._putRow(table, (op.data as { id: string }).id, op.data as Record<string, unknown>);
+      this._putRow(
+        table,
+        (op.data as unknown as { id: string }).id,
+        op.data as Record<string, unknown>,
+      );
     } else if (op.type === "update") {
       this._patchRow(table, op.id, op.patch as Record<string, unknown>);
     } else {

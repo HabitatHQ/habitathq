@@ -56,7 +56,8 @@ export class MemoryAdapter implements StorageAdapter {
     if (idMatch !== null) {
       const rawVal = idMatch[1]?.trim();
       const id = parseJsonValue(rawVal);
-      return allRows.filter((r) => r.id === id) as T[];
+      // biome-ignore lint/complexity/useLiteralKeys: noPropertyAccessFromIndexSignature TS flag requires bracket access
+      return allRows.filter((r) => r["id"] === id) as T[];
     }
 
     return allRows as T[];

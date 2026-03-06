@@ -7,11 +7,11 @@
 
 type Listener<T> = T extends undefined ? () => void : (payload: T) => void;
 
-type ListenerMap<Events extends Record<string, unknown>> = {
+type ListenerMap<Events extends object> = {
   [K in keyof Events]?: Set<Listener<Events[K]>>;
 };
 
-export class EventEmitter<Events extends Record<string, unknown>> {
+export class EventEmitter<Events extends object> {
   readonly #listeners: ListenerMap<Events> = {};
 
   /** Subscribe to an event. Returns an unsubscribe function. */

@@ -13,8 +13,8 @@
  * The builder callback is synchronous; `db.tx()` flushes the ops asynchronously.
  */
 
-/** A row type keyed by table name. */
-export type SchemaMap = Record<string, Record<string, unknown>>;
+/** A row type keyed by table name. Each value is a row type (plain object). */
+export type SchemaMap = object;
 
 export type InsertOp<S extends SchemaMap, K extends keyof S> = {
   readonly type: "insert";
@@ -46,7 +46,7 @@ export class TxBuilder<S extends SchemaMap> {
 
   /** Queue an INSERT operation. The row must contain an `id` field. */
   insert<K extends keyof S & string>(table: K, data: S[K]): this {
-    this.#ops.push({ type: "insert", table, id: (data as { id: string }).id, data });
+    this.#ops.push({ type: "insert", table, id: (data as unknown as { id: string }).id, data });
     return this;
   }
 

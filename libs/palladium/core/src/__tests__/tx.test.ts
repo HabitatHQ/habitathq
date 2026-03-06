@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { TxBuilder } from "../tx.js";
-import type { Op } from "../tx.js";
 
 interface Schema {
   tasks: { id: string; name: string; done: boolean };
@@ -11,7 +10,7 @@ describe("TxBuilder", () => {
   it("records an insert op", () => {
     const tx = new TxBuilder<Schema>();
     tx.insert("tasks", { id: "t1", name: "hello", done: false });
-    const ops: Op[] = tx.build();
+    const ops = tx.build();
     expect(ops).toHaveLength(1);
     expect(ops[0]).toEqual({
       type: "insert",
