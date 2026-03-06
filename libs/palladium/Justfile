@@ -103,60 +103,10 @@ test-e2e: build-rust
     pnpm -C packages/e2e exec vitest run
 
 # CATS contract + fuzz tests against the OpenAPI spec.
-# Downloads the CATS native binary on first run, starts an ephemeral server,
-# and runs CATS. Results are written to target/cats-report/.
-#
-# Requires: cargo build (handled by test-e2e or build-rust)
-CATS_VERSION := "10.0.0"
-CATS_PORT := "13743"
-cats: build-rust
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    # Detect OS and architecture.
-    OS=$(uname -s)
-    ARCH=$(uname -m)
-    case "$OS-$ARCH" in
-      Darwin-arm64)  CATS_BINARY="cats-osx-aarch64" ;;
-      Darwin-x86_64) CATS_BINARY="cats-osx-x86_64" ;;
-      Linux-x86_64)  CATS_BINARY="cats-linux-x86_64" ;;
-      Linux-aarch64) CATS_BINARY="cats-linux-aarch64" ;;
-      *) echo "Unsupported platform: $OS-$ARCH" >&2; exit 1 ;;
-    esac
-
-    CATS_PATH="target/cats/$CATS_BINARY"
-    if [ ! -x "$CATS_PATH" ]; then
-      mkdir -p target/cats
-      echo "Downloading CATS {{CATS_VERSION}} ($CATS_BINARY)..."
-      curl -fsSL \
-        "https://github.com/Endava/cats/releases/download/cats-{{CATS_VERSION}}/$CATS_BINARY" \
-        -o "$CATS_PATH"
-      chmod +x "$CATS_PATH"
-    fi
-
-    # Start an ephemeral server on a dedicated port.
-    TMPDIR=$(mktemp -d)
-    DB="sqlite:$TMPDIR/cats.db"
-    target/debug/palladium --db "$DB" dev --port {{CATS_PORT}} &
-    SERVER_PID=$!
-    trap 'kill $SERVER_PID 2>/dev/null; rm -rf "$TMPDIR"' EXIT
-
-    # Wait for the server to be ready.
-    echo "Waiting for server on port {{CATS_PORT}}..."
-    for i in $(seq 1 60); do
-      curl -sf "http://localhost:{{CATS_PORT}}/api-doc/openapi.json" > /dev/null && break
-      sleep 0.5
-    done
-
-    # Run CATS.
-    mkdir -p target/cats-report
-    "$CATS_PATH" \
-      --contract="http://localhost:{{CATS_PORT}}/api-doc/openapi.json" \
-      --server="http://localhost:{{CATS_PORT}}" \
-      --output=target/cats-report \
-      --skipFuzzers="CheckSecurityHeadersFuzzer,HappyFlowsFuzzer" \
-      --log=target/cats-report/cats.log
-    echo "CATS report: target/cats-report/"
+# Runs CATS via testcontainers (Docker) against an in-process Axum server.
+# Requires Docker to be running.
+cats:
+    cargo test -p palladium-axum --features cats-tests --test cats -- --nocapture
 
 # ── Combined ──────────────────────────────────────────────────────────────────
 

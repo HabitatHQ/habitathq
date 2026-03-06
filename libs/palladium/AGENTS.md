@@ -6,7 +6,7 @@ Local-first sync engine. Rust backend, TypeScript frontend, pnpm monorepo.
 
 ```
 crates/          Rust workspace (palladium-core, -axum, -postgres, -sqlite, -cli)
-packages/        TS packages (@palladium/core, react, vue, svelte, kysely, vite-plugin, cli-wrapper)
+packages/        TS packages (@palladium/core, react, vue, svelte, kysely, vite-plugin, cli-wrapper, e2e)
 docs/            Stub — no tooling yet
 ```
 
@@ -21,6 +21,8 @@ just ci          # lint + test + cargo-deny + cargo-audit
 just deny        # cargo-deny license/advisory check
 just audit       # cargo-audit
 just machete     # cargo-machete (unused deps)
+just test-e2e    # E2E: live binary + TS Vitest client (packages/e2e)
+just cats        # CATS contract/fuzz via testcontainers Docker (requires Docker)
 ```
 
 ## Tooling
