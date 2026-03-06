@@ -52,6 +52,24 @@ build-rust:
 build-rust-release:
     cargo build --workspace --all-features --release
 
+# ── Coverage & mutation testing ───────────────────────────────────────────────
+
+# Measure code coverage and open an HTML report (requires: cargo install cargo-llvm-cov)
+# Note: --all-features is intentionally omitted; palladium-postgres/integration-tests
+# requires DATABASE_URL and is covered separately in CI.
+coverage:
+    cargo llvm-cov --workspace --html
+    @echo "Coverage report: target/llvm-cov/html/index.html"
+
+# Print a line-coverage summary to stdout without generating HTML
+coverage-summary:
+    cargo llvm-cov --workspace --summary-only
+
+# Run mutation tests across the Rust workspace (requires: cargo install cargo-mutants)
+# Results are written to target/mutants/; see target/mutants/missed.txt for survivors.
+mutants:
+    cargo mutants --workspace
+
 # ── Security / Auditing ───────────────────────────────────────────────────────
 
 # Run cargo-deny license + advisory checks
