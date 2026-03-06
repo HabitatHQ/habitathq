@@ -3,7 +3,7 @@ pre-commit:
   commands:
     biome:
       glob: "*.{ts,tsx,js,jsx,json}"
-      run: pnpm exec biome check --changed
+      run: pnpm exec biome check --staged
     clippy:
       glob: "*.rs"
       run: cargo clippy --workspace -- -D warnings
