@@ -36,7 +36,12 @@ describe("TxBuilder", () => {
     expect(ops[0]).toEqual({ type: "delete", table: "tasks", id: "t1" });
   });
 
-  it("chains multiple ops", () => {
+  it("empty builder produces no ops", () => {
+    const tx = new TxBuilder<Schema>();
+    expect(tx.build()).toHaveLength(0);
+  });
+
+  it("chains multiple ops preserving order", () => {
     const tx = new TxBuilder<Schema>();
     tx.insert("users", { id: "u1", email: "a@b.com" });
     tx.insert("tasks", { id: "t1", name: "Buy milk", done: false });
@@ -47,9 +52,35 @@ describe("TxBuilder", () => {
     expect(ops.map((o) => o.type)).toEqual(["insert", "insert", "update", "delete"]);
   });
 
+  it("ops span multiple tables", () => {
+    const tx = new TxBuilder<Schema>();
+    tx.insert("users", { id: "u1", email: "x@y.com" });
+    tx.insert("tasks", { id: "t1", name: "hi", done: false });
+    const tables = tx.build().map((o) => o.table);
+    expect(tables).toContain("users");
+    expect(tables).toContain("tasks");
+  });
+
   it("build() is idempotent — multiple calls return same ops", () => {
     const tx = new TxBuilder<Schema>();
     tx.insert("tasks", { id: "t1", name: "hi", done: false });
     expect(tx.build()).toEqual(tx.build());
+  });
+
+  it("fluent chaining returns the same builder instance", () => {
+    const tx = new TxBuilder<Schema>();
+    const result = tx.insert("tasks", { id: "t1", name: "a", done: false });
+    expect(result).toBe(tx);
+  });
+
+  it("update op records only the partial patch fields", () => {
+    const tx = new TxBuilder<Schema>();
+    tx.update("tasks", "t1", { done: true });
+    const op = tx.build()[0];
+    expect(op).toMatchObject({ type: "update", patch: { done: true } });
+    // patch should only contain what was passed
+    if (op?.type === "update") {
+      expect(Object.keys(op.patch)).toEqual(["done"]);
+    }
   });
 });
