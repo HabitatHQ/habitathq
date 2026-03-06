@@ -7,6 +7,26 @@ pre-commit:
     clippy:
       glob: "**/*.rs"
       run: cargo clippy --workspace -- -D warnings
+    taplo:
+      glob: "**/*.toml"
+      run: taplo fmt --check {staged_files}
+    prettier-yaml:
+      glob: "**/*.{yml,yaml}"
+      exclude: "pnpm-lock.yaml"
+      run: pnpm exec prettier --check {staged_files}
+    large-files:
+      exclude: "pnpm-lock.yaml"
+      run: |
+        limit=524288
+        ok=true
+        for f in {staged_files}; do
+          size=$(wc -c < "$f" 2>/dev/null || echo 0)
+          if [ "$size" -gt "$limit" ]; then
+            echo "❌  $f is $(( size / 1024 ))KB — limit is 512KB"
+            ok=false
+          fi
+        done
+        $ok
 
 commit-msg:
   commands:
