@@ -37,7 +37,7 @@ const DEFAULTS: AppSettings = {
   enableToday: true,
   enableJournalling: true,
   enableHealth: false,
-  enableWeek: false,
+  enableWeek: true,
   enableTodos: false,
   enableBored: false,
   enableContextFilter: false,
