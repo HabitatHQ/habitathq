@@ -19,11 +19,18 @@ export class LiveQuery<T = Record<string, unknown>> {
   readonly #query: SqlQuery;
   readonly #adapter: StorageAdapter;
   readonly #listeners = new Set<ChangeListener<T>>();
+  readonly #onCancel: (() => void) | null;
   #cancelled = false;
 
-  constructor(query: SqlQuery, adapter: StorageAdapter) {
+  /**
+   * @param query - The SQL query to execute reactively.
+   * @param adapter - Storage adapter to run queries against.
+   * @param onCancel - Optional callback invoked when cancel() is called (used by the engine to deregister).
+   */
+  constructor(query: SqlQuery, adapter: StorageAdapter, onCancel?: () => void) {
     this.#query = query;
     this.#adapter = adapter;
+    this.#onCancel = onCancel ?? null;
   }
 
   /** Execute the query once and return the result rows. */
@@ -59,16 +66,27 @@ export class LiveQuery<T = Record<string, unknown>> {
     await this.#runAndNotify();
   }
 
-  /** Stop all future change notifications. */
+  /** Stop all future change notifications and deregister from the engine. */
   cancel(): void {
     this.#cancelled = true;
     this.#listeners.clear();
+    this.#onCancel?.();
   }
 
   async #runAndNotify(): Promise<void> {
     const rows = await this.#adapter.exec<T>(this.#query.text, this.#query.params);
+    const errors: unknown[] = [];
     for (const listener of this.#listeners) {
-      listener(rows);
+      try {
+        listener(rows);
+      } catch (err) {
+        errors.push(err);
+      }
+    }
+    if (errors.length > 0) {
+      throw errors.length === 1
+        ? errors[0]
+        : new AggregateError(errors, "One or more LiveQuery listeners threw");
     }
   }
 }

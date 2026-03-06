@@ -4,26 +4,34 @@ import { describe, expect, it } from "vitest";
 import { PalladiumDialect } from "../index.js";
 
 interface DB {
-  tasks: { id: string; name: string; done: boolean };
+  tasks: { id: string; name: string; done: number };
 }
 
 interface Schema {
-  tasks: { id: string; name: string; done: boolean };
+  tasks: { id: string; name: string; done: number };
 }
 
-function makeKysely(engine: ReturnType<typeof createMockEngine<Schema>>) {
+const MIGRATIONS = [
+  "CREATE TABLE tasks (id TEXT PRIMARY KEY, name TEXT NOT NULL, done INTEGER NOT NULL)",
+];
+
+function makeEngine() {
+  return createMockEngine<Schema>(MIGRATIONS);
+}
+
+function makeKysely(engine: ReturnType<typeof makeEngine>) {
   return new Kysely<DB>({ dialect: new PalladiumDialect(engine) });
 }
 
 describe("PalladiumDialect", () => {
   it("executes a raw SQL query via the engine", async () => {
-    const engine = createMockEngine<Schema>();
+    const engine = makeEngine();
     await engine.init();
-    await engine.insert("tasks", { id: "t1", name: "Buy milk", done: false });
+    await engine.insert("tasks", { id: "t1", name: "Buy milk", done: 0 });
 
     const db = makeKysely(engine);
     // selectAll() compiles to SELECT * FROM `tasks` in MySQL dialect;
-    // we adapt backtick-quoted table names in the MemoryAdapter.
+    // SqliteAdapter handles the backtick-quoted table name correctly.
     const result = await db.executeQuery(db.selectFrom("tasks").selectAll().compile());
 
     expect(result.rows).toHaveLength(1);
@@ -31,19 +39,19 @@ describe("PalladiumDialect", () => {
   });
 
   it("executes a raw sql template via exec()", async () => {
-    const engine = createMockEngine<Schema>();
+    const engine = makeEngine();
     await engine.init();
-    await engine.insert("tasks", { id: "t1", name: "hello", done: false });
+    await engine.insert("tasks", { id: "t1", name: "hello", done: 0 });
 
     const rows = await engine.exec<Schema["tasks"]>(sql`SELECT * FROM tasks`);
     expect(rows).toHaveLength(1);
   });
 
   it("compiles a WHERE clause correctly", async () => {
-    const engine = createMockEngine<Schema>();
+    const engine = makeEngine();
     await engine.init();
-    await engine.insert("tasks", { id: "t1", name: "A", done: false });
-    await engine.insert("tasks", { id: "t2", name: "B", done: false });
+    await engine.insert("tasks", { id: "t1", name: "A", done: 0 });
+    await engine.insert("tasks", { id: "t2", name: "B", done: 0 });
 
     const db = makeKysely(engine);
     const result = await db.executeQuery(

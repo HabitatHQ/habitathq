@@ -74,12 +74,18 @@ export function hlcToString(hlc: Hlc): string {
   return `${wall}-${ctr}-${hlc.nodeId}`;
 }
 
-/** Deserialise an HLC produced by {@link hlcToString}. */
+/** Deserialise an HLC produced by {@link hlcToString}. Throws on malformed input. */
 export function hlcFromString(s: string): Hlc {
   const firstDash = s.indexOf("-");
   const secondDash = s.indexOf("-", firstDash + 1);
+  if (firstDash === -1 || secondDash === -1) {
+    throw new Error(`Invalid HLC string: "${s}"`);
+  }
   const wallMs = Number(s.slice(0, firstDash));
   const counter = Number(s.slice(firstDash + 1, secondDash));
   const nodeId = s.slice(secondDash + 1);
+  if (!Number.isFinite(wallMs) || wallMs < 0 || !Number.isFinite(counter) || counter < 0) {
+    throw new Error(`Invalid HLC string: "${s}"`);
+  }
   return { wallMs, counter, nodeId };
 }

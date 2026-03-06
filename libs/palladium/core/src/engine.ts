@@ -80,9 +80,11 @@ export abstract class PalladiumEngine<S extends SchemaMap> {
     return this.adapter.exec<T>(query.text, query.params);
   }
 
-  /** Create a reactive live query. */
+  /** Create a reactive live query. Automatically deregisters on cancel(). */
   liveQuery<T = Record<string, unknown>>(query: SqlQuery): LiveQuery<T> {
-    const lq = new LiveQuery<T>(query, this.adapter);
+    const lq = new LiveQuery<T>(query, this.adapter, () => {
+      this.#liveQueries.delete(lq as LiveQuery);
+    });
     this.#liveQueries.add(lq as LiveQuery);
     return lq;
   }

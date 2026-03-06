@@ -7,8 +7,12 @@ import { PalladiumProvider, useLiveQuery, useSyncStatus } from "../index.js";
 afterEach(cleanup);
 
 interface Schema {
-  tasks: { id: string; name: string; done: boolean };
+  tasks: { id: string; name: string; done: number };
 }
+
+const MIGRATIONS = [
+  "CREATE TABLE tasks (id TEXT PRIMARY KEY, name TEXT NOT NULL, done INTEGER NOT NULL)",
+];
 
 function wrapper(
   db: ReturnType<typeof createMockEngine<Schema>>,
@@ -20,7 +24,7 @@ function wrapper(
 
 describe("useLiveQuery", () => {
   it("returns empty array initially", async () => {
-    const db = createMockEngine<Schema>();
+    const db = createMockEngine<Schema>(MIGRATIONS);
     await db.init();
 
     function App(): ReactNode {
@@ -33,7 +37,7 @@ describe("useLiveQuery", () => {
   });
 
   it("re-renders when a row is inserted", async () => {
-    const db = createMockEngine<Schema>();
+    const db = createMockEngine<Schema>(MIGRATIONS);
     await db.init();
 
     function App(): ReactNode {
@@ -51,7 +55,7 @@ describe("useLiveQuery", () => {
     await waitFor(() => expect(screen.queryAllByRole("listitem")).toHaveLength(0));
 
     await act(async () => {
-      await db.insert("tasks", { id: "t1", name: "Buy milk", done: false });
+      await db.insert("tasks", { id: "t1", name: "Buy milk", done: 0 });
     });
 
     await waitFor(() => expect(screen.queryAllByRole("listitem")).toHaveLength(1));
@@ -61,7 +65,7 @@ describe("useLiveQuery", () => {
 
 describe("useSyncStatus", () => {
   it("returns idle by default", async () => {
-    const db = createMockEngine<Schema>();
+    const db = createMockEngine<Schema>(MIGRATIONS);
     await db.init();
 
     function App(): ReactNode {
@@ -74,7 +78,7 @@ describe("useSyncStatus", () => {
   });
 
   it("updates when engine emits sync:status", async () => {
-    const db = createMockEngine<Schema>();
+    const db = createMockEngine<Schema>(MIGRATIONS);
     await db.init();
 
     function App(): ReactNode {

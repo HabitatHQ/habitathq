@@ -4,8 +4,12 @@ import { describe, expect, it } from "vitest";
 import { liveQueryStore, syncStatusStore } from "../index.js";
 
 interface Schema {
-  tasks: { id: string; name: string; done: boolean };
+  tasks: { id: string; name: string; done: number };
 }
+
+const MIGRATIONS = [
+  "CREATE TABLE tasks (id TEXT PRIMARY KEY, name TEXT NOT NULL, done INTEGER NOT NULL)",
+];
 
 /** Drain all pending microtasks (works across multiple promise levels). */
 function flush(): Promise<void> {
@@ -14,7 +18,7 @@ function flush(): Promise<void> {
 
 describe("liveQueryStore", () => {
   it("starts with loading=true", () => {
-    const db = createMockEngine<Schema>();
+    const db = createMockEngine<Schema>(MIGRATIONS);
     const store = liveQueryStore<Schema["tasks"]>(db, sql`SELECT * FROM tasks`);
     // Subscribe to activate the store's start function.
     const unsub = store.subscribe(() => {});
@@ -25,7 +29,7 @@ describe("liveQueryStore", () => {
   });
 
   it("resolves to empty rows after init", async () => {
-    const db = createMockEngine<Schema>();
+    const db = createMockEngine<Schema>(MIGRATIONS);
     await db.init();
     const store = liveQueryStore<Schema["tasks"]>(db, sql`SELECT * FROM tasks`);
 
@@ -38,14 +42,14 @@ describe("liveQueryStore", () => {
   });
 
   it("emits updated rows on insert", async () => {
-    const db = createMockEngine<Schema>();
+    const db = createMockEngine<Schema>(MIGRATIONS);
     await db.init();
     const store = liveQueryStore<Schema["tasks"]>(db, sql`SELECT * FROM tasks`);
 
     const unsub = store.subscribe(() => {});
     await flush();
 
-    await db.insert("tasks", { id: "t1", name: "Buy milk", done: false });
+    await db.insert("tasks", { id: "t1", name: "Buy milk", done: 0 });
 
     const value = get(store);
     expect(value.rows).toHaveLength(1);
@@ -54,7 +58,7 @@ describe("liveQueryStore", () => {
   });
 
   it("unsubscribe cancels the live query", async () => {
-    const db = createMockEngine<Schema>();
+    const db = createMockEngine<Schema>(MIGRATIONS);
     await db.init();
     const store = liveQueryStore<Schema["tasks"]>(db, sql`SELECT * FROM tasks`);
 
@@ -63,7 +67,7 @@ describe("liveQueryStore", () => {
     unsub();
 
     // Insert after unsubscribe — store is inactive, no further updates.
-    await db.insert("tasks", { id: "t1", name: "A", done: false });
+    await db.insert("tasks", { id: "t1", name: "A", done: 0 });
 
     expect(get(store).rows).toEqual([]);
   });
@@ -71,7 +75,7 @@ describe("liveQueryStore", () => {
 
 describe("syncStatusStore", () => {
   it("starts with idle status", async () => {
-    const db = createMockEngine<Schema>();
+    const db = createMockEngine<Schema>(MIGRATIONS);
     await db.init();
     const store = syncStatusStore(db);
     const unsub = store.subscribe(() => {});
@@ -80,7 +84,7 @@ describe("syncStatusStore", () => {
   });
 
   it("updates when engine status changes", async () => {
-    const db = createMockEngine<Schema>();
+    const db = createMockEngine<Schema>(MIGRATIONS);
     await db.init();
     const store = syncStatusStore(db);
 

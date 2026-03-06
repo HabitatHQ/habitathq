@@ -23,23 +23,30 @@ export function useLiveQuery<T = Record<string, unknown>>(
   const loading = ref(true);
   const error = ref<Error | null>(null);
 
+  let cancelled = false;
+
   const lq = engine.liveQuery<T>(query);
 
   const unsub = lq.on("change", (newRows) => {
-    rows.value = newRows;
+    if (!cancelled) rows.value = newRows;
   });
 
   lq.exec()
     .then((initial) => {
-      rows.value = initial;
-      loading.value = false;
+      if (!cancelled) {
+        rows.value = initial;
+        loading.value = false;
+      }
     })
     .catch((err: unknown) => {
-      error.value = err instanceof Error ? err : new Error(String(err));
-      loading.value = false;
+      if (!cancelled) {
+        error.value = err instanceof Error ? err : new Error(String(err));
+        loading.value = false;
+      }
     });
 
   onUnmounted(() => {
+    cancelled = true;
     unsub();
     lq.cancel();
   });

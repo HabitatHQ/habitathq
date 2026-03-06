@@ -168,6 +168,28 @@ SQLite Worker
 - **RPC** (via [Comlink](https://github.com/GoogleChromeLabs/comlink)): `db.insert()`, `db.update()`, `db.delete()`, `db.exec()` — proxied calls to the Worker.
 - **Push streams** (via `MessagePort` Observables): change events emitted by the Worker to drive reactive UI updates on the main thread.
 
+```mermaid
+sequenceDiagram
+    participant UI as App / UI
+    participant MT as Main Thread
+    participant W as SQLite Worker
+    participant DB as SQLite (WASM)
+    participant S as Server
+
+    UI->>MT: db.insert('tasks', data)
+    MT->>W: Comlink RPC call
+    W->>DB: BEGIN TRANSACTION
+    W->>DB: Write Op to application table
+    W->>DB: INSERT INTO _sync_pending_ops
+    DB-->>W: COMMIT OK
+    W-->>MT: Promise resolved
+    MT-->>UI: Re-render (LiveQuery fires)
+    W-->>W: Sync loop picks up pending op
+    W->>S: POST /sync/push { changes }
+    S-->>W: 200 OK / conflict
+    W->>DB: DELETE from _sync_pending_ops
+```
+
 The Worker owns the network connection. It opens and manages the SSE/WS stream, writes incoming deltas to SQLite, and posts invalidation events to the main thread. No cross-tab coordination is performed.
 
 ### Mutation API
@@ -218,6 +240,29 @@ query.cancel();
 ```
 
 **Invalidation model**: The library tracks which tables each query touches. Any write to a tracked table triggers a re-run of the query and emits a `change` event with the new result set.
+
+```mermaid
+sequenceDiagram
+    participant UI as UI Component
+    participant MT as Main Thread
+    participant W as SQLite Worker
+    participant DB as SQLite (WASM)
+
+    UI->>MT: db.liveQuery(sql`SELECT * FROM tasks`)
+    MT->>W: exec() via Comlink
+    W->>DB: Run SQL, track tables touched
+    DB-->>W: Initial rows
+    W-->>MT: Observable push (initial)
+    MT-->>UI: Render rows
+
+    Note over W,DB: A mutation touches 'tasks' table
+
+    W->>W: Table invalidation triggered
+    W->>DB: Re-run SQL query
+    DB-->>W: Updated rows
+    W-->>MT: push('change', rows)
+    MT-->>UI: Re-render with new data
+```
 
 Supported subscription granularities:
 
@@ -290,6 +335,31 @@ When a client connects for the first time (or after a re-bootstrap), it uses a *
 4. Client streams all deltas with `sync_id > snapshot_sync_id` to catch up.
 
 If a client has been offline longer than the server's tombstone TTL (configurable per workspace), the server forces a full re-bootstrap.
+
+```mermaid
+sequenceDiagram
+    participant W as Client Worker
+    participant S as Server
+    participant DB as Local SQLite
+    participant BC as Broadcaster
+
+    W->>S: GET /sync/bootstrap?since=null
+    S-->>W: { snapshot, sync_id: "018e..." }
+    W->>DB: Hydrate tables from snapshot
+    W->>S: Subscribe SSE (since=018e...)
+
+    loop Delta catch-up
+        S-->>W: SSE: Change (sync_id > 018e...)
+        W->>DB: Apply delta
+        W-->>W: Notify LiveQuery listeners
+    end
+
+    Note over W,BC: Steady-state: new changes arrive via broadcaster
+
+    BC-->>S: publish(workspace_id, delta)
+    S-->>W: SSE: new Change
+    W->>DB: Write delta, fire invalidations
+```
 
 ### CRDT Fields (Yjs)
 
@@ -407,6 +477,31 @@ The backend exposes two entry points, both of which write to the delta log:
 **Sync head** (`POST /sync/push`): Accepts a batch of `Change` objects from a client. The server rebases each `Change` against current state, validates, persists, and broadcasts the resulting delta.
 
 **REST head** (`/api/v1/...`): Standard REST handlers. An Axum middleware wraps each handler, detects DB mutations (via `RETURNING` clauses or trigger-based capture), and automatically generates delta rows. Third-party integrations get sync for free.
+
+```mermaid
+sequenceDiagram
+    participant C as Palladium Client
+    participant TP as 3rd-Party REST Client
+    participant AX as Axum Router
+    participant DL as _sync_deltas
+    participant BC as Broadcaster
+    participant C1 as Connected Client 1
+    participant C2 as Connected Client 2
+
+    C->>AX: POST /sync/push { changes }
+    AX->>AX: Validate & rebase
+    AX->>DL: INSERT delta row
+    AX-->>C: 200 OK
+
+    TP->>AX: PUT /api/v1/tasks/123
+    AX->>AX: Middleware captures RETURNING
+    AX->>DL: INSERT delta row (auto-generated)
+    AX-->>TP: 200 OK
+
+    DL->>BC: publish(workspace_id, delta)
+    BC-->>C1: SSE / WS delta event
+    BC-->>C2: SSE / WS delta event
+```
 
 The builder API for integrating into an existing Axum app:
 
@@ -541,6 +636,23 @@ Horizontal scaling (multiple server instances) is a v2 concern. v1 targets singl
 
 If you are new to distributed systems, this section explains what CRDTs are, why they matter for a sync engine, and how Palladium uses them. Feel free to skip it if you are already familiar with the topic.
 
+### The Short Version (No Jargon)
+
+Imagine you and a friend are both writing on the same whiteboard — but you are in different rooms. You each have a photograph of the whiteboard. You make changes to your photo, your friend makes changes to theirs, and later you put the photos side by side to combine them.
+
+The problem: if you both erased the same word and wrote different things, whose version wins?
+
+A **CRDT** is a rule book that answers that question automatically — always, deterministically, and without anyone having to coordinate first. Every copy of the data follows the same rules, so no matter what order changes arrive in, everyone ends up with the identical result.
+
+Palladium uses two strategies depending on what kind of data you have:
+
+- **Plain fields** (numbers, booleans, short strings): the change with the most recent timestamp wins. Simple and fast.
+- **Rich text** (paragraphs, documents): a CRDT library called [Yjs](https://yjs.dev/) is used. Every character has a unique identity, so two people typing at the same spot can both be preserved in a sensible order — no data is silently lost.
+
+That is the whole idea. The rest of this section explains *why* this is hard, and how it works under the hood.
+
+---
+
 ### The Problem: Two People Editing at the Same Time
 
 Imagine two users — Alice and Bob — both editing a shared to-do list while offline. Alice renames a task; Bob deletes it. When they both come back online, what should happen?
@@ -636,6 +748,33 @@ _sync_crdt_snapshots  ← periodic compacted snapshots (merge of all updates so 
 
 On read, the library loads the latest snapshot and applies any subsequent incremental updates on top. Background compaction periodically merges updates into a new snapshot to keep read performance stable over time.
 
+```mermaid
+sequenceDiagram
+    participant A as Client A
+    participant B as Client B
+    participant S as Server
+    participant DB as _sync_crdt_updates
+
+    A->>A: Y.Doc: insert "Hello" at pos 0 → update blob αA
+    B->>B: Y.Doc: insert "World" at pos 0 → update blob βB
+
+    A->>S: POST /sync/push { crdt_update: αA }
+    B->>S: POST /sync/push { crdt_update: βB }
+
+    S->>DB: INSERT update blob αA
+    S->>DB: INSERT update blob βB
+    S->>S: Y.applyUpdate(doc, αA)
+    S->>S: Y.applyUpdate(doc, βB)
+    Note over S: Deterministic merge — same result regardless of order
+
+    S-->>A: SSE: crdt_update βB
+    S-->>B: SSE: crdt_update αA
+
+    A->>A: Apply βB → converged doc
+    B->>B: Apply αA → converged doc
+    Note over A,B: Both clients identical — no coordination needed
+```
+
 ### Other CRDT Libraries (Ecosystem Overview)
 
 Palladium commits to Yjs, but here is a map of the broader ecosystem for context:
@@ -704,6 +843,30 @@ Client B writes task.done = false  at HLC (T=99,  C=5, node=B)
 Server receives both.
 HLC(T=100, C=1, A) > HLC(T=99, C=5, B)
 → Client A wins. task.done = true.
+```
+
+```mermaid
+sequenceDiagram
+    participant A as Client A (offline)
+    participant B as Client B (offline)
+    participant S as Server
+    participant BC as Broadcaster
+
+    A->>A: task.done = true  [HLC T=100, C=1, node=A]
+    B->>B: task.done = false [HLC T=99,  C=5, node=B]
+
+    A->>S: POST /sync/push [Change A]
+    B->>S: POST /sync/push [Change B]
+
+    S->>S: Compare HLCs: (100,1,A) > (99,5,B) → A wins
+    S->>S: Persist Change A; mark Change B superseded
+    S-->>A: 200 OK
+    S-->>B: 200 OK
+
+    S->>BC: publish(delta: task.done = true)
+    BC-->>A: SSE (no-op — already has winning value)
+    BC-->>B: SSE: task.done = true (correction)
+    B->>B: Reconcile: revert to true
 ```
 
 For CRDT fields (Yjs):

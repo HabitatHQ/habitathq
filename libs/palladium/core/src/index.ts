@@ -20,5 +20,6 @@ export type { SyncStatus, EngineEvents } from "./engine.js";
 export { PalladiumEngine } from "./engine.js";
 
 export { MemoryAdapter } from "./memory-adapter.js";
+export { SqliteAdapter } from "./sqlite-adapter.js";
 
 export { createMockEngine } from "./mock.js";

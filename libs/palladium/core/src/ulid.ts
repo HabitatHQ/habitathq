@@ -34,7 +34,42 @@ function encodeRandom(len: number): string {
   return out;
 }
 
-/** Generate a new ULID. Monotonically sortable within the same process. */
+// Monotonicity state: track the last ms and last random suffix so we can
+// increment within the same millisecond rather than generating a fresh random.
+let lastMs = -1;
+let lastRandom = "";
+
+/**
+ * Generate a new ULID. Guaranteed to be strictly monotonically increasing
+ * even when called multiple times within the same millisecond.
+ */
 export function generateUlid(): string {
-  return encodeTime(Date.now(), TIME_LEN) + encodeRandom(RANDOM_LEN);
+  const now = Date.now();
+
+  if (now === lastMs && lastRandom !== "") {
+    // Increment the random suffix by 1 (treating it as a base-32 number).
+    lastRandom = incrementBase32(lastRandom);
+  } else {
+    lastMs = now;
+    lastRandom = encodeRandom(RANDOM_LEN);
+  }
+
+  return encodeTime(now, TIME_LEN) + lastRandom;
+}
+
+/** Increment a Crockford base-32 string by 1. Wraps on overflow (extremely unlikely). */
+function incrementBase32(s: string): string {
+  const chars = s.split("");
+  let i = chars.length - 1;
+  while (i >= 0) {
+    const idx = ENCODING.indexOf(chars[i] ?? "0");
+    if (idx < ENCODING_LEN - 1) {
+      chars[i] = ENCODING[idx + 1] ?? "0";
+      return chars.join("");
+    }
+    chars[i] = "0";
+    i--;
+  }
+  // Overflow: all chars were max value — reset to zeros (extremely unlikely in practice).
+  return "0".repeat(s.length);
 }

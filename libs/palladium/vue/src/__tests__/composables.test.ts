@@ -5,12 +5,16 @@ import { defineComponent, nextTick } from "vue";
 import { useLiveQuery, useSyncStatus } from "../index.js";
 
 interface Schema {
-  tasks: { id: string; name: string; done: boolean };
+  tasks: { id: string; name: string; done: number };
 }
+
+const MIGRATIONS = [
+  "CREATE TABLE tasks (id TEXT PRIMARY KEY, name TEXT NOT NULL, done INTEGER NOT NULL)",
+];
 
 describe("useLiveQuery", () => {
   it("returns empty rows initially", async () => {
-    const db = createMockEngine<Schema>();
+    const db = createMockEngine<Schema>(MIGRATIONS);
     await db.init();
 
     const Comp = defineComponent({
@@ -29,7 +33,7 @@ describe("useLiveQuery", () => {
   });
 
   it("updates when a row is inserted", async () => {
-    const db = createMockEngine<Schema>();
+    const db = createMockEngine<Schema>(MIGRATIONS);
     await db.init();
 
     const Comp = defineComponent({
@@ -44,7 +48,7 @@ describe("useLiveQuery", () => {
     await nextTick();
     expect(wrapper.findAll("li")).toHaveLength(0);
 
-    await db.insert("tasks", { id: "t1", name: "Buy milk", done: false });
+    await db.insert("tasks", { id: "t1", name: "Buy milk", done: 0 });
     await nextTick();
 
     expect(wrapper.findAll("li")).toHaveLength(1);
@@ -55,7 +59,7 @@ describe("useLiveQuery", () => {
 
 describe("useSyncStatus", () => {
   it("returns idle initially", async () => {
-    const db = createMockEngine<Schema>();
+    const db = createMockEngine<Schema>(MIGRATIONS);
     await db.init();
 
     const Comp = defineComponent({
@@ -73,7 +77,7 @@ describe("useSyncStatus", () => {
   });
 
   it("updates on status change", async () => {
-    const db = createMockEngine<Schema>();
+    const db = createMockEngine<Schema>(MIGRATIONS);
     await db.init();
 
     const Comp = defineComponent({
