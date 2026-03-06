@@ -959,7 +959,7 @@ onUnmounted(() => {
     </ul>
 
     <!-- ── Grid view ──────────────────────────────────────────────────────── -->
-    <ul v-else class="grid grid-cols-2 gap-2 items-start">
+    <ul v-else class="jots-masonry">
       <template v-for="item in timeline" :key="item.kind + '-' + item.data.id">
 
         <!-- Text tile (Google Keep card) -->
@@ -968,34 +968,36 @@ onUnmounted(() => {
           class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) overflow-hidden cursor-pointer active:scale-[0.97] transition-transform"
           @click="openEditText(item.data)"
         >
-          <!-- Amber accent stripe -->
-          <div class="h-0.5 bg-gradient-to-r from-amber-500/70 to-amber-600/30" />
-          <div class="p-3 flex flex-col gap-2">
-            <p class="font-semibold text-sm text-(--ui-text) leading-snug line-clamp-2">
-              {{ previewTitle(item.data) }}
-            </p>
-            <p v-if="gridBody(item.data)" class="text-xs text-(--ui-text-dimmed) line-clamp-5 leading-relaxed">
-              {{ gridBody(item.data) }}
-            </p>
-            <div class="flex items-end justify-between gap-1 mt-auto pt-1">
-              <div class="flex flex-wrap gap-1 min-w-0">
-                <span
-                  v-for="tag in item.data.tags.slice(0, 2)"
-                  :key="tag"
-                  class="px-1.5 py-0.5 rounded-full text-[9px] bg-(--ui-bg-elevated) text-(--ui-text-dimmed) border border-(--ui-border-accented)/60 truncate max-w-[72px]"
-                >{{ splitTag(tag).leaf }}</span>
-                <span v-if="item.data.tags.length > 2" class="text-[9px] text-slate-600 self-center">+{{ item.data.tags.length - 2 }}</span>
-              </div>
-              <div class="flex items-center gap-0.5 shrink-0">
-                <button
-                  class="p-0.5 rounded transition-colors"
-                  :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
-                  :title="hasLinkedTodo(item.data.id) ? 'View linked TODO' : 'Create TODO for this jot'"
-                  @click.stop="onJotLinkClick(item)"
-                >
-                  <UIcon :name="hasLinkedTodo(item.data.id) ? 'i-heroicons-paper-clip' : 'i-heroicons-link'" class="w-3 h-3" />
-                </button>
-                <span class="text-[10px] text-slate-600">{{ timeAgo(item.data.updated_at) }}</span>
+          <!-- Left accent bar + content -->
+          <div class="flex">
+            <div class="w-[3px] shrink-0 rounded-l-2xl bg-gradient-to-b from-amber-500/80 to-amber-600/30" />
+            <div class="p-3 flex flex-col gap-2 min-w-0 flex-1">
+              <p class="font-semibold text-sm text-(--ui-text) leading-snug line-clamp-2">
+                {{ previewTitle(item.data) }}
+              </p>
+              <p v-if="gridBody(item.data)" class="text-xs text-(--ui-text-dimmed) line-clamp-6 leading-relaxed">
+                {{ gridBody(item.data) }}
+              </p>
+              <div class="flex items-end justify-between gap-1 mt-auto pt-1">
+                <div class="flex flex-wrap gap-1 min-w-0">
+                  <span
+                    v-for="tag in item.data.tags.slice(0, 2)"
+                    :key="tag"
+                    class="px-1.5 py-0.5 rounded-full text-[9px] bg-(--ui-bg-elevated) text-(--ui-text-dimmed) border border-(--ui-border-accented)/60 truncate max-w-[72px]"
+                  >{{ splitTag(tag).leaf }}</span>
+                  <span v-if="item.data.tags.length > 2" class="text-[9px] text-slate-600 self-center">+{{ item.data.tags.length - 2 }}</span>
+                </div>
+                <div class="flex items-center gap-0.5 shrink-0">
+                  <button
+                    class="p-0.5 rounded transition-colors"
+                    :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
+                    :title="hasLinkedTodo(item.data.id) ? 'View linked TODO' : 'Create TODO for this jot'"
+                    @click.stop="onJotLinkClick(item)"
+                  >
+                    <UIcon :name="hasLinkedTodo(item.data.id) ? 'i-heroicons-paper-clip' : 'i-heroicons-link'" class="w-3 h-3" />
+                  </button>
+                  <span class="text-[10px] text-slate-600">{{ timeAgo(item.data.updated_at) }}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -1078,9 +1080,9 @@ onUnmounted(() => {
             v-if="item.data.url"
             :src="item.data.url"
             :alt="item.data.filename"
-            class="w-full aspect-square object-cover"
+            class="w-full object-cover rounded-t-2xl"
           />
-          <div v-else class="w-full aspect-square bg-(--ui-bg-elevated) flex items-center justify-center">
+          <div v-else class="w-full aspect-[4/3] bg-(--ui-bg-elevated) flex items-center justify-center rounded-t-2xl">
             <UIcon name="i-heroicons-photo" class="w-8 h-8 text-slate-600" />
           </div>
           <!-- Footer -->
@@ -1502,3 +1504,30 @@ onUnmounted(() => {
 
   </div>
 </template>
+
+<style scoped>
+.jots-masonry {
+  columns: 2;
+  column-gap: 10px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.jots-masonry > li {
+  break-inside: avoid;
+  margin-bottom: 10px;
+  display: inline-block;
+  width: 100%;
+  animation: tile-in 0.3s ease-out both;
+}
+@keyframes tile-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+</style>
