@@ -18,20 +18,23 @@ let timerInterval: ReturnType<typeof setInterval> | null = null
 let labelTimeout: ReturnType<typeof setTimeout> | null = null
 const showTimerLabel = ref(false)
 
-watch(() => timerComp.timer, (newTimer) => {
-  if (labelTimeout) {
-    clearTimeout(labelTimeout)
-    labelTimeout = null
-  }
-  if (newTimer) {
-    showTimerLabel.value = true
-    labelTimeout = setTimeout(() => {
+watch(
+  () => timerComp.timer,
+  (newTimer) => {
+    if (labelTimeout) {
+      clearTimeout(labelTimeout)
+      labelTimeout = null
+    }
+    if (newTimer) {
+      showTimerLabel.value = true
+      labelTimeout = setTimeout(() => {
+        showTimerLabel.value = false
+      }, 3000)
+    } else {
       showTimerLabel.value = false
-    }, 3000)
-  } else {
-    showTimerLabel.value = false
-  }
-})
+    }
+  },
+)
 
 onUnmounted(() => {
   if (timerInterval) clearInterval(timerInterval)
