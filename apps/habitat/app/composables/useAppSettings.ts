@@ -7,6 +7,7 @@ export interface AppSettings {
   enableWeek: boolean
   enableTodos: boolean
   enableBored: boolean
+  autoShowBored: boolean
   enableContextFilter: boolean
   enableTimer: boolean
   pomodoroWorkMinutes: number
@@ -41,6 +42,7 @@ const DEFAULTS: AppSettings = {
   enableWeek: true,
   enableTodos: false,
   enableBored: false,
+  autoShowBored: true,
   enableContextFilter: false,
   enableTimer: false,
   pomodoroWorkMinutes: 25,

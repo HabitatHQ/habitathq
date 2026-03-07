@@ -157,6 +157,17 @@ async function confirmHealthSetup() {
 
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
+            <p class="text-sm font-medium">Auto-show "I'm Bored"</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Automatically suggest an activity when all daily habits are done.</p>
+          </div>
+          <USwitch
+            :model-value="appSettings.autoShowBored"
+            @update:model-value="setAppSetting('autoShowBored', $event)"
+          />
+        </div>
+
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
             <p class="text-sm font-medium">Context Filter</p>
             <p class="text-xs text-(--ui-text-dimmed)">Tag icon in the header lets you filter habits, todos, and bored suggestions by shared tags.</p>
           </div>
