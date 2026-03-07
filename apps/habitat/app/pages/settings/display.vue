@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { AppTheme } from '~/composables/useAppSettings'
+import { useDragReorder } from '~/composables/useTabReorder'
 
 const colorMode = useColorMode()
 const { settings: appSettings, set: setAppSetting } = useAppSettings()
@@ -15,6 +16,70 @@ function setTheme(theme: AppTheme) {
   document.documentElement.classList.add('theme-transitioning')
   setAppSetting('theme', theme)
   setTimeout(() => document.documentElement.classList.remove('theme-transitioning'), 250)
+}
+
+// ── Tab order ───────────────────────────────────────────────────────────────
+
+interface NavItem {
+  to: string
+  icon: string
+  label: string
+  today?: boolean
+  health?: boolean
+  journalling?: boolean
+  todos?: boolean
+  bored?: boolean
+}
+
+const ALL_NAV_ITEMS: NavItem[] = [
+  { to: '/', icon: 'i-heroicons-home', label: 'Today', today: true },
+  { to: '/habits', icon: 'i-heroicons-list-bullet', label: 'Habits' },
+  { to: '/health', icon: 'i-heroicons-heart', label: 'Health', health: true },
+  { to: '/todos', icon: 'i-heroicons-check-circle', label: 'TODOs', todos: true },
+  { to: '/bored', icon: 'i-heroicons-face-smile', label: 'Bored', bored: true },
+  { to: '/checkin', icon: 'i-heroicons-pencil-square', label: 'Check-in', journalling: true },
+  { to: '/jots', icon: 'i-heroicons-document-text', label: 'Jots', journalling: true },
+]
+
+function isNavEnabled(item: NavItem): boolean {
+  if (item.today && !appSettings.value.enableToday) return false
+  if (item.health && !appSettings.value.enableHealth) return false
+  if (item.journalling && !appSettings.value.enableJournalling) return false
+  if (item.todos && !appSettings.value.enableTodos) return false
+  if (item.bored && !(appSettings.value.enableTodos && appSettings.value.enableBored)) return false
+  return true
+}
+
+const orderedNavItems = computed<NavItem[]>(() => {
+  const order = appSettings.value.tabOrder
+  const enabled = ALL_NAV_ITEMS.filter(isNavEnabled)
+  if (!order.length) return enabled
+
+  const sorted: NavItem[] = []
+  for (const route of order) {
+    const item = enabled.find((i) => i.to === route)
+    if (item) sorted.push(item)
+  }
+  for (const item of enabled) {
+    if (!sorted.includes(item)) sorted.push(item)
+  }
+  return sorted
+})
+
+const tabOrderContainerRef = ref<HTMLElement | null>(null)
+
+const { onPointerDown } = useDragReorder(
+  orderedNavItems,
+  (newOrder) => {
+    setAppSetting('tabOrder', newOrder.map((i) => i.to))
+  },
+  { orientation: 'vertical' },
+)
+
+const hasCustomOrder = computed(() => appSettings.value.tabOrder.length > 0)
+
+function resetTabOrder() {
+  setAppSetting('tabOrder', [])
 }
 </script>
 
@@ -149,6 +214,41 @@ function setTheme(theme: AppTheme) {
           />
         </div>
 
+      </UCard>
+    </section>
+
+    <!-- Tab Order -->
+    <section class="space-y-2">
+      <div class="flex items-center justify-between px-1">
+        <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed)">Tab Order</p>
+        <button
+          v-if="hasCustomOrder"
+          class="text-xs text-primary-400 hover:text-primary-300 transition-colors"
+          @click="resetTabOrder"
+        >
+          Reset to default
+        </button>
+      </div>
+      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0' }">
+        <div ref="tabOrderContainerRef" class="divide-y divide-slate-800">
+          <div
+            v-for="(item, index) in orderedNavItems"
+            :key="item.to"
+            class="flex items-center gap-3 px-4 py-3 select-none"
+          >
+            <!-- Drag handle -->
+            <button
+              class="touch-none cursor-grab active:cursor-grabbing p-1 -ml-1 text-(--ui-text-dimmed) hover:text-(--ui-text-muted) transition-colors"
+              aria-label="Drag to reorder"
+              @pointerdown="(e: PointerEvent) => tabOrderContainerRef && onPointerDown(index, e, tabOrderContainerRef)"
+            >
+              <UIcon name="i-heroicons-bars-3" class="w-4 h-4" />
+            </button>
+            <!-- Tab icon + label -->
+            <UIcon :name="item.icon" class="w-5 h-5 text-(--ui-text-muted)" />
+            <span class="text-sm font-medium">{{ item.label }}</span>
+          </div>
+        </div>
       </UCard>
     </section>
 

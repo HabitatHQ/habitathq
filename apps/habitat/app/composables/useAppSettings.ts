@@ -30,6 +30,7 @@ export interface AppSettings {
   theme: AppTheme
   reduceMotion: boolean
   strictCsp: boolean
+  tabOrder: string[]
 }
 
 const KEY = 'habitat-app-settings'
@@ -63,6 +64,7 @@ const DEFAULTS: AppSettings = {
   theme: 'habitat',
   reduceMotion: false,
   strictCsp: false,
+  tabOrder: [],
 }
 
 /**
