@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { AppTheme } from '~/composables/useAppSettings'
 import { useDragReorder } from '~/composables/useTabReorder'
+import type { NavItem } from '~/utils/navigation'
 
 const colorMode = useColorMode()
 const { settings: appSettings, set: setAppSetting } = useAppSettings()
@@ -20,26 +21,7 @@ function setTheme(theme: AppTheme) {
 
 // ── Tab order ───────────────────────────────────────────────────────────────
 
-interface NavItem {
-  to: string
-  icon: string
-  label: string
-  today?: boolean
-  health?: boolean
-  journalling?: boolean
-  todos?: boolean
-  bored?: boolean
-}
 
-const ALL_NAV_ITEMS: NavItem[] = [
-  { to: '/', icon: 'i-heroicons-home', label: 'Today', today: true },
-  { to: '/habits', icon: 'i-heroicons-list-bullet', label: 'Habits' },
-  { to: '/health', icon: 'i-heroicons-heart', label: 'Health', health: true },
-  { to: '/todos', icon: 'i-heroicons-check-circle', label: 'TODOs', todos: true },
-  { to: '/bored', icon: 'i-heroicons-face-smile', label: 'Bored', bored: true },
-  { to: '/checkin', icon: 'i-heroicons-pencil-square', label: 'Check-in', journalling: true },
-  { to: '/jots', icon: 'i-heroicons-document-text', label: 'Jots', journalling: true },
-]
 
 function isNavEnabled(item: NavItem): boolean {
   if (item.today && !appSettings.value.enableToday) return false

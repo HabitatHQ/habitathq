@@ -97,15 +97,7 @@ function navLabel(item: { to: string; label: string }): string {
   return item.label
 }
 
-const ALL_NAV_ITEMS = [
-  { to: '/', icon: 'i-heroicons-home', label: 'Today', today: true },
-  { to: '/habits', icon: 'i-heroicons-list-bullet', label: 'Habits' },
-  { to: '/health', icon: 'i-heroicons-heart', label: 'Health', health: true },
-  { to: '/todos', icon: 'i-heroicons-check-circle', label: 'TODOs', todos: true },
-  { to: '/bored', icon: 'i-heroicons-face-smile', label: 'Bored', bored: true },
-  { to: '/checkin', icon: 'i-heroicons-pencil-square', label: 'Check-in', journalling: true },
-  { to: '/jots', icon: 'i-heroicons-document-text', label: 'Jots', journalling: true },
-]
+
 
 const enabledNavItems = computed(() =>
   ALL_NAV_ITEMS.filter((i) => {
