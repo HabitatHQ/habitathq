@@ -17,7 +17,7 @@ export type { SchemaMap, Op, InsertOp, UpdateOp, DeleteOp } from "./tx.js";
 export { TxBuilder } from "./tx.js";
 
 export type { SyncStatus, EngineEvents } from "./engine.js";
-export { PalladiumEngine } from "./engine.js";
+export { PalladiumEngine, toError } from "./engine.js";
 
 export { MemoryAdapter } from "./memory-adapter.js";
 export { SqliteAdapter } from "./sqlite-adapter.js";

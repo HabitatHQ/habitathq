@@ -132,3 +132,8 @@ export abstract class PalladiumEngine<S extends SchemaMap> {
     await Promise.all(promises);
   }
 }
+
+/** Coerces an unknown thrown value to an `Error` instance. */
+export function toError(err: unknown): Error {
+  return err instanceof Error ? err : new Error(String(err));
+}

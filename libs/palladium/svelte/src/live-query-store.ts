@@ -1,3 +1,4 @@
+import { toError } from "@palladium/core";
 import type { PalladiumEngine, SqlQuery, SyncStatus } from "@palladium/core";
 import { readable } from "svelte/store";
 
@@ -37,8 +38,7 @@ export function liveQueryStore<T = Record<string, unknown>>(
         set({ rows, loading: false, error: null });
       })
       .catch((err: unknown) => {
-        const error = err instanceof Error ? err : new Error(String(err));
-        update((prev) => ({ ...prev, loading: false, error }));
+        update((prev) => ({ ...prev, loading: false, error: toError(err) }));
       });
 
     return () => {

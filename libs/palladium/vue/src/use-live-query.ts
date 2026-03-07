@@ -1,3 +1,4 @@
+import { toError } from "@palladium/core";
 import type { PalladiumEngine, SqlQuery } from "@palladium/core";
 import { type Ref, onUnmounted, ref } from "vue";
 
@@ -40,7 +41,7 @@ export function useLiveQuery<T = Record<string, unknown>>(
     })
     .catch((err: unknown) => {
       if (!cancelled) {
-        error.value = err instanceof Error ? err : new Error(String(err));
+        error.value = toError(err);
         loading.value = false;
       }
     });

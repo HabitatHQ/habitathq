@@ -1,3 +1,4 @@
+import { toError } from "@palladium/core";
 import type { SqlQuery } from "@palladium/core";
 import { useEffect, useState } from "react";
 import { usePalladium } from "./provider.js";
@@ -42,7 +43,7 @@ export function useLiveQuery<T = Record<string, unknown>>(query: SqlQuery): Live
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err : new Error(String(err)));
+          setError(toError(err));
           setLoading(false);
         }
       });
