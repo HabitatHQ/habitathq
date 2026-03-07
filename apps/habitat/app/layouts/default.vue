@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { AppTheme } from '~/composables/useAppSettings'
+import { useDragReorder } from '~/composables/useTabReorder'
 
 const route = useRoute()
 const { $dbError } = useNuxtApp()
@@ -106,10 +107,9 @@ const ALL_NAV_ITEMS = [
   { to: '/jots', icon: 'i-heroicons-document-text', label: 'Jots', journalling: true },
 ]
 
-const navItems = computed(() =>
+const enabledNavItems = computed(() =>
   ALL_NAV_ITEMS.filter((i) => {
     if (i.today && !settings.value.enableToday) return false
-
     if (i.health && !settings.value.enableHealth) return false
     if (i.journalling && !settings.value.enableJournalling) return false
     if (i.todos && !settings.value.enableTodos) return false
@@ -117,6 +117,90 @@ const navItems = computed(() =>
     return true
   }),
 )
+
+const navItems = computed(() => {
+  const order = settings.value.tabOrder
+  const enabled = enabledNavItems.value
+  if (!order.length) return enabled
+
+  const sorted: typeof enabled = []
+  for (const route of order) {
+    const item = enabled.find((i) => i.to === route)
+    if (item) sorted.push(item)
+  }
+  // Append newly-enabled items not yet in saved order
+  for (const item of enabled) {
+    if (!sorted.includes(item)) sorted.push(item)
+  }
+  return sorted
+})
+
+// ── Bottom nav long-press reorder mode ───────────────────────────────────────
+
+const navReorderMode = ref(false)
+const navContainerRef = ref<HTMLElement | null>(null)
+let longPressTimer: ReturnType<typeof setTimeout> | null = null
+const LONG_PRESS_MS = 500
+
+const { onPointerDown: navDragPointerDown } = useDragReorder(
+  navItems,
+  (newOrder) => {
+    setAppSetting('tabOrder', newOrder.map((i) => i.to))
+  },
+  { orientation: 'horizontal' },
+)
+
+async function startDragFromLongPress(index: number, e: PointerEvent) {
+  navReorderMode.value = true
+  void impact('medium')
+  // Wait for Vue to apply DOM changes before capturing element references
+  await nextTick()
+  if (navContainerRef.value) {
+    navDragPointerDown(index, e, navContainerRef.value)
+  }
+}
+
+function onNavPointerDown(index: number, e: PointerEvent) {
+  // In reorder mode, immediately start dragging (prevent link navigation)
+  if (navReorderMode.value && navContainerRef.value) {
+    e.preventDefault()
+    e.stopPropagation()
+    e.stopImmediatePropagation()
+    navDragPointerDown(index, e, navContainerRef.value)
+    return
+  }
+
+  // Normal mode: start long-press detection
+  const startX = e.clientX
+  const startY = e.clientY
+  const moveThreshold = 10
+
+  function detectMove(me: PointerEvent) {
+    if (Math.abs(me.clientX - startX) > moveThreshold || Math.abs(me.clientY - startY) > moveThreshold) {
+      cancelLongPress()
+    }
+  }
+  function cancelLongPress() {
+    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null }
+    document.removeEventListener('pointermove', detectMove)
+    document.removeEventListener('pointerup', cancelLongPress)
+    document.removeEventListener('pointercancel', cancelLongPress)
+  }
+
+  document.addEventListener('pointermove', detectMove)
+  document.addEventListener('pointerup', cancelLongPress)
+  document.addEventListener('pointercancel', cancelLongPress)
+
+  longPressTimer = setTimeout(() => {
+    cancelLongPress()
+    // Start drag immediately on the long-pressed tab
+    startDragFromLongPress(index, e)
+  }, LONG_PRESS_MS)
+}
+
+function exitNavReorderMode() {
+  navReorderMode.value = false
+}
 
 function isActive(to: string) {
   return to === '/' ? route.path === '/' : route.path.startsWith(to)
@@ -439,9 +523,51 @@ function toggleColorMode() {
       <slot />
     </main>
 
+    <!-- Reorder mode backdrop -->
+    <div
+      v-if="navReorderMode"
+      class="fixed inset-0 z-20"
+      @click="exitNavReorderMode"
+    />
+
+    <!-- Reorder mode banner -->
+    <Transition
+      enter-active-class="transition-all duration-200 ease-out"
+      enter-from-class="translate-y-full opacity-0"
+      enter-to-class="translate-y-0 opacity-100"
+      leave-active-class="transition-all duration-150 ease-in"
+      leave-from-class="translate-y-0 opacity-100"
+      leave-to-class="translate-y-full opacity-0"
+    >
+      <div
+        v-if="navReorderMode"
+        class="fixed z-40 inset-x-0 flex items-center justify-between px-4 py-2 bg-(--ui-bg-elevated) border-t border-(--ui-border)"
+        :style="settings.stickyNav
+          ? { bottom: settings.navExtraPadding
+              ? 'calc(4.25rem + env(safe-area-inset-bottom))'
+              : 'calc(3.25rem + env(safe-area-inset-bottom))' }
+          : undefined"
+      >
+        <span class="text-xs text-(--ui-text-muted) flex items-center gap-1.5">
+          <UIcon name="i-heroicons-arrows-right-left" class="w-3.5 h-3.5" />
+          Drag to reorder tabs
+        </span>
+        <button
+          class="text-xs font-medium text-primary-400 hover:text-primary-300 transition-colors px-2 py-1 rounded-lg hover:bg-primary-500/10"
+          @click="exitNavReorderMode"
+        >
+          Done
+        </button>
+      </div>
+    </Transition>
+
     <nav
+      ref="navContainerRef"
       class="border-t border-(--ui-border) py-1 flex justify-around overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
-      :class="settings.stickyNav ? 'fixed bottom-0 inset-x-0 z-30 bg-(--ui-bg)' : 'safe-area-bottom'"
+      :class="[
+        settings.stickyNav ? 'fixed bottom-0 inset-x-0 z-30 bg-(--ui-bg)' : 'safe-area-bottom',
+        navReorderMode ? 'nav-wiggle' : '',
+      ]"
       :style="settings.stickyNav
         ? { paddingBottom: settings.navExtraPadding
             ? 'calc(1.25rem + env(safe-area-inset-bottom))'
@@ -449,15 +575,17 @@ function toggleColorMode() {
         : undefined"
     >
       <UButton
-        v-for="item in navItems"
+        v-for="(item, index) in navItems"
         :key="item.to"
         :to="item.to"
         :icon="item.icon"
         :color="isActive(item.to) ? 'primary' : 'neutral'"
         variant="ghost"
         :ui="navItems.length > 5
-          ? { base: 'flex-shrink-0 h-auto py-2.5 px-2.5' }
-          : { base: 'flex-col gap-0.5 h-auto py-2 px-3 text-xs' }"
+          ? { base: 'flex-shrink-0 h-auto py-2.5 px-2.5 touch-none' }
+          : { base: 'flex-col gap-0.5 h-auto py-2 px-3 text-xs touch-none' }"
+        @pointerdown="(e: PointerEvent) => onNavPointerDown(index, e)"
+        @click.capture="navReorderMode ? $event.preventDefault() : undefined"
       >
         <span v-if="navItems.length <= 5">{{ navLabel(item) }}</span>
       </UButton>

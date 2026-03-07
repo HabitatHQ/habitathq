@@ -2,6 +2,8 @@
 const db = useDatabase()
 const { settings: appSettings, set: setAppSetting } = useAppSettings()
 
+// ── Health setup ────────────────────────────────────────────────────────────
+
 const showHealthSetup = ref(false)
 const creatingHealth = ref(false)
 
