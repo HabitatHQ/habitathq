@@ -111,10 +111,22 @@ dev-example-vue:
 # Install Playwright browsers (run once after first pnpm install)
 install-playwright:
     pnpm -C packages/example-vue exec playwright install chromium
+    pnpm -C packages/example-react exec playwright install chromium
 
 # Run Playwright E2E tests for the Vue TODO example app
 test-example-vue:
     pnpm -C packages/example-vue exec playwright test
+
+# ── React Notes example app ───────────────────────────────────────────────────
+
+# Start the React notes app in dev mode (requires the backend to be running)
+dev-example-react: build-rust
+    pnpm -C packages/example-react exec vite
+
+# Run Playwright E2E tests: two synced React notes instances against a live server
+# Builds the Rust binary, installs pnpm deps, then runs Playwright.
+test-example-react: build-rust
+    pnpm -C packages/example-react exec playwright test
 
 # ── CATS ─────────────────────────────────────────────────────────────────────
 
