@@ -524,11 +524,20 @@ function toggleColorMode() {
     </main>
 
     <!-- Reorder mode backdrop -->
-    <div
-      v-if="navReorderMode"
-      class="fixed inset-0 z-20"
-      @click="exitNavReorderMode"
-    />
+    <Transition
+      enter-active-class="transition-opacity duration-300"
+      enter-from-class="opacity-0"
+      enter-to-class="opacity-100"
+      leave-active-class="transition-opacity duration-200"
+      leave-from-class="opacity-100"
+      leave-to-class="opacity-0"
+    >
+      <div
+        v-if="navReorderMode"
+        class="fixed inset-0 z-20 bg-black/20 dark:bg-black/60 backdrop-blur-[2px]"
+        @pointerdown="exitNavReorderMode"
+      />
+    </Transition>
 
     <!-- Reorder mode banner -->
     <Transition
@@ -563,10 +572,10 @@ function toggleColorMode() {
 
     <nav
       ref="navContainerRef"
-      class="border-t border-(--ui-border) py-1 flex justify-around overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
+      class="border-t border-(--ui-border) py-1 flex justify-around overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none] transition-shadow duration-300"
       :class="[
-        settings.stickyNav ? 'fixed bottom-0 inset-x-0 z-30 bg-(--ui-bg)' : 'safe-area-bottom',
-        navReorderMode ? 'nav-wiggle' : '',
+        settings.stickyNav ? 'fixed bottom-0 inset-x-0 z-30 bg-(--ui-bg)' : 'safe-area-bottom z-30',
+        navReorderMode ? 'nav-wiggle shadow-[0_-10px_40px_rgba(0,0,0,0.6)]' : '',
       ]"
       :style="settings.stickyNav
         ? { paddingBottom: settings.navExtraPadding
@@ -582,8 +591,8 @@ function toggleColorMode() {
         :color="isActive(item.to) ? 'primary' : 'neutral'"
         variant="ghost"
         :ui="navItems.length > 5
-          ? { base: 'flex-shrink-0 h-auto py-2.5 px-2.5 touch-none' }
-          : { base: 'flex-col gap-0.5 h-auto py-2 px-3 text-xs touch-none' }"
+          ? { base: 'flex-shrink-0 h-auto py-2.5 px-2.5 touch-none select-none' }
+          : { base: 'flex-col gap-0.5 h-auto py-2 px-3 text-xs touch-none select-none' }"
         @pointerdown="(e: PointerEvent) => onNavPointerDown(index, e)"
         @click.capture="navReorderMode ? $event.preventDefault() : undefined"
       >
