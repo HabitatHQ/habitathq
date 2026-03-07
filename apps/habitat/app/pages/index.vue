@@ -70,7 +70,6 @@ async function toggleTodoLocal(todo: Todo) {
 
 // ─── Bored suggestion ─────────────────────────────────────────────────────────
 
-const boredSectionShown = ref(false)
 const boredDismissed = ref(false)
 const boredOracleResult = ref<BoredOracleResult | null>(null)
 const boredContextMatch = ref(true)
@@ -80,11 +79,9 @@ const boredShaking = ref(false)
 
 const boredSectionVisible = computed(
   () =>
-    boredSectionShown.value &&
     !boredDismissed.value &&
     doneCount.value === total.value &&
-    total.value > 0 &&
-    settings.value.enableBored,
+    total.value > 0,
 )
 
 const boredTitle = computed(() => {
@@ -395,9 +392,6 @@ function onLogoAnimEnd(e: AnimationEvent) {
 
 onMounted(async () => {
   await load()
-  if (doneCount.value === total.value && total.value > 0 && settings.value.enableBored) {
-    boredSectionShown.value = true
-  }
   if (!loading.value && habits.value.length === 0) {
     nextTick(playLogoAnimation)
   }
