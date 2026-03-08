@@ -131,7 +131,10 @@ export function useWorkout() {
     const existingSets = sets.value.get(workoutExerciseId) ?? []
     const pendingIdx = existingSets.findIndex((s) => s.completed === 0)
 
-    const setNum = pendingIdx >= 0 ? existingSets[pendingIdx]?.set_num : existingSets.length + 1
+    const setNum =
+      pendingIdx >= 0
+        ? (existingSets[pendingIdx]?.set_num ?? existingSets.length + 1)
+        : existingSets.length + 1
 
     const set: SetRow = {
       id: crypto.randomUUID(),

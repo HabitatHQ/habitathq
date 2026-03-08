@@ -262,8 +262,8 @@ await (async () => {
       try {
         switch (type) {
           case 'EXEC': {
-            const { sql } = payload as { sql: string }
-            db.exec(sql)
+            const { sql, bind } = payload as { sql: string; bind?: unknown[] }
+            db.exec({ sql, bind })
             reply(null)
             break
           }
