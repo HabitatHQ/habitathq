@@ -1,7 +1,7 @@
 import { defineNuxtConfig } from 'nuxt/config'
 
-const buildTarget = process.env.BUILD_TARGET // 'pwa' | 'native' | undefined
-const appBaseURL = process.env.NUXT_APP_BASE_URL ?? '/'
+const buildTarget = process.env['BUILD_TARGET'] // 'pwa' | 'native' | undefined
+const appBaseURL = process.env['NUXT_APP_BASE_URL'] ?? '/'
 const isNative = buildTarget === 'native'
 const isPWA = !isNative
 

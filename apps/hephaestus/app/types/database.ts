@@ -219,7 +219,7 @@ export interface WorkerRequest {
 }
 
 export interface WorkerResponse {
-  id: string
+  id?: string
   type: string
   payload?: unknown
   error?: string

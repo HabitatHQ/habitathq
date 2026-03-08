@@ -98,6 +98,16 @@
       }
     },
     {
+      "includes": ["nuxt.config.ts"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "useLiteralKeys": "off"
+          }
+        }
+      }
+    },
+    {
       "includes": ["app/workers/database.worker.ts"],
       "linter": {
         "rules": {

@@ -262,20 +262,20 @@ await (async () => {
       try {
         switch (type) {
           case 'EXEC': {
-            const { sql, bind } = payload as { sql: string; bind?: unknown[] }
-            db.exec({ sql, bind })
+            const { sql, bind } = payload as { sql: string; bind?: any[] }
+            db.exec({ sql, ...(bind !== undefined ? { bind } : {}) })
             reply(null)
             break
           }
 
           case 'QUERY': {
-            const { sql, bind } = payload as { sql: string; bind?: unknown[] }
+            const { sql, bind } = payload as { sql: string; bind?: any[] }
             const rows: unknown[] = []
             db.exec({
               sql,
-              bind,
+              ...(bind !== undefined ? { bind } : {}),
               rowMode: 'object',
-              callback: (row: unknown) => rows.push(row),
+              callback: (row: any) => void rows.push(row),
             })
             reply(rows)
             break
@@ -288,7 +288,7 @@ await (async () => {
               sql: 'SELECT key FROM applied_defaults WHERE key = ?',
               bind: [key],
               rowMode: 'object',
-              callback: (row: unknown) => rows.push(row),
+              callback: (row: any) => void rows.push(row),
             })
             reply(rows.length > 0)
             break
