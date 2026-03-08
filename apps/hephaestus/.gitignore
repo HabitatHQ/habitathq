@@ -1,0 +1,10 @@
+node_modules/
+.nuxt/
+.output/
+dist/
+android/
+ios/
+.env
+.DS_Store
+test-results/
+playwright-report/
