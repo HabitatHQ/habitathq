@@ -731,14 +731,37 @@ async function deleteImageNote(note: ImageNote) {
   imageNotes.value = imageNotes.value.filter((n) => n.id !== note.id)
 }
 
-// ─── View mode ────────────────────────────────────────────────────────────────
+// ─── View mode ────────────────────────────────────────────────────────────
 
 const gridView = ref(false)
+
+// ─── Small viewport detection (for compact ring fallback in modal) ────────
+
+const isSmallViewport = ref(false)
+
+// ─── Ring select handler ──────────────────────────────────────────────────
+
+function onRingSelect(type: 'text' | 'voice' | 'image') {
+  if (type === 'text') {
+    openNewText()
+  } else if (type === 'voice') {
+    activeModal.value = 'record'
+  } else {
+    activeModal.value = 'image'
+  }
+}
 
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
 
 onMounted(async () => {
   gridView.value = localStorage.getItem('jots-view') === 'grid'
+  // Detect small viewport for compact ring fallback
+  if (import.meta.client) {
+    isSmallViewport.value = window.innerHeight < 500
+    window.addEventListener('resize', () => {
+      isSmallViewport.value = window.innerHeight < 500
+    })
+  }
   if (dbComposable.isAvailable) {
     ;[scribbles.value, todos.value] = await Promise.all([
       dbComposable.getScribbles(),
@@ -774,7 +797,7 @@ onUnmounted(() => {
 
     <header class="flex items-center justify-between">
       <h2 class="text-2xl font-bold">Jots</h2>
-      <div class="flex items-center gap-1.5">
+      <div v-if="timeline.length > 0" class="flex items-center gap-1.5">
         <UButton
           :icon="gridView ? 'i-heroicons-list-bullet' : 'i-heroicons-squares-2x2'"
           size="sm"
@@ -798,18 +821,12 @@ onUnmounted(() => {
       @close="errorMsg = null"
     />
 
-    <!-- Empty state -->
+    <!-- Empty state — full ring inline -->
     <section
       v-if="timeline.length === 0"
-      class="flex flex-col items-center justify-center gap-4 py-12 text-center"
+      class="flex flex-col items-center justify-center py-8"
     >
-      <div class="w-16 h-16 rounded-full bg-(--ui-bg-elevated) flex items-center justify-center">
-        <UIcon name="i-heroicons-document-text" class="w-8 h-8 text-(--ui-text-muted)" />
-      </div>
-      <div class="space-y-1">
-        <p class="font-semibold text-(--ui-text)">No jots yet</p>
-        <p class="text-sm text-(--ui-text-dimmed)">Tap New to add a text note, voice recording, or photo.</p>
-      </div>
+      <JotsRing @select="onRingSelect" />
     </section>
 
     <!-- ── List view ─────────────────────────────────────────────────────── -->
@@ -1121,34 +1138,8 @@ onUnmounted(() => {
         <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="closeModal" />
         <div class="relative w-full sm:max-w-sm bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-3">
           <h3 class="text-base font-semibold text-center">New Jot</h3>
-          <div class="grid grid-cols-3 gap-3">
-            <button
-              class="flex flex-col items-center gap-2 p-4 rounded-2xl bg-(--ui-bg-elevated) border border-(--ui-border-accented) active:opacity-70 transition-opacity"
-              @click="openNewText"
-            >
-              <div class="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center">
-                <UIcon name="i-heroicons-pencil" class="w-5 h-5 text-amber-400" />
-              </div>
-              <span class="text-xs text-(--ui-text-toned)">Text</span>
-            </button>
-            <button
-              class="flex flex-col items-center gap-2 p-4 rounded-2xl bg-(--ui-bg-elevated) border border-(--ui-border-accented) active:opacity-70 transition-opacity"
-              @click="activeModal = 'record'"
-            >
-              <div class="w-10 h-10 rounded-full bg-rose-500/10 flex items-center justify-center">
-                <UIcon name="i-heroicons-microphone" class="w-5 h-5 text-rose-400" />
-              </div>
-              <span class="text-xs text-(--ui-text-toned)">Voice</span>
-            </button>
-            <button
-              class="flex flex-col items-center gap-2 p-4 rounded-2xl bg-(--ui-bg-elevated) border border-(--ui-border-accented) active:opacity-70 transition-opacity"
-              @click="activeModal = 'image'"
-            >
-              <div class="w-10 h-10 rounded-full bg-sky-500/10 flex items-center justify-center">
-                <UIcon name="i-heroicons-photo" class="w-5 h-5 text-sky-400" />
-              </div>
-              <span class="text-xs text-(--ui-text-toned)">Image</span>
-            </button>
+          <div class="flex justify-center py-2">
+            <JotsRing :compact="isSmallViewport" @select="onRingSelect" />
           </div>
         </div>
       </div>
