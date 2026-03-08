@@ -57,7 +57,7 @@ function pickRandom(): string {
     idx = Math.floor(Math.random() * PHRASES.length)
   } while (idx === lastIndex && PHRASES.length > 1)
   lastIndex = idx
-  return PHRASES[idx]
+  return PHRASES[idx]!
 }
 
 function typewrite(text: string) {
@@ -112,7 +112,6 @@ onUnmounted(() => {
 
 const RING_R = 90 // radius of the ring in SVG units
 const CENTER = 110 // center of SVG viewport
-const NODE_SIZE = 22 // half-size of icon node circle
 const SVG_SIZE = CENTER * 2
 
 // Icon positions at 120° intervals (270° = top, 30° = bottom-right, 150° = bottom-left)
@@ -202,9 +201,9 @@ const compactOptions = [
         <!-- Gradient definition for glow arc -->
         <defs>
           <linearGradient id="ringGlowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="var(--color-primary-400)" stop-opacity="0.9" />
-            <stop offset="50%" stop-color="var(--color-primary-500)" stop-opacity="0.6" />
-            <stop offset="100%" stop-color="var(--color-primary-400)" stop-opacity="0.1" />
+            <stop offset="0%" stop-color="var(--color-sky-400)" stop-opacity="1" />
+            <stop offset="50%" stop-color="var(--color-amber-400)" stop-opacity="0.8" />
+            <stop offset="100%" stop-color="var(--color-rose-400)" stop-opacity="0" />
           </linearGradient>
         </defs>
       </svg>
@@ -274,7 +273,6 @@ const compactOptions = [
 .ring-glow-arc {
   transform-origin: center;
   animation: ring-glow-rotate 6s linear infinite;
-  filter: drop-shadow(0 0 6px var(--color-primary-500));
 }
 
 @keyframes ring-glow-rotate {
