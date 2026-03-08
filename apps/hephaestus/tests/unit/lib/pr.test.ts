@@ -99,4 +99,49 @@ describe('detectPRs', () => {
     const weightPR = prs.find((p) => p.record_type === 'weight')
     expect(weightPR?.value).toBe(100)
   })
+
+  it('returns empty array when all sets are warmups', () => {
+    const sets = [makeSet({ is_warmup: 1 }), makeSet({ is_warmup: 1 })]
+    expect(detectPRs([], sets, 'ex-1', '2025-03-01')).toHaveLength(0)
+  })
+
+  it('detects all 3 PR types on first ever session', () => {
+    const sets = [makeSet({ weight_kg: 100, reps: 5 })]
+    const prs = detectPRs([], sets, 'ex-1', '2025-03-01')
+    const types = prs.map((p) => p.record_type)
+    expect(types).toContain('weight')
+    expect(types).toContain('reps')
+    expect(types).toContain('e1rm')
+  })
+
+  it('e1RM PR favours higher-rep set with better estimated 1RM', () => {
+    // 80 × (1 + 10/30) ≈ 106.67 beats 90 × (1 + 3/30) ≈ 99
+    const existing = [makePR({ record_type: 'e1rm', value: 95 })]
+    const sets = [
+      makeSet({ weight_kg: 90, reps: 3 }), // e1RM ≈ 99
+      makeSet({ weight_kg: 80, reps: 10 }), // e1RM ≈ 106.67
+    ]
+    const prs = detectPRs(existing, sets, 'ex-1', '2025-03-01')
+    const e1rmPR = prs.find((p) => p.record_type === 'e1rm')
+    expect(e1rmPR?.value).toBeCloseTo(106.67, 1)
+  })
+
+  it('PR set_id references the set that achieved it', () => {
+    const bestSet = makeSet({ weight_kg: 120, reps: 5 })
+    const otherSet = makeSet({ weight_kg: 100, reps: 5 })
+    const prs = detectPRs([], [otherSet, bestSet], 'ex-1', '2025-03-01')
+    const weightPR = prs.find((p) => p.record_type === 'weight')
+    expect(weightPR?.set_id).toBe(bestSet.id)
+  })
+
+  it('does not detect e1RM PR when sets have null weight or null reps', () => {
+    const sets = [makeSet({ weight_kg: null, reps: 10 }), makeSet({ weight_kg: 100, reps: null })]
+    const prs = detectPRs([], sets, 'ex-1', '2025-03-01')
+    expect(prs.find((p) => p.record_type === 'e1rm')).toBeUndefined()
+  })
+
+  it('PR date is set to the provided date string', () => {
+    const prs = detectPRs([], [makeSet()], 'ex-1', '2025-06-15')
+    expect(prs.every((p) => p.date === '2025-06-15')).toBe(true)
+  })
 })

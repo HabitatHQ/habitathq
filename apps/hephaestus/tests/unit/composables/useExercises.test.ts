@@ -118,4 +118,51 @@ describe('sortExercises', () => {
     const lastBuiltinIdx = result.findLastIndex((e) => e.is_custom === 0)
     expect(firstCustomIdx).toBeGreaterThan(lastBuiltinIdx)
   })
+
+  it('returns empty array when given empty input', () => {
+    expect(sortExercises([], 'name')).toHaveLength(0)
+    expect(sortExercises([], 'custom-last')).toHaveLength(0)
+  })
+
+  it('does not mutate the original array', () => {
+    const original = [...LIBRARY]
+    sortExercises(LIBRARY, 'name')
+    expect(LIBRARY).toEqual(original)
+  })
+})
+
+describe('searchExercises (additional)', () => {
+  it('returns all exercises for whitespace-only query', () => {
+    expect(searchExercises(LIBRARY, '   ')).toHaveLength(5)
+  })
+
+  it('is case-insensitive (uppercase query)', () => {
+    const result = searchExercises(LIBRARY, 'SQUAT')
+    expect(result).toHaveLength(2)
+  })
+
+  it('returns empty array when given empty library', () => {
+    expect(searchExercises([], 'squat')).toHaveLength(0)
+  })
+})
+
+describe('filterExercises (additional)', () => {
+  it('returns empty array when given empty library', () => {
+    expect(filterExercises([], { equipment: 'barbell' })).toHaveLength(0)
+  })
+
+  it('isCustom: false returns only built-in exercises', () => {
+    const withCustom = [
+      ...LIBRARY,
+      makeExercise({ name: 'My Move', slug: 'my-move', is_custom: 1 }),
+    ]
+    const result = filterExercises(withCustom, { isCustom: false })
+    expect(result).toHaveLength(5)
+    expect(result.every((e) => e.is_custom === 0)).toBe(true)
+  })
+
+  it('returns empty when filter matches nothing', () => {
+    const result = filterExercises(LIBRARY, { equipment: 'barbell', movement: 'row' })
+    expect(result).toHaveLength(0)
+  })
 })

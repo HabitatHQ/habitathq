@@ -103,4 +103,52 @@ describe('AppSettings storage logic', () => {
     }
     expect(result.theme).toBe('hephaestus')
   })
+
+  it('persists a numeric setting (defaultRestSeconds)', () => {
+    const current = { ...DEFAULTS, defaultRestSeconds: 90 }
+    mockLocalStorage.setItem(KEY, JSON.stringify(current))
+    const raw = mockLocalStorage.getItem(KEY)
+    const stored = { ...DEFAULTS, ...(JSON.parse(raw ?? '{}') as Partial<AppSettings>) }
+    expect(stored.defaultRestSeconds).toBe(90)
+    expect(typeof stored.defaultRestSeconds).toBe('number')
+  })
+
+  it('persists a boolean true setting (use24HourTime)', () => {
+    const current = { ...DEFAULTS, use24HourTime: true }
+    mockLocalStorage.setItem(KEY, JSON.stringify(current))
+    const raw = mockLocalStorage.getItem(KEY)
+    const stored = { ...DEFAULTS, ...(JSON.parse(raw ?? '{}') as Partial<AppSettings>) }
+    expect(stored.use24HourTime).toBe(true)
+  })
+
+  it('persists a boolean true setting (reduceMotion)', () => {
+    const current = { ...DEFAULTS, reduceMotion: true }
+    mockLocalStorage.setItem(KEY, JSON.stringify(current))
+    const raw = mockLocalStorage.getItem(KEY)
+    const stored = { ...DEFAULTS, ...(JSON.parse(raw ?? '{}') as Partial<AppSettings>) }
+    expect(stored.reduceMotion).toBe(true)
+  })
+
+  it('multiple settings can be updated independently', () => {
+    const step1 = { ...DEFAULTS, theme: 'forge' as const }
+    mockLocalStorage.setItem(KEY, JSON.stringify(step1))
+    const step2 = {
+      ...JSON.parse(mockLocalStorage.getItem(KEY) ?? '{}'),
+      weightUnit: 'lbs',
+    } as AppSettings
+    mockLocalStorage.setItem(KEY, JSON.stringify(step2))
+    const raw = mockLocalStorage.getItem(KEY)
+    const stored = { ...DEFAULTS, ...(JSON.parse(raw ?? '{}') as Partial<AppSettings>) }
+    expect(stored.theme).toBe('forge')
+    expect(stored.weightUnit).toBe('lbs')
+    expect(stored.distanceUnit).toBe('km') // unchanged
+  })
+
+  it('defaults have correct showRir value', () => {
+    expect(DEFAULTS.showRir).toBe(false)
+  })
+
+  it('defaults have correct use24HourTime value', () => {
+    expect(DEFAULTS.use24HourTime).toBe(false)
+  })
 })

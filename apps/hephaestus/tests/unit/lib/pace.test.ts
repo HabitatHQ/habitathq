@@ -68,4 +68,42 @@ describe('paceToSpeed', () => {
   it('returns 0 for zero pace', () => {
     expect(paceToSpeed(0)).toBe(0)
   })
+
+  it('converts 180 sec/km to 20 km/h', () => {
+    expect(paceToSpeed(180)).toBeCloseTo(20, 2)
+  })
+
+  it('returns 0 for negative pace', () => {
+    expect(paceToSpeed(-10)).toBe(0)
+  })
+})
+
+describe('secondsToMinKm (additional)', () => {
+  it('returns 0 for negative duration', () => {
+    expect(secondsToMinKm(-100, 5000)).toBe(0)
+  })
+
+  it('returns 0 for negative distance', () => {
+    expect(secondsToMinKm(1500, -5000)).toBe(0)
+  })
+
+  it('handles half-marathon distance (21097m)', () => {
+    // 21097m in 1h 45min (6300 sec) → 6300/21097*1000 ≈ 298.6 sec/km ≈ 4:59/km
+    const pace = secondsToMinKm(6300, 21097)
+    expect(pace).toBeCloseTo(298.6, 0)
+  })
+})
+
+describe('formatPace (additional)', () => {
+  it('formats 210 sec/km as 3:30/km', () => {
+    expect(formatPace(210, 'km')).toBe('3:30/km')
+  })
+
+  it('formats 420 sec/km as 7:00/km', () => {
+    expect(formatPace(420, 'km')).toBe('7:00/km')
+  })
+
+  it('formats pace in miles with correct slash', () => {
+    expect(formatPace(300, 'mi')).toContain('/mi')
+  })
 })

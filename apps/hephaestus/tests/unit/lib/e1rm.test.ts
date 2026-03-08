@@ -39,4 +39,30 @@ describe('calculateE1RM (Epley formula: w × (1 + r/30))', () => {
   it('returns 0 for negative reps', () => {
     expect(calculateE1RM(100, -1)).toBe(0)
   })
+
+  it('calculates correctly for 2 reps', () => {
+    // 100 × (1 + 2/30) ≈ 106.67
+    expect(calculateE1RM(100, 2)).toBeCloseTo(106.67, 1)
+  })
+
+  it('calculates correctly for 30 reps (doubles the weight)', () => {
+    // 100 × (1 + 30/30) = 100 × 2 = 200
+    expect(calculateE1RM(100, 30)).toBeCloseTo(200, 5)
+  })
+
+  it('handles fractional weight correctly', () => {
+    // 82.5 × (1 + 5/30) = 82.5 × 1.1667 ≈ 96.25
+    expect(calculateE1RM(82.5, 5)).toBeCloseTo(96.25, 1)
+  })
+
+  it('still computes for very high reps', () => {
+    // 60 × (1 + 50/30) = 60 × 2.667 = 160
+    expect(calculateE1RM(60, 50)).toBeCloseTo(160, 0)
+  })
+
+  it('result is always >= weight for any valid reps', () => {
+    // e1RM is always >= actual weight (you lifted it)
+    expect(calculateE1RM(100, 3)).toBeGreaterThanOrEqual(100)
+    expect(calculateE1RM(100, 15)).toBeGreaterThanOrEqual(100)
+  })
 })

@@ -104,4 +104,78 @@ describe('applySetDefaults', () => {
     const result = applySetDefaults('we-1', { is_warmup: 1 }, 1)
     expect(result.is_warmup).toBe(1)
   })
+
+  it('applies null defaults for rpe, rir, notes when not provided', () => {
+    const result = applySetDefaults('we-1', {}, 1)
+    expect(result.rpe).toBeNull()
+    expect(result.rir).toBeNull()
+    expect(result.notes).toBeNull()
+    expect(result.weight_kg).toBeNull()
+    expect(result.reps).toBeNull()
+  })
+
+  it('allows overriding rpe and rir', () => {
+    const result = applySetDefaults('we-1', { rpe: 8, rir: 2 }, 2)
+    expect(result.rpe).toBe(8)
+    expect(result.rir).toBe(2)
+    expect(result.set_num).toBe(2)
+  })
+
+  it('generates a unique id for each call', () => {
+    const r1 = applySetDefaults('we-1', {}, 1)
+    const r2 = applySetDefaults('we-1', {}, 1)
+    expect(r1.id).not.toBe(r2.id)
+  })
+})
+
+describe('getWorkingSets (additional)', () => {
+  it('returns empty when all sets are completed warmups', () => {
+    const sets = [makeSet({ is_warmup: 1, completed: 1 }), makeSet({ is_warmup: 1, completed: 1 })]
+    expect(getWorkingSets(sets)).toHaveLength(0)
+  })
+
+  it('returns empty for empty input', () => {
+    expect(getWorkingSets([])).toHaveLength(0)
+  })
+})
+
+describe('calculateWorkoutVolume (additional)', () => {
+  it('returns 0 when all sets are warmups', () => {
+    const sets = [
+      makeSet({ is_warmup: 1, weight_kg: 60, reps: 10 }),
+      makeSet({ is_warmup: 1, weight_kg: 80, reps: 5 }),
+    ]
+    expect(calculateWorkoutVolume(sets)).toBe(0)
+  })
+})
+
+describe('buildPendingSet (additional)', () => {
+  it('always creates a non-warmup pending set regardless of last set type', () => {
+    // Even if last set was a warmup, the new pending set should be working
+    const warmupLast = makeSet({ is_warmup: 1, weight_kg: 60, reps: 10 })
+    const next = buildPendingSet('we-1', warmupLast, 2)
+    expect(next.is_warmup).toBe(0)
+    expect(next.completed).toBe(0)
+  })
+
+  it('pre-fills weight and reps from last set', () => {
+    const last = makeSet({ weight_kg: 120, reps: 3 })
+    const next = buildPendingSet('we-1', last, 4)
+    expect(next.weight_kg).toBe(120)
+    expect(next.reps).toBe(3)
+  })
+
+  it('always clears rpe and notes (fresh fields for each set)', () => {
+    const last = makeSet({ rpe: 9, notes: 'felt hard' })
+    const next = buildPendingSet('we-1', last, 2)
+    expect(next.rpe).toBeNull()
+    expect(next.notes).toBeNull()
+  })
+})
+
+describe('isWorkoutComplete (additional)', () => {
+  it('returns false when all sets are pending', () => {
+    const sets = [makeSet({ completed: 0 }), makeSet({ completed: 0 })]
+    expect(isWorkoutComplete(sets)).toBe(false)
+  })
 })

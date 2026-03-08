@@ -97,11 +97,61 @@ describe('formatVolume', () => {
   })
 })
 
+describe('formatDuration (additional)', () => {
+  it('formats exactly 60 seconds as 1m', () => {
+    expect(formatDuration(60)).toBe('1m')
+  })
+
+  it('formats exactly 59 seconds as 59s (sub-minute)', () => {
+    expect(formatDuration(59)).toBe('59s')
+  })
+
+  it('formats 2 minutes exactly as 2m', () => {
+    expect(formatDuration(120)).toBe('2m')
+  })
+})
+
+describe('formatVolume (additional)', () => {
+  it('formats 999 kg without k suffix', () => {
+    expect(formatVolume(999)).toBe('999 kg')
+  })
+
+  it('formats exactly 1000 kg with k suffix', () => {
+    // Math.round(1000/100)/10 = 1 → "1k kg"
+    expect(formatVolume(1000)).toBe('1k kg')
+  })
+
+  it('formats 1500 kg as 1.5k', () => {
+    expect(formatVolume(1500)).toBe('1.5k kg')
+  })
+
+  it('formats lbs volume with k suffix when large enough', () => {
+    // 1000 kg in lbs ≈ 2204 → "2.2k lbs"
+    const result = formatVolume(1000, 'lbs')
+    expect(result).toContain('k lbs')
+  })
+})
+
+describe('kgToLbs / lbsToKg (additional)', () => {
+  it('round-trips 45 kg accurately', () => {
+    expect(lbsToKg(kgToLbs(45))).toBeCloseTo(45, 3)
+  })
+
+  it('round-trips 140 kg accurately', () => {
+    expect(lbsToKg(kgToLbs(140))).toBeCloseTo(140, 3)
+  })
+})
+
 describe('isoWeek', () => {
   it('formats a date as ISO week string', () => {
     // 2025-03-10 is week 11 of 2025
     const result = isoWeek(new Date('2025-03-10'))
     expect(result).toMatch(/^\d{4}-W\d{2}$/)
+  })
+
+  it('returns the correct week number', () => {
+    // Jan 6 2025 is Monday of week 2 (ISO week 1 starts Dec 30 2024)
+    expect(isoWeek(new Date('2025-01-06'))).toBe('2025-W02')
   })
 
   it('returns different weeks for dates 7 days apart', () => {
@@ -115,5 +165,11 @@ describe('isoWeek', () => {
     const w1 = isoWeek(new Date('2025-01-06'))
     const w2 = isoWeek(new Date('2025-01-10'))
     expect(w1).toBe(w2)
+  })
+
+  it('week string always has zero-padded week number', () => {
+    // Week 2 should be W02 not W2
+    const result = isoWeek(new Date('2025-01-06'))
+    expect(result).toMatch(/W\d{2}$/)
   })
 })

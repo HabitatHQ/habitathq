@@ -110,4 +110,67 @@ describe('getLoadRatio', () => {
     expect(ratio).toBeGreaterThan(0.8)
     expect(ratio).toBeLessThan(1.3)
   })
+
+  it('is exactly 0.8 at the detraining boundary', () => {
+    expect(getLoadRatio(800, 1000)).toBeCloseTo(0.8, 5)
+  })
+
+  it('is exactly 1.3 at the overreaching boundary', () => {
+    expect(getLoadRatio(1300, 1000)).toBeCloseTo(1.3, 5)
+  })
+})
+
+describe('calculateVolume (additional)', () => {
+  it('returns 0 when all sets are warmups', () => {
+    const warmupSets = [makeSet(100, 5, 1), makeSet(80, 8, 1), makeSet(60, 10, 1)]
+    expect(calculateVolume(warmupSets)).toBe(0)
+  })
+
+  it('handles mix of null reps in a single set', () => {
+    const sets: SetRow[] = [
+      {
+        id: '2',
+        workout_exercise_id: 'we-1',
+        set_num: 1,
+        is_warmup: 0,
+        weight_kg: 100,
+        reps: null,
+        rpe: null,
+        rir: null,
+        notes: null,
+        completed: 1,
+        logged_at: null,
+      },
+      makeSet(80, 5),
+    ]
+    // null reps → 0 contribution; 80 × 5 = 400
+    expect(calculateVolume(sets)).toBe(400)
+  })
+})
+
+describe('calculateAcuteLoad (additional)', () => {
+  it('returns 0 when all volumes are zero', () => {
+    expect(calculateAcuteLoad([0, 0, 0])).toBe(0)
+  })
+
+  it('handles single large value', () => {
+    expect(calculateAcuteLoad([5000])).toBe(5000)
+  })
+})
+
+describe('calculateChronicLoad (additional)', () => {
+  it('averages only available data when fewer than 4 weeks', () => {
+    // 1 week → avg of 1 = that week's value
+    expect(calculateChronicLoad([1200])).toBe(1200)
+  })
+
+  it('averages 2 weeks when only 2 provided', () => {
+    // [800, 1000] → slice(-4) = [800, 1000] → avg = 900
+    expect(calculateChronicLoad([800, 1000])).toBe(900)
+  })
+
+  it('averages 3 weeks correctly', () => {
+    // [600, 900, 1200] → avg = 900
+    expect(calculateChronicLoad([600, 900, 1200])).toBe(900)
+  })
 })

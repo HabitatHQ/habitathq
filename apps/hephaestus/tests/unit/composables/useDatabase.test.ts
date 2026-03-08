@@ -140,3 +140,62 @@ describe('useDatabase RPC queue', () => {
     expect(r3).toEqual([{ count: 1 }])
   })
 })
+
+describe('useDatabase RPC — IS_DEFAULT_APPLIED and MARK_DEFAULT_APPLIED', () => {
+  function makeRpc() {
+    const worker = new MockWorker()
+    const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>()
+
+    worker.addEventListener('message', (e) => {
+      const { id, payload, error } = e.data as { id?: string; payload?: unknown; error?: string }
+      if (!id) return
+      const entry = pending.get(id)
+      if (!entry) return
+      pending.delete(id)
+      if (error) entry.reject(new Error(error))
+      else entry.resolve(payload)
+    })
+
+    return function rpc(type: string, payload?: unknown): Promise<unknown> {
+      return new Promise((resolve, reject) => {
+        const id = crypto.randomUUID()
+        pending.set(id, { resolve, reject })
+        worker.postMessage({ id, type, payload })
+      })
+    }
+  }
+
+  it('IS_DEFAULT_APPLIED resolves false when not applied', async () => {
+    const rpc = makeRpc()
+    const result = await rpc('IS_DEFAULT_APPLIED', { key: 'seed:v1' })
+    expect(result).toBe(false)
+  })
+
+  it('MARK_DEFAULT_APPLIED resolves null', async () => {
+    const rpc = makeRpc()
+    const result = await rpc('MARK_DEFAULT_APPLIED', { key: 'seed:v1' })
+    expect(result).toBeNull()
+  })
+
+  it('resolves requests independently when interleaved', async () => {
+    const rpc = makeRpc()
+    const [a, b, c] = await Promise.all([
+      rpc('IS_DEFAULT_APPLIED', { key: 'a' }),
+      rpc('MARK_DEFAULT_APPLIED', { key: 'b' }),
+      rpc('EXEC', { sql: 'INSERT INTO x VALUES (1)' }),
+    ])
+    expect(a).toBe(false)
+    expect(b).toBeNull()
+    expect(c).toBeNull()
+  })
+
+  it('each request gets a unique id (no id collisions)', async () => {
+    const rpc = makeRpc()
+    // Fire 10 requests and ensure all resolve independently
+    const results = await Promise.all(
+      Array.from({ length: 10 }, (_, i) => rpc('QUERY', { sql: `SELECT ${i}` })),
+    )
+    expect(results).toHaveLength(10)
+    expect(results.every((r) => Array.isArray(r))).toBe(true)
+  })
+})
