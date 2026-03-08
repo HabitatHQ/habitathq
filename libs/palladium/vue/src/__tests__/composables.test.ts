@@ -1,4 +1,5 @@
-import { createMockEngine, sql } from "@palladium/core";
+import { createEngine, sql } from "@palladium/core";
+import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { flushPromises, mount } from "@vue/test-utils";
 import { describe, expect, it } from "vitest";
 import { defineComponent, nextTick } from "vue";
@@ -12,9 +13,13 @@ const MIGRATIONS = [
   "CREATE TABLE tasks (id TEXT PRIMARY KEY, name TEXT NOT NULL, done INTEGER NOT NULL)",
 ];
 
+function makeDb() {
+  return createEngine<Schema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }), MIGRATIONS);
+}
+
 describe("useLiveQuery", () => {
   it("returns empty rows initially", async () => {
-    const db = createMockEngine<Schema>(MIGRATIONS);
+    const db = makeDb();
     await db.init();
 
     const Comp = defineComponent({
@@ -33,7 +38,7 @@ describe("useLiveQuery", () => {
   });
 
   it("updates when a row is inserted", async () => {
-    const db = createMockEngine<Schema>(MIGRATIONS);
+    const db = makeDb();
     await db.init();
 
     const Comp = defineComponent({
@@ -59,7 +64,7 @@ describe("useLiveQuery", () => {
 
 describe("useSyncStatus", () => {
   it("returns idle initially", async () => {
-    const db = createMockEngine<Schema>(MIGRATIONS);
+    const db = makeDb();
     await db.init();
 
     const Comp = defineComponent({
@@ -77,7 +82,7 @@ describe("useSyncStatus", () => {
   });
 
   it("updates on status change", async () => {
-    const db = createMockEngine<Schema>(MIGRATIONS);
+    const db = makeDb();
     await db.init();
 
     const Comp = defineComponent({
@@ -90,7 +95,7 @@ describe("useSyncStatus", () => {
 
     const wrapper = mount(Comp, { attachTo: document.body });
     await nextTick();
-    db._setStatus("syncing");
+    db.setStatus("syncing");
     await nextTick();
     expect(wrapper.find("[data-testid=status]").text()).toBe("syncing");
     wrapper.unmount();

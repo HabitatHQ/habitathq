@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@palladium/core": "workspace:*",
+    "@palladium/sqlite-browser": "workspace:*",
     "@palladium/vue": "workspace:*",
     "vue": "^3.4.0"
   },

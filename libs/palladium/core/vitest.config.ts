@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import type { Plugin } from "vite";
 import { defineConfig } from "vitest/config";
 
@@ -21,6 +22,13 @@ function nodeBuiltinsExternal(): Plugin {
 
 export default defineConfig({
   plugins: [nodeBuiltinsExternal()],
+  resolve: {
+    alias: {
+      "@palladium/sqlite-node": fileURLToPath(
+        new URL("../sqlite-node/src/index.ts", import.meta.url),
+      ),
+    },
+  },
   test: {
     name: "@palladium/core",
     environment: "node",

@@ -20,6 +20,7 @@ export class LiveQuery<T = Record<string, unknown>> {
   readonly #adapter: StorageAdapter;
   readonly #listeners = new Set<ChangeListener<T>>();
   readonly #onCancel: (() => void) | null;
+  readonly #watchedTables: ReadonlySet<string>;
   #cancelled = false;
 
   /**
@@ -31,6 +32,8 @@ export class LiveQuery<T = Record<string, unknown>> {
     this.#query = query;
     this.#adapter = adapter;
     this.#onCancel = onCancel ?? null;
+    // Build a Set once for O(1) lookups; tables are already lowercased by extractTables.
+    this.#watchedTables = new Set(query.tables);
   }
 
   /** Execute the query once and return the result rows. */
@@ -54,8 +57,9 @@ export class LiveQuery<T = Record<string, unknown>> {
    */
   async notifyTables(tables: readonly string[]): Promise<void> {
     if (this.#cancelled) return;
-    const watches = this.#query.tables;
-    const hasOverlap = tables.some((t) => watches.includes(t));
+    // Normalize to lowercase: extractTables() already lowercases SQL identifiers;
+    // schema keys may differ in casing (e.g. "Tasks" vs "tasks").
+    const hasOverlap = tables.some((t) => this.#watchedTables.has(t.toLowerCase()));
     if (!hasOverlap) return;
     await this.#runAndNotify();
   }

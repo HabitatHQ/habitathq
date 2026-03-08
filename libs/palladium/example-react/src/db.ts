@@ -1,11 +1,11 @@
 /**
  * NotesEngine — PalladiumEngine subclass that syncs notes to/from the
- * Palladium REST backend while keeping local state in a MemoryAdapter.
+ * Palladium REST backend while keeping local state in a BrowserSqliteAdapter.
  *
  * Sync protocol
  * ─────────────
  * • Local mutations (_putRow / _patchRow / _removeRow) are immediately
- *   written to the in-memory store AND fire-and-forget POSTed to the server.
+ *   written to SQLite AND fire-and-forget POSTed to the server.
  * • A 1-second poll fetches changes produced by OTHER nodes (cursor-based
  *   pagination) and applies them via the engine's public insert/update/delete
  *   so that live queries are notified.
@@ -14,8 +14,9 @@
  *   the state survives page reloads.
  */
 
-import { MemoryAdapter, PalladiumEngine } from "@palladium/core";
-import type { SyncStatus } from "@palladium/core";
+import { PalladiumEngine } from "@palladium/core";
+import type { StorageAdapter } from "@palladium/core";
+import { BrowserSqliteAdapter } from "@palladium/sqlite-browser";
 
 // ── Schema ─────────────────────────────────────────────────────────────────
 
@@ -28,6 +29,10 @@ export interface NoteRow {
 }
 
 export type NotesSchema = { notes: NoteRow };
+
+const MIGRATIONS = [
+  "CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, updated_at INTEGER NOT NULL)",
+];
 
 // ── Server wire types (mirrors Rust serialization) ─────────────────────────
 
@@ -78,7 +83,6 @@ function hlcSortKey(hlc: ServerHlc): string {
 // ── Engine ─────────────────────────────────────────────────────────────────
 
 export class NotesEngine extends PalladiumEngine<NotesSchema> {
-  readonly #mem: MemoryAdapter;
   readonly #serverUrl: string;
   /** UUID-formatted node identifier (read from URL `?node=` param). */
   readonly #nodeId: string;
@@ -93,14 +97,13 @@ export class NotesEngine extends PalladiumEngine<NotesSchema> {
   #pollHandle: ReturnType<typeof setInterval> | null = null;
 
   constructor(serverUrl: string, nodeId: string) {
-    const mem = new MemoryAdapter();
-    super(mem);
-    this.#mem = mem;
+    super(new BrowserSqliteAdapter({ vfs: { type: "memory" } }), MIGRATIONS);
     this.#serverUrl = serverUrl;
     this.#nodeId = nodeId;
   }
 
   override async init(): Promise<void> {
+    await super.init(); // opens adapter, runs migrations
     // Hydrate local state from the server before the first render.
     await this.#poll();
     this.#pollHandle = setInterval(() => {
@@ -118,15 +121,25 @@ export class NotesEngine extends PalladiumEngine<NotesSchema> {
 
   // ── StorageAdapter hooks ─────────────────────────────────────────────────
 
-  protected override _putRow(table: string, id: string, data: Record<string, unknown>): void {
-    this.#mem._put(table, id, data);
+  protected override async _putRow(
+    adpt: StorageAdapter,
+    table: string,
+    id: string,
+    data: Record<string, unknown>,
+  ): Promise<void> {
+    await super._putRow(adpt, table, id, data);
     if (!this.#applyingRemote) {
       void this.#postChange([{ op: "insert", table, row_id: id, data }]);
     }
   }
 
-  protected override _patchRow(table: string, id: string, patch: Record<string, unknown>): void {
-    this.#mem._patch(table, id, patch);
+  protected override async _patchRow(
+    adpt: StorageAdapter,
+    table: string,
+    id: string,
+    patch: Record<string, unknown>,
+  ): Promise<void> {
+    await super._patchRow(adpt, table, id, patch);
     if (!this.#applyingRemote) {
       const ops: ServerOp[] = Object.entries(patch).map(([col, value]) => ({
         op: "update" as const,
@@ -139,8 +152,12 @@ export class NotesEngine extends PalladiumEngine<NotesSchema> {
     }
   }
 
-  protected override _removeRow(table: string, id: string): void {
-    this.#mem._remove(table, id);
+  protected override async _removeRow(
+    adpt: StorageAdapter,
+    table: string,
+    id: string,
+  ): Promise<void> {
+    await super._removeRow(adpt, table, id);
     if (!this.#applyingRemote) {
       void this.#postChange([{ op: "delete", table, row_id: id }]);
     }
@@ -154,16 +171,16 @@ export class NotesEngine extends PalladiumEngine<NotesSchema> {
       hlc: { millis: Date.now(), counter: 0, node_id: this.#nodeId },
       ops,
     };
-    this.#setStatus("syncing");
+    this.setStatus("syncing");
     try {
       const res = await fetch(`${this.#serverUrl}/v1/changes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(change),
       });
-      this.#setStatus(res.ok ? "idle" : "error");
+      this.setStatus(res.ok ? "idle" : "error");
     } catch {
-      this.#setStatus("offline");
+      this.setStatus("offline");
     }
   }
 
@@ -224,10 +241,5 @@ export class NotesEngine extends PalladiumEngine<NotesSchema> {
         await this.delete("notes", op.row_id);
       }
     }
-  }
-
-  #setStatus(s: SyncStatus): void {
-    this.status = s;
-    this.emitter.emit("sync:status", s);
   }
 }

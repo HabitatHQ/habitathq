@@ -5,7 +5,11 @@ import type { StorageAdapter } from "../storage.js";
 /** Minimal fake adapter that returns preset rows. */
 function makeAdapter(rows: Record<string, unknown>[]): StorageAdapter {
   return {
+    open: vi.fn().mockResolvedValue(undefined),
     exec: vi.fn().mockResolvedValue(rows),
+    put: vi.fn().mockResolvedValue(undefined),
+    patch: vi.fn().mockResolvedValue(undefined),
+    remove: vi.fn().mockResolvedValue(undefined),
     runMigrations: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
   };

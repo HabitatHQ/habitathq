@@ -23,13 +23,13 @@ export class EventEmitter<Events extends object> {
     return () => this.off(event, listener);
   }
 
-  /** Subscribe to an event exactly once. */
-  once<K extends keyof Events>(event: K, listener: Listener<Events[K]>): void {
+  /** Subscribe to an event exactly once. Returns an unsubscribe function to cancel before it fires. */
+  once<K extends keyof Events>(event: K, listener: Listener<Events[K]>): () => void {
     const wrapped = ((payload: Events[K]) => {
       this.off(event, wrapped as Listener<Events[K]>);
       (listener as (p: Events[K]) => void)(payload);
     }) as Listener<Events[K]>;
-    this.on(event, wrapped);
+    return this.on(event, wrapped);
   }
 
   /** Remove a specific listener for an event. */

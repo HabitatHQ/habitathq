@@ -12,6 +12,7 @@
   "dependencies": {
     "@palladium/core": "workspace:*",
     "@palladium/react": "workspace:*",
+    "@palladium/sqlite-browser": "workspace:*",
     "@tiptap/extension-placeholder": "^2.11.5",
     "@tiptap/react": "^2.11.5",
     "@tiptap/starter-kit": "^2.11.5",

@@ -51,7 +51,7 @@ export function sql(strings: TemplateStringsArray, ...values: unknown[]): SqlQue
 }
 
 /** Join multiple SqlQuery fragments with a separator. */
-sql.join = function join(queries: SqlQuery[], separator: string): SqlQuery {
+sql.join = function join(queries: readonly SqlQuery[], separator: string): SqlQuery {
   const texts: string[] = [];
   const params: unknown[] = [];
   for (const q of queries) {

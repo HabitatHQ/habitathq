@@ -25,7 +25,7 @@ import type {
   QueryCompiler,
   QueryResult,
 } from "kysely";
-import { MysqlAdapter, MysqlIntrospector, MysqlQueryCompiler } from "kysely";
+import { SqliteAdapter, SqliteIntrospector, SqliteQueryCompiler } from "kysely";
 
 export class PalladiumDialect implements Dialect {
   // biome-ignore lint/suspicious/noExplicitAny: engine is schema-generic
@@ -37,7 +37,7 @@ export class PalladiumDialect implements Dialect {
   }
 
   createAdapter(): DialectAdapter {
-    return new MysqlAdapter();
+    return new SqliteAdapter();
   }
 
   createDriver(): Driver {
@@ -46,11 +46,11 @@ export class PalladiumDialect implements Dialect {
 
   // biome-ignore lint/suspicious/noExplicitAny: Kysely generic usage
   createIntrospector(db: Kysely<any>): DatabaseIntrospector {
-    return new MysqlIntrospector(db);
+    return new SqliteIntrospector(db);
   }
 
   createQueryCompiler(): QueryCompiler {
-    return new MysqlQueryCompiler();
+    return new SqliteQueryCompiler();
   }
 }
 
@@ -87,7 +87,10 @@ class PalladiumConnection implements DatabaseConnection {
   }
 
   async executeQuery<R>(compiled: CompiledQuery): Promise<QueryResult<R>> {
-    const rows = await this.#engine.adapter.exec<R>(compiled.sql, compiled.parameters as unknown[]);
+    const rows = await this.#engine.adapter.exec<R>(
+      compiled.sql,
+      compiled.parameters as readonly unknown[],
+    );
     return { rows };
   }
 

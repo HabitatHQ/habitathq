@@ -1,33 +1,16 @@
-import { MemoryAdapter, PalladiumEngine, generateUlid } from "@palladium/core";
+import { createEngine, generateUlid } from "@palladium/core";
+import { BrowserSqliteAdapter } from "@palladium/sqlite-browser";
 
 export type TodoRow = { id: string; text: string; done: number };
 export type TodoSchema = { tasks: TodoRow };
 
-class TodoEngine extends PalladiumEngine<TodoSchema> {
-  readonly #mem: MemoryAdapter;
+const MIGRATIONS = [
+  "CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, text TEXT NOT NULL, done INTEGER NOT NULL)",
+];
 
-  constructor() {
-    const mem = new MemoryAdapter();
-    super(mem);
-    this.#mem = mem;
-  }
+export const db = createEngine<TodoSchema>(
+  new BrowserSqliteAdapter({ vfs: { type: "memory" } }),
+  MIGRATIONS,
+);
 
-  async init(): Promise<void> {
-    // MemoryAdapter needs no migrations — schema is inferred from writes.
-  }
-
-  protected _putRow(table: string, id: string, data: Record<string, unknown>): void {
-    this.#mem._put(table, id, data);
-  }
-
-  protected _patchRow(table: string, id: string, patch: Record<string, unknown>): void {
-    this.#mem._patch(table, id, patch);
-  }
-
-  protected _removeRow(table: string, id: string): void {
-    this.#mem._remove(table, id);
-  }
-}
-
-export const db = new TodoEngine();
 export { generateUlid };

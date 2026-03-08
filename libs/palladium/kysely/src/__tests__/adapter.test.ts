@@ -1,4 +1,5 @@
-import { createMockEngine, sql } from "@palladium/core";
+import { createEngine, sql } from "@palladium/core";
+import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { Kysely } from "kysely";
 import { describe, expect, it } from "vitest";
 import { PalladiumDialect } from "../index.js";
@@ -16,7 +17,7 @@ const MIGRATIONS = [
 ];
 
 function makeEngine() {
-  return createMockEngine<Schema>(MIGRATIONS);
+  return createEngine<Schema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }), MIGRATIONS);
 }
 
 function makeKysely(engine: ReturnType<typeof makeEngine>) {
@@ -30,8 +31,6 @@ describe("PalladiumDialect", () => {
     await engine.insert("tasks", { id: "t1", name: "Buy milk", done: 0 });
 
     const db = makeKysely(engine);
-    // selectAll() compiles to SELECT * FROM `tasks` in MySQL dialect;
-    // SqliteAdapter handles the backtick-quoted table name correctly.
     const result = await db.executeQuery(db.selectFrom("tasks").selectAll().compile());
 
     expect(result.rows).toHaveLength(1);

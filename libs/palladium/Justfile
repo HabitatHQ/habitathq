@@ -128,6 +128,25 @@ dev-example-react: build-rust
 test-example-react: build-rust
     pnpm -C packages/example-react exec playwright test
 
+# ── Capacitor SQLite example app ─────────────────────────────────────────────
+
+# Install Playwright's Electron browser (run once after pnpm install)
+install-playwright-electron:
+    pnpm -C packages/example-capacitor exec playwright install chromium
+
+# Build the Capacitor Electron example app (renderer + Electron main/preload)
+build-example-capacitor:
+    pnpm -C packages/example-capacitor exec vite build
+    # Write a package.json into the CJS output dir so Node treats the compiled
+    # Electron main/preload files as CommonJS despite the root "type":"module".
+    mkdir -p packages/example-capacitor/electron/dist
+    echo '{"type":"commonjs"}' > packages/example-capacitor/electron/dist/package.json
+    pnpm -C packages/example-capacitor exec tsc --project tsconfig.electron.json
+
+# Run Playwright E2E tests for the Capacitor SQLite adapter via Electron
+test-capacitor: build-example-capacitor
+    pnpm -C packages/example-capacitor exec playwright test
+
 # ── CATS ─────────────────────────────────────────────────────────────────────
 
 # CATS contract + fuzz tests against the OpenAPI spec.

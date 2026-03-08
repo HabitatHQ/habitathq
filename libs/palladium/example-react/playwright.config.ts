@@ -35,10 +35,13 @@ export default defineConfig({
   ],
 
   webServer: {
-    // Proxy /v1/* → backend via PALLADIUM_API env var read by vite.config.ts.
-    command: `PALLADIUM_API=http://localhost:${API_PORT} pnpm exec vite --port ${APP_PORT}`,
+    // Use the local binary directly — avoids pnpm workspace resolution errors
+    // when Playwright spawns the command from packages/example-react/.
+    // PALLADIUM_API is forwarded via env so vite.config.ts can proxy /v1/*.
+    command: `node_modules/.bin/vite --port ${APP_PORT}`,
     url: `http://localhost:${APP_PORT}`,
     reuseExistingServer: !isCI,
     timeout: 60_000,
+    env: { PALLADIUM_API: `http://localhost:${API_PORT}` },
   },
 });

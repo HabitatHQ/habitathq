@@ -7,11 +7,15 @@ const PALLADIUM_API = process.env["PALLADIUM_API"] ?? "http://localhost:13743";
 
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: {
+    // sqlite-wasm must not be pre-bundled — it manages its own WASM loading.
+    exclude: ["@sqlite.org/sqlite-wasm"],
+  },
   resolve: {
     alias: {
-      // Prevent Vite from trying to bundle node:module (used by SqliteAdapter).
-      // We use MemoryAdapter in the browser, so this import is never called.
-      "node:module": fileURLToPath(new URL("./src/stubs/node-module.ts", import.meta.url)),
+      "@palladium/sqlite-browser": fileURLToPath(
+        new URL("../sqlite-browser/src/index.ts", import.meta.url),
+      ),
     },
   },
   server: {

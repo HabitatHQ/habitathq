@@ -1,4 +1,5 @@
-import { createMockEngine, sql } from "@palladium/core";
+import { createEngine, sql } from "@palladium/core";
+import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { get } from "svelte/store";
 import { describe, expect, it } from "vitest";
 import { liveQueryStore, syncStatusStore } from "../index.js";
@@ -11,6 +12,10 @@ const MIGRATIONS = [
   "CREATE TABLE tasks (id TEXT PRIMARY KEY, name TEXT NOT NULL, done INTEGER NOT NULL)",
 ];
 
+function makeDb() {
+  return createEngine<Schema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }), MIGRATIONS);
+}
+
 /** Drain all pending microtasks (works across multiple promise levels). */
 function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -18,7 +23,7 @@ function flush(): Promise<void> {
 
 describe("liveQueryStore", () => {
   it("starts with loading=true", () => {
-    const db = createMockEngine<Schema>(MIGRATIONS);
+    const db = makeDb();
     const store = liveQueryStore<Schema["tasks"]>(db, sql`SELECT * FROM tasks`);
     // Subscribe to activate the store's start function.
     const unsub = store.subscribe(() => {});
@@ -29,7 +34,7 @@ describe("liveQueryStore", () => {
   });
 
   it("resolves to empty rows after init", async () => {
-    const db = createMockEngine<Schema>(MIGRATIONS);
+    const db = makeDb();
     await db.init();
     const store = liveQueryStore<Schema["tasks"]>(db, sql`SELECT * FROM tasks`);
 
@@ -42,7 +47,7 @@ describe("liveQueryStore", () => {
   });
 
   it("emits updated rows on insert", async () => {
-    const db = createMockEngine<Schema>(MIGRATIONS);
+    const db = makeDb();
     await db.init();
     const store = liveQueryStore<Schema["tasks"]>(db, sql`SELECT * FROM tasks`);
 
@@ -58,7 +63,7 @@ describe("liveQueryStore", () => {
   });
 
   it("unsubscribe cancels the live query", async () => {
-    const db = createMockEngine<Schema>(MIGRATIONS);
+    const db = makeDb();
     await db.init();
     const store = liveQueryStore<Schema["tasks"]>(db, sql`SELECT * FROM tasks`);
 
@@ -75,7 +80,7 @@ describe("liveQueryStore", () => {
 
 describe("syncStatusStore", () => {
   it("starts with idle status", async () => {
-    const db = createMockEngine<Schema>(MIGRATIONS);
+    const db = makeDb();
     await db.init();
     const store = syncStatusStore(db);
     const unsub = store.subscribe(() => {});
@@ -84,12 +89,12 @@ describe("syncStatusStore", () => {
   });
 
   it("updates when engine status changes", async () => {
-    const db = createMockEngine<Schema>(MIGRATIONS);
+    const db = makeDb();
     await db.init();
     const store = syncStatusStore(db);
 
     const unsub = store.subscribe(() => {});
-    db._setStatus("syncing");
+    db.setStatus("syncing");
     expect(get(store)).toBe("syncing");
     unsub();
   });

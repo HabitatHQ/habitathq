@@ -1,5 +1,6 @@
+import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { describe, expect, it, vi } from "vitest";
-import { createMockEngine } from "../mock.js";
+import { createEngine } from "../engine.js";
 import { sql } from "../sql.js";
 
 // SQLite stores booleans as integers; schema done field is INTEGER.
@@ -14,10 +15,10 @@ const MIGRATIONS = [
 ];
 
 function makeDb() {
-  return createMockEngine<Schema>(MIGRATIONS);
+  return createEngine<Schema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }), MIGRATIONS);
 }
 
-describe("createMockEngine (SQLite)", () => {
+describe("createEngine (SQLite)", () => {
   it("initialises without throwing", async () => {
     const db = makeDb();
     await expect(db.init()).resolves.toBeUndefined();
@@ -180,12 +181,12 @@ describe("createMockEngine (SQLite)", () => {
     expect(db.getSyncStatus()).toBe("idle");
   });
 
-  it("getSyncStatus reflects the value set by _setStatus", async () => {
+  it("getSyncStatus reflects the value set by setStatus", async () => {
     const db = makeDb();
     await db.init();
-    db._setStatus("syncing");
+    db.setStatus("syncing");
     expect(db.getSyncStatus()).toBe("syncing");
-    db._setStatus("idle");
+    db.setStatus("idle");
     expect(db.getSyncStatus()).toBe("idle");
   });
 
@@ -195,7 +196,7 @@ describe("createMockEngine (SQLite)", () => {
 
     const cb = vi.fn();
     db.on("sync:status", cb);
-    db._setStatus("syncing");
+    db.setStatus("syncing");
     expect(cb).toHaveBeenCalledWith("syncing");
   });
 
@@ -206,7 +207,7 @@ describe("createMockEngine (SQLite)", () => {
     const cb = vi.fn();
     const unsub = db.on("sync:status", cb);
     unsub();
-    db._setStatus("syncing");
+    db.setStatus("syncing");
     expect(cb).not.toHaveBeenCalled();
   });
 
@@ -235,5 +236,19 @@ describe("createMockEngine (SQLite)", () => {
     const rows = await db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks WHERE id = ${"t2"}`);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.id).toBe("t2");
+  });
+
+  it("tx wraps in a transaction (adapter is transactable)", async () => {
+    const db = makeDb();
+    await db.init();
+
+    // Insert two rows in one tx — both should appear atomically.
+    await db.tx((t) => {
+      t.insert("tasks", { id: "t1", name: "a", done: 0 });
+      t.insert("tasks", { id: "t2", name: "b", done: 0 });
+    });
+
+    const rows = await db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks`);
+    expect(rows).toHaveLength(2);
   });
 });

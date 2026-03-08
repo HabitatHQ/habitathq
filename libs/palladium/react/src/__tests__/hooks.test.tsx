@@ -1,4 +1,5 @@
-import { createMockEngine, sql } from "@palladium/core";
+import { createEngine, sql } from "@palladium/core";
+import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { type ReactNode, act } from "react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -14,8 +15,12 @@ const MIGRATIONS = [
   "CREATE TABLE tasks (id TEXT PRIMARY KEY, name TEXT NOT NULL, done INTEGER NOT NULL)",
 ];
 
+function makeDb() {
+  return createEngine<Schema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }), MIGRATIONS);
+}
+
 function wrapper(
-  db: ReturnType<typeof createMockEngine<Schema>>,
+  db: ReturnType<typeof makeDb>,
 ): ({ children }: { children: ReactNode }) => ReactNode {
   return function Wrapper({ children }: { children: ReactNode }): ReactNode {
     return <PalladiumProvider engine={db}>{children}</PalladiumProvider>;
@@ -24,7 +29,7 @@ function wrapper(
 
 describe("useLiveQuery", () => {
   it("returns empty array initially", async () => {
-    const db = createMockEngine<Schema>(MIGRATIONS);
+    const db = makeDb();
     await db.init();
 
     function App(): ReactNode {
@@ -37,7 +42,7 @@ describe("useLiveQuery", () => {
   });
 
   it("re-renders when a row is inserted", async () => {
-    const db = createMockEngine<Schema>(MIGRATIONS);
+    const db = makeDb();
     await db.init();
 
     function App(): ReactNode {
@@ -65,7 +70,7 @@ describe("useLiveQuery", () => {
 
 describe("useSyncStatus", () => {
   it("returns idle by default", async () => {
-    const db = createMockEngine<Schema>(MIGRATIONS);
+    const db = makeDb();
     await db.init();
 
     function App(): ReactNode {
@@ -78,7 +83,7 @@ describe("useSyncStatus", () => {
   });
 
   it("updates when engine emits sync:status", async () => {
-    const db = createMockEngine<Schema>(MIGRATIONS);
+    const db = makeDb();
     await db.init();
 
     function App(): ReactNode {
@@ -90,7 +95,7 @@ describe("useSyncStatus", () => {
     await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("idle"));
 
     act(() => {
-      db._setStatus("syncing");
+      db.setStatus("syncing");
     });
 
     await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("syncing"));

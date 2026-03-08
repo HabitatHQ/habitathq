@@ -1,17 +1,19 @@
 /**
- * PalladiumEngine — abstract base class for the sync engine.
+ * PalladiumEngine — concrete sync engine base class.
  *
  * Provides the high-level API (tx, insert, update, delete, liveQuery, on)
- * on top of a StorageAdapter. Subclasses (e.g. MockEngine, SqliteEngine)
- * supply the concrete adapter and optional transport.
+ * on top of a StorageAdapter. Subclasses may override the protected
+ * _putRow / _patchRow / _removeRow hooks to intercept writes (e.g. to
+ * replicate changes to a remote server).
  */
 
 import { EventEmitter } from "./event-emitter.js";
 import { LiveQuery } from "./live-query.js";
 import type { SqlQuery } from "./sql.js";
+import { isTransactable } from "./storage.js";
 import type { StorageAdapter } from "./storage.js";
 import { TxBuilder } from "./tx.js";
-import type { SchemaMap } from "./tx.js";
+import type { Op, SchemaMap } from "./tx.js";
 
 export type SyncStatus = "idle" | "syncing" | "error" | "offline";
 
@@ -20,33 +22,50 @@ export interface EngineEvents {
   error: Error;
 }
 
-export abstract class PalladiumEngine<S extends SchemaMap> {
-  protected readonly adapter: StorageAdapter;
+export class PalladiumEngine<S extends SchemaMap> {
+  readonly adapter: StorageAdapter;
+  readonly #migrations: readonly string[];
   protected readonly emitter = new EventEmitter<EngineEvents>();
   protected status: SyncStatus = "idle";
   readonly #liveQueries = new Set<LiveQuery>();
 
-  constructor(adapter: StorageAdapter) {
+  constructor(adapter: StorageAdapter, migrations: readonly string[] = []) {
     this.adapter = adapter;
+    this.#migrations = migrations;
   }
 
-  /** Initialise the engine (run migrations, open connections). */
-  abstract init(): Promise<void>;
+  /** Open the adapter and run migrations. */
+  async init(): Promise<void> {
+    await this.adapter.open();
+    await this.adapter.runMigrations(this.#migrations);
+  }
 
-  /** Execute a batch of mutations inside a SQLite transaction. */
+  /** Execute a batch of mutations, wrapped in a transaction when supported. */
   async tx(callback: (t: TxBuilder<S>) => void): Promise<void> {
     const builder = new TxBuilder<S>();
-    callback(builder);
+    const maybePromise = callback(builder);
+    if (maybePromise instanceof Promise) {
+      throw new TypeError(
+        "tx() callback must be synchronous. Received a Promise — did you accidentally use an async function?",
+      );
+    }
     const ops = builder.build();
     const touchedTables = new Set<string>();
 
-    for (const op of ops) {
-      const table = String(op.table);
-      touchedTables.add(table);
-      await this.#applyOp(op);
+    const applyAll = async (adpt: StorageAdapter): Promise<void> => {
+      for (const op of ops) {
+        // Lowercase to match extractTables(), which normalises SQL identifiers.
+        touchedTables.add(String(op.table).toLowerCase());
+        await this.#applyOp(adpt, op);
+      }
+    };
+
+    if (isTransactable(this.adapter)) {
+      await this.adapter.transaction(applyAll);
+    } else {
+      await applyAll(this.adapter);
     }
 
-    // Notify live queries whose watched tables overlap.
     await this.#notifyLiveQueries([...touchedTables]);
   }
 
@@ -104,25 +123,50 @@ export abstract class PalladiumEngine<S extends SchemaMap> {
     return this.status;
   }
 
-  async #applyOp(op: ReturnType<TxBuilder<S>["build"]>[number]): Promise<void> {
+  /** Update the sync status and emit a `sync:status` event. */
+  setStatus(s: SyncStatus): void {
+    this.status = s;
+    this.emitter.emit("sync:status", s);
+  }
+
+  async #applyOp(adpt: StorageAdapter, op: Op<S>): Promise<void> {
     const table = String(op.table);
     if (op.type === "insert") {
-      this._putRow(
+      await this._putRow(
+        adpt,
         table,
         (op.data as unknown as { id: string }).id,
         op.data as Record<string, unknown>,
       );
     } else if (op.type === "update") {
-      this._patchRow(table, op.id, op.patch as Record<string, unknown>);
+      await this._patchRow(adpt, table, op.id, op.patch as Record<string, unknown>);
     } else {
-      this._removeRow(table, op.id);
+      await this._removeRow(adpt, table, op.id);
     }
   }
 
-  /** Override in subclasses to customise storage writes. */
-  protected abstract _putRow(table: string, id: string, data: Record<string, unknown>): void;
-  protected abstract _patchRow(table: string, id: string, patch: Record<string, unknown>): void;
-  protected abstract _removeRow(table: string, id: string): void;
+  /** Override to intercept or augment storage writes (e.g. server replication). */
+  protected async _putRow(
+    adpt: StorageAdapter,
+    table: string,
+    id: string,
+    data: Record<string, unknown>,
+  ): Promise<void> {
+    await adpt.put(table, id, data);
+  }
+
+  protected async _patchRow(
+    adpt: StorageAdapter,
+    table: string,
+    id: string,
+    patch: Record<string, unknown>,
+  ): Promise<void> {
+    await adpt.patch(table, id, patch);
+  }
+
+  protected async _removeRow(adpt: StorageAdapter, table: string, id: string): Promise<void> {
+    await adpt.remove(table, id);
+  }
 
   async #notifyLiveQueries(tables: string[]): Promise<void> {
     const promises: Promise<void>[] = [];
@@ -131,6 +175,14 @@ export abstract class PalladiumEngine<S extends SchemaMap> {
     }
     await Promise.all(promises);
   }
+}
+
+/** Factory — create a PalladiumEngine with the given adapter and migrations. */
+export function createEngine<S extends SchemaMap>(
+  adapter: StorageAdapter,
+  migrations: readonly string[] = [],
+): PalladiumEngine<S> {
+  return new PalladiumEngine<S>(adapter, migrations);
 }
 
 /** Coerces an unknown thrown value to an `Error` instance. */
