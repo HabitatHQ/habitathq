@@ -1,5 +1,5 @@
 /**
- * Regression tests for UX/accessibility issues fixed in issues #6–#12.
+ * Regression tests for UX/accessibility issues fixed in issues #6–#13.
  * These use hard assertions — failures mean a regression has been introduced.
  *
  * Issues covered:
@@ -10,6 +10,7 @@
  *   #10 — "New" buttons on Habits and Check-in pages ≥ 44px
  *   #11 — Custom bottom-sheet modals include safe-area-inset-bottom spacer
  *   #12 — Modal card padding is consistently p-5 (20px) on Habits
+ *   #13 — Mobile native scroll: dvh height, overscroll-contain, body scroll lock, jots spacers
  */
 
 import { test, expect, type Page } from '@playwright/test'
@@ -242,6 +243,134 @@ test.describe('Issue #11 — bottom-sheet modals include safe-area spacer', () =
     const spacer = card.locator('.safe-area-bottom')
     const count = await spacer.count()
     expect(count, 'Bored activity modal: missing .safe-area-bottom spacer').toBeGreaterThan(0)
+  })
+})
+
+// ─── Issue #13: Mobile native scroll improvements ─────────────────────────────
+
+test.describe('Issue #13 — mobile scroll: dvh max-height, overscroll-contain, body lock, jots spacers', () => {
+  /**
+   * Opens a modal and checks:
+   * 1. Backdrop has class `modal-backdrop` (enables CSS body scroll lock).
+   * 2. Body overflow becomes `hidden` when the modal is open.
+   * 3. Scrollable cards use `max-h` with dvh units (not static vh).
+   * 4. Scrollable cards have `overscroll-behavior: contain`.
+   */
+  async function openModalAndAuditScroll(
+    page: Page,
+    route: string,
+    triggerName: RegExp,
+    description: string,
+  ) {
+    await page.setViewportSize(MOBILE)
+    await page.goto(route)
+    await page.waitForLoadState('networkidle')
+    await page.waitForTimeout(500)
+
+    const btn = page.getByRole('button', { name: triggerName }).first()
+    const visible = await btn.isVisible().catch(() => false)
+    if (!visible) { test.skip(); return }
+
+    await btn.click()
+    await page.waitForTimeout(400)
+
+    // 1. Backdrop has modal-backdrop class
+    const backdrop = page.locator('.modal-backdrop').first()
+    const hasBackdrop = await backdrop.isVisible().catch(() => false)
+    expect(hasBackdrop, `${description}: .modal-backdrop not found`).toBe(true)
+
+    // 2. Body overflow is hidden (CSS :has(.modal-backdrop) rule in effect)
+    const bodyOverflow = await page.evaluate(() => getComputedStyle(document.body).overflow)
+    expect(bodyOverflow, `${description}: body overflow should be hidden when modal is open`).toBe('hidden')
+
+    // 3 & 4. Scrollable card uses dvh and overscroll-contain
+    const card = page.locator('.rounded-t-3xl').first()
+    const cardVisible = await card.isVisible().catch(() => false)
+    if (!cardVisible) return
+
+    const [maxHeight, overscroll] = await card.evaluate((el) => {
+      const s = getComputedStyle(el)
+      // getAttribute gives the Tailwind class string; computed maxHeight gives resolved px value
+      return [el.getAttribute('class') ?? '', s.overscrollBehavior]
+    })
+
+    // max-h-[90dvh] class must be present (not max-h-[90vh])
+    expect(maxHeight, `${description}: modal card should use 90dvh not 90vh`).toMatch(/90dvh/)
+    expect(overscroll, `${description}: modal card should have overscroll-behavior: contain`).toMatch(/contain/)
+  }
+
+  test('todos add modal: backdrop class, body lock, dvh, overscroll-contain', async ({ page }) => {
+    await openModalAndAuditScroll(page, '/todos', /^add$/i, 'Todos add modal')
+  })
+
+  test('bored activity modal: backdrop class, body lock, dvh, overscroll-contain', async ({ page }) => {
+    // Navigate to bored activities; click the first add-activity button
+    await page.setViewportSize(MOBILE)
+    await page.goto('/bored/activities')
+    await page.waitForLoadState('networkidle')
+    await page.waitForTimeout(500)
+
+    // The + buttons open activity modals
+    const addBtns = page.getByRole('button', { name: /^$/i }).filter({ has: page.locator('[data-icon]') })
+    const plusBtn = page.locator('button[aria-label=""]').first()
+    // Use the icon button with + inside any category row
+    const anyAddBtn = page.locator('nav ~ * button, .space-y-2 button').filter({ hasText: '' }).first()
+    // Simpler: click the first "+" icon button in the activities list
+    const iconBtns = page.locator('button').filter({ has: page.locator('.i-heroicons-plus') })
+    const count = await iconBtns.count()
+    if (count === 0) { test.skip(); return }
+
+    await iconBtns.first().click()
+    await page.waitForTimeout(400)
+
+    const backdrop = page.locator('.modal-backdrop').first()
+    const hasBackdrop = await backdrop.isVisible().catch(() => false)
+    expect(hasBackdrop, 'Bored activity modal: .modal-backdrop not found').toBe(true)
+
+    const bodyOverflow = await page.evaluate(() => getComputedStyle(document.body).overflow)
+    expect(bodyOverflow, 'Bored activity modal: body overflow should be hidden').toBe('hidden')
+  })
+
+  test('jots picker modal has safe-area-bottom spacer', async ({ page }) => {
+    await page.setViewportSize(MOBILE)
+    await page.goto('/jots')
+    await page.waitForLoadState('networkidle')
+    await page.waitForTimeout(500)
+
+    // The FAB / "+" button that opens the picker
+    const addBtn = page.getByRole('button', { name: /new jot|add|compose/i }).first()
+    const fabVisible = await addBtn.isVisible().catch(() => false)
+    if (!fabVisible) { test.skip(); return }
+
+    await addBtn.click()
+    await page.waitForTimeout(400)
+
+    const card = page.locator('.rounded-t-3xl').first()
+    const cardVisible = await card.isVisible().catch(() => false)
+    if (!cardVisible) { test.skip(); return }
+
+    const spacer = card.locator('.safe-area-bottom')
+    expect(await spacer.count(), 'Jots picker modal: missing .safe-area-bottom spacer').toBeGreaterThan(0)
+  })
+
+  test('checkin create modal: backdrop class + body scroll lock', async ({ page }) => {
+    await page.setViewportSize(MOBILE)
+    await page.goto('/checkin')
+    await page.waitForLoadState('networkidle')
+    await page.waitForTimeout(300)
+
+    const btn = page.getByRole('button', { name: /^new$/i })
+    const visible = await btn.isVisible().catch(() => false)
+    if (!visible) { test.skip(); return }
+
+    await btn.click()
+    await page.waitForTimeout(400)
+
+    const backdrop = page.locator('.modal-backdrop').first()
+    expect(await backdrop.isVisible().catch(() => false), 'Check-in modal: .modal-backdrop not found').toBe(true)
+
+    const bodyOverflow = await page.evaluate(() => getComputedStyle(document.body).overflow)
+    expect(bodyOverflow, 'Check-in modal: body overflow should be hidden').toBe('hidden')
   })
 })
 

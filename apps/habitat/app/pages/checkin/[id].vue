@@ -613,8 +613,8 @@ onMounted(async () => {
       v-if="showEdit"
       class="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
     >
-      <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="showEdit = false" />
-      <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
+      <div class="modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm" @click="showEdit = false" />
+      <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90dvh] overflow-y-auto overscroll-contain">
         <div class="flex items-center justify-between">
           <h3 class="font-semibold text-(--ui-text)">Edit Check-in</h3>
           <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" @click="showEdit = false" />
@@ -669,7 +669,7 @@ onMounted(async () => {
       v-if="showDeleteConfirm"
       class="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
     >
-      <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="showDeleteConfirm = false" />
+      <div class="modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm" @click="showDeleteConfirm = false" />
       <div class="relative w-full sm:max-w-sm bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
         <h3 class="font-semibold text-(--ui-text)">Delete check-in?</h3>
         <p class="text-sm text-(--ui-text-muted)">

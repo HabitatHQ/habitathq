@@ -643,8 +643,8 @@ function jotKindIcon(kind: string | undefined): string {
 
     <!-- Add/Edit modal -->
     <div v-if="showModal" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-      <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="showModal = false" />
-      <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+      <div class="modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm" @click="showModal = false" />
+      <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90dvh] overflow-y-auto overscroll-contain">
         <h2 class="text-lg font-semibold">{{ editingTodo ? 'Edit TODO' : 'New TODO' }}</h2>
 
         <div class="space-y-3">

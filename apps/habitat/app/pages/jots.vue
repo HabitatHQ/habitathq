@@ -1118,7 +1118,7 @@ onUnmounted(() => {
     <!-- ── Type picker modal ──────────────────────────────────────────────── -->
     <Teleport to="body">
       <div v-if="activeModal === 'picker'" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="closeModal" />
+        <div class="modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm" @click="closeModal" />
         <div class="relative w-full sm:max-w-sm bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-3">
           <h3 class="text-base font-semibold text-center">New Jot</h3>
           <div class="grid grid-cols-3 gap-3">
@@ -1150,6 +1150,7 @@ onUnmounted(() => {
               <span class="text-xs text-(--ui-text-toned)">Image</span>
             </button>
           </div>
+          <div class="safe-area-bottom" aria-hidden="true" />
         </div>
       </div>
     </Teleport>
@@ -1299,7 +1300,7 @@ onUnmounted(() => {
     <!-- ── Record modal ────────────────────────────────────────────────────── -->
     <Teleport to="body">
       <div v-if="activeModal === 'record'" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="() => { if (!recording) closeModal() }" />
+        <div class="modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm" @click="() => { if (!recording) closeModal() }" />
         <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
 
           <div class="flex items-center justify-between">
@@ -1347,6 +1348,7 @@ onUnmounted(() => {
             </div>
           </div>
 
+          <div class="safe-area-bottom" aria-hidden="true" />
         </div>
       </div>
     </Teleport>
@@ -1354,7 +1356,7 @@ onUnmounted(() => {
     <!-- ── Image picker modal ─────────────────────────────────────────────── -->
     <Teleport to="body">
       <div v-if="activeModal === 'image'" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="() => { cancelImagePreview(); closeModal() }" />
+        <div class="modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm" @click="() => { cancelImagePreview(); closeModal() }" />
         <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
 
           <div class="flex items-center justify-between">
@@ -1411,6 +1413,7 @@ onUnmounted(() => {
             </label>
           </div>
 
+          <div class="safe-area-bottom" aria-hidden="true" />
         </div>
       </div>
     </Teleport>
@@ -1418,8 +1421,8 @@ onUnmounted(() => {
     <!-- ── Transcript save modal ───────────────────────────────────────────── -->
     <Teleport to="body">
       <div v-if="activeModal === 'transcript'" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="closeTranscriptModal" />
-        <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
+        <div class="modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm" @click="closeTranscriptModal" />
+        <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90dvh] overflow-y-auto overscroll-contain">
 
           <div class="flex items-center justify-between">
             <h3 class="text-base font-semibold">Save transcription</h3>
@@ -1467,6 +1470,7 @@ onUnmounted(() => {
             </UButton>
           </div>
 
+          <div class="safe-area-bottom" aria-hidden="true" />
         </div>
       </div>
     </Teleport>
@@ -1474,7 +1478,7 @@ onUnmounted(() => {
     <!-- ── Create TODO from jot modal ────────────────────────────────────── -->
     <Teleport to="body">
       <div v-if="showCreateTodoModal" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="showCreateTodoModal = false" />
+        <div class="modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm" @click="showCreateTodoModal = false" />
         <div class="relative w-full sm:max-w-sm bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
           <h3 class="text-base font-semibold">Create TODO</h3>
           <p class="text-xs text-(--ui-text-dimmed) -mt-2">A TODO will be created and linked to this jot.</p>
@@ -1498,6 +1502,7 @@ onUnmounted(() => {
               @click="saveCreateTodo"
             >Create</UButton>
           </div>
+          <div class="safe-area-bottom" aria-hidden="true" />
         </div>
       </div>
     </Teleport>
