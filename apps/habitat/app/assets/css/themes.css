@@ -130,6 +130,7 @@ html.theme-transitioning * {
   from {
     stroke-dashoffset: 1;
   }
+
   to {
     stroke-dashoffset: 0;
   }
@@ -147,14 +148,42 @@ html.theme-transitioning * {
 .plant-logo.sprout-anim .sprout-stem {
   animation: sprout-draw 120ms 0ms linear forwards;
 }
+
 .plant-logo.sprout-anim .sprout-leaf-l {
   animation: sprout-draw 150ms 120ms linear forwards;
 }
+
 .plant-logo.sprout-anim .sprout-branch-r {
   animation: sprout-draw 160ms 270ms linear forwards;
 }
+
 .plant-logo.sprout-anim .sprout-soil {
   animation: sprout-draw 80ms 430ms linear forwards;
+}
+
+/* Medium speed for the JotsRing logo (~750ms total) */
+.plant-logo-md.sprout-anim .sprout-stem,
+.plant-logo-md.sprout-anim .sprout-leaf-l,
+.plant-logo-md.sprout-anim .sprout-branch-r,
+.plant-logo-md.sprout-anim .sprout-soil {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+
+.plant-logo-md.sprout-anim .sprout-stem {
+  animation: sprout-draw 180ms 0ms linear forwards;
+}
+
+.plant-logo-md.sprout-anim .sprout-leaf-l {
+  animation: sprout-draw 220ms 180ms linear forwards;
+}
+
+.plant-logo-md.sprout-anim .sprout-branch-r {
+  animation: sprout-draw 230ms 400ms linear forwards;
+}
+
+.plant-logo-md.sprout-anim .sprout-soil {
+  animation: sprout-draw 120ms 630ms linear forwards;
 }
 
 /* 2× speed for the larger Matrix page logo */
@@ -169,12 +198,15 @@ html.theme-transitioning * {
 .plant-logo-lg.sprout-anim .sprout-stem {
   animation: sprout-draw 240ms 0ms linear forwards;
 }
+
 .plant-logo-lg.sprout-anim .sprout-leaf-l {
   animation: sprout-draw 300ms 240ms linear forwards;
 }
+
 .plant-logo-lg.sprout-anim .sprout-branch-r {
   animation: sprout-draw 320ms 540ms linear forwards;
 }
+
 .plant-logo-lg.sprout-anim .sprout-soil {
   animation: sprout-draw 160ms 860ms linear forwards;
 }
@@ -182,10 +214,15 @@ html.theme-transitioning * {
 /* ── 5. Reduce motion ────────────────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
+
   .plant-logo.sprout-anim .sprout-stem,
   .plant-logo.sprout-anim .sprout-leaf-l,
   .plant-logo.sprout-anim .sprout-branch-r,
   .plant-logo.sprout-anim .sprout-soil,
+  .plant-logo-md.sprout-anim .sprout-stem,
+  .plant-logo-md.sprout-anim .sprout-leaf-l,
+  .plant-logo-md.sprout-anim .sprout-branch-r,
+  .plant-logo-md.sprout-anim .sprout-soil,
   .plant-logo-lg.sprout-anim .sprout-stem,
   .plant-logo-lg.sprout-anim .sprout-leaf-l,
   .plant-logo-lg.sprout-anim .sprout-branch-r,
@@ -204,6 +241,10 @@ html.reduce-motion .plant-logo.sprout-anim .sprout-stem,
 html.reduce-motion .plant-logo.sprout-anim .sprout-leaf-l,
 html.reduce-motion .plant-logo.sprout-anim .sprout-branch-r,
 html.reduce-motion .plant-logo.sprout-anim .sprout-soil,
+html.reduce-motion .plant-logo-md.sprout-anim .sprout-stem,
+html.reduce-motion .plant-logo-md.sprout-anim .sprout-leaf-l,
+html.reduce-motion .plant-logo-md.sprout-anim .sprout-branch-r,
+html.reduce-motion .plant-logo-md.sprout-anim .sprout-soil,
 html.reduce-motion .plant-logo-lg.sprout-anim .sprout-stem,
 html.reduce-motion .plant-logo-lg.sprout-anim .sprout-leaf-l,
 html.reduce-motion .plant-logo-lg.sprout-anim .sprout-branch-r,
