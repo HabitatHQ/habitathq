@@ -7,6 +7,7 @@ const opfsUnsupported = useState('opfs-unsupported', () => false)
 const { scheduleAll, registerNativeListeners, requestAllPermissions, refreshAllStatuses } =
   useNotifications()
 const { settings } = useAppSettings()
+const { syncStatusBar } = useStatusBar()
 
 // ── Apply theme + reduce-motion class to <html> reactively ───────────────────
 onMounted(() => {
@@ -14,6 +15,14 @@ onMounted(() => {
     document.documentElement.setAttribute('data-theme', settings.value.theme ?? 'habitat')
     document.documentElement.classList.toggle('reduce-motion', settings.value.reduceMotion ?? false)
   })
+
+  // ── Native: disable rubber-band overscroll on body ──────────────────────
+  if (isNative) {
+    document.body.style.overscrollBehavior = 'none'
+  }
+
+  // ── Sync status bar color with current theme ────────────────────────────
+  void syncStatusBar()
 })
 
 const isNative = Capacitor.isNativePlatform()

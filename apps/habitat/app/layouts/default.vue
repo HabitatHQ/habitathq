@@ -97,8 +97,6 @@ function navLabel(item: { to: string; label: string }): string {
   return item.label
 }
 
-
-
 const enabledNavItems = computed(() =>
   ALL_NAV_ITEMS.filter((i) => {
     if (i.today && !settings.value.enableToday) return false
@@ -137,7 +135,10 @@ const LONG_PRESS_MS = 500
 const { onPointerDown: navDragPointerDown } = useDragReorder(
   navItems,
   (newOrder) => {
-    setAppSetting('tabOrder', newOrder.map((i) => i.to))
+    setAppSetting(
+      'tabOrder',
+      newOrder.map((i) => i.to),
+    )
   },
   { orientation: 'horizontal' },
 )
@@ -168,12 +169,18 @@ function onNavPointerDown(index: number, e: PointerEvent) {
   const moveThreshold = 10
 
   function detectMove(me: PointerEvent) {
-    if (Math.abs(me.clientX - startX) > moveThreshold || Math.abs(me.clientY - startY) > moveThreshold) {
+    if (
+      Math.abs(me.clientX - startX) > moveThreshold ||
+      Math.abs(me.clientY - startY) > moveThreshold
+    ) {
       cancelLongPress()
     }
   }
   function cancelLongPress() {
-    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null }
+    if (longPressTimer) {
+      clearTimeout(longPressTimer)
+      longPressTimer = null
+    }
     document.removeEventListener('pointermove', detectMove)
     document.removeEventListener('pointerup', cancelLongPress)
     document.removeEventListener('pointercancel', cancelLongPress)

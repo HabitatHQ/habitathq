@@ -56,9 +56,7 @@ export function useDragReorder<T>(
   function findOverIndex(pos: number): number {
     for (let i = 0; i < itemRects.length; i++) {
       const rect = itemRects[i]!
-      const center = isHorizontal()
-        ? rect.left + rect.width / 2
-        : rect.top + rect.height / 2
+      const center = isHorizontal() ? rect.left + rect.width / 2 : rect.top + rect.height / 2
       if (pos < center) return i
     }
     return itemRects.length - 1
@@ -83,18 +81,14 @@ export function useDragReorder<T>(
         if (i > from && i <= to) {
           const prevRect = itemRects[i - 1]!
           const thisRect = itemRects[i]!
-          shift = isHorizontal()
-            ? prevRect.left - thisRect.left
-            : prevRect.top - thisRect.top
+          shift = isHorizontal() ? prevRect.left - thisRect.left : prevRect.top - thisRect.top
         }
       } else if (from > to) {
         // Dragged item moved backward: items between [to, from) shift forward
         if (i >= to && i < from) {
           const nextRect = itemRects[i + 1]!
           const thisRect = itemRects[i]!
-          shift = isHorizontal()
-            ? nextRect.left - thisRect.left
-            : nextRect.top - thisRect.top
+          shift = isHorizontal() ? nextRect.left - thisRect.left : nextRect.top - thisRect.top
         }
       }
 
@@ -154,7 +148,9 @@ export function useDragReorder<T>(
     }
 
     if (pointerId !== null && containerEl) {
-      try { containerEl.releasePointerCapture(pointerId) } catch {}
+      try {
+        containerEl.releasePointerCapture(pointerId)
+      } catch {}
     }
 
     state.dragging = false
@@ -208,9 +204,11 @@ export function useDragReorder<T>(
     if (!computedBg || computedBg === 'rgba(0, 0, 0, 0)' || computedBg === 'transparent') {
       // Inherit from container or use a fallback
       const containerBg = getComputedStyle(container).backgroundColor
-      floatingEl.style.backgroundColor = containerBg && containerBg !== 'rgba(0, 0, 0, 0)'
-        ? containerBg
-        : getComputedStyle(document.documentElement).getPropertyValue('--ui-bg-muted') || '#1e293b'
+      floatingEl.style.backgroundColor =
+        containerBg && containerBg !== 'rgba(0, 0, 0, 0)'
+          ? containerBg
+          : getComputedStyle(document.documentElement).getPropertyValue('--ui-bg-muted') ||
+            '#1e293b'
     }
 
     document.body.appendChild(floatingEl)
@@ -227,7 +225,9 @@ export function useDragReorder<T>(
     state.dragIndex = index
     state.overIndex = index
 
-    try { containerEl.setPointerCapture(pointerId) } catch {}
+    try {
+      containerEl.setPointerCapture(pointerId)
+    } catch {}
 
     document.addEventListener('pointermove', onPointerMove)
     document.addEventListener('pointerup', onPointerUp)

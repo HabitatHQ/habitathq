@@ -21,8 +21,6 @@ function setTheme(theme: AppTheme) {
 
 // ── Tab order ───────────────────────────────────────────────────────────────
 
-
-
 function isNavEnabled(item: NavItem): boolean {
   if (item.today && !appSettings.value.enableToday) return false
   if (item.health && !appSettings.value.enableHealth) return false
@@ -53,7 +51,10 @@ const tabOrderContainerRef = ref<HTMLElement | null>(null)
 const { onPointerDown } = useDragReorder(
   orderedNavItems,
   (newOrder) => {
-    setAppSetting('tabOrder', newOrder.map((i) => i.to))
+    setAppSetting(
+      'tabOrder',
+      newOrder.map((i) => i.to),
+    )
   },
   { orientation: 'vertical' },
 )
