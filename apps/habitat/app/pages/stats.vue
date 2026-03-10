@@ -63,7 +63,7 @@ function isHabitDone(habit: HabitWithSchedule, date: string): boolean {
   const hasLog = dm?.has(habit.id) ?? false
   const sum = dm?.get(habit.id) ?? 0
   if (habit.type === 'NUMERIC') return sum >= habit.target_value
-  return hasLog && sum < habit.target_value // LIMIT: logged and stayed under
+  return hasLog && sum <= habit.target_value // LIMIT: logged and at or under
 }
 
 // ─── Precomputed date strings (descending: today → sixMonthsAgo) ─────────────

@@ -115,7 +115,7 @@ function isDone(habit: HabitWithSchedule, date: string): boolean {
   }
   const sum = getLogSum(habit.id, date)
   if (habit.type === 'NUMERIC') return sum >= habit.target_value
-  return sum > 0 && sum < habit.target_value
+  return sum > 0 && sum <= habit.target_value
 }
 
 // ─── BOOLEAN toggle ───────────────────────────────────────────────────────────

@@ -946,7 +946,7 @@ async function getStreak(habit_id: string): Promise<{ current: number; longest: 
     return calcStreaks(rows.map((r) => r.date as string))
   }
   const rows = await queryRaw(
-    'SELECT date FROM habit_logs WHERE habit_id = ? GROUP BY date HAVING SUM(value) < ? ORDER BY date DESC',
+    'SELECT date FROM habit_logs WHERE habit_id = ? GROUP BY date HAVING SUM(value) <= ? ORDER BY date DESC',
     [habit_id, target],
   )
   return calcStreaks(rows.map((r) => r.date as string))
