@@ -1348,9 +1348,9 @@ await (async () => {
         return calcStreaks(dates)
       }
 
-      // LIMIT: done when the user tracked at least once AND total stayed under the limit
+      // LIMIT: done when the user tracked at least once AND total stayed at or under the limit
       const dates = queryRaw(
-        'SELECT date FROM habit_logs WHERE habit_id = ? GROUP BY date HAVING SUM(value) < ? ORDER BY date DESC',
+        'SELECT date FROM habit_logs WHERE habit_id = ? GROUP BY date HAVING SUM(value) <= ? ORDER BY date DESC',
         [habit_id, target],
       ).map((r) => r.date as string)
       return calcStreaks(dates)
