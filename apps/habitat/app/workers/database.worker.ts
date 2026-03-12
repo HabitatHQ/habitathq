@@ -22,6 +22,7 @@ import type {
   WorkerRequest,
   WorkerResponse,
 } from '~/types/database'
+import { safeJsonParse } from '~/utils/safe-json'
 
 // Wrapped in an async IIFE so we can return early (e.g. lock unavailable)
 // without leaking unguarded top-level awaits.
@@ -965,17 +966,6 @@ await (async () => {
     }
 
     // ─── Low-level helpers ────────────────────────────────────────────────────────
-
-    /** Safely parse a JSON column value, returning `fallback` on null or parse error. */
-    function safeJsonParse<T>(str: string | null | undefined, fallback: T): T {
-      if (str == null) return fallback
-      try {
-        return JSON.parse(str) as T
-      } catch {
-        console.warn('[db] JSON.parse failed for column value:', str)
-        return fallback
-      }
-    }
 
     /** Run a SELECT and collect plain object rows. */
     function queryRaw(sql: string, bind?: unknown[]): Record<string, unknown>[] {

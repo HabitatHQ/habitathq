@@ -26,6 +26,7 @@ import type {
   Todo,
   WorkerRequestBody,
 } from '~/types/database'
+import { safeJsonParse } from '~/utils/safe-json'
 
 // ─── Connection singleton ─────────────────────────────────────────────────────
 
@@ -556,17 +557,6 @@ async function seedDefaults(): Promise<void> {
 }
 
 // ─── Low-level helpers ────────────────────────────────────────────────────────
-
-/** Safely parse a JSON column value, returning `fallback` on null or parse error. */
-function safeJsonParse<T>(str: string | null | undefined, fallback: T): T {
-  if (str == null) return fallback
-  try {
-    return JSON.parse(str) as T
-  } catch {
-    console.warn('[db-native] JSON.parse failed for column value:', str)
-    return fallback
-  }
-}
 
 // ─── Domain deserializers ─────────────────────────────────────────────────────
 
