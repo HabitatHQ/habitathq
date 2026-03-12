@@ -50,13 +50,16 @@ async function saveImage() {
     const id = crypto.randomUUID()
     const arrayBuffer = await file.arrayBuffer()
     const blob = new Blob([arrayBuffer], { type: file.type })
-    await store.addImageNote({
-      id,
-      blob,
-      mimeType: file.type,
-      filename: file.name,
-      created_at: new Date().toISOString(),
-    }, url)
+    await store.addImageNote(
+      {
+        id,
+        blob,
+        mimeType: file.type,
+        filename: file.name,
+        created_at: new Date().toISOString(),
+      },
+      url,
+    )
     imagePreview.value = null
     emit('close')
   } catch (err: any) {

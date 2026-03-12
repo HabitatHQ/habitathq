@@ -20,7 +20,9 @@ const newAnnotKey = ref('')
 const newAnnotVal = ref('')
 
 const annotationCount = computed(() => Object.keys(textForm.annotations).length)
-const canSave = computed(() => textForm.title.trim().length > 0 || textForm.content.trim().length > 0)
+const canSave = computed(
+  () => textForm.title.trim().length > 0 || textForm.content.trim().length > 0,
+)
 
 function commitTag() {
   const t = tagInput.value.replace(/,+$/, '').trim()

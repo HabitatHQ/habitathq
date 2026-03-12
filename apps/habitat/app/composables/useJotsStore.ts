@@ -116,10 +116,7 @@ export function useJotsStore() {
 
   async function loadAll() {
     if (db.isAvailable) {
-      ;[scribbles.value, todos.value] = await Promise.all([
-        db.getScribbles(),
-        db.getTodos(),
-      ])
+      ;[scribbles.value, todos.value] = await Promise.all([db.getScribbles(), db.getTodos()])
     }
     const storedVoice = await idbGetAll<Omit<VoiceNote, 'url'>>(VOICE_STORE)
     storedVoice.sort((a, b) => b.created_at.localeCompare(a.created_at))
@@ -158,8 +155,12 @@ export function useJotsStore() {
   }
 
   function revokeAllUrls() {
-    voiceNotes.value.forEach((n) => { if (n.url) URL.revokeObjectURL(n.url) })
-    imageNotes.value.forEach((n) => { if (n.url) URL.revokeObjectURL(n.url) })
+    voiceNotes.value.forEach((n) => {
+      if (n.url) URL.revokeObjectURL(n.url)
+    })
+    imageNotes.value.forEach((n) => {
+      if (n.url) URL.revokeObjectURL(n.url)
+    })
   }
 
   return {

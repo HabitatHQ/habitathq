@@ -6,9 +6,7 @@ const props = defineProps<{
   compact?: boolean
 }>()
 
-const emit = defineEmits<{
-  (e: 'select', type: 'text' | 'voice' | 'image'): void
-}>()
+const emit = defineEmits<(e: 'select', type: 'text' | 'voice' | 'image') => void>()
 
 // ─── App settings (reduce-motion awareness) ──────────────────────────────────
 
@@ -116,9 +114,27 @@ const SVG_SIZE = CENTER * 2
 
 // Icon positions at 120° intervals (270° = top, 30° = bottom-right, 150° = bottom-left)
 const nodes = [
-  { type: 'voice' as const, angle: 270, label: 'Voice', icon: 'i-heroicons-microphone', color: 'rose' },
-  { type: 'text' as const, angle: 30, label: 'Scribble', icon: 'i-heroicons-pencil', color: 'amber' },
-  { type: 'image' as const, angle: 150, label: 'Photograph', icon: 'i-heroicons-camera', color: 'sky' },
+  {
+    type: 'voice' as const,
+    angle: 270,
+    label: 'Voice',
+    icon: 'i-heroicons-microphone',
+    color: 'rose',
+  },
+  {
+    type: 'text' as const,
+    angle: 30,
+    label: 'Scribble',
+    icon: 'i-heroicons-pencil',
+    color: 'amber',
+  },
+  {
+    type: 'image' as const,
+    angle: 150,
+    label: 'Photograph',
+    icon: 'i-heroicons-camera',
+    color: 'sky',
+  },
 ]
 
 function nodePos(angleDeg: number) {
@@ -132,9 +148,24 @@ function nodePos(angleDeg: number) {
 // ─── Compact mode icons (fallback for small viewports) ──────────────────────
 
 const compactOptions = [
-  { type: 'voice' as const, label: 'Voice',       icon: 'i-heroicons-microphone', colorClasses: 'bg-rose-500/10 text-rose-400' },
-  { type: 'text' as const,  label: 'Scribble',    icon: 'i-heroicons-pencil',     colorClasses: 'bg-amber-500/10 text-amber-400' },
-  { type: 'image' as const, label: 'Photograph',  icon: 'i-heroicons-camera',     colorClasses: 'bg-sky-500/10 text-sky-400' },
+  {
+    type: 'voice' as const,
+    label: 'Voice',
+    icon: 'i-heroicons-microphone',
+    colorClasses: 'bg-rose-500/10 text-rose-400',
+  },
+  {
+    type: 'text' as const,
+    label: 'Scribble',
+    icon: 'i-heroicons-pencil',
+    colorClasses: 'bg-amber-500/10 text-amber-400',
+  },
+  {
+    type: 'image' as const,
+    label: 'Photograph',
+    icon: 'i-heroicons-camera',
+    colorClasses: 'bg-sky-500/10 text-sky-400',
+  },
 ]
 </script>
 

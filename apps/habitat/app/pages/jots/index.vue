@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { JotItem, VoiceNote, ImageNote } from '~/composables/useJotsStore'
+import type { ImageNote, JotItem, VoiceNote } from '~/composables/useJotsStore'
 
 const router = useRouter()
 const { settings: appSettings } = useAppSettings()
@@ -96,7 +96,9 @@ function togglePlay(note: VoiceNote) {
   let audio = audioMap.get(note.id)
   if (!audio) {
     audio = new Audio(note.url)
-    audio.onended = () => { currentlyPlaying.value = null }
+    audio.onended = () => {
+      currentlyPlaying.value = null
+    }
     audioMap.set(note.id, audio)
   }
   if (currentlyPlaying.value === note.id) {
@@ -110,7 +112,10 @@ function togglePlay(note: VoiceNote) {
 
 async function handleDeleteVoice(note: VoiceNote) {
   const audio = audioMap.get(note.id)
-  if (audio) { audio.pause(); audioMap.delete(note.id) }
+  if (audio) {
+    audio.pause()
+    audioMap.delete(note.id)
+  }
   if (currentlyPlaying.value === note.id) currentlyPlaying.value = null
   await store.deleteVoiceNote(note)
 }

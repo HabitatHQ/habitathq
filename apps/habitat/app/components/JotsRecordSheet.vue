@@ -4,18 +4,37 @@ const emit = defineEmits<{ close: [] }>()
 const store = useJotsStore()
 
 // ─── Speech Recognition types ─────────────────────────────────────────────────
-interface SpeechRecognitionResult { readonly isFinal: boolean; readonly 0: { transcript: string } }
-interface SpeechRecognitionResultList { readonly length: number; [i: number]: SpeechRecognitionResult | undefined }
-interface SpeechRecognitionResultEvent extends Event { readonly resultIndex: number; readonly results: SpeechRecognitionResultList }
-interface SpeechRecognitionErrorEvt extends Event { readonly error: string }
+interface SpeechRecognitionResult {
+  readonly isFinal: boolean
+  readonly 0: { transcript: string }
+}
+interface SpeechRecognitionResultList {
+  readonly length: number
+  [i: number]: SpeechRecognitionResult | undefined
+}
+interface SpeechRecognitionResultEvent extends Event {
+  readonly resultIndex: number
+  readonly results: SpeechRecognitionResultList
+}
+interface SpeechRecognitionErrorEvt extends Event {
+  readonly error: string
+}
 interface SpeechRecognizer extends EventTarget {
-  continuous: boolean; interimResults: boolean; lang: string
+  continuous: boolean
+  interimResults: boolean
+  lang: string
   onresult: ((e: SpeechRecognitionResultEvent) => void) | null
   onend: (() => void) | null
   onerror: ((e: SpeechRecognitionErrorEvt) => void) | null
-  start(): void; stop(): void
+  start(): void
+  stop(): void
 }
-declare global { interface Window { SpeechRecognition: new () => SpeechRecognizer; webkitSpeechRecognition: new () => SpeechRecognizer } }
+declare global {
+  interface Window {
+    SpeechRecognition: new () => SpeechRecognizer
+    webkitSpeechRecognition: new () => SpeechRecognizer
+  }
+}
 
 // ─── Recording state ──────────────────────────────────────────────────────────
 
@@ -37,12 +56,18 @@ async function startRecording() {
     const mimeType = preferred.find((m) => MediaRecorder.isTypeSupported(m)) || ''
     mediaRecorder = new MediaRecorder(stream, { mimeType })
     chunks.length = 0
-    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data) }
-    mediaRecorder.onstop = () => { stream.getTracks().forEach((t) => t.stop()) }
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunks.push(e.data)
+    }
+    mediaRecorder.onstop = () => {
+      stream.getTracks().forEach((t) => t.stop())
+    }
     mediaRecorder.start(200)
     isRecording.value = true
     recordDuration.value = 0
-    timerIv = setInterval(() => { recordDuration.value++ }, 1000)
+    timerIv = setInterval(() => {
+      recordDuration.value++
+    }, 1000)
 
     const SRClass = window.SpeechRecognition || window.webkitSpeechRecognition
     if (SRClass) {
@@ -63,7 +88,13 @@ async function startRecording() {
         partialTranscript.value = interimText
       }
       sr.onerror = () => {}
-      sr.onend = () => { if (isRecording.value && sr) { try { sr.start() } catch {} } }
+      sr.onend = () => {
+        if (isRecording.value && sr) {
+          try {
+            sr.start()
+          } catch {}
+        }
+      }
       sr.start()
     }
   } catch (err: any) {
@@ -72,8 +103,16 @@ async function startRecording() {
 }
 
 function stopRecording() {
-  if (timerIv) { clearInterval(timerIv); timerIv = null }
-  if (sr) { try { sr.stop() } catch {} sr = null }
+  if (timerIv) {
+    clearInterval(timerIv)
+    timerIv = null
+  }
+  if (sr) {
+    try {
+      sr.stop()
+    } catch {}
+    sr = null
+  }
   if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop()
   isRecording.value = false
 }
@@ -89,7 +128,13 @@ async function saveRecording() {
     const mimeType = mediaRecorder?.mimeType || 'audio/webm'
     const blob = new Blob(chunks, { type: mimeType })
     const id = crypto.randomUUID()
-    await store.addVoiceNote({ id, blob, mimeType, duration: recordDuration.value, created_at: new Date().toISOString() })
+    await store.addVoiceNote({
+      id,
+      blob,
+      mimeType,
+      duration: recordDuration.value,
+      created_at: new Date().toISOString(),
+    })
 
     const fullTranscript = (liveTranscript.value + partialTranscript.value).trim()
     if (fullTranscript && store.db.isAvailable) {
@@ -139,7 +184,10 @@ function handleClose() {
 
 onUnmounted(() => {
   if (timerIv) clearInterval(timerIv)
-  if (sr) try { sr.stop() } catch {}
+  if (sr)
+    try {
+      sr.stop()
+    } catch {}
   if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop()
 })
 </script>
