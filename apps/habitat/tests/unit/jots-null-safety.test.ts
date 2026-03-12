@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'vitest'
 import type { Scribble } from '~/types/database'
 import { previewTitle, previewBody, gridBody } from '~/utils/scribble'
-import { safeJsonParse } from '~/utils/safe-json'
+import { safeJsonParse } from '~/lib/db-parsers'
 
 describe('safeJsonParse (DB helper contract)', () => {
   it('returns fallback for SQL NULL (null input)', () => {
