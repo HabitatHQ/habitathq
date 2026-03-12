@@ -12,6 +12,7 @@ import type {
 const db = useDatabase()
 const { impact } = useHaptics()
 const { settings } = useAppSettings()
+const toast = useToast()
 const { anyActive, activeContexts, matchesContext } = useContextFilter()
 
 watchEffect(() => {
@@ -322,6 +323,22 @@ async function toggle(habit: HabitWithSchedule) {
     if (!wasCompleted && !isMotionReduced()) {
       flashing.add(habit.id)
       setTimeout(() => flashing.delete(habit.id), 400)
+    }
+    // Undo toast when marking done
+    if (!wasCompleted) {
+      toast.add({
+        title: `"${habit.name}" completed`,
+        color: 'success',
+        duration: 4000,
+        actions: [{
+          label: 'Undo',
+          click: async () => {
+            await db.toggleCompletion(habit.id, today)
+            completions.value = await db.getCompletionsForDate(today)
+            weekCompletions.value = await db.getCompletionsForDateRange(weekStart, today)
+          },
+        }],
+      })
     }
   } finally {
     toggling.delete(habit.id)

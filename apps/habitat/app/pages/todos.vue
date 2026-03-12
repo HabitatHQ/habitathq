@@ -74,10 +74,16 @@ const calendarView = computed({
   set: (v: boolean) => setAppSetting('todoCalendarView', v),
 })
 
+const toast = useToast()
+
 const todos = ref<Todo[]>([])
 const boredCategories = ref<BoredCategory[]>([])
 const filter = ref<'all' | 'active' | 'done'>('all')
 const showModal = useBoolModalQuery('add')
+
+// ── Confirm dialogs ───────────────────────────────────────────────────────────
+const confirmArchiveTodo = ref<Todo | null>(null)
+const confirmDeleteTodo = ref<Todo | null>(null)
 const editingTodo = ref<Todo | null>(null)
 const showDone = ref(false)
 const route = useRoute()
@@ -189,10 +195,20 @@ const filteredSections = computed((): Section[] => {
 })
 
 async function toggleTodo(t: Todo) {
+  const wasDone = t.is_done
   const updated = await db.toggleTodo(t.id)
   const idx = todos.value.findIndex((x) => x.id === t.id)
   if (idx !== -1) todos.value[idx] = updated
   if (updated.is_done && timer.timer?.itemId === t.id) timer.stopTimer()
+  // Undo toast when marking done
+  if (!wasDone && updated.is_done) {
+    toast.add({
+      title: `"${t.title}" marked done`,
+      color: 'success',
+      duration: 4000,
+      actions: [{ label: 'Undo', click: () => toggleTodo(updated) }],
+    })
+  }
 }
 
 function openAdd() {
@@ -273,6 +289,7 @@ async function saveTodo() {
 async function archiveTodo(t: Todo) {
   await db.archiveTodo(t.id)
   todos.value = todos.value.filter((x) => x.id !== t.id)
+  confirmArchiveTodo.value = null
 }
 
 async function deleteTodoItem(t: Todo) {
@@ -283,6 +300,7 @@ async function deleteTodoItem(t: Todo) {
 async function deleteAndClose(t: Todo) {
   await deleteTodoItem(t)
   showModal.value = false
+  confirmDeleteTodo.value = null
 }
 
 // ─── Jot picker ───────────────────────────────────────────────────────────────
@@ -629,7 +647,7 @@ function jotKindIcon(kind: string | undefined): string {
             <!-- Actions -->
             <div class="flex flex-col gap-1 shrink-0">
               <UButton variant="ghost" color="neutral" size="sm" icon="i-heroicons-pencil" @click="openEdit(todo)" />
-              <UButton variant="ghost" color="neutral" size="sm" icon="i-heroicons-archive-box" @click="archiveTodo(todo)" />
+              <UButton variant="ghost" color="neutral" size="sm" icon="i-heroicons-archive-box" @click="confirmArchiveTodo = todo" />
             </div>
           </li>
         </ul>
@@ -790,12 +808,54 @@ function jotKindIcon(kind: string | undefined): string {
             color="error"
             class="flex-none"
             icon="i-heroicons-trash"
-            @click="deleteAndClose(editingTodo)"
+            @click="confirmDeleteTodo = editingTodo"
           />
           <UButton color="primary" class="flex-1" @click="saveTodo">Save</UButton>
         </div>
         <div class="safe-area-bottom" aria-hidden="true" />
       </div>
     </div>
+    <!-- Archive confirm -->
+    <UModal :open="!!confirmArchiveTodo" @update:open="if (!$event) confirmArchiveTodo = null">
+      <template #content>
+        <div class="p-5 space-y-4">
+          <div class="flex items-start gap-3">
+            <div class="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center flex-shrink-0">
+              <UIcon name="i-heroicons-archive-box" class="w-5 h-5 text-amber-400" />
+            </div>
+            <div class="space-y-1">
+              <p class="font-semibold">Archive "{{ confirmArchiveTodo?.title }}"?</p>
+              <p class="text-sm text-(--ui-text-muted)">This todo will be moved to your archive.</p>
+            </div>
+          </div>
+          <div class="flex justify-end gap-2">
+            <UButton variant="ghost" color="neutral" @click="confirmArchiveTodo = null">Cancel</UButton>
+            <UButton color="warning" @click="confirmArchiveTodo && archiveTodo(confirmArchiveTodo)">Archive</UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
+
+    <!-- Delete confirm -->
+    <UModal :open="!!confirmDeleteTodo" @update:open="if (!$event) confirmDeleteTodo = null">
+      <template #content>
+        <div class="p-5 space-y-4">
+          <div class="flex items-start gap-3">
+            <div class="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0">
+              <UIcon name="i-heroicons-trash" class="w-5 h-5 text-red-400" />
+            </div>
+            <div class="space-y-1">
+              <p class="font-semibold">Delete "{{ confirmDeleteTodo?.title }}"?</p>
+              <p class="text-sm text-(--ui-text-muted)">This cannot be undone. The todo will be permanently removed.</p>
+            </div>
+          </div>
+          <div class="flex justify-end gap-2">
+            <UButton variant="ghost" color="neutral" @click="confirmDeleteTodo = null">Cancel</UButton>
+            <UButton color="error" @click="confirmDeleteTodo && deleteAndClose(confirmDeleteTodo)">Delete</UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
+
   </div>
 </template>
