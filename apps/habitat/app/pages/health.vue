@@ -269,7 +269,7 @@ onMounted(load)
       </div>
       <div class="space-y-1">
         <p class="font-semibold text-(--ui-text)">No health habits yet</p>
-        <p class="text-sm text-(--ui-text-dimmed)">Enable Health in Settings to set up step and meal tracking.</p>
+        <p class="text-sm text-(--ui-text-dimmed) max-w-xs">Tag any habit with <code class="text-primary-400 bg-(--ui-bg-elevated) px-1 rounded">habitat-health</code> to see it here, or use the health templates in Settings.</p>
       </div>
       <UButton to="/settings" variant="soft" color="neutral" size="sm">Open Settings</UButton>
     </div>

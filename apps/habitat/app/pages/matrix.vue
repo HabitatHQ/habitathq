@@ -221,7 +221,11 @@ onMounted(() => {
       v-if="!loading && habits.length === 0"
       class="flex flex-col items-center justify-center gap-4 py-8 text-center"
     >
-      <p class="font-semibold text-(--ui-text)">No habits yet</p>
+      <UIcon name="i-heroicons-table-cells" class="w-10 h-10 text-(--ui-text-dimmed) opacity-30" />
+      <div class="space-y-1">
+        <p class="font-semibold text-(--ui-text)">No habits to display</p>
+        <p class="text-sm text-(--ui-text-dimmed) max-w-xs">Create habits to see your completion history in this grid view.</p>
+      </div>
       <UButton to="/habits" size="sm" variant="soft" color="neutral">Add habits</UButton>
     </div>
 
@@ -231,7 +235,7 @@ onMounted(() => {
 
         <!-- Header row -->
         <div class="flex items-end pb-2 border-b border-(--ui-border)">
-          <div class="w-32 shrink-0 pr-2" />
+          <div class="w-32 shrink-0 pr-2 sticky left-0 z-10 bg-(--ui-bg)" />
           <div
             v-for="date in days"
             :key="date"
@@ -252,7 +256,7 @@ onMounted(() => {
           class="flex items-center border-b border-(--ui-border)/40 py-1.5"
         >
           <!-- Habit name + icon -->
-          <div class="w-32 shrink-0 pr-2 flex items-center gap-2 min-w-0">
+          <div class="w-32 shrink-0 pr-2 flex items-center gap-2 min-w-0 sticky left-0 z-10 bg-(--ui-bg) border-r border-(--ui-border)/30">
             <div
               class="w-6 h-6 rounded-full shrink-0 flex items-center justify-center"
               :style="{ backgroundColor: habit.color + '33' }"

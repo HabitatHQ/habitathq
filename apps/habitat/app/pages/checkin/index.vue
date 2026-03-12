@@ -121,7 +121,7 @@ async function createTemplate() {
         class="modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm"
         @click="showCreate = false"
       />
-      <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90dvh] overflow-y-auto overscroll-contain">
+      <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90dvh] overflow-y-auto overscroll-contain scroll-shadow">
         <div class="flex items-center justify-between">
           <h3 class="font-semibold text-(--ui-text)">New Check-in</h3>
           <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" @click="showCreate = false" />
