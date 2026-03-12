@@ -562,8 +562,20 @@ const oracleHint = computed(() => {
               Done
             </UButton>
 
+            <!-- Reroll button -->
+            <UButton
+              variant="ghost"
+              color="neutral"
+              size="sm"
+              icon="i-heroicons-arrow-path"
+              :loading="shaking"
+              @click="roll"
+            >
+              Reroll
+            </UButton>
+
             <!-- Start timer button -->
-            <div v-if="settings.enableTimer && !shaking" class="relative">
+            <div v-if="settings.enableTimer && !shaking" class="relative flex items-center gap-1.5">
               <div v-if="modeMenuOpen" class="fixed inset-0 z-40" @click="modeMenuOpen = false" />
               <UButton
                 size="sm"
@@ -576,6 +588,7 @@ const oracleHint = computed(() => {
                 @pointerleave="cancelLongPress"
                 @pointermove="cancelLongPress"
               >Start</UButton>
+              <span v-if="getBoredEstimate()" class="text-[10px] text-(--ui-text-dimmed)">Hold for modes</span>
               <div
                 v-if="modeMenuOpen"
                 role="menu"

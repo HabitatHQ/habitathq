@@ -519,7 +519,7 @@ function jotKindIcon(kind: string | undefined): string {
                 </span>
                 <span v-if="todo.is_recurring" class="text-xs text-(--ui-text-dimmed) flex items-center gap-0.5">
                   <UIcon name="i-heroicons-arrow-path" class="w-3 h-3" />
-                  {{ todo.recurrence_rule }}
+                  Repeats {{ todo.recurrence_rule }}
                 </span>
                 <span v-if="todo.show_in_bored" class="text-xs text-amber-500 flex items-center gap-0.5">
                   <UIcon name="i-heroicons-sparkles" class="w-3 h-3" />
@@ -572,6 +572,7 @@ function jotKindIcon(kind: string | undefined): string {
                 <!-- Start button (no active timer on this card) -->
                 <div v-else class="relative mt-1.5">
                   <div v-if="modeMenuItemId === todo.id" class="fixed inset-0 z-40" @click="modeMenuItemId = null" />
+                  <div class="flex items-center gap-1.5">
                   <UButton
                     size="xs"
                     variant="soft"
@@ -584,6 +585,8 @@ function jotKindIcon(kind: string | undefined): string {
                     @pointerleave="cancelLongPress"
                     @pointermove="cancelLongPress"
                   >Start</UButton>
+                  <span v-if="todo.estimated_minutes" class="text-[10px] text-(--ui-text-dimmed)">Hold for modes</span>
+                  </div>
                   <!-- Mode menu (long-press or no-estimate tap) -->
                   <div
                     v-if="modeMenuItemId === todo.id"

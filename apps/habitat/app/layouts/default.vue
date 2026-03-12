@@ -327,6 +327,15 @@ function toggleColorMode() {
         >
           {{ tag }}
         </button>
+        <!-- Clear all active filters without collapsing the strip -->
+        <button
+          v-if="anyActive"
+          class="shrink-0 text-xs px-2 py-1 rounded-full border border-primary-500/40 text-primary-400 hover:bg-primary-500/10 transition-colors ml-1"
+          aria-label="Clear context filter"
+          @click="clearAll"
+        >
+          Clear
+        </button>
       </div>
 
       <!-- Right: action buttons -->
