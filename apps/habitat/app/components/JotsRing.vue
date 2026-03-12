@@ -7,7 +7,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'select', type: 'text' | 'voice' | 'image'): void
+  select: [type: 'text' | 'voice' | 'image']
 }>()
 
 // ─── App settings (reduce-motion awareness) ──────────────────────────────────
