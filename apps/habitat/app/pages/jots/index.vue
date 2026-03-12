@@ -203,9 +203,9 @@ onUnmounted(() => {
                 <span class="text-[11px] text-slate-600 shrink-0 mt-0.5">{{ timeAgo(item.data.updated_at) }}</span>
               </div>
               <p v-if="previewBody(item.data)" class="text-xs text-(--ui-text-dimmed) mt-0.5 line-clamp-2">{{ previewBody(item.data) }}</p>
-              <div v-if="item.data.tags.length > 0" class="flex flex-wrap gap-1 mt-2">
+              <div v-if="item.data.tags?.length > 0" class="flex flex-wrap gap-1 mt-2">
                 <span
-                  v-for="tag in item.data.tags.slice(0, 5)"
+                  v-for="tag in (item.data.tags || []).slice(0, 5)"
                   :key="tag"
                   class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px]
                          text-(--ui-text-muted) bg-(--ui-bg-elevated) border border-(--ui-border-accented)"
@@ -213,7 +213,7 @@ onUnmounted(() => {
                   <span v-if="splitTag(tag).parent" class="text-slate-600">{{ splitTag(tag).parent }}/</span>
                   <span>{{ splitTag(tag).leaf }}</span>
                 </span>
-                <span v-if="item.data.tags.length > 5" class="text-[10px] text-slate-600 self-center pl-0.5">+{{ item.data.tags.length - 5 }}</span>
+                <span v-if="item.data.tags?.length > 5" class="text-[10px] text-slate-600 self-center pl-0.5">+{{ (item.data.tags?.length || 0) - 5 }}</span>
               </div>
             </div>
             <button
@@ -326,11 +326,11 @@ onUnmounted(() => {
               <div class="flex items-end justify-between gap-1 mt-auto pt-1">
                 <div class="flex flex-wrap gap-1 min-w-0">
                   <span
-                    v-for="tag in item.data.tags.slice(0, 2)"
+                    v-for="tag in (item.data.tags || []).slice(0, 2)"
                     :key="tag"
                     class="px-1.5 py-0.5 rounded-full text-[9px] bg-(--ui-bg-elevated) text-(--ui-text-dimmed) border border-(--ui-border-accented)/60 truncate max-w-[72px]"
                   >{{ splitTag(tag).leaf }}</span>
-                  <span v-if="item.data.tags.length > 2" class="text-[9px] text-slate-600 self-center">+{{ item.data.tags.length - 2 }}</span>
+                  <span v-if="item.data.tags?.length > 2" class="text-[9px] text-slate-600 self-center">+{{ (item.data.tags?.length || 0) - 2 }}</span>
                 </div>
                 <div class="flex items-center gap-0.5 shrink-0">
                   <button
