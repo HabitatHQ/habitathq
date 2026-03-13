@@ -63,6 +63,8 @@ export interface CheckinTemplate {
   title: string
   schedule_type: 'DAILY' | 'WEEKLY' | 'MONTHLY'
   days_active: number[] | null
+  /** Number of distinct days with at least one response. Added by GET_CHECKIN_TEMPLATES subquery. */
+  response_day_count?: number
 }
 
 export interface CheckinQuestion {
@@ -313,6 +315,13 @@ export type WorkerRequest =
   | { id: string; type: 'TOGGLE_TODO'; payload: { id: string } }
   | { id: string; type: 'DELETE_ALL_TODOS' }
   | { id: string; type: 'GET_CONTEXT_TAGS' }
+  | { id: string; type: 'SEARCH_GLOBAL'; payload: { query: string } }
+
+export type SearchResult =
+  | { kind: 'habit'; id: string; name: string; icon: string; color: string; archived: boolean }
+  | { kind: 'todo'; id: string; title: string; is_done: boolean }
+  | { kind: 'scribble'; id: string; title: string; preview: string }
+  | { kind: 'checkin'; id: string; title: string }
 
 export interface CheckinDaySummary {
   template_id: string

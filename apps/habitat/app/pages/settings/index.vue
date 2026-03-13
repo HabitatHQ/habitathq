@@ -38,6 +38,16 @@ const SETTINGS_SECTIONS = [
   },
 ]
 
+const search = ref('')
+
+const filteredSections = computed(() => {
+  const q = search.value.trim().toLowerCase()
+  if (!q) return SETTINGS_SECTIONS
+  return SETTINGS_SECTIONS.filter(
+    (s) => s.label.toLowerCase().includes(q) || s.description.toLowerCase().includes(q),
+  )
+})
+
 onMounted(() => {
   if (window.matchMedia('(min-width: 640px)').matches) {
     navigateTo('/settings/display', { replace: true })
@@ -52,9 +62,16 @@ onMounted(() => {
       <h2 class="text-2xl font-bold">Settings</h2>
     </header>
 
+    <UInput
+      v-model="search"
+      placeholder="Search settings…"
+      icon="i-heroicons-magnifying-glass"
+      class="sm:hidden"
+    />
+
     <nav class="space-y-1 sm:hidden">
       <NuxtLink
-        v-for="s in SETTINGS_SECTIONS"
+        v-for="s in filteredSections"
         :key="s.to"
         :to="s.to"
         class="flex items-center gap-3 px-4 py-3.5 rounded-2xl bg-(--ui-bg-elevated) hover:bg-(--ui-bg-accented) transition-colors"

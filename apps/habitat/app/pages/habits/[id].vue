@@ -5,6 +5,7 @@ const route = useRoute()
 const db = useDatabase()
 const { impact, notification } = useHaptics()
 const { settings } = useAppSettings()
+const toast = useToast()
 
 const habit = ref<HabitWithSchedule | null>(null)
 const completions = ref<Completion[]>([])
@@ -269,6 +270,7 @@ async function saveEdit() {
     }
     isEditing.value = false
     await notification('success')
+    toast.add({ title: 'Habit saved', color: 'success', duration: 2000 })
   } finally {
     saving.value = false
   }
@@ -323,6 +325,7 @@ async function archiveHabit() {
   try {
     await db.archiveHabit(habit.value.id)
     await notification('success')
+    toast.add({ title: 'Habit archived', color: 'neutral', duration: 2000 })
     await navigateTo('/habits')
   } finally {
     archiving.value = false
@@ -386,8 +389,8 @@ async function removeReminder(id: string) {
 // ─── Log today ────────────────────────────────────────────────────────────────
 
 const togglingToday = ref(false)
-const todayCompleted = computed(() =>
-  habit.value?.type === 'BOOLEAN' && completionDates.value.has(todayStr),
+const todayCompleted = computed(
+  () => habit.value?.type === 'BOOLEAN' && completionDates.value.has(todayStr),
 )
 
 async function toggleToday() {

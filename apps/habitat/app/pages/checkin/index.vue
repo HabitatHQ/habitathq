@@ -2,6 +2,7 @@
 import type { CheckinTemplate } from '~/types/database'
 
 const db = useDatabase()
+const toast = useToast()
 const templates = ref<CheckinTemplate[]>([])
 const loading = ref(true)
 
@@ -29,7 +30,9 @@ const newTitleError = ref<string | null>(null)
 const newSchedule = ref<'DAILY' | 'WEEKLY' | 'MONTHLY'>('DAILY')
 const newDays = ref<number[]>([])
 
-watch(newTitle, () => { newTitleError.value = null })
+watch(newTitle, () => {
+  newTitleError.value = null
+})
 
 function toggleDay(day: number) {
   const idx = newDays.value.indexOf(day)
@@ -64,6 +67,7 @@ async function createTemplate() {
     })
     templates.value.push(t)
     showCreate.value = false
+    toast.add({ title: 'Check-in created', color: 'success', duration: 2000 })
   } finally {
     creating.value = false
   }
@@ -104,7 +108,9 @@ async function createTemplate() {
           >
             <div>
               <p class="font-semibold text-(--ui-text)">{{ t.title }}</p>
-              <p class="text-xs text-(--ui-text-dimmed) mt-0.5">{{ checkinScheduleLabel(t) }}</p>
+              <p class="text-xs text-(--ui-text-dimmed) mt-0.5">
+                {{ checkinScheduleLabel(t) }}<span v-if="t.response_day_count"> · {{ t.response_day_count }} {{ t.response_day_count === 1 ? 'session' : 'sessions' }}</span>
+              </p>
             </div>
             <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-slate-600 flex-shrink-0" />
           </NuxtLink>

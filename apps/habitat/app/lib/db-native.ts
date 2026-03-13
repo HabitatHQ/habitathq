@@ -3,6 +3,24 @@ import {
   SQLiteConnection,
   type SQLiteDBConnection,
 } from '@capacitor-community/sqlite'
+import {
+  HABIT_WITH_SCHED_SQL,
+  parseBoredActivity,
+  parseBoredCategory,
+  parseCheckinEntry,
+  parseCheckinQuestion,
+  parseCheckinReminder,
+  parseCheckinResponse,
+  parseCheckinTemplate,
+  parseCompletion,
+  parseHabit,
+  parseHabitLog,
+  parseHabitSchedule,
+  parseHabitWithSchedule,
+  parseReminder,
+  parseScribble,
+  parseTodo,
+} from '~/lib/db-parsers'
 import type {
   BoredActivity,
   BoredCategory,
@@ -23,27 +41,10 @@ import type {
   HabitWithSchedule,
   Reminder,
   Scribble,
+  SearchResult,
   Todo,
   WorkerRequestBody,
 } from '~/types/database'
-import {
-  HABIT_WITH_SCHED_SQL,
-  parseBoredActivity,
-  parseBoredCategory,
-  parseCheckinEntry,
-  parseCheckinQuestion,
-  parseCheckinReminder,
-  parseCheckinResponse,
-  parseCheckinTemplate,
-  parseCompletion,
-  parseHabit,
-  parseHabitLog,
-  parseHabitSchedule,
-  parseHabitWithSchedule,
-  parseReminder,
-  parseScribble,
-  parseTodo,
-} from '~/lib/db-parsers'
 
 // ─── Connection singleton ─────────────────────────────────────────────────────
 
@@ -939,7 +940,15 @@ async function deleteAllCheckinEntries(): Promise<null> {
 // ─── Checkin template handlers ────────────────────────────────────────────────
 
 async function getCheckinTemplates(): Promise<CheckinTemplate[]> {
-  const rows = await queryRaw('SELECT * FROM checkin_templates ORDER BY title ASC')
+  const rows = await queryRaw(
+    `SELECT t.*,
+      (SELECT COUNT(DISTINCT r.logged_date)
+       FROM checkin_responses r
+       JOIN checkin_questions q ON r.question_id = q.id
+       WHERE q.template_id = t.id) AS response_day_count
+     FROM checkin_templates t
+     ORDER BY t.title ASC`,
+  )
   return rows.map(parseCheckinTemplate)
 }
 
@@ -1827,6 +1836,60 @@ async function getContextTags(): Promise<string[]> {
   return rows.map((r) => String(r['tag']))
 }
 
+// ─── Global search ────────────────────────────────────────────────────────────
+
+async function searchGlobal(query: string): Promise<SearchResult[]> {
+  const q = `%${query.toLowerCase()}%`
+  const results: SearchResult[] = []
+  const habits = await queryRaw(
+    'SELECT id, name, icon, color, archived_at FROM habits WHERE lower(name) LIKE ? OR lower(description) LIKE ? ORDER BY name ASC LIMIT 10',
+    [q, q],
+  )
+  for (const r of habits) {
+    results.push({
+      kind: 'habit',
+      id: r['id'] as string,
+      name: r['name'] as string,
+      icon: r['icon'] as string,
+      color: r['color'] as string,
+      archived: r['archived_at'] != null,
+    })
+  }
+  const todos = await queryRaw(
+    'SELECT id, title, is_done FROM todos WHERE archived_at IS NULL AND (lower(title) LIKE ? OR lower(description) LIKE ?) ORDER BY title ASC LIMIT 10',
+    [q, q],
+  )
+  for (const r of todos) {
+    results.push({
+      kind: 'todo',
+      id: r['id'] as string,
+      title: r['title'] as string,
+      is_done: Boolean(r['is_done']),
+    })
+  }
+  const scribbles = await queryRaw(
+    'SELECT id, title, content FROM scribbles WHERE lower(title) LIKE ? OR lower(content) LIKE ? ORDER BY updated_at DESC LIMIT 10',
+    [q, q],
+  )
+  for (const r of scribbles) {
+    const content = String(r['content'] ?? '')
+    results.push({
+      kind: 'scribble',
+      id: r['id'] as string,
+      title: String(r['title'] ?? '').slice(0, 60) || content.slice(0, 60),
+      preview: content.slice(0, 80),
+    })
+  }
+  const checkins = await queryRaw(
+    'SELECT id, title FROM checkin_templates WHERE lower(title) LIKE ? ORDER BY title ASC LIMIT 5',
+    [q],
+  )
+  for (const r of checkins) {
+    results.push({ kind: 'checkin', id: r['id'] as string, title: r['title'] as string })
+  }
+  return results
+}
+
 // ─── Todo handlers ────────────────────────────────────────────────────────────
 
 async function getTodos(): Promise<Todo[]> {
@@ -2147,6 +2210,8 @@ export async function dispatchNative(req: WorkerRequestBody): Promise<unknown> {
       return deleteAllTodos()
     case 'GET_CONTEXT_TAGS':
       return getContextTags()
+    case 'SEARCH_GLOBAL':
+      return searchGlobal(req.payload.query)
     // Not applicable on native — no OPFS, no raw WASM serialize
     case 'NUKE_OPFS':
       return null

@@ -1,4 +1,22 @@
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm'
+import {
+  HABIT_WITH_SCHED_SQL,
+  parseBoredActivity,
+  parseBoredCategory,
+  parseCheckinEntry,
+  parseCheckinQuestion,
+  parseCheckinReminder,
+  parseCheckinResponse,
+  parseCheckinTemplate,
+  parseCompletion,
+  parseHabit,
+  parseHabitLog,
+  parseHabitSchedule,
+  parseHabitWithSchedule,
+  parseReminder,
+  parseScribble,
+  parseTodo,
+} from '~/lib/db-parsers'
 import type {
   BoredActivity,
   BoredCategory,
@@ -18,28 +36,11 @@ import type {
   HabitWithSchedule,
   Reminder,
   Scribble,
+  SearchResult,
   Todo,
   WorkerRequest,
   WorkerResponse,
 } from '~/types/database'
-import {
-  HABIT_WITH_SCHED_SQL,
-  parseBoredActivity,
-  parseBoredCategory,
-  parseCheckinEntry,
-  parseCheckinQuestion,
-  parseCheckinReminder,
-  parseCheckinResponse,
-  parseCheckinTemplate,
-  parseCompletion,
-  parseHabit,
-  parseHabitLog,
-  parseHabitSchedule,
-  parseHabitWithSchedule,
-  parseReminder,
-  parseScribble,
-  parseTodo,
-} from '~/lib/db-parsers'
 
 // Wrapped in an async IIFE so we can return early (e.g. lock unavailable)
 // without leaking unguarded top-level awaits.
@@ -1400,9 +1401,15 @@ await (async () => {
     // ─── Checkin template handlers ────────────────────────────────────────────────
 
     function getCheckinTemplates(): CheckinTemplate[] {
-      return queryRaw('SELECT * FROM checkin_templates ORDER BY title ASC').map(
-        parseCheckinTemplate,
-      )
+      return queryRaw(
+        `SELECT t.*,
+          (SELECT COUNT(DISTINCT r.logged_date)
+           FROM checkin_responses r
+           JOIN checkin_questions q ON r.question_id = q.id
+           WHERE q.template_id = t.id) AS response_day_count
+         FROM checkin_templates t
+         ORDER BY t.title ASC`,
+      ).map(parseCheckinTemplate)
     }
 
     function createCheckinTemplate(payload: Omit<CheckinTemplate, 'id'>): CheckinTemplate {
@@ -1937,6 +1944,60 @@ await (async () => {
       return rows.map((r) => String(r['tag']))
     }
 
+    // ─── Global search ────────────────────────────────────────────────────────────
+
+    function searchGlobal(query: string): SearchResult[] {
+      const q = `%${query.toLowerCase()}%`
+      const results: SearchResult[] = []
+      const habits = queryRaw(
+        'SELECT id, name, icon, color, archived_at FROM habits WHERE lower(name) LIKE ? OR lower(description) LIKE ? ORDER BY name ASC LIMIT 10',
+        [q, q],
+      )
+      for (const r of habits) {
+        results.push({
+          kind: 'habit',
+          id: r['id'] as string,
+          name: r['name'] as string,
+          icon: r['icon'] as string,
+          color: r['color'] as string,
+          archived: r['archived_at'] != null,
+        })
+      }
+      const todos = queryRaw(
+        'SELECT id, title, is_done FROM todos WHERE archived_at IS NULL AND (lower(title) LIKE ? OR lower(description) LIKE ?) ORDER BY title ASC LIMIT 10',
+        [q, q],
+      )
+      for (const r of todos) {
+        results.push({
+          kind: 'todo',
+          id: r['id'] as string,
+          title: r['title'] as string,
+          is_done: Boolean(r['is_done']),
+        })
+      }
+      const scribbles = queryRaw(
+        'SELECT id, title, content FROM scribbles WHERE lower(title) LIKE ? OR lower(content) LIKE ? ORDER BY updated_at DESC LIMIT 10',
+        [q, q],
+      )
+      for (const r of scribbles) {
+        const content = String(r['content'] ?? '')
+        results.push({
+          kind: 'scribble',
+          id: r['id'] as string,
+          title: String(r['title'] ?? '').slice(0, 60) || content.slice(0, 60),
+          preview: content.slice(0, 80),
+        })
+      }
+      const checkins = queryRaw(
+        'SELECT id, title FROM checkin_templates WHERE lower(title) LIKE ? ORDER BY title ASC LIMIT 5',
+        [q],
+      )
+      for (const r of checkins) {
+        results.push({ kind: 'checkin', id: r['id'] as string, title: r['title'] as string })
+      }
+      return results
+    }
+
     // ─── Todo handlers ────────────────────────────────────────────────────────────
 
     function getTodos(): Todo[] {
@@ -2338,6 +2399,9 @@ await (async () => {
             break
           case 'GET_CONTEXT_TAGS':
             result = getContextTags()
+            break
+          case 'SEARCH_GLOBAL':
+            result = searchGlobal(req.payload.query)
             break
           case 'NUKE_OPFS': {
             // Close DB to release all OPFS sync-access handles, then wipe every

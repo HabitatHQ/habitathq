@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { AppTheme } from '~/composables/useAppSettings'
 import { useDragReorder } from '~/composables/useTabReorder'
+import type { SearchResult } from '~/types/database'
 
 const route = useRoute()
 const { $dbError } = useNuxtApp()
@@ -248,6 +249,50 @@ onMounted(() => {
   nextTick(playLogoAnimation)
 })
 
+// ── Global search ────────────────────────────────────────────────────────────
+
+const showSearch = ref(false)
+const searchQuery = ref('')
+const searchResults = ref<SearchResult[]>([])
+const searchLoading = ref(false)
+let searchDebounce: ReturnType<typeof setTimeout> | null = null
+
+watch(searchQuery, (q) => {
+  if (searchDebounce) clearTimeout(searchDebounce)
+  if (!q.trim()) {
+    searchResults.value = []
+    return
+  }
+  searchDebounce = setTimeout(async () => {
+    searchLoading.value = true
+    try {
+      searchResults.value = await db.searchGlobal(q.trim())
+    } finally {
+      searchLoading.value = false
+    }
+  }, 200)
+})
+
+function openSearch() {
+  searchQuery.value = ''
+  searchResults.value = []
+  showSearch.value = true
+}
+
+function searchResultRoute(r: SearchResult): string {
+  if (r.kind === 'habit') return `/habits/${r.id}`
+  if (r.kind === 'todo') return '/todos'
+  if (r.kind === 'scribble') return '/jots'
+  if (r.kind === 'checkin') return `/checkin/${r.id}`
+  return '/'
+}
+
+function closeSearch() {
+  showSearch.value = false
+  searchQuery.value = ''
+  searchResults.value = []
+}
+
 // ── Theme picker ─────────────────────────────────────────────────────────────
 
 const THEMES: { id: AppTheme; name: string; swatch: string }[] = [
@@ -367,6 +412,17 @@ function toggleColorMode() {
           </Transition>
           <span class="font-mono">{{ timerComp.displayTime }}</span>
         </NuxtLink>
+
+        <!-- Global search -->
+        <UButton
+          icon="i-heroicons-magnifying-glass"
+          variant="ghost"
+          color="neutral"
+          size="sm"
+          class="min-h-[44px]"
+          aria-label="Search"
+          @click="openSearch"
+        />
 
         <!-- Context filter toggle (only when feature on and tags exist) -->
         <UButton
@@ -490,6 +546,54 @@ function toggleColorMode() {
         </div>
       </div>
     </header>
+
+    <!-- Global search modal -->
+    <div
+      v-if="showSearch"
+      class="fixed inset-0 z-50 flex items-start justify-center pt-[10dvh]"
+    >
+      <div class="modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm" @click="closeSearch" />
+      <div class="relative w-full max-w-md mx-4 bg-(--ui-bg-muted) border border-(--ui-border) rounded-2xl overflow-hidden shadow-2xl">
+        <div class="flex items-center gap-2 px-3 py-2 border-b border-(--ui-border)">
+          <UIcon name="i-heroicons-magnifying-glass" class="w-4 h-4 text-(--ui-text-dimmed) shrink-0" />
+          <!-- eslint-disable-next-line vuejs-accessibility/no-autofocus -->
+          <input
+            v-model="searchQuery"
+            autofocus
+            placeholder="Search habits, todos, jots, check-ins…"
+            class="flex-1 bg-transparent text-sm text-(--ui-text) placeholder:text-(--ui-text-dimmed) outline-none"
+            @keydown.escape="closeSearch"
+          />
+          <UIcon v-if="searchLoading" name="i-heroicons-arrow-path" class="w-4 h-4 animate-spin text-(--ui-text-dimmed) shrink-0" />
+        </div>
+        <ul v-if="searchResults.length" class="max-h-[60dvh] overflow-y-auto overscroll-contain divide-y divide-(--ui-border)/40">
+          <li v-for="r in searchResults" :key="`${r.kind}-${r.id}`">
+            <NuxtLink
+              :to="searchResultRoute(r)"
+              class="flex items-center gap-3 px-4 py-2.5 hover:bg-(--ui-bg-elevated) transition-colors"
+              @click="closeSearch"
+            >
+              <UIcon
+                :name="r.kind === 'habit' ? (r.icon || 'i-heroicons-star') : r.kind === 'todo' ? 'i-heroicons-check-circle' : r.kind === 'scribble' ? 'i-heroicons-document-text' : 'i-heroicons-pencil-square'"
+                class="w-4 h-4 shrink-0"
+                :class="r.kind === 'habit' ? 'text-primary-400' : 'text-(--ui-text-dimmed)'"
+              />
+              <div class="flex-1 min-w-0">
+                <p class="text-sm text-(--ui-text) truncate">{{ r.kind === 'habit' ? r.name : r.kind === 'todo' ? r.title : r.kind === 'scribble' ? (r.title || 'Untitled') : r.title }}</p>
+                <p v-if="r.kind === 'scribble' && r.preview" class="text-xs text-(--ui-text-dimmed) truncate">{{ r.preview }}</p>
+              </div>
+              <span class="text-xs text-(--ui-text-dimmed) shrink-0 capitalize">{{ r.kind }}</span>
+            </NuxtLink>
+          </li>
+        </ul>
+        <div v-else-if="searchQuery.trim() && !searchLoading" class="px-4 py-8 text-center text-sm text-(--ui-text-dimmed)">
+          No results for "{{ searchQuery }}"
+        </div>
+        <div v-else-if="!searchQuery.trim()" class="px-4 py-4 text-xs text-(--ui-text-dimmed) text-center">
+          Type to search across all content
+        </div>
+      </div>
+    </div>
 
     <UAlert
       v-if="opfsUnsupported"

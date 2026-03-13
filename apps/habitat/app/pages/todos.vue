@@ -87,7 +87,12 @@ const confirmDeleteTodo = ref<Todo | null>(null)
 
 // ── Inline validation ─────────────────────────────────────────────────────────
 const titleError = ref<string | null>(null)
-watch(() => form.title, () => { titleError.value = null })
+watch(
+  () => form.title,
+  () => {
+    titleError.value = null
+  },
+)
 const editingTodo = ref<Todo | null>(null)
 const showDone = ref(false)
 const route = useRoute()
@@ -215,7 +220,9 @@ async function toggleTodo(t: Todo) {
   }
 }
 
-watch(showModal, (v) => { if (!v) titleError.value = null })
+watch(showModal, (v) => {
+  if (!v) titleError.value = null
+})
 
 function openAdd() {
   openAddWithDate('')
@@ -289,9 +296,11 @@ async function saveTodo() {
     const updated = await db.updateTodo({ id: editingTodo.value.id, ...payload })
     const idx = todos.value.findIndex((x) => x.id === editingTodo.value?.id)
     if (idx !== -1) todos.value[idx] = updated
+    toast.add({ title: 'Todo updated', color: 'success', duration: 2000 })
   } else {
     const created = await db.createTodo(payload)
     todos.value.push(created)
+    toast.add({ title: 'Todo created', color: 'success', duration: 2000 })
   }
   showModal.value = false
 }
