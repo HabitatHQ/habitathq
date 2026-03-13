@@ -8,11 +8,14 @@ const habits = ref<HabitWithSchedule[]>([])
 const isOpen = useBoolModalQuery('create')
 const saving = ref(false)
 const scheduleError = ref<string | null>(null)
+const nameError = ref<string | null>(null)
 
 // ── Pause all ──────────────────────────────────────────────────────────────────
 const showPauseAllModal = ref(false)
 const pauseAllDate = ref('')
 const pausingAll = ref(false)
+
+const { impact } = useHaptics()
 
 const today = new Date().toISOString().slice(0, 10)
 const tomorrow = (() => {
@@ -20,6 +23,10 @@ const tomorrow = (() => {
   d.setDate(d.getDate() + 1)
   return d.toISOString().slice(0, 10)
 })()
+
+// ── Quick-toggle today completions on habit list ──────────────────────────────
+const todayCompletionHabitIds = ref(new Set<string>())
+const quickToggling = reactive(new Set<string>())
 
 const anyPaused = computed(() =>
   habits.value.some((h) => h.paused_until && h.paused_until >= today),
@@ -133,10 +140,28 @@ function validateSchedule(): string | null {
 watch([() => form.type, () => form.schedule_type, () => form.frequency_count], () => {
   scheduleError.value = null
 })
+watch(() => form.name, () => { nameError.value = null })
 
 async function loadHabits() {
   if (!db.isAvailable) return
-  habits.value = await db.getHabits()
+  const [h, comps] = await Promise.all([db.getHabits(), db.getCompletionsForDate(today)])
+  habits.value = h
+  todayCompletionHabitIds.value = new Set(comps.map((c) => c.habit_id))
+}
+
+async function quickToggle(habit: HabitWithSchedule, e: Event) {
+  e.preventDefault()
+  e.stopPropagation()
+  if (quickToggling.has(habit.id) || !db.isAvailable) return
+  quickToggling.add(habit.id)
+  try {
+    await db.toggleCompletion(habit.id, today)
+    const comps = await db.getCompletionsForDate(today)
+    todayCompletionHabitIds.value = new Set(comps.map((c) => c.habit_id))
+    await impact('light')
+  } finally {
+    quickToggling.delete(habit.id)
+  }
 }
 
 function toggleDay(day: number) {
@@ -150,7 +175,12 @@ function toggleDay(day: number) {
 }
 
 async function handleCreate() {
-  if (!db.isAvailable || !form.name.trim()) return
+  if (!db.isAvailable) return
+  if (!form.name.trim()) {
+    nameError.value = 'Name is required'
+    return
+  }
+  nameError.value = null
   const err = validateSchedule()
   if (err) {
     scheduleError.value = err
@@ -203,6 +233,7 @@ async function handleCreate() {
 function closeModal() {
   isOpen.value = false
   scheduleError.value = null
+  nameError.value = null
   form.name = ''
   form.description = ''
   form.type = 'BOOLEAN'
@@ -323,7 +354,20 @@ onMounted(loadHabits)
             >{{ key }}: {{ val }}</span>
           </div>
         </div>
-        <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-slate-700 flex-shrink-0" />
+        <!-- Quick-toggle for BOOLEAN habits; chevron for NUMERIC/LIMIT -->
+        <button
+          v-if="habit.type === 'BOOLEAN'"
+          class="w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all duration-150 shrink-0 z-10"
+          :class="todayCompletionHabitIds.has(habit.id)
+            ? 'bg-primary-500 border-primary-500'
+            : 'border-(--ui-border-accented) hover:border-primary-400 bg-transparent'"
+          :disabled="quickToggling.has(habit.id)"
+          :aria-label="`Toggle ${habit.name} for today`"
+          @click.prevent="quickToggle(habit, $event)"
+        >
+          <UIcon v-if="todayCompletionHabitIds.has(habit.id)" name="i-heroicons-check" class="w-3.5 h-3.5 text-white" />
+        </button>
+        <UIcon v-else name="i-heroicons-chevron-right" class="w-4 h-4 text-slate-700 flex-shrink-0" />
       </NuxtLink>
     </ul>
 
@@ -363,6 +407,10 @@ onMounted(loadHabits)
           <UFormField label="Name" required>
             <UInput v-model="form.name" placeholder="e.g. Morning run" autofocus />
           </UFormField>
+          <p v-if="nameError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
+            <UIcon name="i-heroicons-exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
+            {{ nameError }}
+          </p>
 
           <!-- Description -->
           <UFormField label="Description">

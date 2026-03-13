@@ -84,6 +84,10 @@ const showModal = useBoolModalQuery('add')
 // ── Confirm dialogs ───────────────────────────────────────────────────────────
 const confirmArchiveTodo = ref<Todo | null>(null)
 const confirmDeleteTodo = ref<Todo | null>(null)
+
+// ── Inline validation ─────────────────────────────────────────────────────────
+const titleError = ref<string | null>(null)
+watch(() => form.title, () => { titleError.value = null })
 const editingTodo = ref<Todo | null>(null)
 const showDone = ref(false)
 const route = useRoute()
@@ -211,6 +215,8 @@ async function toggleTodo(t: Todo) {
   }
 }
 
+watch(showModal, (v) => { if (!v) titleError.value = null })
+
 function openAdd() {
   openAddWithDate('')
 }
@@ -254,7 +260,11 @@ function openEdit(t: Todo) {
 }
 
 async function saveTodo() {
-  if (!form.title.trim()) return
+  if (!form.title.trim()) {
+    titleError.value = 'Title is required'
+    return
+  }
+  titleError.value = null
   const mins = form.estimated_minutes !== '' ? Number(form.estimated_minutes) : null
   const tags = form.tags
     .split(',')
@@ -672,6 +682,10 @@ function jotKindIcon(kind: string | undefined): string {
           <UFormField label="Title" required>
             <UInput v-model="form.title" placeholder="What needs doing?" class="w-full" autofocus />
           </UFormField>
+          <p v-if="titleError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
+            <UIcon name="i-heroicons-exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
+            {{ titleError }}
+          </p>
 
           <UFormField label="Description">
             <UTextarea v-model="form.description" placeholder="Optional details" class="w-full" />

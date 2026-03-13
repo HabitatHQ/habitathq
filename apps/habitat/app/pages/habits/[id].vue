@@ -4,6 +4,7 @@ import type { Completion, HabitLog, HabitWithSchedule, Reminder } from '~/types/
 const route = useRoute()
 const db = useDatabase()
 const { impact, notification } = useHaptics()
+const { settings } = useAppSettings()
 
 const habit = ref<HabitWithSchedule | null>(null)
 const completions = ref<Completion[]>([])
@@ -104,13 +105,17 @@ const avgDailyValue = computed(() => {
 
 // ─── Log history ──────────────────────────────────────────────────────────────
 
-const recentLog = computed(() =>
-  [...completions.value].sort((a, b) => b.completed_at.localeCompare(a.completed_at)).slice(0, 5),
-)
+const showAllLogs = ref(false)
 
-const recentHabitLogs = computed(() =>
-  [...habitLogs.value].sort((a, b) => b.logged_at.localeCompare(a.logged_at)).slice(0, 10),
-)
+const recentLog = computed(() => {
+  const sorted = [...completions.value].sort((a, b) => b.completed_at.localeCompare(a.completed_at))
+  return showAllLogs.value ? sorted : sorted.slice(0, 5)
+})
+
+const recentHabitLogs = computed(() => {
+  const sorted = [...habitLogs.value].sort((a, b) => b.logged_at.localeCompare(a.logged_at))
+  return showAllLogs.value ? sorted : sorted.slice(0, 10)
+})
 
 // ─── Delete habit log ─────────────────────────────────────────────────────────
 
@@ -378,6 +383,66 @@ async function removeReminder(id: string) {
   }
 }
 
+// ─── Log today ────────────────────────────────────────────────────────────────
+
+const togglingToday = ref(false)
+const todayCompleted = computed(() =>
+  habit.value?.type === 'BOOLEAN' && completionDates.value.has(todayStr),
+)
+
+async function toggleToday() {
+  if (!habit.value || togglingToday.value) return
+  togglingToday.value = true
+  try {
+    const fromDate = new Date()
+    fromDate.setDate(fromDate.getDate() - 89)
+    const from = fromDate.toISOString().slice(0, 10)
+    await db.toggleCompletion(habit.value.id, todayStr)
+    completions.value = await db.getCompletionsForHabit(habit.value.id, from, todayStr)
+    await impact(todayCompleted.value ? 'light' : 'medium')
+  } finally {
+    togglingToday.value = false
+  }
+}
+
+// NUMERIC/LIMIT inline log
+const logInputOpen = ref(false)
+const logInputValue = ref(0)
+const loggingToday = ref(false)
+
+function openLogInput() {
+  const isAbsolute = settings.value.logInputMode === 'absolute'
+  logInputValue.value = isAbsolute
+    ? habitLogs.value.filter((l) => l.date === todayStr).reduce((s, l) => s + l.value, 0)
+    : 1
+  logInputOpen.value = true
+}
+
+async function submitTodayLog() {
+  if (!habit.value || loggingToday.value) return
+  const value = logInputValue.value
+  const isAbsolute = settings.value.logInputMode === 'absolute'
+  if (!isAbsolute && value <= 0) return
+  loggingToday.value = true
+  try {
+    const fromDate = new Date()
+    fromDate.setDate(fromDate.getDate() - 89)
+    const from = fromDate.toISOString().slice(0, 10)
+    if (isAbsolute) {
+      const existing = habitLogs.value.filter((l) => l.date === todayStr)
+      await Promise.all(existing.map((l) => db.deleteHabitLog(l.id)))
+      if (value > 0) await db.logHabitValue(habit.value.id, todayStr, value)
+    } else {
+      await db.logHabitValue(habit.value.id, todayStr, value)
+    }
+    habitLogs.value = await db.getHabitLogsForHabit(habit.value.id, from, todayStr)
+    logInputOpen.value = false
+    await impact('medium')
+  } finally {
+    loggingToday.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -455,6 +520,60 @@ onMounted(load)
           <p class="text-sm font-medium text-(--ui-text-toned) pt-1">{{ fmtArchived(habit.created_at) }}</p>
         </UCard>
       </div>
+
+      <!-- ── Log today ──────────────────────────────────────────────────────── -->
+      <template v-if="!isPaused">
+        <!-- BOOLEAN: toggle button -->
+        <UButton
+          v-if="habit.type === 'BOOLEAN'"
+          :variant="todayCompleted ? 'soft' : 'solid'"
+          :color="todayCompleted ? 'success' : 'primary'"
+          :icon="todayCompleted ? 'i-heroicons-check-circle' : 'i-heroicons-plus-circle'"
+          :loading="togglingToday"
+          class="w-full justify-center"
+          @click="toggleToday"
+        >
+          {{ todayCompleted ? 'Completed today' : 'Log today' }}
+        </UButton>
+
+        <!-- NUMERIC / LIMIT: inline log input -->
+        <template v-else>
+          <div v-if="!logInputOpen" class="flex gap-2">
+            <UButton
+              variant="soft"
+              color="primary"
+              icon="i-heroicons-plus"
+              class="flex-1 justify-center"
+              @click="openLogInput"
+            >
+              Log today
+            </UButton>
+          </div>
+          <div v-else class="flex items-center gap-2">
+            <input
+              v-model.number="logInputValue"
+              type="number"
+              min="0"
+              step="any"
+              class="flex-1 bg-(--ui-bg-elevated) border border-(--ui-border-accented) rounded-xl px-4 py-2.5 text-lg font-semibold text-(--ui-text) text-center focus:outline-none focus:border-primary-500 transition-colors"
+              autofocus
+              @keydown.enter="submitTodayLog"
+              @keydown.escape="logInputOpen = false"
+            />
+            <span class="text-xs text-(--ui-text-dimmed) shrink-0">
+              {{ settings.logInputMode === 'increment' ? 'add' : 'total' }}
+            </span>
+            <UButton
+              color="primary"
+              :loading="loggingToday"
+              icon="i-heroicons-check"
+              size="sm"
+              @click="submitTodayLog"
+            />
+            <UButton variant="ghost" color="neutral" icon="i-heroicons-x-mark" size="sm" @click="logInputOpen = false" />
+          </div>
+        </template>
+      </template>
 
       <!-- ── Schedule card ───────────────────────────────────────────────────── -->
       <UCard :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4' }">
@@ -597,8 +716,15 @@ onMounted(load)
         v-if="habit.type === 'BOOLEAN' && recentLog.length"
         :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }"
       >
-        <div class="px-4 pt-3 pb-2">
+        <div class="px-4 pt-3 pb-2 flex items-center justify-between">
           <p class="text-xs font-semibold text-(--ui-text-muted)">Log History</p>
+          <button
+            v-if="!showAllLogs && completions.length > 5"
+            class="text-xs text-primary-400 hover:text-primary-300 transition-colors"
+            @click="showAllLogs = true"
+          >
+            View all ({{ completions.length }})
+          </button>
         </div>
         <div
           v-for="entry in recentLog"
@@ -615,8 +741,15 @@ onMounted(load)
         v-if="habit.type !== 'BOOLEAN' && recentHabitLogs.length"
         :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }"
       >
-        <div class="px-4 pt-3 pb-2">
+        <div class="px-4 pt-3 pb-2 flex items-center justify-between">
           <p class="text-xs font-semibold text-(--ui-text-muted)">Log History</p>
+          <button
+            v-if="!showAllLogs && habitLogs.length > 10"
+            class="text-xs text-primary-400 hover:text-primary-300 transition-colors"
+            @click="showAllLogs = true"
+          >
+            View all ({{ habitLogs.length }})
+          </button>
         </div>
         <div
           v-for="entry in recentHabitLogs"

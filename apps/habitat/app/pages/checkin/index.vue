@@ -25,8 +25,11 @@ onMounted(loadTemplates)
 const showCreate = useBoolModalQuery('create')
 const creating = ref(false)
 const newTitle = ref('')
+const newTitleError = ref<string | null>(null)
 const newSchedule = ref<'DAILY' | 'WEEKLY' | 'MONTHLY'>('DAILY')
 const newDays = ref<number[]>([])
+
+watch(newTitle, () => { newTitleError.value = null })
 
 function toggleDay(day: number) {
   const idx = newDays.value.indexOf(day)
@@ -45,7 +48,12 @@ function openCreate() {
 }
 
 async function createTemplate() {
-  if (!db.isAvailable || !newTitle.value.trim() || creating.value) return
+  if (!db.isAvailable || creating.value) return
+  if (!newTitle.value.trim()) {
+    newTitleError.value = 'Name is required'
+    return
+  }
+  newTitleError.value = null
   creating.value = true
   try {
     const t = await db.createCheckinTemplate({
@@ -134,6 +142,10 @@ async function createTemplate() {
           autofocus
           @keydown.enter="createTemplate"
         />
+        <p v-if="newTitleError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
+          <UIcon name="i-heroicons-exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
+          {{ newTitleError }}
+        </p>
 
         <!-- Schedule -->
         <div class="space-y-1.5">
