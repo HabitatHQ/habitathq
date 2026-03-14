@@ -1,4 +1,6 @@
 // @palladium/core — public API
+export type { BlobRef } from "./blob.js";
+export { blobRefFromColumnValue, blobRefToColumnValue } from "./blob.js";
 export type { Hlc } from "./hlc.js";
 export { compareHlc, createHlc, hlcFromString, hlcToString, recvHlc, sendHlc } from "./hlc.js";
 
