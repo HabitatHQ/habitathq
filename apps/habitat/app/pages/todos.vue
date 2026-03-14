@@ -84,15 +84,6 @@ const showModal = useBoolModalQuery('add')
 // ── Confirm dialogs ───────────────────────────────────────────────────────────
 const confirmArchiveTodo = ref<Todo | null>(null)
 const confirmDeleteTodo = ref<Todo | null>(null)
-
-// ── Inline validation ─────────────────────────────────────────────────────────
-const titleError = ref<string | null>(null)
-watch(
-  () => form.title,
-  () => {
-    titleError.value = null
-  },
-)
 const editingTodo = ref<Todo | null>(null)
 const showDone = ref(false)
 const route = useRoute()
@@ -110,6 +101,15 @@ const form = reactive({
   bored_category_id: '' as string,
   tags: '',
 })
+
+// ── Inline validation ─────────────────────────────────────────────────────────
+const titleError = ref<string | null>(null)
+watch(
+  () => form.title,
+  () => {
+    titleError.value = null
+  },
+)
 
 async function load() {
   ;[todos.value, boredCategories.value] = await Promise.all([
@@ -839,7 +839,7 @@ function jotKindIcon(kind: string | undefined): string {
       </div>
     </div>
     <!-- Archive confirm -->
-    <UModal :open="!!confirmArchiveTodo" @update:open="if (!$event) confirmArchiveTodo = null">
+    <UModal :open="!!confirmArchiveTodo" @update:open="(open) => !open && (confirmArchiveTodo = null)">
       <template #content>
         <div class="p-5 space-y-4">
           <div class="flex items-start gap-3">
@@ -860,7 +860,7 @@ function jotKindIcon(kind: string | undefined): string {
     </UModal>
 
     <!-- Delete confirm -->
-    <UModal :open="!!confirmDeleteTodo" @update:open="if (!$event) confirmDeleteTodo = null">
+    <UModal :open="!!confirmDeleteTodo" @update:open="(open) => !open && (confirmDeleteTodo = null)">
       <template #content>
         <div class="p-5 space-y-4">
           <div class="flex items-start gap-3">

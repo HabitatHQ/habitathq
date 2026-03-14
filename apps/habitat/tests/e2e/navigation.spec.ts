@@ -51,7 +51,7 @@ test.describe('Navigation smoke tests', () => {
   test('/stats route renders stats heading', async ({ page }) => {
     await page.goto('/stats')
     await page.waitForLoadState('networkidle')
-    await expect(page.getByRole('heading', { name: /stats/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /analytics/i })).toBeVisible()
   })
 
   test('/archive route renders archive heading', async ({ page }) => {
