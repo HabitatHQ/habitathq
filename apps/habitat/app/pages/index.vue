@@ -57,6 +57,17 @@ const todayTodos = computed(() => {
   return filtered.slice(0, 5)
 })
 
+// All today's todos (done + not done) for the progress bar — not capped at 5
+const allTodayTodos = computed(() => {
+  const base = todos.value.filter((t) => !t.archived_at && t.due_date === today)
+  return anyActive.value ? base.filter((t) => matchesContext(t.tags)) : base
+})
+const todoTotal = computed(() => allTodayTodos.value.length)
+const todoDoneCount = computed(
+  () => allTodayTodos.value.filter((t) => t.is_done || todoToggledIds.has(t.id)).length,
+)
+const todoAllDone = computed(() => todoTotal.value > 0 && todoDoneCount.value >= todoTotal.value)
+
 async function toggleTodoLocal(todo: Todo) {
   if (todoToggling.has(todo.id)) return
   todoToggling.add(todo.id)
@@ -639,10 +650,27 @@ onMounted(async () => {
         </template>
       </ul>
       <!-- ── On your plate (today TODOs) ─────────────────────────────────────── -->
-      <section v-if="settings.enableTodos && todayTodos.length > 0" class="space-y-2" aria-label="On your plate">
-        <h3 class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">On your plate</h3>
+      <section
+        v-if="settings.enableTodos && todoTotal > 0"
+        class="space-y-2 transition-opacity duration-700"
+        :class="todoAllDone ? 'opacity-50' : ''"
+        aria-label="On your plate"
+      >
+        <div class="flex items-center justify-between px-1">
+          <h3 class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed)">On your plate</h3>
+          <span class="text-xs tabular-nums text-(--ui-text-dimmed)">{{ todoDoneCount }} / {{ todoTotal }}</span>
+        </div>
 
-        <ul class="space-y-1.5">
+        <!-- Progress bar -->
+        <div class="h-1 rounded-full overflow-hidden bg-(--ui-border)">
+          <div
+            class="h-full rounded-full transition-all duration-500"
+            :class="todoAllDone ? 'bg-green-500' : 'bg-primary-500'"
+            :style="{ width: `${(todoDoneCount / todoTotal) * 100}%` }"
+          />
+        </div>
+
+        <ul v-if="todayTodos.length > 0" class="space-y-1.5">
           <li
             v-for="todo in todayTodos"
             :key="todo.id"
