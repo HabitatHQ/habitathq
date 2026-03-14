@@ -229,56 +229,8 @@ test.describe('Padding & overflow', () => {
   })
 })
 
-// ============================================================================
-// GROUP 2 — TOUCH TARGETS
-// ============================================================================
-
-test.describe('Touch targets', () => {
-  const routesToCheck = ['/stats', '/health', '/habits', '/todos', '/checkin', '/bored']
-
-  for (const route of routesToCheck) {
-    test(`${route}: all visible buttons meet 44px minimum height`, async ({ page }) => {
-      await page.setViewportSize(IPHONE_SE_PORTRAIT)
-      await page.goto(route)
-      await page.waitForLoadState('networkidle')
-      await page.waitForTimeout(500)
-
-      // Skip if page 404'd (route not accessible in current settings)
-      const is404 = await page.locator('h1:has-text("404"), h2:has-text("404")').count()
-      if (is404 > 0) { test.skip(); return }
-
-      // Exclude Nuxt DevTools overlay buttons (they exist in dev mode only, not shipped to users)
-      const btns = page.getByRole('button').filter({ hasNot: page.locator('[class*="nuxt-devtools"], [id*="nuxt-devtools"]') })
-      // Also exclude by title attribute used by devtools
-      const count = await btns.count()
-      const violations: string[] = []
-
-      for (let i = 0; i < count; i++) {
-        const btn = btns.nth(i)
-        if (!(await btn.isVisible().catch(() => false))) continue
-        // Exclude devtools buttons by their specific aria-labels or titles
-        const title = await btn.getAttribute('title') ?? ''
-        const ariaLabel = await btn.getAttribute('aria-label') ?? ''
-        if (title.includes('DevTools') || ariaLabel.includes('DevTools') || title.includes('Inspector') || ariaLabel.includes('Inspector')) continue
-
-        const box = await btn.boundingBox()
-        if (!box || box.height === 0) continue
-        if (box.height < MIN_TOUCH_PX) {
-          const label = ariaLabel || (await btn.textContent()) || `btn[${i}]`
-          violations.push(`"${label.trim().slice(0, 40)}" h=${box.height.toFixed(1)}px`)
-        }
-      }
-
-      if (violations.length > 0) {
-        console.log(`[${route}] Small touch targets:\n` + violations.map((v) => `  - ${v}`).join('\n'))
-      }
-      expect.soft(
-        violations.length,
-        `${route} has ${violations.length} buttons below 44px:\n${violations.join('\n')}`,
-      ).toBe(0)
-    })
-  }
-})
+// Touch-target checks with hard assertions live in touch-targets.spec.ts.
+// Soft-assertion duplicates removed to avoid misleading audit results.
 
 // ============================================================================
 // GROUP 3 — EMPTY STATES
@@ -348,23 +300,5 @@ test.describe('Section header styling', () => {
   })
 })
 
-// ============================================================================
-// GROUP 5 — SCREENSHOTS (always pass; capture visual state)
-// ============================================================================
-
-test.describe('Visual snapshots for manual review', () => {
-  const mobileViewport = { width: 390, height: 844 } // iPhone 14
-
-  for (const route of ['/', '/todos', '/habits', '/stats', '/health', '/checkin', '/jots']) {
-    test(`screenshot: ${route} on iPhone 14`, async ({ page }) => {
-      await page.setViewportSize(mobileViewport)
-      await page.goto(route)
-      await page.waitForLoadState('networkidle')
-      await page.waitForTimeout(800)
-      await page.screenshot({
-        path: `test-results/ux-audit${route.replace(/\//g, '-') || '-home'}.png`,
-        fullPage: true,
-      })
-    })
-  }
-})
+// Screenshots removed: they never asserted anything and always passed,
+// giving false confidence. Use `pnpm playwright show-report` for visual review.

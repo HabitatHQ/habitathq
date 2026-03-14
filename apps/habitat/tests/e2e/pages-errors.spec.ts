@@ -166,12 +166,10 @@ test.describe('Empty states — no blank screens', () => {
       // Either data exists OR an empty-state element is visible
       const hasHeading = await page.locator('h1, h2, h3').filter({ hasText: /.+/ }).first().isVisible().catch(() => false)
       const hasEmpty = await page.getByText(emptyText).first().isVisible().catch(() => false)
-      const hasButton = await page.getByRole('button').first().isVisible().catch(() => false)
-      const hasLink = await page.getByRole('link').first().isVisible().catch(() => false)
 
       expect(
-        hasHeading || hasEmpty || hasButton || hasLink,
-        `${url} renders a blank screen — no heading, empty state, button, or link found`,
+        hasHeading || hasEmpty,
+        `${url} renders a blank screen — no page heading or empty-state message found`,
       ).toBe(true)
     })
   }

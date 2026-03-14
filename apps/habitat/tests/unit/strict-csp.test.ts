@@ -249,10 +249,14 @@ describe('CSP composition: strict overrides base connect-src', () => {
     const basePolicies = ["connect-src 'self'"]
     const strictPolicies = STRICT_CSP_DIRECTIVES.filter((d) => d.startsWith('connect-src'))
 
+    // Parse tokens after the directive name (e.g. "connect-src 'none'" → ["'none'"])
+    function tokens(directive: string): string[] {
+      return directive.split(/\s+/).slice(1)
+    }
     // Simulate AND: a request is allowed only if ALL policies allow it
     function isAllowed(source: string): boolean {
-      return basePolicies.every((p) => p.includes(source)) &&
-             strictPolicies.every((p) => p.includes(source))
+      return basePolicies.every((p) => tokens(p).includes(source)) &&
+             strictPolicies.every((p) => tokens(p).includes(source))
     }
 
     // 'self' connections are NOT allowed when strict adds 'none'

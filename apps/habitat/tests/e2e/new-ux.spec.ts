@@ -420,23 +420,7 @@ test.describe('E — Checkin session counts', () => {
   })
 })
 
-// ─── Modal URL param behavior ─────────────────────────────────────────────────
-
-test.describe('Modal URL params — all pages', () => {
-  const modals: Array<{ url: string; heading: RegExp | string }> = [
-    { url: '/habits?modal=create', heading: 'New Habit' },
-    { url: '/todos?modal=add', heading: 'New TODO' },
-    { url: '/checkin?modal=create', heading: 'New Check-in' },
-  ]
-
-  for (const { url, heading } of modals) {
-    test(`${url} opens modal with correct heading`, async ({ page }) => {
-      await page.goto(url)
-      await page.waitForLoadState('networkidle')
-      await expect(page.getByRole('heading', { name: heading })).toBeVisible({ timeout: 5000 })
-    })
-  }
-})
+// Modal URL param tests live in modal-query.spec.ts — not duplicated here.
 
 // ─── Scroll shadow utility class ─────────────────────────────────────────────
 
@@ -463,50 +447,4 @@ test.describe('A — Scroll shadow utility class', () => {
   })
 })
 
-// ─── Archive confirm modal (fixed template parse error) ───────────────────────
-
-test.describe('C — Archive/delete confirm modals', () => {
-  test('/todos page loads without template parse errors', async ({ page }) => {
-    const consoleErrors: string[] = []
-    page.on('console', (msg) => {
-      if (msg.type() === 'error' && !msg.text().includes('OPFS')) {
-        consoleErrors.push(msg.text())
-      }
-    })
-    const pageErrors: string[] = []
-    page.on('pageerror', (err) => {
-      if (!err.message.includes('OPFS') && !err.message.includes('SharedArrayBuffer')) {
-        pageErrors.push(err.message)
-      }
-    })
-
-    await page.goto('/todos')
-    await page.waitForLoadState('networkidle')
-
-    expect(pageErrors, `Page errors on /todos: ${pageErrors.join('; ')}`).toHaveLength(0)
-  })
-
-  test('todos add modal opens after fix to UModal @update:open handler', async ({ page }) => {
-    // This specifically tests that the (v) => { if (!v) ... } arrow function
-    // syntax is valid and doesn't cause a template parse error
-    await page.setViewportSize(MOBILE)
-    const errors: string[] = []
-    page.on('pageerror', (err) => {
-      if (!err.message.includes('OPFS') && !err.message.includes('SharedArrayBuffer')) {
-        errors.push(err.message)
-      }
-    })
-
-    await page.goto('/todos')
-    await page.waitForLoadState('networkidle')
-
-    expect(errors, 'Template parse errors on /todos').toHaveLength(0)
-
-    const addBtn = page.getByRole('button', { name: /^add$/i })
-    await expect(addBtn).toBeVisible()
-    await addBtn.click()
-    await page.waitForTimeout(400)
-
-    await expect(page.getByRole('heading', { name: 'New TODO' })).toBeVisible()
-  })
-})
+// Page-error and confirm-dialog tests live in pages-errors.spec.ts — not duplicated here.

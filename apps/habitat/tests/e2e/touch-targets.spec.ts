@@ -73,7 +73,6 @@ test.describe('Issue #8 — todos filter chips and Add button ≥ 44px', () => {
     await page.setViewportSize(MOBILE)
     await page.goto('/todos')
     await page.waitForLoadState('networkidle')
-    await page.waitForTimeout(500)
   })
 
   test('Add button meets 44px minimum', async ({ page }) => {
@@ -102,7 +101,6 @@ test.describe('Issue #9 — bored filter chips ≥ 44px', () => {
     await page.setViewportSize(MOBILE)
     await page.goto('/bored')
     await page.waitForLoadState('networkidle')
-    await page.waitForTimeout(500)
   })
 
   test('time-filter chips (Any, < 15m, < 30m, < 1h) meet 44px minimum', async ({ page }) => {
@@ -145,7 +143,6 @@ test.describe('Issue #10 — "New" buttons ≥ 44px', () => {
       await page.setViewportSize(MOBILE)
       await page.goto(route)
       await page.waitForLoadState('networkidle')
-      await page.waitForTimeout(300)
 
       const btn = page.getByRole('button', { name: /^new$/i })
       await expect(btn).toBeVisible()
@@ -167,7 +164,6 @@ test.describe('Issue #11 — bottom-sheet modals include safe-area spacer', () =
     await page.setViewportSize(MOBILE)
     await page.goto(route)
     await page.waitForLoadState('networkidle')
-    await page.waitForTimeout(500)
 
     let btn: ReturnType<Page['locator']>
     if (typeof triggerSelector === 'string') {
@@ -180,12 +176,11 @@ test.describe('Issue #11 — bottom-sheet modals include safe-area spacer', () =
     if (!visible) { test.skip(); return }
 
     await btn.click()
-    await page.waitForTimeout(400)
 
     // The bottom-sheet card
     const card = page.locator('.rounded-t-3xl').first()
-    const cardVisible = await card.isVisible().catch(() => false)
-    if (!cardVisible) { test.skip(); return }
+    await card.waitFor({ state: 'visible', timeout: 3000 }).catch(() => { test.skip(); return })
+    if (!(await card.isVisible().catch(() => false))) { test.skip(); return }
 
     const spacer = card.locator('.safe-area-bottom')
     const count = await spacer.count()
@@ -212,38 +207,34 @@ test.describe('Issue #11 — bottom-sheet modals include safe-area spacer', () =
     await page.setViewportSize(MOBILE)
     await page.goto('/bored/activities')
     await page.waitForLoadState('networkidle')
-    await page.waitForTimeout(500)
 
     const btn = page.getByRole('button', { name: /new category/i })
     const visible = await btn.isVisible().catch(() => false)
     if (!visible) { test.skip(); return }
 
     await btn.click()
-    await page.waitForTimeout(400)
-
     const card = page.locator('.rounded-t-3xl').first()
+    await card.waitFor({ state: 'visible', timeout: 3000 }).catch(() => { test.skip(); return })
+
     const spacer = card.locator('.safe-area-bottom')
-    const count = await spacer.count()
-    expect(count, 'Bored category modal: missing .safe-area-bottom spacer').toBeGreaterThan(0)
+    expect(await spacer.count(), 'Bored category modal: missing .safe-area-bottom spacer').toBeGreaterThan(0)
   })
 
   test('bored activity modal has safe-area-bottom spacer', async ({ page }) => {
     await page.setViewportSize(MOBILE)
     await page.goto('/bored/activities')
     await page.waitForLoadState('networkidle')
-    await page.waitForTimeout(500)
 
     const btn = page.getByRole('button', { name: /new activity/i })
     const visible = await btn.isVisible().catch(() => false)
     if (!visible) { test.skip(); return }
 
     await btn.click()
-    await page.waitForTimeout(400)
-
     const card = page.locator('.rounded-t-3xl').first()
+    await card.waitFor({ state: 'visible', timeout: 3000 }).catch(() => { test.skip(); return })
+
     const spacer = card.locator('.safe-area-bottom')
-    const count = await spacer.count()
-    expect(count, 'Bored activity modal: missing .safe-area-bottom spacer').toBeGreaterThan(0)
+    expect(await spacer.count(), 'Bored activity modal: missing .safe-area-bottom spacer').toBeGreaterThan(0)
   })
 })
 
@@ -266,17 +257,16 @@ test.describe('Issue #13 — mobile scroll: dvh max-height, overscroll-contain, 
     await page.setViewportSize(MOBILE)
     await page.goto(route)
     await page.waitForLoadState('networkidle')
-    await page.waitForTimeout(500)
 
     const btn = page.getByRole('button', { name: triggerName }).first()
     const visible = await btn.isVisible().catch(() => false)
     if (!visible) { test.skip(); return }
 
     await btn.click()
-    await page.waitForTimeout(400)
 
     // 1. Backdrop has modal-backdrop class
     const backdrop = page.locator('.modal-backdrop').first()
+    await backdrop.waitFor({ state: 'visible', timeout: 3000 }).catch(() => {})
     const hasBackdrop = await backdrop.isVisible().catch(() => false)
     expect(hasBackdrop, `${description}: .modal-backdrop not found`).toBe(true)
 
@@ -309,22 +299,15 @@ test.describe('Issue #13 — mobile scroll: dvh max-height, overscroll-contain, 
     await page.setViewportSize(MOBILE)
     await page.goto('/bored/activities')
     await page.waitForLoadState('networkidle')
-    await page.waitForTimeout(500)
 
-    // The + buttons open activity modals
-    const addBtns = page.getByRole('button', { name: /^$/i }).filter({ has: page.locator('[data-icon]') })
-    const plusBtn = page.locator('button[aria-label=""]').first()
-    // Use the icon button with + inside any category row
-    const anyAddBtn = page.locator('nav ~ * button, .space-y-2 button').filter({ hasText: '' }).first()
-    // Simpler: click the first "+" icon button in the activities list
+    // Click the first "+" icon button in the activities list
     const iconBtns = page.locator('button').filter({ has: page.locator('.i-heroicons-plus') })
     const count = await iconBtns.count()
     if (count === 0) { test.skip(); return }
 
     await iconBtns.first().click()
-    await page.waitForTimeout(400)
-
     const backdrop = page.locator('.modal-backdrop').first()
+    await backdrop.waitFor({ state: 'visible', timeout: 3000 }).catch(() => {})
     const hasBackdrop = await backdrop.isVisible().catch(() => false)
     expect(hasBackdrop, 'Bored activity modal: .modal-backdrop not found').toBe(true)
 
@@ -336,7 +319,6 @@ test.describe('Issue #13 — mobile scroll: dvh max-height, overscroll-contain, 
     await page.setViewportSize(MOBILE)
     await page.goto('/jots')
     await page.waitForLoadState('networkidle')
-    await page.waitForTimeout(500)
 
     // The FAB / "+" button that opens the picker
     const addBtn = page.getByRole('button', { name: /new jot|add|compose/i }).first()
@@ -344,11 +326,9 @@ test.describe('Issue #13 — mobile scroll: dvh max-height, overscroll-contain, 
     if (!fabVisible) { test.skip(); return }
 
     await addBtn.click()
-    await page.waitForTimeout(400)
-
     const card = page.locator('.rounded-t-3xl').first()
-    const cardVisible = await card.isVisible().catch(() => false)
-    if (!cardVisible) { test.skip(); return }
+    await card.waitFor({ state: 'visible', timeout: 3000 }).catch(() => { test.skip(); return })
+    if (!(await card.isVisible().catch(() => false))) { test.skip(); return }
 
     const spacer = card.locator('.safe-area-bottom')
     expect(await spacer.count(), 'Jots picker modal: missing .safe-area-bottom spacer').toBeGreaterThan(0)
@@ -365,9 +345,8 @@ test.describe('Issue #13 — mobile scroll: dvh max-height, overscroll-contain, 
     if (!visible) { test.skip(); return }
 
     await btn.click()
-    await page.waitForTimeout(400)
-
     const backdrop = page.locator('.modal-backdrop').first()
+    await backdrop.waitFor({ state: 'visible', timeout: 3000 }).catch(() => {})
     expect(await backdrop.isVisible().catch(() => false), 'Check-in modal: .modal-backdrop not found').toBe(true)
 
     const bodyOverflow = await page.evaluate(() => getComputedStyle(document.body).overflow)
@@ -384,23 +363,22 @@ test.describe('Issue #12 — modal card padding is p-5 (20px) on all pages', () 
     await page.setViewportSize(MOBILE)
     await page.goto(route)
     await page.waitForLoadState('networkidle')
-    await page.waitForTimeout(300)
 
     const btn = page.getByRole('button', { name: triggerName }).first()
     const visible = await btn.isVisible().catch(() => false)
     if (!visible) { test.skip(); return }
 
     await btn.click()
-    await page.waitForTimeout(400)
 
     // Find the modal card — custom bottom-sheets use .fixed.inset-0 > .rounded-t-3xl,
     // UModal uses [role=dialog] > div. Avoid matching list-item cards (.rounded-2xl).
     let card = page.locator('.fixed.inset-0 > .rounded-t-3xl').first()
+    await card.waitFor({ state: 'visible', timeout: 3000 }).catch(() => {})
     if (!(await card.isVisible().catch(() => false))) {
       card = page.locator('[role="dialog"] > div').first()
+      await card.waitFor({ state: 'visible', timeout: 2000 }).catch(() => {})
     }
-    const cardVisible = await card.isVisible().catch(() => false)
-    if (!cardVisible) { test.skip(); return }
+    if (!(await card.isVisible().catch(() => false))) { test.skip(); return }
 
     const { top, right, left } = await card.evaluate((el) => {
       const s = getComputedStyle(el)

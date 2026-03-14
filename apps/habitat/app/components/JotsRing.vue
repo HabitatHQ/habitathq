@@ -178,6 +178,7 @@ const compactOptions = [
       <button
         v-for="opt in compactOptions"
         :key="opt.type"
+        :data-jot-type="opt.type"
         class="flex flex-col items-center gap-2 p-4 rounded-2xl bg-(--ui-bg-elevated) border border-(--ui-border-accented) active:opacity-70 transition-opacity"
         @click="emit('select', opt.type)"
       >
@@ -264,6 +265,7 @@ const compactOptions = [
         v-for="node in nodes"
         :key="node.type"
         class="jots-ring-node absolute z-30 flex flex-col items-center gap-1"
+        :data-jot-type="node.type"
         :style="{
           left: nodePos(node.angle).x + 'px',
           top:  nodePos(node.angle).y + 'px',

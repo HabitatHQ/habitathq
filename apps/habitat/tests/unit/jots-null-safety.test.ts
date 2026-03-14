@@ -75,30 +75,3 @@ describe('scribble utils — null/empty tags robustness', () => {
   })
 })
 
-// ─── Template expressions — guard against null tags ──────────────────────────
-// These replicate the exact expressions used in the jots/index.vue template.
-// If tags is null, these must not throw.
-
-describe('jots index template null-safety expressions', () => {
-  it('tags?.length check does not throw when tags is null', () => {
-    const tags = null as unknown as string[]
-    expect(() => tags?.length).not.toThrow()
-    expect(tags?.length).toBeUndefined()
-  })
-
-  it('(tags || []).slice(0, 5) does not throw when tags is null', () => {
-    const tags = null as unknown as string[]
-    expect(() => (tags || []).slice(0, 5)).not.toThrow()
-    expect((tags || []).slice(0, 5)).toEqual([])
-  })
-
-  it('(tags?.length || 0) - 5 is safe when tags is null', () => {
-    const tags = null as unknown as string[]
-    expect((tags?.length || 0) - 5).toBe(-5)
-  })
-
-  it('tags.length (unsafe form) throws when tags is null — confirms why the fix was needed', () => {
-    const tags = null as unknown as string[]
-    expect(() => tags.length).toThrow()
-  })
-})

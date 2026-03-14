@@ -1,111 +1,158 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeAll } from 'vitest'
+import { ref, computed, readonly } from 'vue'
 
 /**
- * These tests exercise the core logic of useContextFilter by testing the
- * pure functions that underpin the composable. Nuxt's useState is not
- * needed here — we test the algorithms directly.
+ * Tests for useContextFilter.
+ *
+ * Nuxt's useState is a global auto-import not available in Vitest.
+ * We stub it with a plain Vue ref so the composable's state wiring works
+ * without a Nuxt runtime.  The stub matches the real signature:
+ *   useState<T>(key, init) → Ref<T>
  */
+beforeAll(() => {
+  vi.stubGlobal('useState', <T>(_key: string, init: () => T) => ref(init()))
+  vi.stubGlobal('computed', computed)
+  vi.stubGlobal('readonly', readonly)
+})
 
-// ── matchesContext logic ───────────────────────────────────────────────────────
+import { useContextFilter } from '~/composables/useContextFilter'
 
-function matchesContext(activeContexts: string[], tags: string[]): boolean {
-  if (activeContexts.length === 0) return true
-  return activeContexts.some((ctx) => tags.includes(ctx))
+// Each test gets a fresh composable instance (fresh refs via the stub).
+function fresh() {
+  return useContextFilter()
 }
+
+// ── matchesContext ─────────────────────────────────────────────────────────────
 
 describe('matchesContext', () => {
   it('returns true when no filter is active (pass-through)', () => {
-    expect(matchesContext([], ['work', 'personal'])).toBe(true)
-    expect(matchesContext([], [])).toBe(true)
+    const { matchesContext } = fresh()
+    expect(matchesContext(['work', 'personal'])).toBe(true)
+    expect(matchesContext([])).toBe(true)
   })
 
   it('returns true when one active context matches an item tag', () => {
-    expect(matchesContext(['work'], ['work', 'personal'])).toBe(true)
-  })
-
-  it('returns true when the sole tag matches the sole active context', () => {
-    expect(matchesContext(['work'], ['work'])).toBe(true)
+    const { toggleContext, matchesContext } = fresh()
+    toggleContext('work')
+    expect(matchesContext(['work', 'personal'])).toBe(true)
   })
 
   it('returns false when no active context matches any item tag', () => {
-    expect(matchesContext(['health'], ['work', 'personal'])).toBe(false)
+    const { toggleContext, matchesContext } = fresh()
+    toggleContext('health')
+    expect(matchesContext(['work', 'personal'])).toBe(false)
   })
 
   it('returns false for an item with no tags when filter is active', () => {
-    expect(matchesContext(['work'], [])).toBe(false)
+    const { toggleContext, matchesContext } = fresh()
+    toggleContext('work')
+    expect(matchesContext([])).toBe(false)
   })
 
   it('matches any of multiple active contexts — union semantics', () => {
-    expect(matchesContext(['health', 'work'], ['work'])).toBe(true)
-    expect(matchesContext(['health', 'work'], ['health'])).toBe(true)
-    expect(matchesContext(['health', 'work'], ['personal'])).toBe(false)
+    const { toggleContext, matchesContext } = fresh()
+    toggleContext('health')
+    toggleContext('work')
+    expect(matchesContext(['work'])).toBe(true)
+    expect(matchesContext(['health'])).toBe(true)
+    expect(matchesContext(['personal'])).toBe(false)
   })
 
   it('is case-sensitive', () => {
-    expect(matchesContext(['Work'], ['work'])).toBe(false)
-    expect(matchesContext(['work'], ['Work'])).toBe(false)
+    const { toggleContext, matchesContext } = fresh()
+    toggleContext('Work')
+    expect(matchesContext(['work'])).toBe(false)
   })
 })
 
-// ── isActive logic ─────────────────────────────────────────────────────────────
-
-function isActive(activeContexts: string[], tag: string): boolean {
-  return activeContexts.includes(tag)
-}
+// ── isActive ──────────────────────────────────────────────────────────────────
 
 describe('isActive', () => {
   it('returns false when tag is not in the active list', () => {
-    expect(isActive(['work'], 'personal')).toBe(false)
+    const { toggleContext, isActive } = fresh()
+    toggleContext('work')
+    expect(isActive('personal')).toBe(false)
   })
 
   it('returns true when tag is in the active list', () => {
-    expect(isActive(['work', 'personal'], 'personal')).toBe(true)
+    const { toggleContext, isActive } = fresh()
+    toggleContext('work')
+    toggleContext('personal')
+    expect(isActive('personal')).toBe(true)
   })
 
   it('returns false on an empty active list', () => {
-    expect(isActive([], 'work')).toBe(false)
+    const { isActive } = fresh()
+    expect(isActive('work')).toBe(false)
   })
 })
 
-// ── toggleContext logic ────────────────────────────────────────────────────────
-
-function toggleContext(activeContexts: string[], tag: string): string[] {
-  const idx = activeContexts.indexOf(tag)
-  if (idx === -1) return [...activeContexts, tag]
-  return activeContexts.filter((t) => t !== tag)
-}
+// ── toggleContext ─────────────────────────────────────────────────────────────
 
 describe('toggleContext', () => {
   it('adds a tag when it is not in the active list', () => {
-    expect(toggleContext([], 'work')).toEqual(['work'])
-    expect(toggleContext(['personal'], 'work')).toEqual(['personal', 'work'])
+    const { toggleContext, activeContexts } = fresh()
+    toggleContext('work')
+    expect(activeContexts.value).toEqual(['work'])
+    toggleContext('personal')
+    expect(activeContexts.value).toEqual(['work', 'personal'])
   })
 
   it('removes a tag when it is already in the active list', () => {
-    expect(toggleContext(['work'], 'work')).toEqual([])
-    expect(toggleContext(['work', 'personal'], 'work')).toEqual(['personal'])
-  })
-
-  it('does not mutate the original array', () => {
-    const original = ['work']
-    const result = toggleContext(original, 'personal')
-    expect(original).toEqual(['work'])
-    expect(result).toEqual(['work', 'personal'])
+    const { toggleContext, activeContexts } = fresh()
+    toggleContext('work')
+    toggleContext('personal')
+    toggleContext('work')
+    expect(activeContexts.value).toEqual(['personal'])
   })
 })
 
-// ── loadContextTags logic ──────────────────────────────────────────────────────
+// ── clearAll ──────────────────────────────────────────────────────────────────
+
+describe('clearAll', () => {
+  it('empties the active contexts list', () => {
+    const { toggleContext, clearAll, activeContexts } = fresh()
+    toggleContext('work')
+    toggleContext('personal')
+    clearAll()
+    expect(activeContexts.value).toEqual([])
+  })
+
+  it('anyActive is false after clearAll', () => {
+    const { toggleContext, clearAll, anyActive } = fresh()
+    toggleContext('work')
+    clearAll()
+    expect(anyActive.value).toBe(false)
+  })
+})
+
+// ── anyActive ─────────────────────────────────────────────────────────────────
+
+describe('anyActive', () => {
+  it('is false when nothing is toggled', () => {
+    const { anyActive } = fresh()
+    expect(anyActive.value).toBe(false)
+  })
+
+  it('is true after a tag is toggled', () => {
+    const { toggleContext, anyActive } = fresh()
+    toggleContext('work')
+    expect(anyActive.value).toBe(true)
+  })
+})
+
+// ── loadContextTags ────────────────────────────────────────────────────────────
 
 describe('loadContextTags', () => {
-  it('calls getContextTags and populates the list', async () => {
-    const mockDb = {
-      getContextTags: async () => ['work', 'fitness', 'learning'],
-    }
-    const tags = await mockDb.getContextTags()
-    expect(tags).toEqual(['work', 'fitness', 'learning'])
+  it('calls getContextTags and populates contextTags', async () => {
+    const { loadContextTags, contextTags } = fresh()
+    const mockDb = { getContextTags: async () => ['work', 'fitness', 'learning'] }
+    await loadContextTags(mockDb)
+    expect(contextTags.value).toEqual(['work', 'fitness', 'learning'])
   })
 
   it('skips calling db when already loaded', async () => {
+    const { loadContextTags } = fresh()
     let callCount = 0
     const mockDb = {
       getContextTags: async () => {
@@ -113,15 +160,8 @@ describe('loadContextTags', () => {
         return ['work']
       },
     }
-    // Simulate already-loaded guard
-    let loaded = false
-    async function loadOnce() {
-      if (loaded) return
-      await mockDb.getContextTags()
-      loaded = true
-    }
-    await loadOnce()
-    await loadOnce()
+    await loadContextTags(mockDb)
+    await loadContextTags(mockDb)
     expect(callCount).toBe(1)
   })
 })
