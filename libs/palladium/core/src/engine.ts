@@ -7,8 +7,12 @@
  * replicate changes to a remote server).
  */
 
+import type { BlobAdapter } from "./blob-adapter.js";
+import { BlobHandle } from "./blob-handle.js";
+import { BlobRegistry } from "./blob-registry.js";
 import { EventEmitter } from "./event-emitter.js";
 import { LiveQuery } from "./live-query.js";
+import { MemoryBlobAdapter } from "./memory-blob-adapter.js";
 import type { SqlQuery } from "./sql.js";
 import { isTransactable } from "./storage.js";
 import type { StorageAdapter } from "./storage.js";
@@ -28,10 +32,18 @@ export class PalladiumEngine<S extends SchemaMap> {
   protected readonly emitter = new EventEmitter<EngineEvents>();
   protected status: SyncStatus = "idle";
   readonly #liveQueries = new Set<LiveQuery>();
+  readonly #blobRegistry = new BlobRegistry();
+  /** High-level blob storage API. */
+  readonly blobs: BlobHandle;
 
-  constructor(adapter: StorageAdapter, migrations: readonly string[] = []) {
+  constructor(
+    adapter: StorageAdapter,
+    migrations: readonly string[] = [],
+    blobAdapter?: BlobAdapter,
+  ) {
     this.adapter = adapter;
     this.#migrations = migrations;
+    this.blobs = new BlobHandle(blobAdapter ?? new MemoryBlobAdapter(), this.#blobRegistry);
   }
 
   /** Open the adapter and run migrations. */
@@ -177,12 +189,13 @@ export class PalladiumEngine<S extends SchemaMap> {
   }
 }
 
-/** Factory — create a PalladiumEngine with the given adapter and migrations. */
+/** Factory — create a PalladiumEngine with the given adapter, migrations, and optional blob adapter. */
 export function createEngine<S extends SchemaMap>(
   adapter: StorageAdapter,
   migrations: readonly string[] = [],
+  blobAdapter?: BlobAdapter,
 ): PalladiumEngine<S> {
-  return new PalladiumEngine<S>(adapter, migrations);
+  return new PalladiumEngine<S>(adapter, migrations, blobAdapter);
 }
 
 /** Coerces an unknown thrown value to an `Error` instance. */

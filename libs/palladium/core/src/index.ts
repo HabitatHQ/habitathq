@@ -10,6 +10,8 @@ export type {
 } from "./blob-adapter.js";
 export { convertBlobBytes } from "./blob-format.js";
 export { BlobRegistry } from "./blob-registry.js";
+export { BlobHandle } from "./blob-handle.js";
+export { MemoryBlobAdapter } from "./memory-blob-adapter.js";
 export type { Hlc } from "./hlc.js";
 export { compareHlc, createHlc, hlcFromString, hlcToString, recvHlc, sendHlc } from "./hlc.js";
 
