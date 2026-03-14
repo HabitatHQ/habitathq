@@ -18,10 +18,6 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 
 async function load() {
-  if (!db.isAvailable) {
-    loading.value = false
-    return
-  }
   const id = route.params.id as string
   const to = new Date().toISOString().slice(0, 10)
   const fromDate = new Date()

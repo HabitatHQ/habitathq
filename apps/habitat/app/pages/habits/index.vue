@@ -33,7 +33,7 @@ const anyPaused = computed(() =>
 )
 
 async function confirmPauseAll() {
-  if (!db.isAvailable || !pauseAllDate.value) return
+  if (!pauseAllDate.value) return
   pausingAll.value = true
   try {
     await db.pauseAllHabits(pauseAllDate.value)
@@ -46,7 +46,6 @@ async function confirmPauseAll() {
 }
 
 async function resumeAllHabits() {
-  if (!db.isAvailable) return
   pausingAll.value = true
   try {
     await db.pauseAllHabits(null)
@@ -148,7 +147,6 @@ watch(
 )
 
 async function loadHabits() {
-  if (!db.isAvailable) return
   const [h, comps] = await Promise.all([db.getHabits(), db.getCompletionsForDate(today)])
   habits.value = h
   todayCompletionHabitIds.value = new Set(comps.map((c) => c.habit_id))
@@ -157,7 +155,7 @@ async function loadHabits() {
 async function quickToggle(habit: HabitWithSchedule, e: Event) {
   e.preventDefault()
   e.stopPropagation()
-  if (quickToggling.has(habit.id) || !db.isAvailable) return
+  if (quickToggling.has(habit.id)) return
   quickToggling.add(habit.id)
   try {
     await db.toggleCompletion(habit.id, today)
@@ -180,7 +178,6 @@ function toggleDay(day: number) {
 }
 
 async function handleCreate() {
-  if (!db.isAvailable) return
   if (!form.name.trim()) {
     nameError.value = 'Name is required'
     return

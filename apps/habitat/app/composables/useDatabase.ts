@@ -25,7 +25,6 @@ import type {
 
 export function useDatabase() {
   return {
-    isAvailable: true as const,
     getHabits: (): Promise<HabitWithSchedule[]> => sendToWorker({ type: 'GET_HABITS' }),
     createHabit: (
       p: Omit<Habit, 'id' | 'created_at' | 'archived_at'>,

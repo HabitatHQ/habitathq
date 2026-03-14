@@ -48,7 +48,7 @@ function removeAnnot(key: string) {
 }
 
 async function save() {
-  if (!store.db.isAvailable || saving.value || !canSave.value) return
+  if (saving.value || !canSave.value) return
   saving.value = true
   try {
     await store.db.createScribble({

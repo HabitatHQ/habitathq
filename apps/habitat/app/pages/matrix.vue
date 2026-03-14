@@ -86,10 +86,6 @@ const habitLogs = ref<HabitLog[]>([])
 const loading = ref(true)
 
 async function load() {
-  if (!db.isAvailable) {
-    loading.value = false
-    return
-  }
   const [h, c, l] = await Promise.all([
     db.getHabits(),
     db.getCompletionsForDateRange(thirtyDaysAgo, today),
@@ -124,7 +120,7 @@ const toggling = reactive(new Set<string>())
 
 async function toggle(habit: HabitWithSchedule, date: string) {
   const key = `${habit.id}:${date}`
-  if (toggling.has(key) || !db.isAvailable) return
+  if (toggling.has(key)) return
   toggling.add(key)
   try {
     await db.toggleCompletion(habit.id, date)
@@ -150,7 +146,7 @@ function openCell(habit: HabitWithSchedule, date: string) {
 }
 
 async function saveCell() {
-  if (!cellEdit.value || savingCell.value || !db.isAvailable) return
+  if (!cellEdit.value || savingCell.value) return
   const { habit, date, value } = cellEdit.value
   const isAbsolute = settings.value.logInputMode === 'absolute'
   if (!isAbsolute && value <= 0) {

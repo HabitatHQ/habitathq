@@ -16,10 +16,6 @@ const weekLogs = ref<HabitLog[]>([])
 const loading = ref(true)
 
 async function load() {
-  if (!db.isAvailable) {
-    loading.value = false
-    return
-  }
   const [h, tl, wl] = await Promise.all([
     db.getHabits(),
     db.getHabitLogsForDate(today),
@@ -32,7 +28,6 @@ async function load() {
 }
 
 async function refreshLogs() {
-  if (!db.isAvailable) return
   const [tl, wl] = await Promise.all([
     db.getHabitLogsForDate(today),
     db.getHabitLogsForDateRange(sevenDaysAgo, today),
@@ -116,7 +111,7 @@ function openStepsLog() {
 }
 
 async function saveSteps() {
-  if (!stepsHabit.value || !db.isAvailable) return
+  if (!stepsHabit.value) return
   savingSteps.value = true
   try {
     const existing = todayLogs.value.filter((l) => l.habit_id === stepsHabit.value?.id)
@@ -140,7 +135,7 @@ const waterGoal = computed(() => waterHabit.value?.target_value ?? 8)
 const savingWater = ref(false)
 
 async function setWater(glasses: number) {
-  if (!waterHabit.value || !db.isAvailable || savingWater.value) return
+  if (!waterHabit.value || savingWater.value) return
   savingWater.value = true
   try {
     const existing = todayLogs.value.filter((l) => l.habit_id === waterHabit.value?.id)
@@ -192,7 +187,7 @@ function openSleepLog() {
 }
 
 async function saveSleep() {
-  if (!sleepHabit.value || !db.isAvailable) return
+  if (!sleepHabit.value) return
   savingSleep.value = true
   try {
     const existing = todayLogs.value.filter((l) => l.habit_id === sleepHabit.value?.id)
@@ -230,7 +225,7 @@ function closeMealLog() {
 }
 
 async function saveMeal(habit: HabitWithSchedule) {
-  if (!db.isAvailable || !mealEdit.value) return
+  if (!mealEdit.value) return
   savingMeal.value = true
   try {
     const existing = todayLogs.value.filter((l) => l.habit_id === habit.id)

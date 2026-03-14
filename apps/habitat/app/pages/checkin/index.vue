@@ -9,10 +9,6 @@ const loading = ref(true)
 // ─── Load ────────────────────────────────────────────────────────────────────
 
 async function loadTemplates() {
-  if (!db.isAvailable) {
-    loading.value = false
-    return
-  }
   templates.value = await db.getCheckinTemplates()
   loading.value = false
 }
@@ -51,7 +47,7 @@ function openCreate() {
 }
 
 async function createTemplate() {
-  if (!db.isAvailable || creating.value) return
+  if (creating.value) return
   if (!newTitle.value.trim()) {
     newTitleError.value = 'Name is required'
     return

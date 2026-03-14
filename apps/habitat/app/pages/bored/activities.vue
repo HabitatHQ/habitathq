@@ -1,17 +1,31 @@
 <script setup lang="ts">
 import type { BoredActivity, BoredCategory } from '~/types/database'
+import {
+  buildActivityPayload,
+  buildCategoryPayload,
+  validateActivityTitle,
+} from '~/utils/bored-helpers'
 
 const db = useDatabase()
+const toast = useToast()
 
 const categories = ref<BoredCategory[]>([])
 const activities = ref<BoredActivity[]>([])
 
-const showCategoryModal = ref(false)
-const showActivityModal = ref(false)
+const showCategoryModal = useBoolModalQuery('add-category')
+const showActivityModal = useBoolModalQuery('add-activity')
 const editingCategory = ref<BoredCategory | null>(null)
 const editingActivity = ref<BoredActivity | null>(null)
 const activityCategoryId = ref<string>('')
 const saving = ref(false)
+
+// Confirm dialogs
+const confirmDeleteActivity = ref<BoredActivity | null>(null)
+const confirmDeleteCategory = ref<BoredCategory | null>(null)
+
+// Inline validation
+const activityTitleError = ref<string | null>(null)
+const categoryNameError = ref<string | null>(null)
 
 // Category form
 const catForm = reactive({ name: '', icon: 'i-heroicons-sparkles', color: '#6366f1' })
@@ -42,6 +56,7 @@ function activitiesForCategory(catId: string) {
 function openAddActivity(catId: string) {
   activityCategoryId.value = catId
   editingActivity.value = null
+  activityTitleError.value = null
   Object.assign(actForm, {
     title: '',
     description: '',
@@ -56,6 +71,7 @@ function openAddActivity(catId: string) {
 function openEditActivity(a: BoredActivity) {
   editingActivity.value = a
   activityCategoryId.value = a.category_id
+  activityTitleError.value = null
   Object.assign(actForm, {
     title: a.title,
     description: a.description,
@@ -69,20 +85,27 @@ function openEditActivity(a: BoredActivity) {
 
 function openAddCategory() {
   editingCategory.value = null
+  categoryNameError.value = null
   Object.assign(catForm, { name: '', icon: 'i-heroicons-sparkles', color: '#6366f1' })
   showCategoryModal.value = true
 }
 
 function openEditCategory(c: BoredCategory) {
   editingCategory.value = c
+  categoryNameError.value = null
   Object.assign(catForm, { name: c.name, icon: c.icon, color: c.color })
   showCategoryModal.value = true
 }
 
 async function saveCategory() {
   if (saving.value) return
-  const payload = { name: catForm.name.trim(), icon: catForm.icon, color: catForm.color }
-  if (!payload.name) return
+  const validationError = validateActivityTitle(catForm.name)
+  if (validationError) {
+    categoryNameError.value = validationError
+    return
+  }
+  categoryNameError.value = null
+  const payload = buildCategoryPayload(catForm)
   saving.value = true
   try {
     if (editingCategory.value) {
@@ -96,6 +119,9 @@ async function saveCategory() {
     }
     showCategoryModal.value = false
     await load()
+  } catch (err) {
+    console.error('[saveCategory]', err)
+    toast.add({ title: 'Failed to save category', color: 'error', duration: 4000 })
   } finally {
     saving.value = false
   }
@@ -103,28 +129,26 @@ async function saveCategory() {
 
 async function deleteCategory(c: BoredCategory) {
   if (c.is_system) return
-  await db.deleteBoredCategory(c.id)
-  await load()
+  try {
+    await db.deleteBoredCategory(c.id)
+    await load()
+  } catch (err) {
+    console.error('[deleteCategory]', err)
+    toast.add({ title: 'Failed to delete category', color: 'error', duration: 4000 })
+  } finally {
+    confirmDeleteCategory.value = null
+  }
 }
 
 async function saveActivity() {
   if (saving.value) return
-  const mins = actForm.estimated_minutes !== '' ? Number(actForm.estimated_minutes) : null
-  const tags = actForm.tags
-    .split(',')
-    .map((t) => t.trim())
-    .filter(Boolean)
-  const payload = {
-    title: actForm.title.trim(),
-    description: actForm.description.trim(),
-    category_id: activityCategoryId.value,
-    estimated_minutes: mins,
-    is_recurring: actForm.is_recurring,
-    recurrence_rule: actForm.is_recurring ? actForm.recurrence_rule : null,
-    tags,
-    annotations: {} as Record<string, string>,
+  const validationError = validateActivityTitle(actForm.title)
+  if (validationError) {
+    activityTitleError.value = validationError
+    return
   }
-  if (!payload.title) return
+  activityTitleError.value = null
+  const payload = buildActivityPayload(actForm, activityCategoryId.value)
   saving.value = true
   try {
     if (editingActivity.value) {
@@ -134,19 +158,34 @@ async function saveActivity() {
     }
     showActivityModal.value = false
     await load()
+  } catch (err) {
+    console.error('[saveActivity]', err)
+    toast.add({ title: 'Failed to save activity', color: 'error', duration: 4000 })
   } finally {
     saving.value = false
   }
 }
 
 async function deleteActivity(a: BoredActivity) {
-  await db.deleteBoredActivity(a.id)
-  await load()
+  try {
+    await db.deleteBoredActivity(a.id)
+    await load()
+  } catch (err) {
+    console.error('[deleteActivity]', err)
+    toast.add({ title: 'Failed to delete activity', color: 'error', duration: 4000 })
+  } finally {
+    confirmDeleteActivity.value = null
+  }
 }
 
 async function archiveActivity(a: BoredActivity) {
-  await db.archiveBoredActivity(a.id)
-  await load()
+  try {
+    await db.archiveBoredActivity(a.id)
+    await load()
+  } catch (err) {
+    console.error('[archiveActivity]', err)
+    toast.add({ title: 'Failed to archive activity', color: 'error', duration: 4000 })
+  }
 }
 </script>
 
@@ -180,7 +219,7 @@ async function archiveActivity(a: BoredActivity) {
             color="error"
             size="sm"
             icon="i-heroicons-trash"
-            @click="deleteCategory(cat)"
+            @click="confirmDeleteCategory = cat"
           />
           <UButton
             variant="ghost"
@@ -218,7 +257,7 @@ async function archiveActivity(a: BoredActivity) {
           <div class="flex items-center gap-1 ml-2 shrink-0">
             <UButton variant="ghost" color="neutral" size="sm" icon="i-heroicons-pencil" @click="openEditActivity(act)" />
             <UButton variant="ghost" color="neutral" size="sm" icon="i-heroicons-archive-box" @click="archiveActivity(act)" />
-            <UButton variant="ghost" color="error" size="sm" icon="i-heroicons-trash" @click="deleteActivity(act)" />
+            <UButton variant="ghost" color="error" size="sm" icon="i-heroicons-trash" @click="confirmDeleteActivity = act" />
           </div>
         </div>
         <div v-if="activitiesForCategory(cat.id).length === 0" class="text-xs text-slate-600 px-1">
@@ -245,9 +284,13 @@ async function archiveActivity(a: BoredActivity) {
       <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90dvh] overflow-y-auto overscroll-contain">
         <h2 class="text-lg font-semibold">{{ editingCategory ? 'Edit Category' : 'New Category' }}</h2>
         <div class="space-y-3">
-          <UFormField label="Name">
+          <UFormField label="Name" required>
             <UInput v-model="catForm.name" placeholder="Category name" class="w-full" />
           </UFormField>
+          <p v-if="categoryNameError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
+            <UIcon name="i-heroicons-exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
+            {{ categoryNameError }}
+          </p>
           <UFormField label="Icon (Heroicons class)">
             <UInput v-model="catForm.icon" placeholder="i-heroicons-sparkles" class="w-full" />
           </UFormField>
@@ -275,6 +318,10 @@ async function archiveActivity(a: BoredActivity) {
           <UFormField label="Title" required>
             <UInput v-model="actForm.title" placeholder="Activity title" class="w-full" />
           </UFormField>
+          <p v-if="activityTitleError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
+            <UIcon name="i-heroicons-exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
+            {{ activityTitleError }}
+          </p>
           <UFormField label="Description">
             <UTextarea v-model="actForm.description" placeholder="Optional description" class="w-full" />
           </UFormField>
@@ -311,5 +358,47 @@ async function archiveActivity(a: BoredActivity) {
         <div class="safe-area-bottom" aria-hidden="true" />
       </div>
     </div>
+
+    <!-- Delete activity confirm -->
+    <UModal :open="!!confirmDeleteActivity" @update:open="(open) => !open && (confirmDeleteActivity = null)">
+      <template #content>
+        <div class="p-5 space-y-4">
+          <div class="flex items-start gap-3">
+            <div class="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0">
+              <UIcon name="i-heroicons-trash" class="w-5 h-5 text-red-400" />
+            </div>
+            <div class="space-y-1">
+              <p class="font-semibold">Delete "{{ confirmDeleteActivity?.title }}"?</p>
+              <p class="text-sm text-(--ui-text-muted)">This cannot be undone.</p>
+            </div>
+          </div>
+          <div class="flex justify-end gap-2">
+            <UButton variant="ghost" color="neutral" @click="confirmDeleteActivity = null">Cancel</UButton>
+            <UButton color="error" @click="confirmDeleteActivity && deleteActivity(confirmDeleteActivity)">Delete</UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
+
+    <!-- Delete category confirm -->
+    <UModal :open="!!confirmDeleteCategory" @update:open="(open) => !open && (confirmDeleteCategory = null)">
+      <template #content>
+        <div class="p-5 space-y-4">
+          <div class="flex items-start gap-3">
+            <div class="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0">
+              <UIcon name="i-heroicons-trash" class="w-5 h-5 text-red-400" />
+            </div>
+            <div class="space-y-1">
+              <p class="font-semibold">Delete "{{ confirmDeleteCategory?.name }}"?</p>
+              <p class="text-sm text-(--ui-text-muted)">All activities in this category will also be deleted.</p>
+            </div>
+          </div>
+          <div class="flex justify-end gap-2">
+            <UButton variant="ghost" color="neutral" @click="confirmDeleteCategory = null">Cancel</UButton>
+            <UButton color="error" @click="confirmDeleteCategory && deleteCategory(confirmDeleteCategory)">Delete</UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>

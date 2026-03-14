@@ -137,7 +137,7 @@ async function saveRecording() {
     })
 
     const fullTranscript = (liveTranscript.value + partialTranscript.value).trim()
-    if (fullTranscript && store.db.isAvailable) {
+    if (fullTranscript) {
       showTranscript.value = true
       transcriptText.value = fullTranscript
       transcriptNoteId.value = id

@@ -13,10 +13,6 @@ const archivedHabits = ref<Habit[]>([])
 const loadingHabits = ref(true)
 
 async function loadHabits() {
-  if (!db.isAvailable) {
-    loadingHabits.value = false
-    return
-  }
   archivedHabits.value = await db.getArchivedHabits()
   loadingHabits.value = false
 }
@@ -33,7 +29,6 @@ const checkinDays = ref<CheckinDay[]>([])
 const loadingCheckins = ref(false)
 
 async function loadCheckins() {
-  if (!db.isAvailable) return
   loadingCheckins.value = true
   try {
     const rows = await db.getCheckinResponseDates()

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import type { TimerMode } from '~/composables/useTimer'
 import type { BoredCategory, Todo } from '~/types/database'
+import { buildTodoPayload, validateTodoForm } from '~/utils/todos-helpers'
 
 const db = useDatabase()
-const { settings: appSettings, set: setAppSetting } = useAppSettings()
+const { settings, set: setAppSetting } = useAppSettings()
 const { anyActive, matchesContext } = useContextFilter()
 
 // ── Timer ─────────────────────────────────────────────────────────────────────
@@ -33,10 +34,10 @@ function cancelLongPress() {
 
 function pomodoroConfig() {
   return {
-    workSeconds: appSettings.value.pomodoroWorkMinutes * 60,
-    shortBreakSeconds: appSettings.value.pomodoroShortBreakMinutes * 60,
-    longBreakSeconds: appSettings.value.pomodoroLongBreakMinutes * 60,
-    cyclesBeforeLong: appSettings.value.pomodoroCyclesBeforeLong,
+    workSeconds: settings.value.pomodoroWorkMinutes * 60,
+    shortBreakSeconds: settings.value.pomodoroShortBreakMinutes * 60,
+    longBreakSeconds: settings.value.pomodoroLongBreakMinutes * 60,
+    cyclesBeforeLong: settings.value.pomodoroCyclesBeforeLong,
   }
 }
 
@@ -70,7 +71,7 @@ async function finishTimerAndDone(todo: Todo) {
 }
 
 const calendarView = computed({
-  get: () => appSettings.value.todoCalendarView,
+  get: () => settings.value.todoCalendarView,
   set: (v: boolean) => setAppSetting('todoCalendarView', v),
 })
 
@@ -267,42 +268,29 @@ function openEdit(t: Todo) {
 }
 
 async function saveTodo() {
-  if (!form.title.trim()) {
-    titleError.value = 'Title is required'
+  const validationError = validateTodoForm(form)
+  if (validationError) {
+    titleError.value = validationError
     return
   }
   titleError.value = null
-  const mins = form.estimated_minutes !== '' ? Number(form.estimated_minutes) : null
-  const tags = form.tags
-    .split(',')
-    .map((t) => t.trim())
-    .filter(Boolean)
-  const payload = {
-    title: form.title.trim(),
-    description: form.description.trim(),
-    due_date: form.due_date || null,
-    priority: form.priority,
-    estimated_minutes: mins,
-    is_recurring: form.is_recurring,
-    recurrence_rule: form.is_recurring ? form.recurrence_rule : null,
-    show_in_bored: form.show_in_bored,
-    bored_category_id: form.show_in_bored && form.bored_category_id ? form.bored_category_id : null,
-    tags,
-    annotations: editingTodo.value
-      ? { ...editingTodo.value.annotations }
-      : ({} as Record<string, string>),
+  const payload = buildTodoPayload(form, editingTodo.value?.annotations ?? null)
+  try {
+    if (editingTodo.value) {
+      const updated = await db.updateTodo({ id: editingTodo.value.id, ...payload })
+      const idx = todos.value.findIndex((x) => x.id === editingTodo.value?.id)
+      if (idx !== -1) todos.value[idx] = updated
+      toast.add({ title: 'Todo updated', color: 'success', duration: 2000 })
+    } else {
+      const created = await db.createTodo(payload)
+      todos.value.push(created)
+      toast.add({ title: 'Todo created', color: 'success', duration: 2000 })
+    }
+    showModal.value = false
+  } catch (err) {
+    console.error('[saveTodo]', err)
+    toast.add({ title: 'Failed to save todo', color: 'error', duration: 4000 })
   }
-  if (editingTodo.value) {
-    const updated = await db.updateTodo({ id: editingTodo.value.id, ...payload })
-    const idx = todos.value.findIndex((x) => x.id === editingTodo.value?.id)
-    if (idx !== -1) todos.value[idx] = updated
-    toast.add({ title: 'Todo updated', color: 'success', duration: 2000 })
-  } else {
-    const created = await db.createTodo(payload)
-    todos.value.push(created)
-    toast.add({ title: 'Todo created', color: 'success', duration: 2000 })
-  }
-  showModal.value = false
 }
 
 async function archiveTodo(t: Todo) {
@@ -575,7 +563,7 @@ function jotKindIcon(kind: string | undefined): string {
               </div>
 
               <!-- Timer area (feature-gated, non-done items only) -->
-              <template v-if="appSettings.enableTimer && !todo.is_done">
+              <template v-if="settings.enableTimer && !todo.is_done">
                 <!-- Running timer on THIS card -->
                 <div v-if="timer.timer?.itemId === todo.id" class="flex items-center gap-2 mt-2 pt-2 border-t border-(--ui-border)/50">
                   <time

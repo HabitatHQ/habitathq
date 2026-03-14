@@ -31,7 +31,7 @@ function removeMeal(i: number) {
 
 async function onHealthToggle(value: boolean) {
   setAppSetting('enableHealth', value)
-  if (value && db.isAvailable) {
+  if (value) {
     const allHabits = await db.getHabits()
     if (!allHabits.some((h) => h.tags.includes('habitat-health'))) {
       showHealthSetup.value = true
@@ -40,7 +40,6 @@ async function onHealthToggle(value: boolean) {
 }
 
 async function confirmHealthSetup() {
-  if (!db.isAvailable) return
   creatingHealth.value = true
   try {
     const base = { description: '', frequency: 'daily', annotations: {}, paused_until: null }

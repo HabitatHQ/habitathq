@@ -17,10 +17,6 @@ const questions = ref<CheckinQuestion[]>([])
 const loading = ref(true)
 
 async function loadTemplate() {
-  if (!db.isAvailable) {
-    loading.value = false
-    return
-  }
   const [tmpl, qs] = await Promise.all([
     db.getCheckinTemplate(templateId.value),
     db.getCheckinQuestions(templateId.value),
@@ -70,7 +66,6 @@ const savedIndicator = reactive<Record<string, boolean>>({})
 const savedTimers: Record<string, ReturnType<typeof setTimeout>> = {}
 
 async function loadResponses() {
-  if (!db.isAvailable) return
   const list = await db.getCheckinResponses(templateId.value, dateKey.value)
   responses.value = new Map(list.map((r) => [r.question_id, r]))
   // Sync text inputs
@@ -94,7 +89,6 @@ async function setResponse(
   value_numeric: number | null,
   value_text: string | null,
 ) {
-  if (!db.isAvailable) return
   const r = await db.upsertCheckinResponse(question_id, dateKey.value, value_numeric, value_text)
   responses.value.set(question_id, r)
 }
@@ -144,7 +138,7 @@ const addingQuestion = ref(false)
 const deletingQuestion = reactive(new Set<string>())
 
 async function addQuestion() {
-  if (!db.isAvailable || !newPrompt.value.trim() || addingQuestion.value) return
+  if (!newPrompt.value.trim() || addingQuestion.value) return
   addingQuestion.value = true
   try {
     const q = await db.createCheckinQuestion({
@@ -163,7 +157,7 @@ async function addQuestion() {
 }
 
 async function deleteQuestion(qid: string) {
-  if (!db.isAvailable || deletingQuestion.has(qid)) return
+  if (deletingQuestion.has(qid)) return
   deletingQuestion.add(qid)
   try {
     await db.deleteCheckinQuestion(qid)
@@ -188,7 +182,6 @@ const savingReminder = ref(false)
 const deletingReminder = reactive(new Set<string>())
 
 async function loadReminders() {
-  if (!db.isAvailable) return
   reminders.value = await db.getCheckinRemindersForTemplate(templateId.value)
 }
 
@@ -207,7 +200,7 @@ function toggleNewReminderDay(day: number) {
 }
 
 async function addReminder() {
-  if (!db.isAvailable || !newReminderTime.value || savingReminder.value) return
+  if (!newReminderTime.value || savingReminder.value) return
   savingReminder.value = true
   try {
     const r = await db.createCheckinReminder(
@@ -226,7 +219,7 @@ async function addReminder() {
 }
 
 async function removeReminder(rid: string) {
-  if (!db.isAvailable || deletingReminder.has(rid)) return
+  if (deletingReminder.has(rid)) return
   deletingReminder.add(rid)
   try {
     await db.deleteCheckinReminder(rid)
@@ -263,7 +256,7 @@ function toggleEditDay(day: number) {
 }
 
 async function saveEdit() {
-  if (!db.isAvailable || !template.value || saving.value) return
+  if (!template.value || saving.value) return
   saving.value = true
   try {
     const updated = await db.updateCheckinTemplate({
@@ -286,7 +279,7 @@ const showDeleteConfirm = ref(false)
 const deleting = ref(false)
 
 async function deleteTemplate() {
-  if (!db.isAvailable || !template.value || deleting.value) return
+  if (!template.value || deleting.value) return
   deleting.value = true
   try {
     await db.deleteCheckinTemplate(template.value.id)

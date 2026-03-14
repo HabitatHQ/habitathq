@@ -213,10 +213,6 @@ async function loadVoiceCount() {
 }
 
 async function load() {
-  if (!db.isAvailable) {
-    loading.value = false
-    return
-  }
   const [h, c, l, wc, wl, ci, sc, td] = await Promise.all([
     db.getHabits(),
     db.getCompletionsForDate(today),

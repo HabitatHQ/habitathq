@@ -56,10 +56,6 @@ const showDeleteConfirm = ref(false)
 const deleting = ref(false)
 
 async function load() {
-  if (!store.db.isAvailable) {
-    loading.value = false
-    return
-  }
   // Make sure scribbles are loaded
   if (store.scribbles.value.length === 0) {
     await store.refreshScribbles()
@@ -79,7 +75,7 @@ async function load() {
 }
 
 async function save() {
-  if (!store.db.isAvailable || saving.value || !canSave.value) return
+  if (saving.value || !canSave.value) return
   saving.value = true
   try {
     await store.db.updateScribble({

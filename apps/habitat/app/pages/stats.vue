@@ -17,10 +17,6 @@ const sixMonthsAgo = (() => {
 })()
 
 async function load() {
-  if (!db.isAvailable) {
-    loading.value = false
-    return
-  }
   const [h, c, l] = await Promise.all([
     db.getHabits(),
     db.getCompletionsForDateRange(sixMonthsAgo, today),

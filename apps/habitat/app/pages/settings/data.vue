@@ -107,7 +107,6 @@ function validateExportFk(): string[] {
 }
 
 async function downloadJson() {
-  if (!db.isAvailable) return
   exportErrors.value = validateExportFk()
   if (exportErrors.value.length > 0) return
   exporting.value = true
@@ -136,7 +135,6 @@ async function downloadJson() {
 const exportingDb = ref(false)
 
 async function exportSqlite() {
-  if (!db.isAvailable) return
   exportingDb.value = true
   try {
     const bytes = await db.exportDb()
@@ -207,7 +205,7 @@ function reloadPage() {
 }
 
 async function confirmImport() {
-  if (!importPreview.value || !db.isAvailable) return
+  if (!importPreview.value) return
   importing.value = true
   try {
     await db.importJson(importPreview.value)
@@ -274,7 +272,7 @@ async function exportJotsZip() {
   try {
     const files: Record<string, Uint8Array> = {}
 
-    if (jotsExportSel.text && db.isAvailable) {
+    if (jotsExportSel.text) {
       const textJots = await db.getScribbles()
       const json = JSON.stringify(
         { version: 1, exported_at: new Date().toISOString(), text: textJots },
@@ -408,7 +406,7 @@ const nothingSelected = computed(
 )
 
 async function clearAppData() {
-  if (!db.isAvailable || nothingSelected.value) return
+  if (nothingSelected.value) return
   clearing.value = true
   try {
     const ops: Promise<unknown>[] = []
@@ -451,7 +449,6 @@ async function fullWipe(reload: boolean): Promise<void> {
 }
 
 async function nukeOpfs(reload: boolean) {
-  if (!db.isAvailable) return
   nuking.value = true
   try {
     await fullWipe(reload)
@@ -486,7 +483,6 @@ async function nukeOpfs(reload: boolean) {
             variant="ghost"
             color="neutral"
             size="sm"
-            :disabled="!db.isAvailable"
             @click="openExportModal"
           />
         </div>
@@ -502,7 +498,6 @@ async function nukeOpfs(reload: boolean) {
             variant="ghost"
             color="neutral"
             size="sm"
-            :disabled="!db.isAvailable"
             @click="openImport"
           />
         </div>
@@ -518,7 +513,6 @@ async function nukeOpfs(reload: boolean) {
             color="neutral"
             size="sm"
             :loading="exportingDb"
-            :disabled="!db.isAvailable"
             @click="exportSqlite"
           />
         </div>
@@ -549,15 +543,10 @@ async function nukeOpfs(reload: boolean) {
             <p class="text-sm font-medium text-red-400">Clear app data</p>
             <p class="text-xs text-(--ui-text-dimmed)">Selectively delete habits, check-ins, scribbles, or voice notes.</p>
           </div>
-          <span
-            class="shrink-0"
-            :class="!db.isAvailable ? 'cursor-not-allowed' : ''"
-            :title="!db.isAvailable ? 'Database not ready' : undefined"
-          >
+          <span class="shrink-0">
             <UButton
               icon="i-heroicons-trash"
               variant="ghost" color="error" size="sm"
-              :disabled="!db.isAvailable"
               @click="showClearModal = true"
             />
           </span>
@@ -568,15 +557,10 @@ async function nukeOpfs(reload: boolean) {
             <p class="text-sm font-medium text-red-400">Clear OPFS storage</p>
             <p class="text-xs text-(--ui-text-dimmed)">Wipe all on-device file system storage including the database.</p>
           </div>
-          <span
-            class="shrink-0"
-            :class="!db.isAvailable ? 'cursor-not-allowed' : ''"
-            :title="!db.isAvailable ? 'Database not ready' : undefined"
-          >
+          <span class="shrink-0">
             <UButton
               icon="i-heroicons-fire"
               variant="ghost" color="error" size="sm"
-              :disabled="!db.isAvailable"
               @click="showNukeModal = true"
             />
           </span>

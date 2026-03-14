@@ -1,5 +1,54 @@
 import type { Todo } from '~/types/database'
 
+// ─── Form types + payload builders ───────────────────────────────────────────
+
+export interface TodoFormState {
+  title: string
+  description: string
+  due_date: string
+  priority: 'high' | 'medium' | 'low'
+  estimated_minutes: string | number
+  is_recurring: boolean
+  recurrence_rule: 'daily' | 'weekly' | 'monthly'
+  show_in_bored: boolean
+  bored_category_id: string
+  tags: string
+}
+
+/** Returns null if valid, error message string if invalid. */
+export function validateTodoForm(form: Pick<TodoFormState, 'title'>): string | null {
+  if (!form.title.trim()) return 'Title is required'
+  return null
+}
+
+/**
+ * Transforms a raw form state into the payload shape expected by createTodo/updateTodo.
+ * Pass `existingAnnotations` when editing (preserves annotations); pass null when creating.
+ */
+export function buildTodoPayload(
+  form: TodoFormState,
+  existingAnnotations: Record<string, string> | null,
+) {
+  const mins = form.estimated_minutes !== '' ? Number(form.estimated_minutes) : null
+  const tags = form.tags
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
+  return {
+    title: form.title.trim(),
+    description: form.description.trim(),
+    due_date: form.due_date || null,
+    priority: form.priority,
+    estimated_minutes: mins,
+    is_recurring: form.is_recurring,
+    recurrence_rule: form.is_recurring ? form.recurrence_rule : null,
+    show_in_bored: form.show_in_bored,
+    bored_category_id: form.show_in_bored && form.bored_category_id ? form.bored_category_id : null,
+    tags,
+    annotations: existingAnnotations ? { ...existingAnnotations } : ({} as Record<string, string>),
+  }
+}
+
 /** Tailwind background-color class for a todo priority level. */
 export function priorityColor(p: string): string {
   if (p === 'high') return 'bg-red-500'

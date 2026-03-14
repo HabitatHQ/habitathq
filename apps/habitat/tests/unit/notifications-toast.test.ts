@@ -25,7 +25,6 @@ import { useNotifications } from '~/composables/useNotifications'
 
 const mockToastAdd = vi.fn()
 const dbStub = {
-  isAvailable: true,
   getHabits: vi.fn().mockResolvedValue([]),
   getAllReminders: vi.fn().mockResolvedValue([]),
   getAllCheckinReminders: vi.fn().mockResolvedValue([]),

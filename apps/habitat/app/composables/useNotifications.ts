@@ -297,17 +297,6 @@ export function useNotifications() {
 
     const db = useDatabase()
 
-    let retries = 0
-    while (!db.isAvailable && retries < 10) {
-      notifLog('schedule', `DB not ready, retry ${retries + 1}`)
-      await new Promise((r) => setTimeout(r, 500))
-      retries++
-    }
-    if (!db.isAvailable) {
-      notifLog('schedule', 'DB not available after retries — aborting')
-      return
-    }
-
     const [habits, reminders, checkinReminders, templates] = await Promise.all([
       db.getHabits(),
       db.getAllReminders(),
@@ -423,16 +412,6 @@ export function useNotifications() {
     }
 
     const db = useDatabase()
-    let retries = 0
-    while (!db.isAvailable && retries < 10) {
-      notifLog('webSchedule', `DB not ready, retry ${retries + 1}`)
-      await new Promise((r) => setTimeout(r, 500))
-      retries++
-    }
-    if (!db.isAvailable) {
-      notifLog('webSchedule', 'DB not available after retries — aborting')
-      return
-    }
 
     const [habits, reminders, checkinReminders, templates] = await Promise.all([
       db.getHabits(),

@@ -52,8 +52,6 @@ onMounted(async () => {
     return
   }
 
-  if (!db.isAvailable) return
-
   // ── 3. Request persistent storage once (tracked in applied_defaults) ────
   const persistKey = 'storage:persist_requested'
   if (!(await db.isDefaultApplied(persistKey))) {

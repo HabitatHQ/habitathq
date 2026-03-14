@@ -52,7 +52,6 @@ const dbInfoLoading = ref(false)
 const expandedTable = ref<string | null>(null)
 
 async function loadDbInfo() {
-  if (!db.isAvailable) return
   dbInfoLoading.value = true
   try {
     dbInfo.value = await db.getDbInfo()
@@ -72,7 +71,6 @@ const integrityResults = ref<string[] | null>(null)
 const integrityLoading = ref(false)
 
 async function runIntegrityCheck() {
-  if (!db.isAvailable) return
   integrityLoading.value = true
   integrityResults.value = null
   try {
@@ -345,14 +343,10 @@ async function forceReload() {
               </ul>
             </div>
           </div>
-          <span
-            class="shrink-0"
-            :class="!db.isAvailable ? 'cursor-not-allowed' : ''"
-            :title="!db.isAvailable ? 'Database not ready' : undefined"
-          >
+          <span class="shrink-0">
             <UButton
               size="sm" variant="ghost" color="neutral"
-              :loading="integrityLoading" :disabled="!db.isAvailable"
+              :loading="integrityLoading"
               icon="i-heroicons-shield-check"
               @click="runIntegrityCheck"
             />
