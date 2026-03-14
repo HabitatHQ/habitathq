@@ -459,13 +459,15 @@ function jotKindIcon(kind: string | undefined): string {
         <!-- List / Calendar toggle -->
         <div class="flex bg-(--ui-bg-elevated) rounded-lg p-0.5 gap-0.5">
           <button
-            class="p-1.5 rounded-md transition-colors"
+            class="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md transition-colors"
             :class="!calendarView ? 'bg-(--ui-bg) text-(--ui-text) shadow-sm' : 'text-(--ui-text-dimmed) hover:text-(--ui-text-toned)'"
+            aria-label="List view"
             @click="calendarView = false"
           ><UIcon name="i-heroicons-list-bullet" class="w-4 h-4" /></button>
           <button
-            class="p-1.5 rounded-md transition-colors"
+            class="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md transition-colors"
             :class="calendarView ? 'bg-(--ui-bg) text-(--ui-text) shadow-sm' : 'text-(--ui-text-dimmed) hover:text-(--ui-text-toned)'"
+            aria-label="Calendar view"
             @click="calendarView = true"
           ><UIcon name="i-heroicons-calendar-days" class="w-4 h-4" /></button>
         </div>
@@ -665,8 +667,8 @@ function jotKindIcon(kind: string | undefined): string {
 
             <!-- Actions -->
             <div class="flex flex-col gap-1 shrink-0">
-              <UButton variant="ghost" color="neutral" size="sm" icon="i-heroicons-pencil" @click="openEdit(todo)" />
-              <UButton variant="ghost" color="neutral" size="sm" icon="i-heroicons-archive-box" @click="confirmArchiveTodo = todo" />
+              <UButton variant="ghost" color="neutral" size="sm" icon="i-heroicons-pencil" class="min-h-[44px]" aria-label="Edit todo" @click="openEdit(todo)" />
+              <UButton variant="ghost" color="neutral" size="sm" icon="i-heroicons-archive-box" class="min-h-[44px]" aria-label="Archive todo" @click="confirmArchiveTodo = todo" />
             </div>
           </li>
         </ul>

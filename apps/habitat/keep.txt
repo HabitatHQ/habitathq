@@ -1,0 +1,30 @@
+Home
+• A non compelling and non stressful way to convey Today's progress
+
+
+Jots
+• Allow adding just URLs to jots. The tile will show a rich link preview / metadata card
+• Lists
+
+Health
+- Add - get up and take a walk
+
+Settings
+-  Create tabs?? 
+-  Reorganise sections and items
+-  Add options to configure I'm Bored- Toggle scroll easter egg;  Toggle show on Home tab
+- Revisit annotations and tags - intuitive examples to help users get started with metadata
+- Should we add a small note in the last tab for the philosophy driving Habitat?
+
+on Insights
+- Allow option to export just insights- personal report 
+- Option to export anonymous insights and share with development team 
+
+on Licensing
+- Free to use locally, pay for sync + integrations + push notifications (anything requiring a backend)
+
+Streaks:
+- Unbreakable streaks: Streaks only increment (better name: Growth?).
+- Frozen streaks: Streaks get frozen when broken. Do two days in a row to unfreeze.
+
+Improve the sprout logo and animation

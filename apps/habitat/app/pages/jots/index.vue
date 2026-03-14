@@ -156,8 +156,9 @@ onUnmounted(() => {
 
     <header class="flex items-center justify-between">
       <h2 class="text-2xl font-bold">Jots</h2>
-      <div v-if="timeline.length > 0" class="flex items-center gap-1.5">
+      <div class="flex items-center gap-1.5">
         <UButton
+          v-if="timeline.length > 0"
           :icon="gridView ? 'i-heroicons-list-bullet' : 'i-heroicons-squares-2x2'"
           size="sm"
           color="neutral"
@@ -183,8 +184,9 @@ onUnmounted(() => {
     <!-- Empty state — full ring inline -->
     <section
       v-if="timeline.length === 0"
-      class="flex flex-col items-center justify-center py-8"
+      class="flex flex-col items-center justify-center py-8 gap-4"
     >
+      <p class="text-sm text-(--ui-text-dimmed)">No jots yet. Add your first note, voice memo, or photo.</p>
       <JotsRing @select="onRingSelect" />
     </section>
 
@@ -481,7 +483,7 @@ onUnmounted(() => {
         <div class="h-full overflow-y-auto p-5 space-y-5">
           <div class="flex items-center justify-between">
             <h3 class="text-base font-semibold">New Jot</h3>
-            <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" @click="showPickSheet = false" />
+            <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" aria-label="Close" @click="showPickSheet = false" />
           </div>
           <div class="flex flex-col items-center justify-center pt-8">
             <JotsRing class="hidden sm:flex" @select="onRingSelect" />

@@ -204,7 +204,11 @@ test.describe('Padding & overflow', () => {
       await btn.click()
       await page.waitForTimeout(400)
 
-      const modal = page.locator('.rounded-t-3xl, .rounded-2xl').first()
+      // Scope to modal overlay card only — avoid matching list-item .rounded-2xl cards
+      let modal = page.locator('.fixed.inset-0 > .rounded-t-3xl').first()
+      if (!(await modal.isVisible().catch(() => false))) {
+        modal = page.locator('[role="dialog"] > div').first()
+      }
       const visible = await modal.isVisible().catch(() => false)
       if (!visible) continue
 

@@ -36,7 +36,7 @@ test.describe('Matrix page', () => {
     await page.goto('/matrix')
     await page.waitForLoadState('networkidle')
 
-    await expect(page.getByText('No habits yet')).toBeVisible({ timeout: 10000 })
+    await expect(page.getByText('No habits to display')).toBeVisible({ timeout: 10000 })
     await expect(page.getByRole('link', { name: 'Add habits' })).toBeVisible()
   })
 
@@ -53,14 +53,16 @@ test.describe('Matrix page', () => {
   test('nav label is "Month" on desktop', async ({ page }) => {
     await page.goto('/matrix')
     await page.waitForLoadState('networkidle')
-    // The nav button linking to /matrix should be labelled "Month" at desktop width
-    await expect(page.locator('nav').getByText('Month')).toBeVisible()
+    // Matrix is accessed via the avatar/profile dropdown, not the bottom nav.
+    // On desktop the page heading shows "Month".
+    await expect(page.getByRole('heading', { name: 'Month' })).toBeVisible()
   })
 
   test('nav label is "Week" on mobile', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/matrix')
     await page.waitForLoadState('networkidle')
-    await expect(page.locator('nav').getByText('Week')).toBeVisible()
+    // On mobile the page heading shows "Week".
+    await expect(page.getByRole('heading', { name: 'Week' })).toBeVisible()
   })
 })

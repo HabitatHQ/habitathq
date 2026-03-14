@@ -330,14 +330,16 @@ async function toggle(habit: HabitWithSchedule) {
         title: `"${habit.name}" completed`,
         color: 'success',
         duration: 4000,
-        actions: [{
-          label: 'Undo',
-          click: async () => {
-            await db.toggleCompletion(habit.id, today)
-            completions.value = await db.getCompletionsForDate(today)
-            weekCompletions.value = await db.getCompletionsForDateRange(weekStart, today)
+        actions: [
+          {
+            label: 'Undo',
+            click: async () => {
+              await db.toggleCompletion(habit.id, today)
+              completions.value = await db.getCompletionsForDate(today)
+              weekCompletions.value = await db.getCompletionsForDateRange(weekStart, today)
+            },
           },
-        }],
+        ],
       })
     }
   } finally {

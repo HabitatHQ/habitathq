@@ -116,8 +116,9 @@ test.describe('Issue #9 — bored filter chips ≥ 44px', () => {
   })
 
   test('category chips meet 44px minimum', async ({ page }) => {
-    // Category chips are inside the chip row — find all buttons in that section
-    const chips = page.locator('button.rounded-full').filter({ hasNot: page.locator('[aria-label]') })
+    // Category chips are small pill buttons — find buttons with rounded-full that contain
+    // text content (category names) rather than only icons (profile menu has no text)
+    const chips = page.locator('button.rounded-full').filter({ hasText: /\S/ }).filter({ hasNot: page.locator('[aria-label]') })
     const count = await chips.count()
     if (count === 0) { test.skip(); return }
 
@@ -392,8 +393,12 @@ test.describe('Issue #12 — modal card padding is p-5 (20px) on all pages', () 
     await btn.click()
     await page.waitForTimeout(400)
 
-    // Find the modal card — UModal uses [role=dialog] or .rounded-t-3xl / .rounded-2xl
-    const card = page.locator('[role="dialog"] > div, .rounded-t-3xl, .rounded-2xl').first()
+    // Find the modal card — custom bottom-sheets use .fixed.inset-0 > .rounded-t-3xl,
+    // UModal uses [role=dialog] > div. Avoid matching list-item cards (.rounded-2xl).
+    let card = page.locator('.fixed.inset-0 > .rounded-t-3xl').first()
+    if (!(await card.isVisible().catch(() => false))) {
+      card = page.locator('[role="dialog"] > div').first()
+    }
     const cardVisible = await card.isVisible().catch(() => false)
     if (!cardVisible) { test.skip(); return }
 

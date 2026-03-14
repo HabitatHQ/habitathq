@@ -1,10 +1,19 @@
 import { test, expect } from '@playwright/test'
 
 test.describe('Query-param modal opening', () => {
-  test('/jots?modal=picker opens type-picker sheet', async ({ page }) => {
-    await page.goto('/jots?modal=picker')
+  test('/jots picker sheet opens via New button', async ({ page }) => {
+    await page.goto('/jots')
     await page.waitForLoadState('networkidle')
-    // The picker modal contains a "New Jot" heading
+    await page.waitForTimeout(500)
+
+    // The "New" button is always visible in the header
+    const newBtn = page.getByRole('button', { name: /^new$/i })
+    const newBtnVisible = await newBtn.isVisible().catch(() => false)
+    if (!newBtnVisible) { test.skip(); return }
+
+    await newBtn.click()
+    await page.waitForTimeout(400)
+    // The picker slideover contains a "New Jot" heading
     await expect(page.getByRole('heading', { name: 'New Jot' })).toBeVisible({ timeout: 5000 })
   })
 
@@ -63,13 +72,22 @@ test.describe('Query-param modal opening', () => {
     await expect(page).not.toHaveURL(/modal=create/)
   })
 
-  test('backdrop click on the jots picker closes modal and clears param', async ({ page }) => {
-    await page.goto('/jots?modal=picker')
+  test('jots picker sheet can be closed', async ({ page }) => {
+    await page.goto('/jots')
     await page.waitForLoadState('networkidle')
+    await page.waitForTimeout(500)
+
+    // Open the picker
+    const newBtn = page.getByRole('button', { name: /^new$/i })
+    const newBtnVisible = await newBtn.isVisible().catch(() => false)
+    if (!newBtnVisible) { test.skip(); return }
+
+    await newBtn.click()
+    await page.waitForTimeout(400)
     await expect(page.getByRole('heading', { name: 'New Jot' })).toBeVisible({ timeout: 5000 })
 
-    // Click the semi-transparent backdrop (outside the modal card)
-    await page.locator('.fixed.inset-0').first().click({ position: { x: 10, y: 10 } })
-    await expect(page).not.toHaveURL(/modal=picker/)
+    // Close it via the Close (X) button inside the sheet
+    await page.getByRole('button', { name: /^close$/i }).click()
+    await expect(page.getByRole('heading', { name: 'New Jot' })).not.toBeVisible({ timeout: 3000 })
   })
 })

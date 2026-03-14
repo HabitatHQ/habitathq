@@ -489,14 +489,18 @@ function toggleColorMode() {
         <!-- Avatar menu -->
         <div class="relative">
           <button
-            class="w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 border-2"
-            :class="showAvatarMenu || isActive('/settings') || isActive('/stats') || isActive('/matrix')
-              ? 'border-primary-500 bg-primary-500/15 text-primary-400'
-              : 'border-(--ui-border-accented) text-(--ui-text-muted) hover:border-(--ui-border-accented) hover:text-(--ui-text)'"
+            class="min-w-[44px] min-h-[44px] flex items-center justify-center transition-all duration-200"
             aria-label="Profile menu"
             @click="showAvatarMenu = !showAvatarMenu"
           >
-            <UIcon name="i-heroicons-user-circle" class="w-5 h-5" />
+            <span
+              class="w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all duration-200"
+              :class="showAvatarMenu || isActive('/settings') || isActive('/stats') || isActive('/matrix')
+                ? 'border-primary-500 bg-primary-500/15 text-primary-400'
+                : 'border-(--ui-border-accented) text-(--ui-text-muted) hover:border-(--ui-border-accented) hover:text-(--ui-text)'"
+            >
+              <UIcon name="i-heroicons-user-circle" class="w-5 h-5" />
+            </span>
           </button>
           <!-- Backdrop -->
           <div

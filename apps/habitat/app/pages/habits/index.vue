@@ -140,7 +140,12 @@ function validateSchedule(): string | null {
 watch([() => form.type, () => form.schedule_type, () => form.frequency_count], () => {
   scheduleError.value = null
 })
-watch(() => form.name, () => { nameError.value = null })
+watch(
+  () => form.name,
+  () => {
+    nameError.value = null
+  },
+)
 
 async function loadHabits() {
   if (!db.isAvailable) return
