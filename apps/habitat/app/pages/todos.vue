@@ -294,9 +294,15 @@ async function saveTodo() {
 }
 
 async function archiveTodo(t: Todo) {
-  await db.archiveTodo(t.id)
-  todos.value = todos.value.filter((x) => x.id !== t.id)
-  confirmArchiveTodo.value = null
+  try {
+    await db.archiveTodo(t.id)
+    todos.value = todos.value.filter((x) => x.id !== t.id)
+    confirmArchiveTodo.value = null
+    toast.add({ title: 'Todo archived', color: 'success', duration: 2000 })
+  } catch (err) {
+    console.error('[archiveTodo]', err)
+    toast.add({ title: 'Failed to archive todo', color: 'error', duration: 4000 })
+  }
 }
 
 async function deleteTodoItem(t: Todo) {

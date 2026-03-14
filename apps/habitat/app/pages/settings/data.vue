@@ -3,6 +3,7 @@ import { zipSync } from 'fflate'
 import type { ExportSelection, HabitatExport } from '~/types/database'
 
 const db = useDatabase()
+const toast = useToast()
 
 // ─── JSON export ───────────────────────────────────────────────────────────────
 
@@ -422,6 +423,9 @@ async function clearAppData() {
     if (clearSelection.voiceNotes) await clearIdb()
     if (clearSelection.habits) localStorage.removeItem('habitat-has-data')
     showClearModal.value = false
+  } catch (err) {
+    console.error('[clearAppData]', err)
+    toast.add({ title: 'Failed to clear data', color: 'error', duration: 4000 })
   } finally {
     clearing.value = false
   }
@@ -452,8 +456,14 @@ async function nukeOpfs(reload: boolean) {
   nuking.value = true
   try {
     await fullWipe(reload)
-  } catch {
-    showNukeModal.value = false
+  } catch (err) {
+    console.error('[nukeOpfs]', err)
+    toast.add({
+      title: 'Failed to wipe data',
+      description: 'Try reloading and trying again.',
+      color: 'error',
+      duration: 5000,
+    })
   } finally {
     nuking.value = false
   }

@@ -7,6 +7,7 @@ import type {
 } from '~/types/database'
 
 const db = useDatabase()
+const toast = useToast()
 const route = useRoute()
 const templateId = computed(() => route.params.id as string)
 
@@ -151,6 +152,9 @@ async function addQuestion() {
     newPrompt.value = ''
     newResponseType.value = 'TEXT'
     showAddQuestion.value = false
+  } catch (err) {
+    console.error('[addQuestion]', err)
+    toast.add({ title: 'Failed to add question', color: 'error', duration: 4000 })
   } finally {
     addingQuestion.value = false
   }
@@ -164,6 +168,9 @@ async function deleteQuestion(qid: string) {
     questions.value = questions.value.filter((q) => q.id !== qid)
     responses.value.delete(qid)
     delete textValues[qid]
+  } catch (err) {
+    console.error('[deleteQuestion]', err)
+    toast.add({ title: 'Failed to delete question', color: 'error', duration: 4000 })
   } finally {
     deletingQuestion.delete(qid)
   }

@@ -132,6 +132,7 @@ async function deleteCategory(c: BoredCategory) {
   try {
     await db.deleteBoredCategory(c.id)
     await load()
+    toast.add({ title: 'Category deleted', color: 'success', duration: 2000 })
   } catch (err) {
     console.error('[deleteCategory]', err)
     toast.add({ title: 'Failed to delete category', color: 'error', duration: 4000 })
@@ -170,6 +171,7 @@ async function deleteActivity(a: BoredActivity) {
   try {
     await db.deleteBoredActivity(a.id)
     await load()
+    toast.add({ title: 'Activity deleted', color: 'success', duration: 2000 })
   } catch (err) {
     console.error('[deleteActivity]', err)
     toast.add({ title: 'Failed to delete activity', color: 'error', duration: 4000 })
@@ -178,13 +180,18 @@ async function deleteActivity(a: BoredActivity) {
   }
 }
 
+const confirmArchiveActivity = ref<BoredActivity | null>(null)
+
 async function archiveActivity(a: BoredActivity) {
   try {
     await db.archiveBoredActivity(a.id)
     await load()
+    toast.add({ title: 'Activity archived', color: 'success', duration: 2000 })
   } catch (err) {
     console.error('[archiveActivity]', err)
     toast.add({ title: 'Failed to archive activity', color: 'error', duration: 4000 })
+  } finally {
+    confirmArchiveActivity.value = null
   }
 }
 </script>
@@ -256,7 +263,7 @@ async function archiveActivity(a: BoredActivity) {
           </div>
           <div class="flex items-center gap-1 ml-2 shrink-0">
             <UButton variant="ghost" color="neutral" size="sm" icon="i-heroicons-pencil" @click="openEditActivity(act)" />
-            <UButton variant="ghost" color="neutral" size="sm" icon="i-heroicons-archive-box" @click="archiveActivity(act)" />
+            <UButton variant="ghost" color="neutral" size="sm" icon="i-heroicons-archive-box" @click="confirmArchiveActivity = act" />
             <UButton variant="ghost" color="error" size="sm" icon="i-heroicons-trash" @click="confirmDeleteActivity = act" />
           </div>
         </div>
@@ -379,6 +386,20 @@ async function archiveActivity(a: BoredActivity) {
       @confirm="confirmDeleteCategory && deleteCategory(confirmDeleteCategory)"
       @cancel="confirmDeleteCategory = null"
       @update:open="(open) => !open && (confirmDeleteCategory = null)"
+    />
+
+    <!-- Archive activity confirm -->
+    <ConfirmDialog
+      :open="!!confirmArchiveActivity"
+      icon="i-heroicons-archive-box"
+      icon-color="amber"
+      :title="`Archive &quot;${confirmArchiveActivity?.title}&quot;?`"
+      message="Archived activities won't appear in the oracle."
+      confirm-label="Archive"
+      confirm-color="warning"
+      @confirm="confirmArchiveActivity && archiveActivity(confirmArchiveActivity)"
+      @cancel="confirmArchiveActivity = null"
+      @update:open="(open) => !open && (confirmArchiveActivity = null)"
     />
   </div>
 </template>

@@ -124,6 +124,9 @@ async function deleteLog(id: string) {
   try {
     await db.deleteHabitLog(id)
     habitLogs.value = habitLogs.value.filter((l) => l.id !== id)
+  } catch (err) {
+    console.error('[deleteLog]', err)
+    toast.add({ title: 'Failed to delete log entry', color: 'error', duration: 4000 })
   } finally {
     deletingLog.delete(id)
   }
