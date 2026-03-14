@@ -8,6 +8,7 @@ export type {
   BlobGetFormat,
   BlobGetResult,
 } from "./blob-adapter.js";
+export { convertBlobBytes } from "./blob-format.js";
 export type { Hlc } from "./hlc.js";
 export { compareHlc, createHlc, hlcFromString, hlcToString, recvHlc, sendHlc } from "./hlc.js";
 
