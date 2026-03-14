@@ -672,9 +672,7 @@ function jotKindIcon(kind: string | undefined): string {
     </template><!-- end list view -->
 
     <!-- Add/Edit modal -->
-    <div v-if="showModal" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-      <div class="modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm" @click="showModal = false" />
-      <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90dvh] overflow-y-auto overscroll-contain scroll-shadow">
+    <AppModal :open="showModal" @close="showModal = false">
         <h2 class="text-lg font-semibold">{{ editingTodo ? 'Edit TODO' : 'New TODO' }}</h2>
 
         <div class="space-y-3">
@@ -826,49 +824,35 @@ function jotKindIcon(kind: string | undefined): string {
           <UButton color="primary" class="flex-1" @click="saveTodo">Save</UButton>
         </div>
         <div class="safe-area-bottom" aria-hidden="true" />
-      </div>
-    </div>
+    </AppModal>
+
     <!-- Archive confirm -->
-    <UModal :open="!!confirmArchiveTodo" @update:open="(open) => !open && (confirmArchiveTodo = null)">
-      <template #content>
-        <div class="p-5 space-y-4">
-          <div class="flex items-start gap-3">
-            <div class="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center flex-shrink-0">
-              <UIcon name="i-heroicons-archive-box" class="w-5 h-5 text-amber-400" />
-            </div>
-            <div class="space-y-1">
-              <p class="font-semibold">Archive "{{ confirmArchiveTodo?.title }}"?</p>
-              <p class="text-sm text-(--ui-text-muted)">This todo will be moved to your archive.</p>
-            </div>
-          </div>
-          <div class="flex justify-end gap-2">
-            <UButton variant="ghost" color="neutral" @click="confirmArchiveTodo = null">Cancel</UButton>
-            <UButton color="warning" @click="confirmArchiveTodo && archiveTodo(confirmArchiveTodo)">Archive</UButton>
-          </div>
-        </div>
-      </template>
-    </UModal>
+    <ConfirmDialog
+      :open="!!confirmArchiveTodo"
+      icon="i-heroicons-archive-box"
+      icon-color="amber"
+      :title="`Archive &quot;${confirmArchiveTodo?.title}&quot;?`"
+      message="This todo will be moved to your archive."
+      confirm-label="Archive"
+      confirm-color="warning"
+      @confirm="confirmArchiveTodo && archiveTodo(confirmArchiveTodo)"
+      @cancel="confirmArchiveTodo = null"
+      @update:open="(open) => !open && (confirmArchiveTodo = null)"
+    />
 
     <!-- Delete confirm -->
-    <UModal :open="!!confirmDeleteTodo" @update:open="(open) => !open && (confirmDeleteTodo = null)">
-      <template #content>
-        <div class="p-5 space-y-4">
-          <div class="flex items-start gap-3">
-            <div class="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0">
-              <UIcon name="i-heroicons-trash" class="w-5 h-5 text-red-400" />
-            </div>
-            <div class="space-y-1">
-              <p class="font-semibold">Delete "{{ confirmDeleteTodo?.title }}"?</p>
-              <p class="text-sm text-(--ui-text-muted)">This cannot be undone. The todo will be permanently removed.</p>
-            </div>
-          </div>
-          <div class="flex justify-end gap-2">
-            <UButton variant="ghost" color="neutral" @click="confirmDeleteTodo = null">Cancel</UButton>
-            <UButton color="error" @click="confirmDeleteTodo && deleteAndClose(confirmDeleteTodo)">Delete</UButton>
-          </div>
-        </div>
-      </template>
-    </UModal>
+    <ConfirmDialog
+      :open="!!confirmDeleteTodo"
+      icon="i-heroicons-trash"
+      icon-color="red"
+      :title="`Delete &quot;${confirmDeleteTodo?.title}&quot;?`"
+      message="This cannot be undone. The todo will be permanently removed."
+      confirm-label="Delete"
+      confirm-color="error"
+      @confirm="confirmDeleteTodo && deleteAndClose(confirmDeleteTodo)"
+      @cancel="confirmDeleteTodo = null"
+      @update:open="(open) => !open && (confirmDeleteTodo = null)"
+    />
 
   </div>
 </template>

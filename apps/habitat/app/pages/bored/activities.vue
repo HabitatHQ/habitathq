@@ -279,9 +279,7 @@ async function archiveActivity(a: BoredActivity) {
     </UButton>
 
     <!-- Category modal -->
-    <div v-if="showCategoryModal" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-      <div class="modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm" @click="showCategoryModal = false" />
-      <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90dvh] overflow-y-auto overscroll-contain">
+    <AppModal :open="showCategoryModal" @close="showCategoryModal = false">
         <h2 class="text-lg font-semibold">{{ editingCategory ? 'Edit Category' : 'New Category' }}</h2>
         <div class="space-y-3">
           <UFormField label="Name" required>
@@ -306,13 +304,10 @@ async function archiveActivity(a: BoredActivity) {
           <UButton color="primary" class="flex-1" :loading="saving" @click="saveCategory">Save</UButton>
         </div>
         <div class="safe-area-bottom" aria-hidden="true" />
-      </div>
-    </div>
+    </AppModal>
 
     <!-- Activity modal -->
-    <div v-if="showActivityModal" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-      <div class="modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm" @click="showActivityModal = false" />
-      <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90dvh] overflow-y-auto overscroll-contain">
+    <AppModal :open="showActivityModal" @close="showActivityModal = false">
         <h2 class="text-lg font-semibold">{{ editingActivity ? 'Edit Activity' : 'New Activity' }}</h2>
         <div class="space-y-3">
           <UFormField label="Title" required>
@@ -356,49 +351,34 @@ async function archiveActivity(a: BoredActivity) {
           <UButton color="primary" class="flex-1" :loading="saving" @click="saveActivity">Save</UButton>
         </div>
         <div class="safe-area-bottom" aria-hidden="true" />
-      </div>
-    </div>
+    </AppModal>
 
     <!-- Delete activity confirm -->
-    <UModal :open="!!confirmDeleteActivity" @update:open="(open) => !open && (confirmDeleteActivity = null)">
-      <template #content>
-        <div class="p-5 space-y-4">
-          <div class="flex items-start gap-3">
-            <div class="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0">
-              <UIcon name="i-heroicons-trash" class="w-5 h-5 text-red-400" />
-            </div>
-            <div class="space-y-1">
-              <p class="font-semibold">Delete "{{ confirmDeleteActivity?.title }}"?</p>
-              <p class="text-sm text-(--ui-text-muted)">This cannot be undone.</p>
-            </div>
-          </div>
-          <div class="flex justify-end gap-2">
-            <UButton variant="ghost" color="neutral" @click="confirmDeleteActivity = null">Cancel</UButton>
-            <UButton color="error" @click="confirmDeleteActivity && deleteActivity(confirmDeleteActivity)">Delete</UButton>
-          </div>
-        </div>
-      </template>
-    </UModal>
+    <ConfirmDialog
+      :open="!!confirmDeleteActivity"
+      icon="i-heroicons-trash"
+      icon-color="red"
+      :title="`Delete &quot;${confirmDeleteActivity?.title}&quot;?`"
+      message="This cannot be undone."
+      confirm-label="Delete"
+      confirm-color="error"
+      @confirm="confirmDeleteActivity && deleteActivity(confirmDeleteActivity)"
+      @cancel="confirmDeleteActivity = null"
+      @update:open="(open) => !open && (confirmDeleteActivity = null)"
+    />
 
     <!-- Delete category confirm -->
-    <UModal :open="!!confirmDeleteCategory" @update:open="(open) => !open && (confirmDeleteCategory = null)">
-      <template #content>
-        <div class="p-5 space-y-4">
-          <div class="flex items-start gap-3">
-            <div class="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0">
-              <UIcon name="i-heroicons-trash" class="w-5 h-5 text-red-400" />
-            </div>
-            <div class="space-y-1">
-              <p class="font-semibold">Delete "{{ confirmDeleteCategory?.name }}"?</p>
-              <p class="text-sm text-(--ui-text-muted)">All activities in this category will also be deleted.</p>
-            </div>
-          </div>
-          <div class="flex justify-end gap-2">
-            <UButton variant="ghost" color="neutral" @click="confirmDeleteCategory = null">Cancel</UButton>
-            <UButton color="error" @click="confirmDeleteCategory && deleteCategory(confirmDeleteCategory)">Delete</UButton>
-          </div>
-        </div>
-      </template>
-    </UModal>
+    <ConfirmDialog
+      :open="!!confirmDeleteCategory"
+      icon="i-heroicons-trash"
+      icon-color="red"
+      :title="`Delete &quot;${confirmDeleteCategory?.name}&quot;?`"
+      message="All activities in this category will also be deleted."
+      confirm-label="Delete"
+      confirm-color="error"
+      @confirm="confirmDeleteCategory && deleteCategory(confirmDeleteCategory)"
+      @cancel="confirmDeleteCategory = null"
+      @update:open="(open) => !open && (confirmDeleteCategory = null)"
+    />
   </div>
 </template>

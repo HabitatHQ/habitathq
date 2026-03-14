@@ -57,16 +57,7 @@ onMounted(loadHabits)
   <div class="space-y-5">
 
     <!-- Back nav -->
-    <div class="flex items-center gap-2 -mb-1">
-      <UButton
-        icon="i-heroicons-arrow-left"
-        variant="ghost"
-        color="neutral"
-        size="sm"
-        to="/habits"
-      />
-      <span class="text-sm text-(--ui-text-dimmed)">Habits</span>
-    </div>
+    <BackNav to="/habits" label="Habits" />
 
     <header>
       <h2 class="text-2xl font-bold">Archive &amp; History</h2>
@@ -92,13 +83,12 @@ onMounted(loadHabits)
 
     <!-- ── Habits tab ──────────────────────────────────────────────────────────── -->
     <template v-if="tab === 'habits'">
-      <section
+      <EmptyState
         v-if="!loadingHabits && archivedHabits.length === 0"
-        class="flex flex-col items-center gap-3 py-12 text-center"
-      >
-        <UIcon name="i-heroicons-archive-box" class="w-8 h-8 text-slate-700" />
-        <p class="text-sm text-(--ui-text-dimmed)">No archived habits yet.</p>
-      </section>
+        icon="i-heroicons-archive-box"
+        title="No archived habits yet"
+        description="Habits you archive will appear here."
+      />
 
       <ul v-else class="space-y-2">
         <li
@@ -128,13 +118,12 @@ onMounted(loadHabits)
         <UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 animate-spin" />
         Loading…
       </div>
-      <section
+      <EmptyState
         v-else-if="checkinDays.length === 0"
-        class="flex flex-col items-center gap-3 py-12 text-center"
-      >
-        <UIcon name="i-heroicons-pencil-square" class="w-8 h-8 text-slate-700" />
-        <p class="text-sm text-(--ui-text-dimmed)">No check-in responses yet.</p>
-      </section>
+        icon="i-heroicons-pencil-square"
+        title="No check-in responses yet"
+        description="Completed check-ins will appear here."
+      />
 
       <ul v-else class="space-y-2">
         <li

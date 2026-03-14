@@ -310,16 +310,7 @@ onMounted(async () => {
   <div class="space-y-5">
 
     <!-- Back nav -->
-    <div class="flex items-center gap-2 -mb-1">
-      <UButton
-        icon="i-heroicons-arrow-left"
-        variant="ghost"
-        color="neutral"
-        size="sm"
-        to="/checkin"
-      />
-      <span class="text-sm text-(--ui-text-dimmed)">Check-in</span>
-    </div>
+    <BackNav to="/checkin" label="Check-ins" />
 
     <!-- Loading -->
     <div v-if="loading" class="flex items-center justify-center py-12">
@@ -557,19 +548,7 @@ onMounted(async () => {
           </div>
           <div class="space-y-1">
             <p class="text-[11px] text-(--ui-text-dimmed)">Days (leave blank for every day)</p>
-            <div class="flex gap-1.5">
-              <button
-                v-for="(label, i) in DAY_LABELS"
-                :key="i"
-                class="w-8 h-8 rounded-full text-xs font-medium border transition-colors"
-                :class="newReminderDays.includes(i)
-                  ? 'bg-primary-500/20 border-primary-500 text-primary-300'
-                  : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented)'"
-                @click="toggleNewReminderDay(i)"
-              >
-                {{ label }}
-              </button>
-            </div>
+            <DayPicker v-model="newReminderDays" :labels="CHECKIN_DAY_LABELS" />
           </div>
           <div class="flex justify-end gap-2">
             <UButton size="xs" variant="ghost" color="neutral" @click="showAddReminder = false">Cancel</UButton>
@@ -602,12 +581,7 @@ onMounted(async () => {
     </template>
 
     <!-- ── Edit modal ─────────────────────────────────────────────────────── -->
-    <div
-      v-if="showEdit"
-      class="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
-    >
-      <div class="modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm" @click="showEdit = false" />
-      <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[90dvh] overflow-y-auto overscroll-contain">
+    <AppModal :open="showEdit" @close="showEdit = false">
         <div class="flex items-center justify-between">
           <h3 class="font-semibold text-(--ui-text)">Edit Check-in</h3>
           <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" @click="showEdit = false" />
@@ -617,36 +591,15 @@ onMounted(async () => {
 
         <div class="space-y-1.5">
           <p class="text-xs text-(--ui-text-dimmed)">Schedule</p>
-          <div class="flex gap-1.5">
-            <button
-              v-for="sched in (['DAILY', 'WEEKLY', 'MONTHLY'] as const)"
-              :key="sched"
-              class="flex-1 py-1.5 text-xs font-medium rounded-lg border transition-colors"
-              :class="editSchedule === sched
-                ? 'bg-primary-500/20 border-primary-500 text-primary-300'
-                : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented) hover:text-(--ui-text-muted)'"
-              @click="editSchedule = sched"
-            >
-              {{ sched === 'DAILY' ? 'Daily' : sched === 'WEEKLY' ? 'Weekly' : 'Monthly' }}
-            </button>
-          </div>
+          <TypeSelector
+            v-model="editSchedule"
+            :options="[{value:'DAILY',label:'Daily'},{value:'WEEKLY',label:'Weekly'},{value:'MONTHLY',label:'Monthly'}]"
+          />
         </div>
 
         <div v-if="editSchedule === 'WEEKLY'" class="space-y-1.5">
           <p class="text-xs text-(--ui-text-dimmed)">Days (leave blank for every day)</p>
-          <div class="flex gap-1.5">
-            <button
-              v-for="(label, i) in DAY_LABELS"
-              :key="i"
-              class="w-8 h-8 rounded-full text-xs font-medium border transition-colors"
-              :class="editDays.includes(i)
-                ? 'bg-primary-500/20 border-primary-500 text-primary-300'
-                : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented)'"
-              @click="toggleEditDay(i)"
-            >
-              {{ label }}
-            </button>
-          </div>
+          <DayPicker v-model="editDays" :labels="CHECKIN_DAY_LABELS" />
         </div>
 
         <div class="flex justify-end gap-2 pt-1">
@@ -654,36 +607,21 @@ onMounted(async () => {
           <UButton size="sm" :disabled="saving" :loading="saving" @click="saveEdit">Save</UButton>
         </div>
         <div class="safe-area-bottom" aria-hidden="true" />
-      </div>
-    </div>
+    </AppModal>
 
-    <!-- ── Delete confirm modal ───────────────────────────────────────────── -->
-    <div
-      v-if="showDeleteConfirm"
-      class="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
-    >
-      <div class="modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm" @click="showDeleteConfirm = false" />
-      <div class="relative w-full sm:max-w-sm bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
-        <h3 class="font-semibold text-(--ui-text)">Delete check-in?</h3>
-        <p class="text-sm text-(--ui-text-muted)">
-          This will delete <span class="text-(--ui-text) font-medium">{{ template?.title }}</span>
-          along with all its questions and responses. This cannot be undone.
-        </p>
-        <div class="flex justify-end gap-2">
-          <UButton variant="ghost" color="neutral" size="sm" @click="showDeleteConfirm = false">Cancel</UButton>
-          <UButton
-            color="error"
-            size="sm"
-            :disabled="deleting"
-            :loading="deleting"
-            @click="deleteTemplate"
-          >
-            Delete
-          </UButton>
-        </div>
-        <div class="safe-area-bottom" aria-hidden="true" />
-      </div>
-    </div>
+    <!-- ── Delete confirm ─────────────────────────────────────────────────── -->
+    <ConfirmDialog
+      :open="showDeleteConfirm"
+      icon="i-heroicons-trash"
+      icon-color="red"
+      :title="`Delete &quot;${template?.title}&quot;?`"
+      message="This will delete the check-in along with all its questions and responses. This cannot be undone."
+      confirm-label="Delete"
+      confirm-color="error"
+      @confirm="deleteTemplate"
+      @cancel="showDeleteConfirm = false"
+      @update:open="(open) => !open && (showDeleteConfirm = false)"
+    />
 
   </div>
 </template>

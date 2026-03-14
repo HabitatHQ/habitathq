@@ -153,25 +153,15 @@ const editForm = reactive({
 })
 const saving = ref(false)
 
-const editTagInput = ref('')
+const {
+  tagInput: editTagInput,
+  addTag: addEditTag,
+  removeTag: removeEditTag,
+  onTagKeydown: onEditTagKeydown,
+} = useTagInput(editForm.tags)
 const editAnnotationEntries = ref<{ key: string; value: string }[]>([])
 const editShowAnnotations = ref(false)
 
-function addEditTag() {
-  const tag = editTagInput.value.replace(/,$/, '').trim()
-  if (tag && !tag.startsWith('habitat-') && !editForm.tags.includes(tag)) editForm.tags.push(tag)
-  editTagInput.value = ''
-}
-function removeEditTag(tag: string) {
-  const idx = editForm.tags.indexOf(tag)
-  if (idx >= 0) editForm.tags.splice(idx, 1)
-}
-function onEditTagKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter' || e.key === ',') {
-    e.preventDefault()
-    addEditTag()
-  }
-}
 function addEditAnnotationEntry() {
   editAnnotationEntries.value.push({ key: '', value: '' })
 }
@@ -194,16 +184,6 @@ function validateEditSchedule(): string | null {
 watch([() => editForm.type, () => editForm.schedule_type, () => editForm.frequency_count], () => {
   editScheduleError.value = null
 })
-
-function toggleEditDay(day: number) {
-  const idx = editForm.days_of_week.indexOf(day)
-  if (idx >= 0) {
-    editForm.days_of_week.splice(idx, 1)
-  } else {
-    editForm.days_of_week.push(day)
-    editForm.days_of_week.sort((a, b) => a - b)
-  }
-}
 
 function openEdit() {
   if (!habit.value) return
@@ -449,16 +429,7 @@ onMounted(load)
   <div class="space-y-5">
 
     <!-- Back nav -->
-    <div class="flex items-center gap-2 -mb-1">
-      <UButton
-        icon="i-heroicons-arrow-left"
-        variant="ghost"
-        color="neutral"
-        size="sm"
-        to="/habits"
-      />
-      <span class="text-sm text-(--ui-text-dimmed)">Habits</span>
-    </div>
+    <BackNav to="/habits" label="Habits" />
 
     <!-- Not found -->
     <div v-if="notFound" class="text-center py-12 text-(--ui-text-dimmed) text-sm">
@@ -498,26 +469,14 @@ onMounted(load)
       <div class="flex gap-3">
         <!-- BOOLEAN: streak -->
         <template v-if="habit.type === 'BOOLEAN'">
-          <UCard :ui="{ root: 'rounded-2xl flex-1', body: 'p-3 sm:p-3 space-y-0.5' }">
-            <p class="text-[11px] text-(--ui-text-dimmed)">Current streak</p>
-            <p class="text-2xl font-bold text-(--ui-text)">{{ currentStreak }} <span class="text-sm font-normal text-(--ui-text-dimmed)">days</span></p>
-          </UCard>
+          <StatCard label="Current streak" :value="`${currentStreak} days`" />
         </template>
         <!-- NUMERIC / LIMIT: total + avg -->
         <template v-else>
-          <UCard :ui="{ root: 'rounded-2xl flex-1', body: 'p-3 sm:p-3 space-y-0.5' }">
-            <p class="text-[11px] text-(--ui-text-dimmed)">Total logged</p>
-            <p class="text-2xl font-bold text-(--ui-text)">{{ totalLogged.toFixed(totalLogged % 1 === 0 ? 0 : 1) }}</p>
-          </UCard>
-          <UCard :ui="{ root: 'rounded-2xl flex-1', body: 'p-3 sm:p-3 space-y-0.5' }">
-            <p class="text-[11px] text-(--ui-text-dimmed)">Avg / day</p>
-            <p class="text-2xl font-bold text-(--ui-text)">{{ avgDailyValue }}</p>
-          </UCard>
+          <StatCard label="Total logged" :value="totalLogged.toFixed(totalLogged % 1 === 0 ? 0 : 1)" />
+          <StatCard label="Avg / day" :value="avgDailyValue" />
         </template>
-        <UCard :ui="{ root: 'rounded-2xl flex-1', body: 'p-3 sm:p-3 space-y-0.5' }">
-          <p class="text-[11px] text-(--ui-text-dimmed)">Tracked since</p>
-          <p class="text-sm font-medium text-(--ui-text-toned) pt-1">{{ fmtArchived(habit.created_at) }}</p>
-        </UCard>
+        <StatCard label="Tracked since" :value="fmtArchived(habit.created_at)" />
       </div>
 
       <!-- ── Log today ──────────────────────────────────────────────────────── -->
@@ -816,19 +775,10 @@ onMounted(load)
 
           <!-- Type selector -->
           <UFormField label="Type">
-            <div class="flex gap-2">
-              <button
-                v-for="t in (['BOOLEAN', 'NUMERIC', 'LIMIT'] as const)"
-                :key="t"
-                class="flex-1 py-1.5 px-2 rounded-lg text-xs font-medium border transition-colors"
-                :class="editForm.type === t
-                  ? 'bg-primary-500/20 border-primary-500 text-primary-300'
-                  : 'border-(--ui-border-accented) text-(--ui-text-muted) hover:border-(--ui-border-accented)'"
-                @click="editForm.type = t"
-              >
-                {{ t === 'BOOLEAN' ? '✓ Done' : t === 'NUMERIC' ? '# Metric' : '↓ Limit' }}
-              </button>
-            </div>
+            <TypeSelector
+              v-model="editForm.type"
+              :options="[{value:'BOOLEAN',label:'Yes/No'},{value:'NUMERIC',label:'Metric'},{value:'LIMIT',label:'Limit'}]"
+            />
           </UFormField>
 
           <!-- Target (NUMERIC / LIMIT only) -->
@@ -876,19 +826,11 @@ onMounted(load)
               </div>
             </div>
 
-            <div v-if="editForm.schedule_type === 'SPECIFIC_DAYS'" class="flex gap-1.5">
-              <button
-                v-for="(label, i) in DAY_LABELS"
-                :key="i"
-                class="w-8 h-8 rounded-full text-xs font-medium border transition-colors"
-                :class="editForm.days_of_week.includes(i)
-                  ? 'bg-primary-500/20 border-primary-500 text-primary-300'
-                  : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented)'"
-                @click="toggleEditDay(i)"
-              >
-                {{ label }}
-              </button>
-            </div>
+            <DayPicker
+              v-if="editForm.schedule_type === 'SPECIFIC_DAYS'"
+              v-model="editForm.days_of_week"
+              :labels="HABIT_DAY_LABELS"
+            />
           </UFormField>
 
           <!-- Due time -->
@@ -975,25 +917,18 @@ onMounted(load)
     </UModal>
 
     <!-- ── Archive confirm ─────────────────────────────────────────────────────── -->
-    <UModal v-model:open="showArchiveConfirm">
-      <template #content>
-        <div class="p-5 space-y-4">
-          <div class="flex items-start gap-3">
-            <div class="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center flex-shrink-0">
-              <UIcon name="i-heroicons-archive-box" class="w-5 h-5 text-amber-400" />
-            </div>
-            <div class="space-y-1">
-              <p class="font-semibold">Archive "{{ habit?.name }}"?</p>
-              <p class="text-sm text-(--ui-text-muted)">The habit and all its history will be preserved in your archive.</p>
-            </div>
-          </div>
-          <div class="flex justify-end gap-2">
-            <UButton variant="ghost" color="neutral" @click="showArchiveConfirm = false">Cancel</UButton>
-            <UButton color="warning" :loading="archiving" @click="archiveHabit">Archive</UButton>
-          </div>
-        </div>
-      </template>
-    </UModal>
+    <ConfirmDialog
+      :open="showArchiveConfirm"
+      icon="i-heroicons-archive-box"
+      icon-color="amber"
+      :title="`Archive &quot;${habit?.name}&quot;?`"
+      message="The habit and all its history will be preserved in your archive."
+      confirm-label="Archive"
+      confirm-color="warning"
+      @confirm="archiveHabit"
+      @cancel="showArchiveConfirm = false"
+      @update:open="(v) => (showArchiveConfirm = v)"
+    />
 
   </div>
 </template>

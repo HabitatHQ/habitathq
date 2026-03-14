@@ -9,7 +9,7 @@ const textForm = reactive({
   tags: [] as string[],
   annotations: {} as Record<string, string>,
 })
-const tagInput = ref('')
+const { tagInput, addTag: commitTag, removeTag, onTagKeydown } = useTagInput(textForm.tags)
 const annotExpanded = ref(false)
 const newAnnotKey = ref('')
 const newAnnotVal = ref('')
@@ -18,23 +18,6 @@ const annotationCount = computed(() => Object.keys(textForm.annotations).length)
 const canSave = computed(
   () => textForm.title.trim().length > 0 || textForm.content.trim().length > 0,
 )
-
-function commitTag() {
-  const t = tagInput.value.replace(/,+$/, '').trim()
-  if (t && !t.startsWith('habitat-') && !textForm.tags.includes(t)) textForm.tags.push(t)
-  tagInput.value = ''
-}
-
-function onTagKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter' || e.key === ',') {
-    e.preventDefault()
-    commitTag()
-  }
-}
-
-function removeTag(tag: string) {
-  textForm.tags = textForm.tags.filter((t) => t !== tag)
-}
 
 function commitAnnot() {
   if (!newAnnotKey.value.trim() || !newAnnotVal.value.trim()) return
@@ -68,10 +51,7 @@ async function save() {
 <template>
   <div class="space-y-5">
     <div class="flex items-center justify-between">
-      <div class="flex items-center gap-2">
-        <UButton icon="i-heroicons-arrow-left" variant="ghost" color="neutral" size="sm" to="/jots" />
-        <span class="text-sm text-(--ui-text-dimmed)">New Jot</span>
-      </div>
+      <BackNav to="/jots" label="New Jot" />
       <UButton :loading="saving" :disabled="saving || !canSave" size="sm" @click="save">Create</UButton>
     </div>
 
