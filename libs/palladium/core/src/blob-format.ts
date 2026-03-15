@@ -14,9 +14,11 @@ export function convertBlobBytes<F extends BlobGetFormat>(
     case "bytes":
       return bytes as BlobGetResult<F>;
     case "blob":
-      return new Blob([bytes], { type: mime }) as BlobGetResult<F>;
+      return new Blob([new Uint8Array(bytes)], { type: mime }) as BlobGetResult<F>;
     case "url":
-      return URL.createObjectURL(new Blob([bytes], { type: mime })) as BlobGetResult<F>;
+      return URL.createObjectURL(
+        new Blob([new Uint8Array(bytes)], { type: mime }),
+      ) as BlobGetResult<F>;
     case "stream": {
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {

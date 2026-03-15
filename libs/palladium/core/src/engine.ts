@@ -55,7 +55,7 @@ export class PalladiumEngine<S extends SchemaMap> {
   /** Execute a batch of mutations, wrapped in a transaction when supported. */
   async tx(callback: (t: TxBuilder<S>) => void): Promise<void> {
     const builder = new TxBuilder<S>();
-    const maybePromise = callback(builder);
+    const maybePromise: unknown = callback(builder);
     if (maybePromise instanceof Promise) {
       throw new TypeError(
         "tx() callback must be synchronous. Received a Promise — did you accidentally use an async function?",
