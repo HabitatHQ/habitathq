@@ -26,16 +26,21 @@ Both paths share the same `WorkerRequest` / `WorkerResponse<T>` message types.
 
 | File | Purpose |
 |------|---------|
-| `app/workers/database.worker.ts` | SQLite WASM engine, schema, migrations, message handler |
-| `app/lib/db-native.ts` | Capacitor SQLite mirror of all worker operations |
+| `app/lib/db-shared.ts` | All ~80 DB operations as `async fn(db: DbAdapter, ...)` — single source of truth |
+| `app/workers/database.worker.ts` | SQLite WASM engine, schema, migrations; `WorkerDbAdapter` + compact switch |
+| `app/lib/db-native.ts` | Capacitor SQLite; `NativeDbAdapter` + compact switch — delegates to db-shared |
+| `app/lib/db-parsers.ts` | Shared row-to-type parsers used by db-shared.ts |
 | `app/plugins/database.client.ts` | Worker lifecycle, UUID request/response correlation |
 | `app/composables/useDatabase.ts` | All DB ops exposed to pages |
 | `app/composables/useAppSettings.ts` | Feature flags + UI prefs (localStorage) |
 | `app/composables/useNotifications.ts` | Notifications (web + native) |
 | `app/composables/useTimer.ts` | Timer/Focus feature (stopwatch, countdown, pomodoro) |
-| `app/types/database.ts` | All types, WorkerRequest union, export types |
+| `app/composables/useLongPress.ts` | Long-press handler (pointerdown + timeout, cancels on move/up) |
+| `app/components/AppModal.vue` | Reusable modal (v-model, title prop, #default + #footer slots) |
+| `app/composables/useCrudForm.ts` | Generic add/edit form state (item ref, open/close, isEditing) |
+| `app/types/database.ts` | All types, WorkerRequest union, DbAdapter interface, export types |
 | `app/layouts/default.vue` | Header + bottom nav (filtered by settings flags) |
-| `app/utils/` | Pure helpers: `format.ts`, `scribble.ts`, `habit-helpers.ts`, `checkin-helpers.ts`, `todos-helpers.ts` |
+| `app/utils/` | Pure helpers: `format.ts`, `scribble.ts`, `habit-helpers.ts`, `checkin-helpers.ts`, `todos-helpers.ts`, `error.ts` |
 
 ## Schema (user_version = 11)
 
@@ -47,11 +52,12 @@ Voice notes + image notes: IndexedDB (`habitat` DB, version 2).
 ## Adding a DB Operation
 
 1. Add message type to `WorkerRequest` union in `app/types/database.ts`
-2. Implement in `database.worker.ts` (SQLite query)
-3. Mirror in `db-native.ts` (Capacitor SQLite)
-4. Expose in `useDatabase.ts` via `sendToWorker()`
+2. Implement as `export async function myOp(db: DbAdapter, ...)` in `app/lib/db-shared.ts`
+3. Add `case 'MY_OP': result = await shared.myOp(adapter, req.payload); break` in `database.worker.ts`
+4. Mirror the same case in `db-native.ts` `dispatchNative` switch
+5. Expose in `useDatabase.ts` via `sendToWorker()`
 
-Schema changes: increment `user_version`, add migration ALTER TABLE, mirror in `db-native.ts`.
+Schema changes: increment `user_version`, add migration in `runMigrations()` in both `database.worker.ts` and `db-native.ts`.
 
 ## Pages
 
@@ -66,6 +72,16 @@ Routes: `/`, `/matrix`, `/habits`, `/habits/[id]`, `/health`, `/todos`, `/bored`
 **Feature flags**: add to `AppSettings` in `useAppSettings.ts`, gate nav item in `default.vue`. Current flags: `enableToday`, `enableJournalling` (gates `/checkin` + `/jots`), `enableHealth`, `enableTodos`, `enableBored`, `enableContextFilter`, `enableTimer`.
 
 **Platform guard**: `if (!Capacitor.isNativePlatform())` before any OPFS logic.
+
+**Modals**: use `<AppModal v-model="show" title="…">` with optional `#footer` slot. Avoid manual `Teleport` + fixed overlay patterns.
+
+**CRUD forms**: use `useCrudForm<T>()` composable — returns `{ item, isEditing, open(item?), close() }`.
+
+**Long press**: use `useLongPress(ms, callback)` — returns `{ onPointerdown, onPointerup, onPointermove }` event handlers to spread on the element.
+
+**Error logging**: use `logError(context, err)` from `~/utils/error.ts` instead of `console.error`.
+
+**DB operations in db-shared.ts**: use `db.queryAll` for all fetches (including post-write re-reads). Never use `db.queryOne` in functions that tests may override with call-counter mocks.
 
 ## Config
 
