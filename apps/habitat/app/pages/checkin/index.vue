@@ -113,7 +113,7 @@ async function createTemplate() {
     </div>
 
     <!-- ── Create modal ─────────────────────────────────────────────────────── -->
-    <AppModal :open="showCreate" @close="showCreate = false">
+    <AppModal v-model="showCreate">
         <div class="flex items-center justify-between">
           <h3 class="font-semibold text-(--ui-text)">New Check-in</h3>
           <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" @click="showCreate = false" />

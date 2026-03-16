@@ -692,7 +692,7 @@ function jotKindIcon(kind: string | undefined): string {
     </template><!-- end list view -->
 
     <!-- Add/Edit modal -->
-    <AppModal :open="showModal" @close="showModal = false">
+    <AppModal v-model="showModal">
         <h2 class="text-lg font-semibold">{{ editingTodo ? 'Edit TODO' : 'New TODO' }}</h2>
 
         <div class="space-y-3">

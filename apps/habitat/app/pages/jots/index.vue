@@ -440,34 +440,29 @@ onUnmounted(() => {
     </ul>
 
     <!-- ── Create TODO from jot modal ────────────────────────────────────── -->
-    <Teleport to="body">
-      <div v-if="showCreateTodoModal" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-        <div class="modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm" @click="showCreateTodoModal = false" />
-        <div class="relative w-full sm:max-w-sm bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
-          <h3 class="text-base font-semibold">Create TODO</h3>
-          <p class="text-xs text-(--ui-text-dimmed) -mt-2">A TODO will be created and linked to this jot.</p>
-          <div class="space-y-3">
-            <UFormField label="Title" required>
-              <UInput v-model="createTodoTitle" placeholder="Revisit: …" class="w-full" />
-            </UFormField>
-            <UFormField label="Due date">
-              <UInput v-model="createTodoDate" type="date" class="w-full" />
-            </UFormField>
-          </div>
-          <div class="flex gap-2 pt-1">
-            <UButton variant="soft" color="neutral" class="flex-1" @click="showCreateTodoModal = false">Cancel</UButton>
-            <UButton
-              color="primary"
-              class="flex-1"
-              :loading="creatingTodo"
-              :disabled="!createTodoTitle.trim()"
-              @click="saveCreateTodo"
-            >Create</UButton>
-          </div>
-          <div class="safe-area-bottom" aria-hidden="true" />
-        </div>
+    <AppModal v-model="showCreateTodoModal" title="Create TODO">
+      <p class="text-xs text-(--ui-text-dimmed) -mt-2">A TODO will be created and linked to this jot.</p>
+      <div class="space-y-3">
+        <UFormField label="Title" required>
+          <UInput v-model="createTodoTitle" placeholder="Revisit: …" class="w-full" />
+        </UFormField>
+        <UFormField label="Due date">
+          <UInput v-model="createTodoDate" type="date" class="w-full" />
+        </UFormField>
       </div>
-    </Teleport>
+      <template #footer>
+        <div class="flex gap-2">
+          <UButton variant="soft" color="neutral" class="flex-1" @click="showCreateTodoModal = false">Cancel</UButton>
+          <UButton
+            color="primary"
+            class="flex-1"
+            :loading="creatingTodo"
+            :disabled="!createTodoTitle.trim()"
+            @click="saveCreateTodo"
+          >Create</UButton>
+        </div>
+      </template>
+    </AppModal>
 
     <!-- ── Bottom Sheets ─────────────────────────────────────────────────── -->
 

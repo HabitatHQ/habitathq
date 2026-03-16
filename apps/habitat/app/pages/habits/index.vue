@@ -332,7 +332,7 @@ onMounted(loadHabits)
     </ul>
 
     <!-- ── Pause all modal ───────────────────────────────────────────────────── -->
-    <AppModal :open="showPauseAllModal" @close="showPauseAllModal = false">
+    <AppModal v-model="showPauseAllModal">
       <div>
         <h3 class="text-lg font-semibold">Pause all habits</h3>
         <p class="text-sm text-(--ui-text-muted) mt-0.5">All active habits will be hidden from Today until this date.</p>
@@ -354,7 +354,7 @@ onMounted(loadHabits)
     </AppModal>
 
     <!-- ── Create modal ──────────────────────────────────────────────────────── -->
-    <AppModal :open="isOpen" @close="closeModal">
+    <AppModal v-model="isOpen">
       <div class="space-y-4">
         <h3 class="text-lg font-semibold">New Habit</h3>
 
