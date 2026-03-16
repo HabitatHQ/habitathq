@@ -1,46 +1,6 @@
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm'
-import {
-  HABIT_WITH_SCHED_SQL,
-  parseBoredActivity,
-  parseBoredCategory,
-  parseCheckinEntry,
-  parseCheckinQuestion,
-  parseCheckinReminder,
-  parseCheckinResponse,
-  parseCheckinTemplate,
-  parseCompletion,
-  parseHabit,
-  parseHabitLog,
-  parseHabitSchedule,
-  parseHabitWithSchedule,
-  parseReminder,
-  parseScribble,
-  parseTodo,
-} from '~/lib/db-parsers'
-import type {
-  BoredActivity,
-  BoredCategory,
-  BoredOracleResult,
-  CheckinDaySummary,
-  CheckinEntry,
-  CheckinQuestion,
-  CheckinReminder,
-  CheckinResponse,
-  CheckinTemplate,
-  Completion,
-  ExportSelection,
-  Habit,
-  HabitatExport,
-  HabitLog,
-  HabitSchedule,
-  HabitWithSchedule,
-  Reminder,
-  Scribble,
-  SearchResult,
-  Todo,
-  WorkerRequest,
-  WorkerResponse,
-} from '~/types/database'
+import * as shared from '~/lib/db-shared'
+import type { CheckinQuestion, DbAdapter, WorkerRequest, WorkerResponse } from '~/types/database'
 
 // Wrapped in an async IIFE so we can return early (e.g. lock unavailable)
 // without leaking unguarded top-level awaits.
@@ -302,7 +262,7 @@ await (async () => {
         // @ts-expect-error — sqlite-wasm types don't model rowMode:'object' callback
         callback: (row: Record<string, unknown>) => rows.push({ ...row }),
       })
-      let userVersion = (rows[0]?.user_version as number) ?? 0
+      let userVersion = (rows[0]?.['user_version'] as number) ?? 0
 
       // Schema squashed at v10 (includes all tables via CREATE TABLE IF NOT EXISTS above).
       // Add future migrations here at key 11+.
@@ -367,118 +327,88 @@ await (async () => {
     function seedDefaults(): void {
       type Seed = { key: string; apply: () => void }
 
+      function insertTemplate(
+        title: string,
+        schedule_type: string,
+        days_active: number[] | null,
+        qs: Omit<CheckinQuestion, 'id' | 'template_id'>[],
+      ): void {
+        const tid = crypto.randomUUID()
+        exec(
+          'INSERT INTO checkin_templates (id,title,schedule_type,days_active) VALUES (?,?,?,?)',
+          [tid, title, schedule_type, days_active != null ? JSON.stringify(days_active) : null],
+        )
+        for (const q of qs) {
+          exec(
+            'INSERT INTO checkin_questions (id,template_id,prompt,response_type,display_order) VALUES (?,?,?,?,?)',
+            [crypto.randomUUID(), tid, q.prompt, q.response_type, q.display_order],
+          )
+        }
+      }
+
       const seeds: Seed[] = [
         {
           key: 'checkin_template:morning_checkin',
-          apply: () => {
-            const t = createCheckinTemplate({
-              title: 'Morning Check-in',
-              schedule_type: 'DAILY',
-              days_active: null,
-            })
-            const qs: Omit<CheckinQuestion, 'id'>[] = [
+          apply: () =>
+            insertTemplate('Morning Check-in', 'DAILY', null, [
+              { prompt: 'How did you sleep?', response_type: 'SCALE', display_order: 0 },
               {
-                template_id: t.id,
-                prompt: 'How did you sleep?',
-                response_type: 'SCALE',
-                display_order: 0,
-              },
-              {
-                template_id: t.id,
                 prompt: 'How is your energy level right now?',
                 response_type: 'SCALE',
                 display_order: 1,
               },
               {
-                template_id: t.id,
                 prompt: "What's your main intention for today?",
                 response_type: 'TEXT',
                 display_order: 2,
               },
               {
-                template_id: t.id,
                 prompt: 'Are you feeling anxious or stressed?',
                 response_type: 'BOOLEAN',
                 display_order: 3,
               },
-            ]
-            for (const q of qs) createCheckinQuestion(q)
-          },
+            ]),
         },
         {
           key: 'checkin_template:evening_reflection',
-          apply: () => {
-            const t = createCheckinTemplate({
-              title: 'Evening Reflection',
-              schedule_type: 'DAILY',
-              days_active: null,
-            })
-            const qs: Omit<CheckinQuestion, 'id'>[] = [
+          apply: () =>
+            insertTemplate('Evening Reflection', 'DAILY', null, [
+              { prompt: 'Overall mood today (1–10)?', response_type: 'SCALE', display_order: 0 },
+              { prompt: 'What went well today?', response_type: 'TEXT', display_order: 1 },
+              { prompt: 'What could have gone better?', response_type: 'TEXT', display_order: 2 },
               {
-                template_id: t.id,
-                prompt: 'Overall mood today (1–10)?',
-                response_type: 'SCALE',
-                display_order: 0,
-              },
-              {
-                template_id: t.id,
-                prompt: 'What went well today?',
-                response_type: 'TEXT',
-                display_order: 1,
-              },
-              {
-                template_id: t.id,
-                prompt: 'What could have gone better?',
-                response_type: 'TEXT',
-                display_order: 2,
-              },
-              {
-                template_id: t.id,
                 prompt: 'Did you complete your main intention?',
                 response_type: 'BOOLEAN',
                 display_order: 3,
               },
-            ]
-            for (const q of qs) createCheckinQuestion(q)
-          },
+            ]),
         },
         {
           key: 'checkin_template:weekly_review',
-          apply: () => {
-            // days_active [0] = Sunday
-            const t = createCheckinTemplate({
-              title: 'Weekly Review',
-              schedule_type: 'WEEKLY',
-              days_active: [0],
-            })
-            const qs: Omit<CheckinQuestion, 'id'>[] = [
-              {
-                template_id: t.id,
-                prompt: 'How would you rate this week overall (1–10)?',
-                response_type: 'SCALE',
-                display_order: 0,
-              },
-              {
-                template_id: t.id,
-                prompt: 'What were your biggest wins?',
-                response_type: 'TEXT',
-                display_order: 1,
-              },
-              {
-                template_id: t.id,
-                prompt: 'Which habit are you most proud of?',
-                response_type: 'TEXT',
-                display_order: 2,
-              },
-              {
-                template_id: t.id,
-                prompt: 'What will you focus on next week?',
-                response_type: 'TEXT',
-                display_order: 3,
-              },
-            ]
-            for (const q of qs) createCheckinQuestion(q)
-          },
+          apply: () =>
+            insertTemplate(
+              'Weekly Review',
+              'WEEKLY',
+              [0],
+              [
+                {
+                  prompt: 'How would you rate this week overall (1–10)?',
+                  response_type: 'SCALE',
+                  display_order: 0,
+                },
+                { prompt: 'What were your biggest wins?', response_type: 'TEXT', display_order: 1 },
+                {
+                  prompt: 'Which habit are you most proud of?',
+                  response_type: 'TEXT',
+                  display_order: 2,
+                },
+                {
+                  prompt: 'What will you focus on next week?',
+                  response_type: 'TEXT',
+                  display_order: 3,
+                },
+              ],
+            ),
         },
         {
           key: 'bored:cat:reading',
@@ -700,289 +630,6 @@ await (async () => {
       }
     }
 
-    // ─── JSON export ──────────────────────────────────────────────────────────────
-
-    function exportJsonData(sel: ExportSelection): HabitatExport {
-      const habits = sel.habits
-        ? queryRaw('SELECT * FROM habits ORDER BY created_at ASC').map(parseHabit)
-        : []
-      const completions = sel.completions ? getAllCompletions() : []
-      const habit_logs = sel.habit_logs
-        ? queryRaw('SELECT * FROM habit_logs ORDER BY logged_at ASC').map(parseHabitLog)
-        : []
-      const habit_schedules = sel.habit_schedules
-        ? queryRaw('SELECT * FROM habit_schedules').map(parseHabitSchedule)
-        : []
-      const reminders = sel.reminders ? getAllReminders() : []
-      const checkin_templates = sel.checkin_templates ? getCheckinTemplates() : []
-      const checkin_questions = sel.checkin_questions
-        ? queryRaw('SELECT * FROM checkin_questions ORDER BY template_id, display_order').map(
-            parseCheckinQuestion,
-          )
-        : []
-      const checkin_responses = sel.checkin_responses
-        ? queryRaw('SELECT * FROM checkin_responses ORDER BY logged_date ASC').map(
-            parseCheckinResponse,
-          )
-        : []
-      const checkin_reminders = sel.checkin_reminders ? getAllCheckinReminders() : []
-      const scribbles = sel.scribbles ? getScribbles() : []
-      const checkin_entries = sel.checkin_entries
-        ? queryRaw('SELECT * FROM checkin_entries ORDER BY entry_date ASC').map(parseCheckinEntry)
-        : []
-      const bored_categories = sel.bored_categories
-        ? queryRaw('SELECT * FROM bored_categories ORDER BY sort_order ASC').map(parseBoredCategory)
-        : []
-      const bored_activities = sel.bored_activities
-        ? queryRaw('SELECT * FROM bored_activities ORDER BY created_at ASC').map(parseBoredActivity)
-        : []
-      const todos = sel.todos
-        ? queryRaw('SELECT * FROM todos ORDER BY created_at ASC').map(parseTodo)
-        : []
-      return {
-        version: 1,
-        exported_at: new Date().toISOString(),
-        habits,
-        completions,
-        habit_logs,
-        habit_schedules,
-        reminders,
-        checkin_templates,
-        checkin_questions,
-        checkin_responses,
-        checkin_reminders,
-        scribbles,
-        checkin_entries,
-        bored_categories,
-        bored_activities,
-        todos,
-      }
-    }
-
-    // ─── JSON import ──────────────────────────────────────────────────────────────
-
-    function importJsonV1Habits(data: HabitatExport): void {
-      for (const h of data.habits ?? []) {
-        exec(
-          `INSERT OR IGNORE INTO habits
-         (id, name, description, color, icon, frequency, created_at, archived_at, tags, annotations, type, target_value, paused_until)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-          [
-            h.id,
-            h.name,
-            h.description,
-            h.color,
-            h.icon,
-            h.frequency,
-            h.created_at,
-            h.archived_at ?? null,
-            JSON.stringify(h.tags ?? []),
-            JSON.stringify(h.annotations ?? {}),
-            h.type ?? 'BOOLEAN',
-            h.target_value ?? 1,
-            h.paused_until ?? null,
-          ],
-        )
-      }
-      for (const c of data.completions ?? []) {
-        exec(
-          `INSERT OR IGNORE INTO completions (id, habit_id, date, completed_at, notes, tags, annotations)
-       VALUES (?,?,?,?,?,?,?)`,
-          [
-            c.id,
-            c.habit_id,
-            c.date,
-            c.completed_at,
-            c.notes ?? '',
-            JSON.stringify(c.tags ?? []),
-            JSON.stringify(c.annotations ?? {}),
-          ],
-        )
-      }
-      for (const l of data.habit_logs ?? []) {
-        exec(
-          `INSERT OR IGNORE INTO habit_logs (id, habit_id, date, logged_at, value, notes)
-       VALUES (?,?,?,?,?,?)`,
-          [l.id, l.habit_id, l.date, l.logged_at, l.value, l.notes ?? ''],
-        )
-      }
-      for (const s of data.habit_schedules ?? []) {
-        exec(
-          `INSERT OR IGNORE INTO habit_schedules
-         (id, habit_id, schedule_type, frequency_count, days_of_week, due_time, start_date, end_date)
-       VALUES (?,?,?,?,?,?,?,?)`,
-          [
-            s.id,
-            s.habit_id,
-            s.schedule_type ?? 'DAILY',
-            s.frequency_count ?? null,
-            s.days_of_week != null ? JSON.stringify(s.days_of_week) : null,
-            s.due_time ?? null,
-            s.start_date ?? null,
-            s.end_date ?? null,
-          ],
-        )
-      }
-      for (const r of data.reminders ?? []) {
-        exec(
-          'INSERT OR IGNORE INTO reminders (id, habit_id, trigger_time, days_active) VALUES (?,?,?,?)',
-          [
-            r.id,
-            r.habit_id,
-            r.trigger_time,
-            r.days_active != null ? JSON.stringify(r.days_active) : null,
-          ],
-        )
-      }
-    }
-
-    function importJsonV1Checkins(data: HabitatExport): void {
-      for (const t of data.checkin_templates ?? []) {
-        exec(
-          'INSERT OR IGNORE INTO checkin_templates (id, title, schedule_type, days_active) VALUES (?,?,?,?)',
-          [
-            t.id,
-            t.title,
-            t.schedule_type ?? 'DAILY',
-            t.days_active != null ? JSON.stringify(t.days_active) : null,
-          ],
-        )
-      }
-      for (const q of data.checkin_questions ?? []) {
-        exec(
-          `INSERT OR IGNORE INTO checkin_questions (id, template_id, prompt, response_type, display_order)
-       VALUES (?,?,?,?,?)`,
-          [q.id, q.template_id, q.prompt, q.response_type ?? 'TEXT', q.display_order ?? 0],
-        )
-      }
-      for (const r of data.checkin_responses ?? []) {
-        exec(
-          `INSERT OR IGNORE INTO checkin_responses (id, question_id, logged_date, value_numeric, value_text)
-       VALUES (?,?,?,?,?)`,
-          [r.id, r.question_id, r.logged_date, r.value_numeric ?? null, r.value_text ?? null],
-        )
-      }
-      for (const r of data.checkin_reminders ?? []) {
-        exec(
-          'INSERT OR IGNORE INTO checkin_reminders (id, template_id, trigger_time, days_active) VALUES (?,?,?,?)',
-          [
-            r.id,
-            r.template_id,
-            r.trigger_time,
-            r.days_active != null ? JSON.stringify(r.days_active) : null,
-          ],
-        )
-      }
-    }
-
-    function importJsonV1Other(data: HabitatExport): void {
-      for (const s of data.scribbles ?? []) {
-        exec(
-          `INSERT OR IGNORE INTO scribbles (id, title, content, tags, annotations, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?)`,
-          [
-            s.id,
-            s.title ?? '',
-            s.content ?? '',
-            JSON.stringify(s.tags ?? []),
-            JSON.stringify(s.annotations ?? {}),
-            s.created_at,
-            s.updated_at,
-          ],
-        )
-      }
-      for (const e of data.checkin_entries ?? []) {
-        exec(
-          `INSERT OR IGNORE INTO checkin_entries (id, entry_date, content, created_at, updated_at)
-       VALUES (?,?,?,?,?)`,
-          [e.id, e.entry_date, e.content ?? '', e.created_at, e.updated_at],
-        )
-      }
-      for (const c of data.bored_categories ?? []) {
-        exec(
-          `INSERT OR IGNORE INTO bored_categories (id,name,icon,color,is_system,sort_order,created_at)
-       VALUES (?,?,?,?,?,?,?)`,
-          [c.id, c.name, c.icon, c.color, c.is_system ? 1 : 0, c.sort_order, c.created_at],
-        )
-      }
-      for (const a of data.bored_activities ?? []) {
-        exec(
-          `INSERT OR IGNORE INTO bored_activities
-         (id,title,description,category_id,estimated_minutes,tags,annotations,
-          is_recurring,recurrence_rule,is_done,done_at,done_count,last_done_at,archived_at,created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-          [
-            a.id,
-            a.title,
-            a.description,
-            a.category_id,
-            a.estimated_minutes ?? null,
-            JSON.stringify(a.tags ?? []),
-            JSON.stringify(a.annotations ?? {}),
-            a.is_recurring ? 1 : 0,
-            a.recurrence_rule ?? null,
-            a.is_done ? 1 : 0,
-            a.done_at ?? null,
-            a.done_count ?? 0,
-            a.last_done_at ?? null,
-            a.archived_at ?? null,
-            a.created_at,
-          ],
-        )
-      }
-      for (const t of data.todos ?? []) {
-        exec(
-          `INSERT OR IGNORE INTO todos
-         (id,title,description,due_date,priority,estimated_minutes,is_done,done_at,
-          done_count,last_done_at,tags,annotations,is_recurring,recurrence_rule,
-          show_in_bored,bored_category_id,archived_at,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-          [
-            t.id,
-            t.title,
-            t.description,
-            t.due_date ?? null,
-            t.priority ?? 'medium',
-            t.estimated_minutes ?? null,
-            t.is_done ? 1 : 0,
-            t.done_at ?? null,
-            t.done_count ?? 0,
-            t.last_done_at ?? null,
-            JSON.stringify(t.tags ?? []),
-            JSON.stringify(t.annotations ?? {}),
-            t.is_recurring ? 1 : 0,
-            t.recurrence_rule ?? null,
-            t.show_in_bored ? 1 : 0,
-            t.bored_category_id ?? null,
-            t.archived_at ?? null,
-            t.created_at,
-            t.updated_at,
-          ],
-        )
-      }
-    }
-
-    function importJsonV1(data: HabitatExport): null {
-      exec('BEGIN')
-      try {
-        importJsonV1Habits(data)
-        importJsonV1Checkins(data)
-        importJsonV1Other(data)
-        exec('COMMIT')
-        return null
-      } catch (err) {
-        exec('ROLLBACK')
-        throw err
-      }
-    }
-
-    function importJson(data: HabitatExport): null {
-      if (data.version === 1) return importJsonV1(data)
-      throw new Error(
-        `Unsupported export version: ${String((data as { version: unknown }).version)}`,
-      )
-    }
-
     // ─── Low-level helpers ────────────────────────────────────────────────────────
 
     /** Run a SELECT and collect plain object rows. */
@@ -1004,1116 +651,26 @@ await (async () => {
       db.exec({ sql, ...(bind !== undefined && { bind }) })
     }
 
-    // ─── Handlers ─────────────────────────────────────────────────────────────────
+    // ─── WorkerDbAdapter ─────────────────────────────────────────────────────────
+    // Wraps the synchronous wa-sqlite API in Promise.resolve() to satisfy the
+    // async DbAdapter interface shared with the native (Capacitor) path.
 
-    function getHabits(): HabitWithSchedule[] {
-      return queryRaw(
-        `${HABIT_WITH_SCHED_SQL} WHERE h.archived_at IS NULL ORDER BY h.created_at ASC`,
-      ).map(parseHabitWithSchedule)
-    }
-
-    function createHabit(
-      payload: Omit<Habit, 'id' | 'created_at' | 'archived_at'>,
-    ): HabitWithSchedule {
-      const id = crypto.randomUUID()
-      const schedId = crypto.randomUUID()
-      const created_at = new Date().toISOString()
-      exec(
-        `INSERT INTO habits
-       (id, name, description, color, icon, frequency, created_at, tags, annotations,
-        type, target_value, paused_until)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [
-          id,
-          payload.name,
-          payload.description,
-          payload.color,
-          payload.icon,
-          payload.frequency,
-          created_at,
-          JSON.stringify(payload.tags ?? []),
-          JSON.stringify(payload.annotations ?? {}),
-          payload.type ?? 'BOOLEAN',
-          payload.target_value ?? 1,
-          payload.paused_until ?? null,
-        ],
-      )
-      exec(
-        `INSERT INTO habit_schedules
-       (id, habit_id, schedule_type, frequency_count, days_of_week, due_time, start_date, end_date)
-     VALUES (?,?,?,?,?,?,?,?)`,
-        [schedId, id, 'DAILY', null, null, null, created_at.slice(0, 10), null],
-      )
-      return parseHabitWithSchedule(queryRaw(`${HABIT_WITH_SCHED_SQL} WHERE h.id = ?`, [id])[0]!)
-    }
-
-    function updateHabit(payload: Partial<Habit> & { id: string }): HabitWithSchedule {
-      const { id, ...fields } = payload
-      const updates: [string, unknown][] = []
-
-      const scalarFields = [
-        'name',
-        'description',
-        'color',
-        'icon',
-        'frequency',
-        'type',
-        'target_value',
-      ] as const
-      for (const k of scalarFields) {
-        if (k in fields) updates.push([k, fields[k]])
+    class WorkerDbAdapter implements DbAdapter {
+      async queryAll<T>(sql: string, bind?: unknown[]): Promise<T[]> {
+        return Promise.resolve(queryRaw(sql, bind) as T[])
       }
-      if ('paused_until' in fields) updates.push(['paused_until', fields.paused_until ?? null])
-      if ('tags' in fields) updates.push(['tags', JSON.stringify(fields.tags ?? [])])
-      if ('annotations' in fields)
-        updates.push(['annotations', JSON.stringify(fields.annotations ?? {})])
 
-      if (updates.length > 0) {
-        const set = updates.map(([k]) => `${k} = ?`).join(', ')
-        exec(`UPDATE habits SET ${set} WHERE id = ?`, [...updates.map(([, v]) => v), id])
+      async queryOne<T>(sql: string, bind?: unknown[]): Promise<T | null> {
+        const rows = queryRaw(sql, bind)
+        return Promise.resolve(rows.length > 0 ? (rows[0] as T) : null)
       }
-      return parseHabitWithSchedule(queryRaw(`${HABIT_WITH_SCHED_SQL} WHERE h.id = ?`, [id])[0]!)
-    }
 
-    function archiveHabit(id: string): null {
-      exec('UPDATE habits SET archived_at = ? WHERE id = ?', [new Date().toISOString(), id])
-      return null
-    }
-
-    function deleteHabit(id: string): null {
-      exec('DELETE FROM habits WHERE id = ?', [id])
-      return null
-    }
-
-    function getCompletionsForDate(date: string): Completion[] {
-      return queryRaw('SELECT * FROM completions WHERE date = ? ORDER BY completed_at ASC', [
-        date,
-      ]).map(parseCompletion)
-    }
-
-    function getCompletionsForHabit(habit_id: string, from: string, to: string): Completion[] {
-      return queryRaw(
-        'SELECT * FROM completions WHERE habit_id = ? AND date >= ? AND date <= ? ORDER BY date ASC',
-        [habit_id, from, to],
-      ).map(parseCompletion)
-    }
-
-    function getCompletionsForDateRange(from: string, to: string): Completion[] {
-      return queryRaw('SELECT * FROM completions WHERE date >= ? AND date <= ? ORDER BY date ASC', [
-        from,
-        to,
-      ]).map(parseCompletion)
-    }
-
-    function toggleCompletion(
-      habit_id: string,
-      date: string,
-      tags: string[] = [],
-      annotations: Record<string, string> = {},
-    ): Completion | null {
-      const existing = queryRaw('SELECT * FROM completions WHERE habit_id = ? AND date = ?', [
-        habit_id,
-        date,
-      ])
-      if (existing.length > 0) {
-        exec('DELETE FROM completions WHERE habit_id = ? AND date = ?', [habit_id, date])
-        return null
-      }
-      const id = crypto.randomUUID()
-      const completed_at = new Date().toISOString()
-      exec(
-        `INSERT INTO completions (id, habit_id, date, completed_at, notes, tags, annotations)
-     VALUES (?,?,?,?,?,?,?)`,
-        [id, habit_id, date, completed_at, '', JSON.stringify(tags), JSON.stringify(annotations)],
-      )
-      return parseCompletion(queryRaw('SELECT * FROM completions WHERE id = ?', [id])[0]!)
-    }
-
-    function getArchivedHabits(): HabitWithSchedule[] {
-      return queryRaw(
-        `${HABIT_WITH_SCHED_SQL} WHERE h.archived_at IS NOT NULL ORDER BY h.archived_at DESC`,
-      ).map(parseHabitWithSchedule)
-    }
-
-    function getAllCompletions(): Completion[] {
-      return queryRaw('SELECT * FROM completions ORDER BY date DESC').map(parseCompletion)
-    }
-
-    function deleteAllHabits(): null {
-      exec('DELETE FROM habits')
-      return null
-    }
-
-    function deleteAllCheckinEntries(): null {
-      exec('DELETE FROM checkin_entries')
-      return null
-    }
-
-    function deleteAllCheckinData(): null {
-      exec('DELETE FROM checkin_templates') // cascades to questions + responses
-      return null
-    }
-
-    function deleteAllScribbles(): null {
-      exec('DELETE FROM scribbles')
-      return null
-    }
-
-    function clearAppliedDefaults(): null {
-      exec('DELETE FROM applied_defaults')
-      return null
-    }
-
-    function isDefaultApplied(key: string): boolean {
-      return queryRaw('SELECT 1 FROM applied_defaults WHERE key = ?', [key]).length > 0
-    }
-
-    function markDefaultApplied(key: string): null {
-      exec('INSERT OR IGNORE INTO applied_defaults (key, applied_at) VALUES (?, ?)', [
-        key,
-        new Date().toISOString(),
-      ])
-      return null
-    }
-
-    function integrityCheck(): string[] {
-      // Returns ['ok'] if healthy, or one message per problem found.
-      return queryRaw('PRAGMA integrity_check').map((r) => String(r.integrity_check ?? ''))
-    }
-
-    function getDbInfo(): {
-      userVersion: number
-      tables: Array<{ name: string; sql: string }>
-      indices: Array<{ name: string; tbl_name: string; sql: string }>
-    } {
-      const versionRows = queryRaw('PRAGMA user_version')
-      const userVersion = (versionRows[0]?.user_version as number) ?? 0
-      const tableRows = queryRaw(
-        "SELECT name, sql FROM sqlite_master WHERE type = 'table' ORDER BY name",
-      )
-      const indexRows = queryRaw(
-        "SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL ORDER BY tbl_name, name",
-      )
-      return {
-        userVersion,
-        tables: tableRows.map((r) => ({ name: String(r.name), sql: String(r.sql ?? '') })),
-        indices: indexRows.map((r) => ({
-          name: String(r.name),
-          tbl_name: String(r.tbl_name),
-          sql: String(r.sql ?? ''),
-        })),
+      async exec(sql: string, bind?: unknown[]): Promise<void> {
+        return Promise.resolve(exec(sql, bind))
       }
     }
 
-    function calcStreaks(datesDesc: string[]): { current: number; longest: number } {
-      if (datesDesc.length === 0) return { current: 0, longest: 0 }
-
-      const today = new Date().toISOString().slice(0, 10)
-
-      // Current streak: consecutive days ending today
-      let current = 0
-      let check = today
-      for (const date of datesDesc) {
-        if (date === check) {
-          current++
-          const d = new Date(check)
-          d.setDate(d.getDate() - 1)
-          check = d.toISOString().slice(0, 10)
-        } else if (date < check) {
-          break
-        }
-      }
-
-      // Longest streak: scan ascending
-      const ascending = [...datesDesc].reverse()
-      let longest = 0
-      let streak = 0
-      let prev: string | null = null
-      for (const date of ascending) {
-        if (prev === null) {
-          streak = 1
-        } else {
-          const prevDate = new Date(prev)
-          prevDate.setDate(prevDate.getDate() + 1)
-          streak = date === prevDate.toISOString().slice(0, 10) ? streak + 1 : 1
-        }
-        longest = Math.max(longest, streak)
-        prev = date
-      }
-
-      return { current, longest }
-    }
-
-    function getStreak(habit_id: string): { current: number; longest: number } {
-      const habitRow = queryRaw('SELECT type, target_value FROM habits WHERE id = ?', [habit_id])[0]
-      if (!habitRow) return { current: 0, longest: 0 }
-
-      const type = (habitRow.type as string) ?? 'BOOLEAN'
-      const target = (habitRow.target_value as number) ?? 1
-
-      // BOOLEAN: a completion row = done for that day
-      if (type === 'BOOLEAN') {
-        const dates = queryRaw(
-          'SELECT date FROM completions WHERE habit_id = ? ORDER BY date DESC',
-          [habit_id],
-        ).map((r) => r.date as string)
-        return calcStreaks(dates)
-      }
-
-      // NUMERIC: done when the sum of logged values for the day meets the target
-      if (type === 'NUMERIC') {
-        const dates = queryRaw(
-          'SELECT date FROM habit_logs WHERE habit_id = ? GROUP BY date HAVING SUM(value) >= ? ORDER BY date DESC',
-          [habit_id, target],
-        ).map((r) => r.date as string)
-        return calcStreaks(dates)
-      }
-
-      // LIMIT: done when the user tracked at least once AND total stayed at or under the limit
-      const dates = queryRaw(
-        'SELECT date FROM habit_logs WHERE habit_id = ? GROUP BY date HAVING SUM(value) <= ? ORDER BY date DESC',
-        [habit_id, target],
-      ).map((r) => r.date as string)
-      return calcStreaks(dates)
-    }
-
-    // ─── Habit log handlers ───────────────────────────────────────────────────────
-
-    function getHabitLogsForDate(date: string): HabitLog[] {
-      return queryRaw('SELECT * FROM habit_logs WHERE date = ? ORDER BY logged_at ASC', [date]).map(
-        parseHabitLog,
-      )
-    }
-
-    function getHabitLogsForHabit(habit_id: string, from: string, to: string): HabitLog[] {
-      return queryRaw(
-        'SELECT * FROM habit_logs WHERE habit_id = ? AND date >= ? AND date <= ? ORDER BY date ASC',
-        [habit_id, from, to],
-      ).map(parseHabitLog)
-    }
-
-    function getHabitLogsForDateRange(from: string, to: string): HabitLog[] {
-      return queryRaw('SELECT * FROM habit_logs WHERE date >= ? AND date <= ? ORDER BY date ASC', [
-        from,
-        to,
-      ]).map(parseHabitLog)
-    }
-
-    function logHabitValue(habit_id: string, date: string, value: number, notes = ''): HabitLog {
-      const id = crypto.randomUUID()
-      const logged_at = new Date().toISOString()
-      exec(
-        'INSERT INTO habit_logs (id, habit_id, date, logged_at, value, notes) VALUES (?,?,?,?,?,?)',
-        [id, habit_id, date, logged_at, value, notes],
-      )
-      return parseHabitLog(queryRaw('SELECT * FROM habit_logs WHERE id = ?', [id])[0]!)
-    }
-
-    function deleteHabitLog(id: string): null {
-      exec('DELETE FROM habit_logs WHERE id = ?', [id])
-      return null
-    }
-
-    // ─── Schedule handlers ────────────────────────────────────────────────────────
-
-    function getScheduleForHabit(habit_id: string): HabitSchedule | null {
-      const rows = queryRaw('SELECT * FROM habit_schedules WHERE habit_id = ?', [habit_id])
-      return rows.length > 0 ? parseHabitSchedule(rows[0]!) : null
-    }
-
-    function updateHabitSchedule(payload: Partial<HabitSchedule> & { id: string }): HabitSchedule {
-      const { id, ...fields } = payload
-      const updates: [string, unknown][] = []
-
-      const scalarFields = [
-        'schedule_type',
-        'frequency_count',
-        'due_time',
-        'start_date',
-        'end_date',
-      ] as const
-      for (const k of scalarFields) {
-        if (k in fields) updates.push([k, (fields as Record<string, unknown>)[k] ?? null])
-      }
-      if ('days_of_week' in fields) {
-        updates.push([
-          'days_of_week',
-          fields.days_of_week != null ? JSON.stringify(fields.days_of_week) : null,
-        ])
-      }
-
-      if (updates.length > 0) {
-        const set = updates.map(([k]) => `${k} = ?`).join(', ')
-        exec(`UPDATE habit_schedules SET ${set} WHERE id = ?`, [...updates.map(([, v]) => v), id])
-      }
-      return parseHabitSchedule(queryRaw('SELECT * FROM habit_schedules WHERE id = ?', [id])[0]!)
-    }
-
-    function pauseHabit(id: string, until: string | null): HabitWithSchedule {
-      exec('UPDATE habits SET paused_until = ? WHERE id = ?', [until, id])
-      return parseHabitWithSchedule(queryRaw(`${HABIT_WITH_SCHED_SQL} WHERE h.id = ?`, [id])[0]!)
-    }
-
-    function pauseAllHabits(until: string | null): null {
-      exec('UPDATE habits SET paused_until = ? WHERE archived_at IS NULL', [until])
-      return null
-    }
-
-    // ─── Check-in entry handlers ──────────────────────────────────────────────────
-
-    function getCheckinEntry(date: string): CheckinEntry | null {
-      const rows = queryRaw('SELECT * FROM checkin_entries WHERE entry_date = ?', [date])
-      return rows.length > 0 ? parseCheckinEntry(rows[0]!) : null
-    }
-
-    function upsertCheckinEntry(date: string, content: string): CheckinEntry {
-      const now = new Date().toISOString()
-      const existing = queryRaw('SELECT id FROM checkin_entries WHERE entry_date = ?', [date])
-      if (existing.length > 0) {
-        const id = existing[0]?.id as string
-        exec('UPDATE checkin_entries SET content = ?, updated_at = ? WHERE id = ?', [
-          content,
-          now,
-          id,
-        ])
-        return parseCheckinEntry(queryRaw('SELECT * FROM checkin_entries WHERE id = ?', [id])[0]!)
-      }
-      const id = crypto.randomUUID()
-      exec(
-        'INSERT INTO checkin_entries (id, entry_date, content, created_at, updated_at) VALUES (?,?,?,?,?)',
-        [id, date, content, now, now],
-      )
-      return parseCheckinEntry(queryRaw('SELECT * FROM checkin_entries WHERE id = ?', [id])[0]!)
-    }
-
-    function deleteCheckinEntry(id: string): null {
-      exec('DELETE FROM checkin_entries WHERE id = ?', [id])
-      return null
-    }
-
-    function getCheckinEntries(from: string, to: string): CheckinEntry[] {
-      return queryRaw(
-        'SELECT * FROM checkin_entries WHERE entry_date >= ? AND entry_date <= ? ORDER BY entry_date DESC',
-        [from, to],
-      ).map(parseCheckinEntry)
-    }
-
-    // ─── Checkin template handlers ────────────────────────────────────────────────
-
-    function getCheckinTemplates(): CheckinTemplate[] {
-      return queryRaw(
-        `SELECT t.*,
-          (SELECT COUNT(DISTINCT r.logged_date)
-           FROM checkin_responses r
-           JOIN checkin_questions q ON r.question_id = q.id
-           WHERE q.template_id = t.id) AS response_day_count
-         FROM checkin_templates t
-         ORDER BY t.title ASC`,
-      ).map(parseCheckinTemplate)
-    }
-
-    function createCheckinTemplate(payload: Omit<CheckinTemplate, 'id'>): CheckinTemplate {
-      const id = crypto.randomUUID()
-      exec(
-        'INSERT INTO checkin_templates (id, title, schedule_type, days_active) VALUES (?,?,?,?)',
-        [
-          id,
-          payload.title,
-          payload.schedule_type ?? 'DAILY',
-          payload.days_active != null ? JSON.stringify(payload.days_active) : null,
-        ],
-      )
-      return parseCheckinTemplate(
-        queryRaw('SELECT * FROM checkin_templates WHERE id = ?', [id])[0]!,
-      )
-    }
-
-    function updateCheckinTemplate(
-      payload: Partial<CheckinTemplate> & { id: string },
-    ): CheckinTemplate {
-      const { id, ...fields } = payload
-      const updates: [string, unknown][] = []
-      if ('title' in fields) updates.push(['title', fields.title])
-      if ('schedule_type' in fields) updates.push(['schedule_type', fields.schedule_type])
-      if ('days_active' in fields)
-        updates.push([
-          'days_active',
-          fields.days_active != null ? JSON.stringify(fields.days_active) : null,
-        ])
-      if (updates.length > 0) {
-        const set = updates.map(([k]) => `${k} = ?`).join(', ')
-        exec(`UPDATE checkin_templates SET ${set} WHERE id = ?`, [...updates.map(([, v]) => v), id])
-      }
-      return parseCheckinTemplate(
-        queryRaw('SELECT * FROM checkin_templates WHERE id = ?', [id])[0]!,
-      )
-    }
-
-    function deleteCheckinTemplate(id: string): null {
-      exec('DELETE FROM checkin_templates WHERE id = ?', [id])
-      return null
-    }
-
-    // ─── Checkin question handlers ────────────────────────────────────────────────
-
-    function getCheckinQuestions(template_id: string): CheckinQuestion[] {
-      return queryRaw(
-        'SELECT * FROM checkin_questions WHERE template_id = ? ORDER BY display_order ASC',
-        [template_id],
-      ).map(parseCheckinQuestion)
-    }
-
-    function createCheckinQuestion(payload: Omit<CheckinQuestion, 'id'>): CheckinQuestion {
-      const id = crypto.randomUUID()
-      exec(
-        'INSERT INTO checkin_questions (id, template_id, prompt, response_type, display_order) VALUES (?,?,?,?,?)',
-        [
-          id,
-          payload.template_id,
-          payload.prompt,
-          payload.response_type ?? 'TEXT',
-          payload.display_order ?? 0,
-        ],
-      )
-      return parseCheckinQuestion(
-        queryRaw('SELECT * FROM checkin_questions WHERE id = ?', [id])[0]!,
-      )
-    }
-
-    function updateCheckinQuestion(
-      payload: Partial<CheckinQuestion> & { id: string },
-    ): CheckinQuestion {
-      const { id, ...fields } = payload
-      const updates: [string, unknown][] = []
-      if ('prompt' in fields) updates.push(['prompt', fields.prompt])
-      if ('response_type' in fields) updates.push(['response_type', fields.response_type])
-      if ('display_order' in fields) updates.push(['display_order', fields.display_order])
-      if (updates.length > 0) {
-        const set = updates.map(([k]) => `${k} = ?`).join(', ')
-        exec(`UPDATE checkin_questions SET ${set} WHERE id = ?`, [...updates.map(([, v]) => v), id])
-      }
-      return parseCheckinQuestion(
-        queryRaw('SELECT * FROM checkin_questions WHERE id = ?', [id])[0]!,
-      )
-    }
-
-    function deleteCheckinQuestion(id: string): null {
-      exec('DELETE FROM checkin_questions WHERE id = ?', [id])
-      return null
-    }
-
-    // ─── Checkin response handlers ────────────────────────────────────────────────
-
-    function getCheckinResponses(template_id: string, date: string): CheckinResponse[] {
-      return queryRaw(
-        `SELECT cr.* FROM checkin_responses cr
-     JOIN checkin_questions cq ON cq.id = cr.question_id
-     WHERE cq.template_id = ? AND cr.logged_date = ?
-     ORDER BY cq.display_order ASC`,
-        [template_id, date],
-      ).map(parseCheckinResponse)
-    }
-
-    function upsertCheckinResponse(
-      question_id: string,
-      logged_date: string,
-      value_numeric: number | null,
-      value_text: string | null,
-    ): CheckinResponse {
-      const existing = queryRaw(
-        'SELECT id FROM checkin_responses WHERE question_id = ? AND logged_date = ?',
-        [question_id, logged_date],
-      )
-      if (existing.length > 0) {
-        const id = existing[0]?.id as string
-        exec('UPDATE checkin_responses SET value_numeric = ?, value_text = ? WHERE id = ?', [
-          value_numeric,
-          value_text,
-          id,
-        ])
-        return parseCheckinResponse(
-          queryRaw('SELECT * FROM checkin_responses WHERE id = ?', [id])[0]!,
-        )
-      }
-      const id = crypto.randomUUID()
-      exec(
-        'INSERT INTO checkin_responses (id, question_id, logged_date, value_numeric, value_text) VALUES (?,?,?,?,?)',
-        [id, question_id, logged_date, value_numeric, value_text],
-      )
-      return parseCheckinResponse(
-        queryRaw('SELECT * FROM checkin_responses WHERE id = ?', [id])[0]!,
-      )
-    }
-
-    function deleteCheckinResponse(id: string): null {
-      exec('DELETE FROM checkin_responses WHERE id = ?', [id])
-      return null
-    }
-
-    // ─── Scribble handlers ────────────────────────────────────────────────────────
-
-    function getScribbles(): Scribble[] {
-      return queryRaw('SELECT * FROM scribbles ORDER BY updated_at DESC').map(parseScribble)
-    }
-
-    function createScribble(payload: Omit<Scribble, 'id' | 'created_at' | 'updated_at'>): Scribble {
-      const id = crypto.randomUUID()
-      const now = new Date().toISOString()
-      exec(
-        `INSERT INTO scribbles (id, title, content, tags, annotations, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?)`,
-        [
-          id,
-          payload.title ?? '',
-          payload.content ?? '',
-          JSON.stringify(payload.tags ?? []),
-          JSON.stringify(payload.annotations ?? {}),
-          now,
-          now,
-        ],
-      )
-      return parseScribble(queryRaw('SELECT * FROM scribbles WHERE id = ?', [id])[0]!)
-    }
-
-    function updateScribble(payload: Partial<Scribble> & { id: string }): Scribble {
-      const { id, ...fields } = payload
-      const now = new Date().toISOString()
-      const updates: [string, unknown][] = [['updated_at', now]]
-      if ('title' in fields) updates.push(['title', fields.title ?? ''])
-      if ('content' in fields) updates.push(['content', fields.content ?? ''])
-      if ('tags' in fields) updates.push(['tags', JSON.stringify(fields.tags ?? [])])
-      if ('annotations' in fields)
-        updates.push(['annotations', JSON.stringify(fields.annotations ?? {})])
-      const set = updates.map(([k]) => `${k} = ?`).join(', ')
-      exec(`UPDATE scribbles SET ${set} WHERE id = ?`, [...updates.map(([, v]) => v), id])
-      return parseScribble(queryRaw('SELECT * FROM scribbles WHERE id = ?', [id])[0]!)
-    }
-
-    function deleteScribble(id: string): null {
-      exec('DELETE FROM scribbles WHERE id = ?', [id])
-      return null
-    }
-
-    // ─── Reminder handlers ────────────────────────────────────────────────────────
-
-    function getAllReminders(): Reminder[] {
-      return queryRaw('SELECT * FROM reminders ORDER BY trigger_time ASC').map(parseReminder)
-    }
-
-    function getRemindersForHabit(habit_id: string): Reminder[] {
-      return queryRaw('SELECT * FROM reminders WHERE habit_id = ? ORDER BY trigger_time ASC', [
-        habit_id,
-      ]).map(parseReminder)
-    }
-
-    function createReminder(
-      habit_id: string,
-      trigger_time: string,
-      days_active: number[] | null,
-    ): Reminder {
-      const id = crypto.randomUUID()
-      exec('INSERT INTO reminders (id, habit_id, trigger_time, days_active) VALUES (?,?,?,?)', [
-        id,
-        habit_id,
-        trigger_time,
-        days_active != null ? JSON.stringify(days_active) : null,
-      ])
-      return parseReminder(queryRaw('SELECT * FROM reminders WHERE id = ?', [id])[0]!)
-    }
-
-    function deleteReminder(id: string): null {
-      exec('DELETE FROM reminders WHERE id = ?', [id])
-      return null
-    }
-
-    // ─── Check-in reminder handlers ───────────────────────────────────────────────
-
-    function getAllCheckinReminders(): CheckinReminder[] {
-      return queryRaw('SELECT * FROM checkin_reminders ORDER BY trigger_time ASC').map(
-        parseCheckinReminder,
-      )
-    }
-
-    function getCheckinRemindersForTemplate(template_id: string): CheckinReminder[] {
-      return queryRaw(
-        'SELECT * FROM checkin_reminders WHERE template_id = ? ORDER BY trigger_time ASC',
-        [template_id],
-      ).map(parseCheckinReminder)
-    }
-
-    function createCheckinReminder(
-      template_id: string,
-      trigger_time: string,
-      days_active: number[] | null,
-    ): CheckinReminder {
-      const id = crypto.randomUUID()
-      exec(
-        'INSERT INTO checkin_reminders (id, template_id, trigger_time, days_active) VALUES (?,?,?,?)',
-        [id, template_id, trigger_time, days_active != null ? JSON.stringify(days_active) : null],
-      )
-      return parseCheckinReminder(
-        queryRaw('SELECT * FROM checkin_reminders WHERE id = ?', [id])[0]!,
-      )
-    }
-
-    function deleteCheckinReminder(id: string): null {
-      exec('DELETE FROM checkin_reminders WHERE id = ?', [id])
-      return null
-    }
-
-    function getCheckinTemplate(id: string): CheckinTemplate | null {
-      const rows = queryRaw('SELECT * FROM checkin_templates WHERE id = ?', [id])
-      return rows.length > 0 ? parseCheckinTemplate(rows[0]!) : null
-    }
-
-    function getCheckinSummaryForDate(date: string): CheckinDaySummary[] {
-      return queryRaw(
-        `SELECT ct.id as template_id, ct.title, COUNT(cr.id) as response_count
-     FROM checkin_templates ct
-     JOIN checkin_questions cq ON cq.template_id = ct.id
-     JOIN checkin_responses cr ON cr.question_id = cq.id
-     WHERE cr.logged_date = ?
-     GROUP BY ct.id, ct.title
-     ORDER BY ct.title`,
-        [date],
-      ).map((r) => ({
-        template_id: r.template_id as string,
-        title: r.title as string,
-        response_count: r.response_count as number,
-      }))
-    }
-
-    function getScribblesForDate(date: string): Scribble[] {
-      return queryRaw('SELECT * FROM scribbles WHERE updated_at LIKE ? ORDER BY updated_at DESC', [
-        `${date}%`,
-      ]).map(parseScribble)
-    }
-
-    function getCheckinResponseDates(): Array<{ date: string; count: number }> {
-      return queryRaw(
-        'SELECT logged_date as date, COUNT(*) as count FROM checkin_responses GROUP BY logged_date ORDER BY logged_date DESC',
-      ).map((r) => ({ date: r.date as string, count: r.count as number }))
-    }
-
-    // ─── Bored category handlers ──────────────────────────────────────────────────
-
-    function getBoredCategories(): BoredCategory[] {
-      return queryRaw(
-        'SELECT * FROM bored_categories ORDER BY is_system DESC, sort_order ASC, created_at ASC',
-      ).map(parseBoredCategory)
-    }
-
-    function createBoredCategory(payload: Omit<BoredCategory, 'id' | 'created_at'>): BoredCategory {
-      const id = crypto.randomUUID()
-      const created_at = new Date().toISOString()
-      exec(
-        'INSERT INTO bored_categories (id,name,icon,color,is_system,sort_order,created_at) VALUES (?,?,?,?,?,?,?)',
-        [
-          id,
-          payload.name,
-          payload.icon,
-          payload.color,
-          payload.is_system ? 1 : 0,
-          payload.sort_order,
-          created_at,
-        ],
-      )
-      return parseBoredCategory(queryRaw('SELECT * FROM bored_categories WHERE id = ?', [id])[0]!)
-    }
-
-    function updateBoredCategory(payload: Partial<BoredCategory> & { id: string }): BoredCategory {
-      const { id, ...fields } = payload
-      const updates: [string, unknown][] = []
-      for (const k of ['name', 'icon', 'color', 'sort_order'] as const) {
-        if (k in fields) updates.push([k, fields[k]])
-      }
-      if (updates.length > 0) {
-        const set = updates.map(([k]) => `${k} = ?`).join(', ')
-        exec(`UPDATE bored_categories SET ${set} WHERE id = ?`, [...updates.map(([, v]) => v), id])
-      }
-      return parseBoredCategory(queryRaw('SELECT * FROM bored_categories WHERE id = ?', [id])[0]!)
-    }
-
-    function deleteBoredCategory(id: string): null {
-      exec('DELETE FROM bored_categories WHERE id = ? AND is_system = 0', [id])
-      return null
-    }
-
-    // ─── Bored activity handlers ──────────────────────────────────────────────────
-
-    function getBoredActivities(): BoredActivity[] {
-      return queryRaw(
-        'SELECT * FROM bored_activities WHERE archived_at IS NULL ORDER BY created_at ASC',
-      ).map(parseBoredActivity)
-    }
-
-    function getBoredActivitiesForCategory(category_id: string): BoredActivity[] {
-      return queryRaw(
-        'SELECT * FROM bored_activities WHERE category_id = ? AND archived_at IS NULL ORDER BY created_at ASC',
-        [category_id],
-      ).map(parseBoredActivity)
-    }
-
-    function createBoredActivity(
-      payload: Omit<
-        BoredActivity,
-        'id' | 'created_at' | 'is_done' | 'done_at' | 'done_count' | 'last_done_at' | 'archived_at'
-      >,
-    ): BoredActivity {
-      const id = crypto.randomUUID()
-      const created_at = new Date().toISOString()
-      exec(
-        `INSERT INTO bored_activities
-       (id,title,description,category_id,estimated_minutes,tags,annotations,is_recurring,recurrence_rule,is_done,done_count,created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,0,0,?)`,
-        [
-          id,
-          payload.title,
-          payload.description,
-          payload.category_id,
-          payload.estimated_minutes ?? null,
-          JSON.stringify(payload.tags ?? []),
-          JSON.stringify(payload.annotations ?? {}),
-          payload.is_recurring ? 1 : 0,
-          payload.recurrence_rule ?? null,
-          created_at,
-        ],
-      )
-      return parseBoredActivity(queryRaw('SELECT * FROM bored_activities WHERE id = ?', [id])[0]!)
-    }
-
-    function updateBoredActivity(payload: Partial<BoredActivity> & { id: string }): BoredActivity {
-      const { id, ...fields } = payload
-      const updates: [string, unknown][] = []
-      for (const k of [
-        'title',
-        'description',
-        'category_id',
-        'estimated_minutes',
-        'is_recurring',
-        'recurrence_rule',
-      ] as const) {
-        if (k in fields) {
-          if (k === 'is_recurring') updates.push([k, fields[k] ? 1 : 0])
-          else updates.push([k, (fields[k] as unknown) ?? null])
-        }
-      }
-      if ('tags' in fields) updates.push(['tags', JSON.stringify(fields.tags ?? [])])
-      if ('annotations' in fields)
-        updates.push(['annotations', JSON.stringify(fields.annotations ?? {})])
-      if (updates.length > 0) {
-        const set = updates.map(([k]) => `${k} = ?`).join(', ')
-        exec(`UPDATE bored_activities SET ${set} WHERE id = ?`, [...updates.map(([, v]) => v), id])
-      }
-      return parseBoredActivity(queryRaw('SELECT * FROM bored_activities WHERE id = ?', [id])[0]!)
-    }
-
-    function deleteBoredActivity(id: string): null {
-      exec('DELETE FROM bored_activities WHERE id = ?', [id])
-      return null
-    }
-
-    function archiveBoredActivity(id: string): null {
-      exec('UPDATE bored_activities SET archived_at = ? WHERE id = ?', [
-        new Date().toISOString(),
-        id,
-      ])
-      return null
-    }
-
-    function markBoredActivityDone(id: string): BoredActivity {
-      const rows = queryRaw('SELECT * FROM bored_activities WHERE id = ?', [id])
-      if (rows.length === 0) throw new Error(`BoredActivity not found: ${id}`)
-      const activity = parseBoredActivity(rows[0]!)
-      const now = new Date().toISOString()
-      if (activity.is_recurring) {
-        exec(
-          'UPDATE bored_activities SET done_count = done_count + 1, last_done_at = ? WHERE id = ?',
-          [now, id],
-        )
-      } else {
-        exec(
-          'UPDATE bored_activities SET is_done = 1, done_at = ?, done_count = done_count + 1, last_done_at = ? WHERE id = ?',
-          [now, now, id],
-        )
-      }
-      return parseBoredActivity(queryRaw('SELECT * FROM bored_activities WHERE id = ?', [id])[0]!)
-    }
-
-    function calculateNextDue(fromDate: string, rule: string): string {
-      // Parse at local noon to avoid UTC midnight boundary off-by-one for UTC- timezones
-      const d = new Date(`${fromDate}T12:00:00`)
-      if (rule === 'daily') d.setDate(d.getDate() + 1)
-      else if (rule === 'weekly') d.setDate(d.getDate() + 7)
-      else if (rule === 'monthly') d.setMonth(d.getMonth() + 1)
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    }
-
-    function getBoredOracle(
-      excludedCategoryIds: string[],
-      maxMinutes: number | null,
-    ): BoredOracleResult | null {
-      // Eligible activities: not archived, not done (or recurring)
-      const activities = queryRaw(
-        `SELECT * FROM bored_activities
-     WHERE archived_at IS NULL AND (is_done = 0 OR is_recurring = 1)`,
-      )
-        .map(parseBoredActivity)
-        .filter((a) => {
-          if (excludedCategoryIds.includes(a.category_id)) return false
-          if (maxMinutes != null && a.estimated_minutes != null && a.estimated_minutes > maxMinutes)
-            return false
-          return true
-        })
-
-      // Eligible todos: show_in_bored=1, not done, not archived
-      const todos = queryRaw(
-        'SELECT * FROM todos WHERE show_in_bored = 1 AND is_done = 0 AND archived_at IS NULL',
-      )
-        .map(parseTodo)
-        .filter((t) => {
-          if (t.bored_category_id && excludedCategoryIds.includes(t.bored_category_id)) return false
-          if (maxMinutes != null && t.estimated_minutes != null && t.estimated_minutes > maxMinutes)
-            return false
-          return true
-        })
-
-      const pool: BoredOracleResult[] = []
-      const categories = new Map(getBoredCategories().map((c) => [c.id, c]))
-
-      for (const activity of activities) {
-        const category = categories.get(activity.category_id)
-        if (category) pool.push({ source: 'activity', activity, category })
-      }
-      for (const todo of todos) {
-        const category = todo.bored_category_id
-          ? (categories.get(todo.bored_category_id) ?? null)
-          : null
-        pool.push({ source: 'todo', todo, category })
-      }
-
-      if (pool.length === 0) return null
-      return pool[Math.floor(Math.random() * pool.length)]!
-    }
-
-    function deleteAllBoredData(): null {
-      exec('DELETE FROM bored_activities')
-      // Clear todo references to custom categories before deleting them
-      exec(
-        'UPDATE todos SET show_in_bored = 0, bored_category_id = NULL WHERE bored_category_id IN (SELECT id FROM bored_categories WHERE is_system = 0)',
-      )
-      exec('DELETE FROM bored_categories WHERE is_system = 0')
-      return null
-    }
-
-    // ─── Context tag discovery ─────────────────────────────────────────────────
-
-    function getContextTags(): string[] {
-      const rows = queryRaw(`
-        WITH
-          ht AS (
-            SELECT t.value AS tag, MAX(h.created_at) AS latest
-            FROM habits h, json_each(h.tags) t
-            WHERE h.archived_at IS NULL
-            GROUP BY t.value
-          ),
-          tt AS (
-            SELECT t.value AS tag, MAX(td.created_at) AS latest
-            FROM todos td, json_each(td.tags) t
-            WHERE td.archived_at IS NULL
-            GROUP BY t.value
-          ),
-          bt AS (
-            SELECT t.value AS tag, MAX(b.created_at) AS latest
-            FROM bored_activities b, json_each(b.tags) t
-            WHERE b.archived_at IS NULL
-            GROUP BY t.value
-          ),
-          all_tags AS (
-            SELECT tag, 'h' AS src, latest FROM ht
-            UNION ALL SELECT tag, 't' AS src, latest FROM tt
-            UNION ALL SELECT tag, 'b' AS src, latest FROM bt
-          )
-        SELECT tag FROM (
-          SELECT tag, COUNT(DISTINCT src) AS cnt, MAX(latest) AS recent
-          FROM all_tags
-          GROUP BY tag
-          HAVING cnt >= 2 AND tag NOT LIKE 'habitat-%'
-        ) ORDER BY recent DESC LIMIT 6
-      `)
-      return rows.map((r) => String(r['tag']))
-    }
-
-    // ─── Global search ────────────────────────────────────────────────────────────
-
-    function searchGlobal(query: string): SearchResult[] {
-      const q = `%${query.toLowerCase()}%`
-      const results: SearchResult[] = []
-      const habits = queryRaw(
-        'SELECT id, name, icon, color, archived_at FROM habits WHERE lower(name) LIKE ? OR lower(description) LIKE ? ORDER BY name ASC LIMIT 10',
-        [q, q],
-      )
-      for (const r of habits) {
-        results.push({
-          kind: 'habit',
-          id: r['id'] as string,
-          name: r['name'] as string,
-          icon: r['icon'] as string,
-          color: r['color'] as string,
-          archived: r['archived_at'] != null,
-        })
-      }
-      const todos = queryRaw(
-        'SELECT id, title, is_done FROM todos WHERE archived_at IS NULL AND (lower(title) LIKE ? OR lower(description) LIKE ?) ORDER BY title ASC LIMIT 10',
-        [q, q],
-      )
-      for (const r of todos) {
-        results.push({
-          kind: 'todo',
-          id: r['id'] as string,
-          title: r['title'] as string,
-          is_done: Boolean(r['is_done']),
-        })
-      }
-      const scribbles = queryRaw(
-        'SELECT id, title, content FROM scribbles WHERE lower(title) LIKE ? OR lower(content) LIKE ? ORDER BY updated_at DESC LIMIT 10',
-        [q, q],
-      )
-      for (const r of scribbles) {
-        const content = String(r['content'] ?? '')
-        results.push({
-          kind: 'scribble',
-          id: r['id'] as string,
-          title: String(r['title'] ?? '').slice(0, 60) || content.slice(0, 60),
-          preview: content.slice(0, 80),
-        })
-      }
-      const checkins = queryRaw(
-        'SELECT id, title FROM checkin_templates WHERE lower(title) LIKE ? ORDER BY title ASC LIMIT 5',
-        [q],
-      )
-      for (const r of checkins) {
-        results.push({ kind: 'checkin', id: r['id'] as string, title: r['title'] as string })
-      }
-      return results
-    }
-
-    // ─── Todo handlers ────────────────────────────────────────────────────────────
-
-    function getTodos(): Todo[] {
-      return queryRaw('SELECT * FROM todos WHERE archived_at IS NULL ORDER BY created_at ASC').map(
-        parseTodo,
-      )
-    }
-
-    function createTodo(
-      payload: Omit<
-        Todo,
-        | 'id'
-        | 'created_at'
-        | 'updated_at'
-        | 'is_done'
-        | 'done_at'
-        | 'done_count'
-        | 'last_done_at'
-        | 'archived_at'
-      >,
-    ): Todo {
-      const id = crypto.randomUUID()
-      const now = new Date().toISOString()
-      exec(
-        `INSERT INTO todos
-       (id,title,description,due_date,priority,estimated_minutes,is_done,done_count,
-        tags,annotations,is_recurring,recurrence_rule,show_in_bored,bored_category_id,
-        created_at,updated_at)
-     VALUES (?,?,?,?,?,?,0,0,?,?,?,?,?,?,?,?)`,
-        [
-          id,
-          payload.title,
-          payload.description,
-          payload.due_date ?? null,
-          payload.priority ?? 'medium',
-          payload.estimated_minutes ?? null,
-          JSON.stringify(payload.tags ?? []),
-          JSON.stringify(payload.annotations ?? {}),
-          payload.is_recurring ? 1 : 0,
-          payload.recurrence_rule ?? null,
-          payload.show_in_bored ? 1 : 0,
-          payload.bored_category_id ?? null,
-          now,
-          now,
-        ],
-      )
-      return parseTodo(queryRaw('SELECT * FROM todos WHERE id = ?', [id])[0]!)
-    }
-
-    function updateTodo(payload: Partial<Todo> & { id: string }): Todo {
-      const { id, ...fields } = payload
-      const updates: [string, unknown][] = []
-      const scalars = [
-        'title',
-        'description',
-        'due_date',
-        'priority',
-        'estimated_minutes',
-        'recurrence_rule',
-        'bored_category_id',
-      ] as const
-      for (const k of scalars) {
-        if (k in fields) updates.push([k, (fields[k] as unknown) ?? null])
-      }
-      for (const k of ['is_recurring', 'show_in_bored'] as const) {
-        if (k in fields) updates.push([k, fields[k] ? 1 : 0])
-      }
-      if ('tags' in fields) updates.push(['tags', JSON.stringify(fields.tags ?? [])])
-      if ('annotations' in fields)
-        updates.push(['annotations', JSON.stringify(fields.annotations ?? {})])
-      if (updates.length > 0) {
-        updates.push(['updated_at', new Date().toISOString()])
-        const set = updates.map(([k]) => `${k} = ?`).join(', ')
-        exec(`UPDATE todos SET ${set} WHERE id = ?`, [...updates.map(([, v]) => v), id])
-      }
-      return parseTodo(queryRaw('SELECT * FROM todos WHERE id = ?', [id])[0]!)
-    }
-
-    function deleteTodo(id: string): null {
-      exec('DELETE FROM todos WHERE id = ?', [id])
-      return null
-    }
-
-    function archiveTodo(id: string): null {
-      const now = new Date().toISOString()
-      exec('UPDATE todos SET archived_at = ?, updated_at = ? WHERE id = ?', [now, now, id])
-      return null
-    }
-
-    function toggleTodo(id: string): Todo {
-      const rows = queryRaw('SELECT * FROM todos WHERE id = ?', [id])
-      if (rows.length === 0) throw new Error(`Todo not found: ${id}`)
-      const todo = parseTodo(rows[0]!)
-      const now = new Date().toISOString()
-      if (!todo.is_done && todo.is_recurring && todo.due_date) {
-        // Advance due date instead of marking done
-        const nextDue = calculateNextDue(todo.due_date, todo.recurrence_rule ?? 'daily')
-        exec(
-          'UPDATE todos SET due_date = ?, done_count = done_count + 1, last_done_at = ?, updated_at = ? WHERE id = ?',
-          [nextDue, now, now, id],
-        )
-      } else if (todo.is_done) {
-        exec('UPDATE todos SET is_done = 0, done_at = NULL, updated_at = ? WHERE id = ?', [now, id])
-      } else {
-        exec(
-          'UPDATE todos SET is_done = 1, done_at = ?, done_count = done_count + 1, last_done_at = ?, updated_at = ? WHERE id = ?',
-          [now, now, now, id],
-        )
-      }
-      return parseTodo(queryRaw('SELECT * FROM todos WHERE id = ?', [id])[0]!)
-    }
-
-    function deleteAllTodos(): null {
-      exec('DELETE FROM todos')
-      return null
-    }
+    const adapter = new WorkerDbAdapter()
 
     // ─── Message loop ─────────────────────────────────────────────────────────────
 
@@ -2123,31 +680,41 @@ await (async () => {
       try {
         switch (req.type) {
           case 'GET_HABITS':
-            result = getHabits()
+            result = await shared.getHabits(adapter)
             break
           case 'CREATE_HABIT':
-            result = createHabit(req.payload)
+            result = await shared.createHabit(adapter, req.payload)
             break
           case 'UPDATE_HABIT':
-            result = updateHabit(req.payload)
+            result = await shared.updateHabit(adapter, req.payload)
             break
           case 'ARCHIVE_HABIT':
-            result = archiveHabit(req.payload.id)
+            result = await shared.archiveHabit(adapter, req.payload.id)
             break
           case 'DELETE_HABIT':
-            result = deleteHabit(req.payload.id)
+            result = await shared.deleteHabit(adapter, req.payload.id)
             break
           case 'GET_COMPLETIONS_FOR_DATE':
-            result = getCompletionsForDate(req.payload.date)
+            result = await shared.getCompletionsForDate(adapter, req.payload.date)
             break
           case 'GET_COMPLETIONS_FOR_HABIT':
-            result = getCompletionsForHabit(req.payload.habit_id, req.payload.from, req.payload.to)
+            result = await shared.getCompletionsForHabit(
+              adapter,
+              req.payload.habit_id,
+              req.payload.from,
+              req.payload.to,
+            )
             break
           case 'GET_COMPLETIONS_FOR_DATE_RANGE':
-            result = getCompletionsForDateRange(req.payload.from, req.payload.to)
+            result = await shared.getCompletionsForDateRange(
+              adapter,
+              req.payload.from,
+              req.payload.to,
+            )
             break
           case 'TOGGLE_COMPLETION':
-            result = toggleCompletion(
+            result = await shared.toggleCompletion(
+              adapter,
               req.payload.habit_id,
               req.payload.date,
               req.payload.tags,
@@ -2155,61 +722,71 @@ await (async () => {
             )
             break
           case 'GET_STREAK':
-            result = getStreak(req.payload.habit_id)
+            result = await shared.getStreak(adapter, req.payload.habit_id)
             break
           case 'GET_ARCHIVED_HABITS':
-            result = getArchivedHabits()
+            result = await shared.getArchivedHabits(adapter)
             break
           case 'GET_ALL_COMPLETIONS':
-            result = getAllCompletions()
+            result = await shared.getAllCompletions(adapter)
             break
           case 'DELETE_ALL_HABITS':
-            result = deleteAllHabits()
+            result = await shared.deleteAllHabits(adapter)
             break
           case 'DELETE_ALL_CHECKIN_ENTRIES':
-            result = deleteAllCheckinEntries()
+            result = await shared.deleteAllCheckinEntries(adapter)
             break
           case 'DELETE_ALL_CHECKIN_DATA':
-            result = deleteAllCheckinData()
+            result = await shared.deleteAllCheckinData(adapter)
             break
           case 'DELETE_ALL_SCRIBBLES':
-            result = deleteAllScribbles()
+            result = await shared.deleteAllScribbles(adapter)
             break
           case 'CLEAR_APPLIED_DEFAULTS':
-            result = clearAppliedDefaults()
+            result = await shared.clearAppliedDefaults(adapter)
             break
           case 'GET_DB_INFO':
-            result = getDbInfo()
+            result = await shared.getDbInfo(adapter)
             break
           case 'INTEGRITY_CHECK':
-            result = integrityCheck()
+            result = await shared.integrityCheck(adapter)
             break
           case 'IS_DEFAULT_APPLIED':
-            result = isDefaultApplied(req.payload.key)
+            result = await shared.isDefaultApplied(adapter, req.payload.key)
             break
           case 'MARK_DEFAULT_APPLIED':
-            result = markDefaultApplied(req.payload.key)
+            result = await shared.markDefaultApplied(adapter, req.payload.key)
             break
           case 'EXPORT_DB':
             result = exportDbBytes()
             break
           case 'EXPORT_JSON_DATA':
-            result = exportJsonData(req.payload)
+            result = await shared.exportJsonData(adapter, req.payload)
             break
           case 'IMPORT_JSON':
-            result = importJson(req.payload)
+            result = await shared.importJson(adapter, req.payload)
             break
           case 'GET_HABIT_LOGS_FOR_DATE':
-            result = getHabitLogsForDate(req.payload.date)
+            result = await shared.getHabitLogsForDate(adapter, req.payload.date)
             break
           case 'GET_HABIT_LOGS_FOR_HABIT':
-            result = getHabitLogsForHabit(req.payload.habit_id, req.payload.from, req.payload.to)
+            result = await shared.getHabitLogsForHabit(
+              adapter,
+              req.payload.habit_id,
+              req.payload.from,
+              req.payload.to,
+            )
             break
           case 'GET_HABIT_LOGS_FOR_DATE_RANGE':
-            result = getHabitLogsForDateRange(req.payload.from, req.payload.to)
+            result = await shared.getHabitLogsForDateRange(
+              adapter,
+              req.payload.from,
+              req.payload.to,
+            )
             break
           case 'LOG_HABIT_VALUE':
-            result = logHabitValue(
+            result = await shared.logHabitValue(
+              adapter,
               req.payload.habit_id,
               req.payload.date,
               req.payload.value,
@@ -2217,61 +794,66 @@ await (async () => {
             )
             break
           case 'DELETE_HABIT_LOG':
-            result = deleteHabitLog(req.payload.id)
+            result = await shared.deleteHabitLog(adapter, req.payload.id)
             break
           case 'GET_SCHEDULE_FOR_HABIT':
-            result = getScheduleForHabit(req.payload.habit_id)
+            result = await shared.getScheduleForHabit(adapter, req.payload.habit_id)
             break
           case 'UPDATE_HABIT_SCHEDULE':
-            result = updateHabitSchedule(req.payload)
+            result = await shared.updateHabitSchedule(adapter, req.payload)
             break
           case 'PAUSE_HABIT':
-            result = pauseHabit(req.payload.id, req.payload.until)
+            result = await shared.pauseHabit(adapter, req.payload.id, req.payload.until)
             break
           case 'PAUSE_ALL_HABITS':
-            result = pauseAllHabits(req.payload.until)
+            result = await shared.pauseAllHabits(adapter, req.payload.until)
             break
           case 'GET_CHECKIN_ENTRY':
-            result = getCheckinEntry(req.payload.date)
+            result = await shared.getCheckinEntry(adapter, req.payload.date)
             break
           case 'UPSERT_CHECKIN_ENTRY':
-            result = upsertCheckinEntry(req.payload.date, req.payload.content)
+            result = await shared.upsertCheckinEntry(adapter, req.payload.date, req.payload.content)
             break
           case 'DELETE_CHECKIN_ENTRY':
-            result = deleteCheckinEntry(req.payload.id)
+            result = await shared.deleteCheckinEntry(adapter, req.payload.id)
             break
           case 'GET_CHECKIN_ENTRIES':
-            result = getCheckinEntries(req.payload.from, req.payload.to)
+            result = await shared.getCheckinEntries(adapter, req.payload.from, req.payload.to)
             break
           case 'GET_CHECKIN_TEMPLATES':
-            result = getCheckinTemplates()
+            result = await shared.getCheckinTemplates(adapter)
             break
           case 'CREATE_CHECKIN_TEMPLATE':
-            result = createCheckinTemplate(req.payload)
+            result = await shared.createCheckinTemplate(adapter, req.payload)
             break
           case 'UPDATE_CHECKIN_TEMPLATE':
-            result = updateCheckinTemplate(req.payload)
+            result = await shared.updateCheckinTemplate(adapter, req.payload)
             break
           case 'DELETE_CHECKIN_TEMPLATE':
-            result = deleteCheckinTemplate(req.payload.id)
+            result = await shared.deleteCheckinTemplate(adapter, req.payload.id)
             break
           case 'GET_CHECKIN_QUESTIONS':
-            result = getCheckinQuestions(req.payload.template_id)
+            result = await shared.getCheckinQuestions(adapter, req.payload.template_id)
             break
           case 'CREATE_CHECKIN_QUESTION':
-            result = createCheckinQuestion(req.payload)
+            result = await shared.createCheckinQuestion(adapter, req.payload)
             break
           case 'UPDATE_CHECKIN_QUESTION':
-            result = updateCheckinQuestion(req.payload)
+            result = await shared.updateCheckinQuestion(adapter, req.payload)
             break
           case 'DELETE_CHECKIN_QUESTION':
-            result = deleteCheckinQuestion(req.payload.id)
+            result = await shared.deleteCheckinQuestion(adapter, req.payload.id)
             break
           case 'GET_CHECKIN_RESPONSES':
-            result = getCheckinResponses(req.payload.template_id, req.payload.date)
+            result = await shared.getCheckinResponses(
+              adapter,
+              req.payload.template_id,
+              req.payload.date,
+            )
             break
           case 'UPSERT_CHECKIN_RESPONSE':
-            result = upsertCheckinResponse(
+            result = await shared.upsertCheckinResponse(
+              adapter,
               req.payload.question_id,
               req.payload.logged_date,
               req.payload.value_numeric,
@@ -2279,129 +861,135 @@ await (async () => {
             )
             break
           case 'DELETE_CHECKIN_RESPONSE':
-            result = deleteCheckinResponse(req.payload.id)
+            result = await shared.deleteCheckinResponse(adapter, req.payload.id)
             break
           case 'GET_SCRIBBLES':
-            result = getScribbles()
+            result = await shared.getScribbles(adapter)
             break
           case 'CREATE_SCRIBBLE':
-            result = createScribble(req.payload)
+            result = await shared.createScribble(adapter, req.payload)
             break
           case 'UPDATE_SCRIBBLE':
-            result = updateScribble(req.payload)
+            result = await shared.updateScribble(adapter, req.payload)
             break
           case 'DELETE_SCRIBBLE':
-            result = deleteScribble(req.payload.id)
+            result = await shared.deleteScribble(adapter, req.payload.id)
             break
           case 'GET_ALL_REMINDERS':
-            result = getAllReminders()
+            result = await shared.getAllReminders(adapter)
             break
           case 'GET_REMINDERS_FOR_HABIT':
-            result = getRemindersForHabit(req.payload.habit_id)
+            result = await shared.getRemindersForHabit(adapter, req.payload.habit_id)
             break
           case 'CREATE_REMINDER':
-            result = createReminder(
+            result = await shared.createReminder(
+              adapter,
               req.payload.habit_id,
               req.payload.trigger_time,
               req.payload.days_active,
             )
             break
           case 'DELETE_REMINDER':
-            result = deleteReminder(req.payload.id)
+            result = await shared.deleteReminder(adapter, req.payload.id)
             break
           case 'GET_ALL_CHECKIN_REMINDERS':
-            result = getAllCheckinReminders()
+            result = await shared.getAllCheckinReminders(adapter)
             break
           case 'GET_CHECKIN_REMINDERS_FOR_TEMPLATE':
-            result = getCheckinRemindersForTemplate(req.payload.template_id)
+            result = await shared.getCheckinRemindersForTemplate(adapter, req.payload.template_id)
             break
           case 'CREATE_CHECKIN_REMINDER':
-            result = createCheckinReminder(
+            result = await shared.createCheckinReminder(
+              adapter,
               req.payload.template_id,
               req.payload.trigger_time,
               req.payload.days_active,
             )
             break
           case 'DELETE_CHECKIN_REMINDER':
-            result = deleteCheckinReminder(req.payload.id)
+            result = await shared.deleteCheckinReminder(adapter, req.payload.id)
             break
           case 'GET_CHECKIN_TEMPLATE':
-            result = getCheckinTemplate(req.payload.id)
+            result = await shared.getCheckinTemplate(adapter, req.payload.id)
             break
           case 'GET_CHECKIN_RESPONSE_DATES':
-            result = getCheckinResponseDates()
+            result = await shared.getCheckinResponseDates(adapter)
             break
           case 'GET_CHECKIN_SUMMARY_FOR_DATE':
-            result = getCheckinSummaryForDate(req.payload.date)
+            result = await shared.getCheckinSummaryForDate(adapter, req.payload.date)
             break
           case 'GET_SCRIBBLES_FOR_DATE':
-            result = getScribblesForDate(req.payload.date)
+            result = await shared.getScribblesForDate(adapter, req.payload.date)
             break
           case 'GET_BORED_CATEGORIES':
-            result = getBoredCategories()
+            result = await shared.getBoredCategories(adapter)
             break
           case 'CREATE_BORED_CATEGORY':
-            result = createBoredCategory(req.payload)
+            result = await shared.createBoredCategory(adapter, req.payload)
             break
           case 'UPDATE_BORED_CATEGORY':
-            result = updateBoredCategory(req.payload)
+            result = await shared.updateBoredCategory(adapter, req.payload)
             break
           case 'DELETE_BORED_CATEGORY':
-            result = deleteBoredCategory(req.payload.id)
+            result = await shared.deleteBoredCategory(adapter, req.payload.id)
             break
           case 'GET_BORED_ACTIVITIES':
-            result = getBoredActivities()
+            result = await shared.getBoredActivities(adapter)
             break
           case 'GET_BORED_ACTIVITIES_FOR_CATEGORY':
-            result = getBoredActivitiesForCategory(req.payload.category_id)
+            result = await shared.getBoredActivitiesForCategory(adapter, req.payload.category_id)
             break
           case 'CREATE_BORED_ACTIVITY':
-            result = createBoredActivity(req.payload)
+            result = await shared.createBoredActivity(adapter, req.payload)
             break
           case 'UPDATE_BORED_ACTIVITY':
-            result = updateBoredActivity(req.payload)
+            result = await shared.updateBoredActivity(adapter, req.payload)
             break
           case 'DELETE_BORED_ACTIVITY':
-            result = deleteBoredActivity(req.payload.id)
+            result = await shared.deleteBoredActivity(adapter, req.payload.id)
             break
           case 'ARCHIVE_BORED_ACTIVITY':
-            result = archiveBoredActivity(req.payload.id)
+            result = await shared.archiveBoredActivity(adapter, req.payload.id)
             break
           case 'MARK_BORED_ACTIVITY_DONE':
-            result = markBoredActivityDone(req.payload.id)
+            result = await shared.markBoredActivityDone(adapter, req.payload.id)
             break
           case 'GET_BORED_ORACLE':
-            result = getBoredOracle(req.payload.excluded_category_ids, req.payload.max_minutes)
+            result = await shared.getBoredOracle(
+              adapter,
+              req.payload.excluded_category_ids,
+              req.payload.max_minutes,
+            )
             break
           case 'DELETE_ALL_BORED_DATA':
-            result = deleteAllBoredData()
+            result = await shared.deleteAllBoredData(adapter)
             break
           case 'GET_TODOS':
-            result = getTodos()
+            result = await shared.getTodos(adapter)
             break
           case 'CREATE_TODO':
-            result = createTodo(req.payload)
+            result = await shared.createTodo(adapter, req.payload)
             break
           case 'UPDATE_TODO':
-            result = updateTodo(req.payload)
+            result = await shared.updateTodo(adapter, req.payload)
             break
           case 'DELETE_TODO':
-            result = deleteTodo(req.payload.id)
+            result = await shared.deleteTodo(adapter, req.payload.id)
             break
           case 'ARCHIVE_TODO':
-            result = archiveTodo(req.payload.id)
+            result = await shared.archiveTodo(adapter, req.payload.id)
             break
           case 'TOGGLE_TODO':
-            result = toggleTodo(req.payload.id)
+            result = await shared.toggleTodo(adapter, req.payload.id)
             break
           case 'DELETE_ALL_TODOS':
-            result = deleteAllTodos()
+            result = await shared.deleteAllTodos(adapter)
             break
           case 'GET_CONTEXT_TAGS':
-            result = getContextTags()
+            result = await shared.getContextTags(adapter)
             break
           case 'SEARCH_GLOBAL':
-            result = searchGlobal(req.payload.query)
+            result = await shared.searchGlobal(adapter, req.payload.query)
             break
           case 'NUKE_OPFS': {
             // Close DB to release all OPFS sync-access handles, then wipe every

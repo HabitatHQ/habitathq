@@ -144,7 +144,9 @@ export function useNotifications() {
     try {
       const { registerPlugin } = await import('@capacitor/core')
       const BatteryOptim = registerPlugin('BatteryOptim')
-      const result = (await BatteryOptim.isIgnoringOptimizations()) as { ignoring: boolean }
+      const result = await (
+        BatteryOptim as { isIgnoringOptimizations(): Promise<{ ignoring: boolean }> }
+      ).isIgnoringOptimizations()
       _batteryOptim.value = result.ignoring ? 'exempt' : 'optimized'
       notifLog('battery', 'optimization checked', { status: _batteryOptim.value })
     } catch (err) {
@@ -158,7 +160,7 @@ export function useNotifications() {
       const { registerPlugin } = await import('@capacitor/core')
       const BatteryOptim = registerPlugin('BatteryOptim')
       notifLog('battery', 'requesting exemption')
-      await BatteryOptim.requestIgnore()
+      await (BatteryOptim as { requestIgnore(): Promise<void> }).requestIgnore()
       await _checkBatteryOptim()
     } catch (err) {
       notifLog('battery', `request failed: ${err}`)
@@ -697,12 +699,12 @@ export function useNotifications() {
 
     await LocalNotifications.addListener('localNotificationActionPerformed', (event) => {
       const extra = event.notification.extra as Record<string, string> | undefined
-      notifLog('tapped', '', { id: event.notification.id, type: extra?.type ?? 'unknown' })
+      notifLog('tapped', '', { id: event.notification.id, type: extra?.['type'] ?? 'unknown' })
       if (!extra) return
-      if (extra.type === 'habit' && extra.habitId) {
-        router.push(`/habits/${extra.habitId}`)
-      } else if (extra.type === 'checkin' && extra.templateId) {
-        router.push(`/checkin/${extra.templateId}`)
+      if (extra['type'] === 'habit' && extra['habitId']) {
+        router.push(`/habits/${extra['habitId']}`)
+      } else if (extra['type'] === 'checkin' && extra['templateId']) {
+        router.push(`/checkin/${extra['templateId']}`)
       }
     })
     notifLog('init', 'native listeners registered (received + tap)')

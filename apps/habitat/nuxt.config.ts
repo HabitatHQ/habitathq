@@ -182,6 +182,7 @@ export default defineNuxtConfig({
       // Post-order: scan final HTML for inline <script> elements, compute
       // their SHA-256 hashes, and patch them into the CSP meta tag's script-src.
       cspHashPlugin(),
+      // @ts-expect-error — rollup-plugin-license Plugin<any> is compatible at runtime; type mismatch between rollup and vite plugin interfaces
       license({
         thirdParty: {
           includePrivate: false,
