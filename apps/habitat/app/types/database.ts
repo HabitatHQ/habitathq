@@ -373,6 +373,17 @@ export interface ExportSelection {
   todos: boolean
 }
 
+/**
+ * Database adapter interface used by db-shared.ts.
+ * Both WorkerDbAdapter (wa-sqlite) and NativeDbAdapter (Capacitor SQLite)
+ * implement this interface, allowing all SQL + business logic to be shared.
+ */
+export interface DbAdapter {
+  queryAll<T>(sql: string, bind?: unknown[]): Promise<T[]>
+  queryOne<T>(sql: string, bind?: unknown[]): Promise<T | null>
+  exec(sql: string, bind?: unknown[]): Promise<void>
+}
+
 export type WorkerResponse<T = unknown> =
   | { id: string; ok: true; data: T }
   | { id: string; ok: false; error: string }
