@@ -63,7 +63,7 @@ Routes: `/`, `/week`, `/habits`, `/habits/[id]`, `/health`, `/todos`, `/bored`, 
 
 **TypeScript**: `exactOptionalPropertyTypes`, `noPropertyAccessFromIndexSignature` — use bracket notation for index properties, no `as` casts to suppress errors.
 
-**Feature flags**: add to `AppSettings` in `useAppSettings.ts`, gate nav item in `default.vue`. Current flags: `enableTodos`, `enableBored`, `enableTimer`, `journalling`.
+**Feature flags**: add to `AppSettings` in `useAppSettings.ts`, gate nav item in `default.vue`. Current flags: `enableToday`, `enableJournalling` (gates `/checkin` + `/jots`), `enableHealth`, `enableTodos`, `enableBored`, `enableContextFilter`, `enableTimer`.
 
 **Platform guard**: `if (!Capacitor.isNativePlatform())` before any OPFS logic.
 

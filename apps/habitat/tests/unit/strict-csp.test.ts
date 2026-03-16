@@ -199,7 +199,6 @@ describe('parseStrictCspSetting', () => {
       enableToday: true,
       enableJournalling: true,
       enableHealth: false,
-      enableWeek: false,
       enableTodos: false,
       enableBored: false,
       enableContextFilter: false,

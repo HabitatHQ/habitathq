@@ -4,7 +4,6 @@ export interface AppSettings {
   enableToday: boolean
   enableJournalling: boolean
   enableHealth: boolean
-  enableWeek: boolean
   enableTodos: boolean
   enableBored: boolean
   autoShowBored: boolean
@@ -39,7 +38,6 @@ const DEFAULTS: AppSettings = {
   enableToday: true,
   enableJournalling: true,
   enableHealth: false,
-  enableWeek: true,
   enableTodos: true,
   enableBored: false,
   autoShowBored: true,

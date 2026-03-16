@@ -385,7 +385,6 @@ export interface AppSettings {
   enableToday: boolean
   enableJournalling: boolean
   enableHealth: boolean
-  enableWeek: boolean
   enableTodos: boolean
   enableBored: boolean
   autoShowBored: boolean
