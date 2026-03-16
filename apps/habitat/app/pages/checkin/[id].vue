@@ -5,6 +5,7 @@ import type {
   CheckinResponse,
   CheckinTemplate,
 } from '~/types/database'
+import { toLocalDateKey } from '~/utils/format'
 
 const db = useDatabase()
 const toast = useToast()
@@ -29,12 +30,9 @@ async function loadTemplate() {
 
 // ─── Date navigation ──────────────────────────────────────────────────────────
 
-function localDateKey(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-const todayKey = localDateKey(new Date())
+const todayKey = toLocalDateKey()
 const currentDate = ref(new Date())
-const dateKey = computed(() => localDateKey(currentDate.value))
+const dateKey = computed(() => toLocalDateKey(currentDate.value))
 const isToday = computed(() => dateKey.value === todayKey)
 
 const displayDate = computed(() =>

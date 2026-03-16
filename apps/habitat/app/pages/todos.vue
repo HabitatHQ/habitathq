@@ -2,6 +2,7 @@
 import type { TimerMode } from '~/composables/useTimer'
 import type { BoredCategory, Todo } from '~/types/database'
 import { buildTodoPayload, validateTodoForm } from '~/utils/todos-helpers'
+import { toLocalDateKey } from '~/utils/format'
 
 const db = useDatabase()
 const { settings, set: setAppSetting } = useAppSettings()
@@ -14,23 +15,14 @@ const timer = reactive(useTimer())
 
 const modeMenuItemId = ref<string | null>(null)
 const modeMenuMinutes = ref(25)
-let longPressTimeout: ReturnType<typeof setTimeout> | null = null
-let longPressActivated = false
+
+const { start: lpStart, cancel: cancelLongPress, activated: longPressActivated } = useLongPress()
 
 function startLongPress(todo: Todo) {
-  longPressActivated = false
-  longPressTimeout = setTimeout(() => {
-    longPressActivated = true
+  lpStart(() => {
     modeMenuMinutes.value = todo.estimated_minutes ?? 25
     modeMenuItemId.value = todo.id
-  }, 600)
-}
-
-function cancelLongPress() {
-  if (longPressTimeout) {
-    clearTimeout(longPressTimeout)
-    longPressTimeout = null
-  }
+  })
 }
 
 function pomodoroConfig() {
@@ -48,7 +40,7 @@ function closeModeMenu() {
 }
 
 function handleTodoStart(todo: Todo) {
-  if (longPressActivated) return
+  if (longPressActivated.value) return
   modeMenuItemId.value = null
   if (todo.estimated_minutes) {
     timer.startTimer(
@@ -146,8 +138,7 @@ onMounted(async () => {
 })
 
 // Use local calendar date (not UTC) so "today" matches the device's clock
-const _d = new Date()
-const today = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, '0')}-${String(_d.getDate()).padStart(2, '0')}`
+const today = toLocalDateKey()
 
 const overdue = computed(() =>
   todos.value.filter((t) => !t.is_done && !t.archived_at && t.due_date && t.due_date < today),
@@ -160,7 +151,7 @@ const dueToday = computed(() =>
 const upcoming = computed(() => {
   const in30 = new Date()
   in30.setDate(in30.getDate() + 30)
-  const limit = `${in30.getFullYear()}-${String(in30.getMonth() + 1).padStart(2, '0')}-${String(in30.getDate()).padStart(2, '0')}`
+  const limit = toLocalDateKey(in30)
   return todos.value.filter(
     (t) => !t.is_done && !t.archived_at && t.due_date && t.due_date > today && t.due_date <= limit,
   )

@@ -12,23 +12,14 @@ const { impact, selectionChanged, notification } = useHaptics()
 const timer = reactive(useTimer())
 const modeMenuOpen = ref(false)
 const modeMenuMinutes = ref(25)
-let longPressTimeout: ReturnType<typeof setTimeout> | null = null
-let longPressActivated = false
+
+const { start: lpStart, cancel: cancelLongPress, activated: longPressActivated } = useLongPress()
 
 function startLongPress() {
-  longPressActivated = false
-  longPressTimeout = setTimeout(() => {
-    longPressActivated = true
+  lpStart(() => {
     modeMenuMinutes.value = getBoredEstimate() ?? 25
     modeMenuOpen.value = true
-  }, 600)
-}
-
-function cancelLongPress() {
-  if (longPressTimeout) {
-    clearTimeout(longPressTimeout)
-    longPressTimeout = null
-  }
+  })
 }
 
 function pomodoroConfig() {
@@ -66,7 +57,7 @@ function getBoredEstimate(): number | null {
 }
 
 function handleBoredStart() {
-  if (longPressActivated) return
+  if (longPressActivated.value) return
   if (!currentResult.value) return
   const est = getBoredEstimate()
   if (est) {

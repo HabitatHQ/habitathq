@@ -8,6 +8,7 @@ import {
   dayLabel,
   dayNum,
   fmtDate,
+  toLocalDateKey,
 } from '~/utils/format'
 
 // ─── fmtDuration ─────────────────────────────────────────────────────────────
@@ -141,6 +142,32 @@ describe('dayNum', () => {
 
   it('does not include the year', () => {
     expect(dayNum('2024-01-15')).not.toMatch(/2024/)
+  })
+})
+
+// ─── toLocalDateKey ───────────────────────────────────────────────────────────
+
+describe('toLocalDateKey', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  it('returns YYYY-MM-DD for a given date', () => {
+    expect(toLocalDateKey(new Date(2024, 2, 15))).toBe('2024-03-15')
+  })
+
+  it('zero-pads single-digit month and day', () => {
+    expect(toLocalDateKey(new Date(2024, 0, 5))).toBe('2024-01-05')
+  })
+
+  it('defaults to current local date when no argument given', () => {
+    vi.setSystemTime(new Date(2024, 5, 8)) // June 8 local
+    expect(toLocalDateKey()).toBe('2024-06-08')
+  })
+
+  it('uses local date parts, not UTC', () => {
+    // UTC midnight on Jan 1 is still Dec 31 in UTC-5
+    const d = new Date(2024, 11, 31, 23, 0, 0) // local Dec 31
+    expect(toLocalDateKey(d)).toBe('2024-12-31')
   })
 })
 

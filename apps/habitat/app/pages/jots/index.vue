@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ImageNote, JotItem, VoiceNote } from '~/composables/useJotsStore'
+import { toLocalDateKey } from '~/utils/format'
 
 const router = useRouter()
 const { settings: appSettings } = useAppSettings()
@@ -27,8 +28,7 @@ function onJotLinkClick(item: JotItem) {
 
 // ─── Create TODO from jot ─────────────────────────────────────────────────────
 
-const _td = new Date()
-const today = `${_td.getFullYear()}-${String(_td.getMonth() + 1).padStart(2, '0')}-${String(_td.getDate()).padStart(2, '0')}`
+const today = toLocalDateKey()
 
 const showCreateTodoModal = ref(false)
 const createTodoForJot = ref<JotItem | null>(null)

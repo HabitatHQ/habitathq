@@ -68,6 +68,7 @@ g['useTagInput'] = () => ({
   removeTag: vi.fn(),
   onTagKeydown: vi.fn(),
 })
+g['useLongPress'] = () => ({ start: vi.fn(), cancel: vi.fn(), activated: ref(false) })
 
 // Stub localStorage for settings/data.vue which calls localStorage.removeItem
 vi.stubGlobal('localStorage', {

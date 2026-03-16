@@ -65,6 +65,11 @@ export function fmtDuration(secs: number): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
+/** Format a Date as a YYYY-MM-DD key using local (not UTC) date parts. */
+export function toLocalDateKey(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 /** Human-readable relative time (e.g. "3m ago", "2d ago"). */
 export function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime()
