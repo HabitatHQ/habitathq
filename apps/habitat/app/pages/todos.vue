@@ -42,6 +42,11 @@ function pomodoroConfig() {
   }
 }
 
+function closeModeMenu() {
+  modeMenuItemId.value = null
+  longPressActivated = false
+}
+
 function handleTodoStart(todo: Todo) {
   if (longPressActivated) return
   modeMenuItemId.value = null
@@ -133,7 +138,7 @@ onMounted(async () => {
     highlightedTodoId.value = hid
     await nextTick()
     const el = document.getElementById(`todo-${hid}`)
-    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
     setTimeout(() => {
       highlightedTodoId.value = null
     }, 2500)
@@ -614,7 +619,7 @@ function jotKindIcon(kind: string | undefined): string {
 
                 <!-- Start button (no active timer on this card) -->
                 <div v-else class="relative mt-1.5">
-                  <div v-if="modeMenuItemId === todo.id" class="fixed inset-0 z-40" @click="modeMenuItemId = null" />
+                  <div v-if="modeMenuItemId === todo.id" class="fixed inset-0 z-40" @click="closeModeMenu()" />
                   <div class="flex items-center gap-1.5">
                   <UButton
                     size="xs"
@@ -821,7 +826,7 @@ function jotKindIcon(kind: string | undefined): string {
           <div v-if="showJotPicker && !editingTodo.annotations['linked_jot_id']" class="border border-(--ui-border-accented) rounded-xl overflow-hidden">
             <div v-if="loadingJotPicker" class="p-4 text-center text-xs text-(--ui-text-dimmed)">Loading jots…</div>
             <div v-else-if="jotPickerItems.length === 0" class="p-4 text-center text-xs text-(--ui-text-dimmed)">No jots found.</div>
-            <ul v-else class="divide-y divide-(--ui-border) max-h-48 overflow-y-auto">
+            <ul v-else class="divide-y divide-(--ui-border) max-h-48 overflow-y-auto overscroll-contain">
               <li
                 v-for="jot in jotPickerItems"
                 :key="jot.kind + '-' + jot.id"

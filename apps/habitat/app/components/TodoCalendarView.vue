@@ -336,6 +336,7 @@ function onDayClick(date: string) {
               @pointerdown="onDayPointerDown(cell.date)"
               @pointerup="onDayPointerCancel()"
               @pointerleave="onDayPointerCancel()"
+              @pointermove="onDayPointerCancel()"
             >
               <!-- Day number -->
               <div class="flex justify-end mb-0.5">
@@ -393,6 +394,7 @@ function onDayClick(date: string) {
               @pointerdown="onDayPointerDown(date)"
               @pointerup="onDayPointerCancel()"
               @pointerleave="onDayPointerCancel()"
+              @pointermove="onDayPointerCancel()"
             >
               <!-- Day number circle -->
               <div
@@ -496,7 +498,7 @@ function onDayClick(date: string) {
           Unscheduled
           <span class="ml-auto font-mono font-normal normal-case tracking-normal">{{ unscheduledTodos.length }}</span>
         </p>
-        <div class="space-y-1.5 max-h-[60vh] overflow-y-auto">
+        <div class="space-y-1.5 max-h-[60dvh] overflow-y-auto overscroll-contain">
           <div
             v-for="todo in unscheduledTodos"
             :key="todo.id"
@@ -514,8 +516,8 @@ function onDayClick(date: string) {
     <!-- ── Day detail panel (bottom sheet) ────────────────────────────────── -->
     <Transition name="panel-up">
       <div v-if="selectedDay" class="fixed inset-0 z-50">
-        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" @click="selectedDay = null" />
-        <div class="absolute inset-x-0 bottom-0 bg-(--ui-bg-muted) border-t border-(--ui-border-accented) rounded-t-2xl max-h-[72vh] flex flex-col">
+        <div class="modal-backdrop absolute inset-0 bg-black/50 backdrop-blur-sm" @click="selectedDay = null" />
+        <div class="absolute inset-x-0 bottom-0 bg-(--ui-bg-muted) border-t border-(--ui-border-accented) rounded-t-2xl max-h-[72dvh] flex flex-col">
 
           <!-- Drag handle -->
           <div class="flex justify-center pt-2.5 pb-0 shrink-0">
@@ -541,7 +543,7 @@ function onDayClick(date: string) {
           </div>
 
           <!-- Todo list -->
-          <div class="flex-1 overflow-y-auto divide-y divide-(--ui-border)/50">
+          <div class="flex-1 overflow-y-auto overscroll-contain divide-y divide-(--ui-border)/50">
             <div
               v-for="todo in selectedDayTodos"
               :key="todo.id"

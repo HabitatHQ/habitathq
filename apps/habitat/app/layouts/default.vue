@@ -709,6 +709,9 @@ function toggleColorMode() {
       :style="settings.stickyNav
         ? { paddingBottom: settings.navExtraPadding
             ? 'calc(5.5rem + env(safe-area-inset-bottom))'
+            : 'calc(4.5rem + env(safe-area-inset-bottom))',
+            scrollPaddingBottom: settings.navExtraPadding
+            ? 'calc(5.5rem + env(safe-area-inset-bottom))'
             : 'calc(4.5rem + env(safe-area-inset-bottom))' }
         : {}"
     >

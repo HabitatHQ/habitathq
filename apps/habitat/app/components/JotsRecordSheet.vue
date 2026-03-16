@@ -258,7 +258,7 @@ onUnmounted(() => {
     <Teleport to="body">
       <div v-if="showTranscript" class="fixed inset-0 z-[60] flex items-end sm:items-center justify-center">
         <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="discardTranscript" />
-        <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+        <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[70dvh] overflow-y-auto overscroll-contain">
           <h3 class="text-base font-semibold">Save Transcript?</h3>
           <p class="text-xs text-(--ui-text-dimmed)">Voice note saved. Save the transcript as a text jot?</p>
           <UTextarea v-model="transcriptText" autoresize :rows="4" class="w-full" />
