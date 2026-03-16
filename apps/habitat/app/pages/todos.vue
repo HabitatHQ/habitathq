@@ -36,7 +36,7 @@ function pomodoroConfig() {
 
 function closeModeMenu() {
   modeMenuItemId.value = null
-  longPressActivated = false
+  longPressActivated.value = false
 }
 
 function handleTodoStart(todo: Todo) {
