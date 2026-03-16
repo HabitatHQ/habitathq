@@ -55,9 +55,9 @@ Schema changes: increment `user_version`, add migration ALTER TABLE, mirror in `
 
 ## Pages
 
-Pass-through parents (`habits.vue`, `checkin.vue`, `bored.vue`) contain only `<NuxtPage />` — required for nested routing. Dynamic children use `[id].vue`.
+Pass-through parents (`habits.vue`, `checkin.vue`, `bored.vue`, `jots.vue`, `settings.vue`) contain only `<NuxtPage />` — required for nested routing. Dynamic children use `[id].vue`.
 
-Routes: `/`, `/week`, `/habits`, `/habits/[id]`, `/health`, `/todos`, `/bored`, `/bored/activities`, `/checkin`, `/checkin/[id]`, `/jots`, `/stats`, `/archive`, `/settings`
+Routes: `/`, `/matrix`, `/habits`, `/habits/[id]`, `/health`, `/todos`, `/bored`, `/bored/activities`, `/checkin`, `/checkin/[id]`, `/jots`, `/jots/new`, `/jots/edit-[id]`, `/stats`, `/archive`, `/settings`, `/settings/display`, `/settings/features`, `/settings/notifications`, `/settings/permissions`, `/settings/data`, `/settings/more`
 
 ## Conventions
 

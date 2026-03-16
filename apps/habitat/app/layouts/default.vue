@@ -94,7 +94,6 @@ onMounted(() => {
 })
 
 function navLabel(item: { to: string; label: string }): string {
-  if (item.to === '/matrix') return isDesktop.value ? 'Month' : 'Week'
   return item.label
 }
 
