@@ -55,6 +55,7 @@ function handleTodoStart(todo: Todo) {
       pomodoroConfig(),
     )
     void impact('medium')
+    void navigateTo('/focus')
   } else {
     modeMenuMinutes.value = 25
     modeMenuItemId.value = todo.id
@@ -66,6 +67,7 @@ function startMode(todo: Todo, mode: TimerMode) {
   modeMenuItemId.value = null
   const secs = mode === 'countdown' ? modeMenuMinutes.value * 60 : 0
   timer.startTimer(todo.id, 'todo', todo.title, mode, secs, pomodoroConfig())
+  void navigateTo('/focus')
 }
 
 async function finishTimerAndDone(todo: Todo) {

@@ -16,6 +16,25 @@ const db = useDatabase()
 const timerComp = reactive(useTimer())
 const { impact, selectionChanged } = useHaptics()
 
+const showQuickFocusPicker = ref(false)
+const quickFocusMinutes = ref(25)
+
+function pomodoroConfig() {
+  return {
+    workSeconds: settings.value.pomodoroWorkMinutes * 60,
+    shortBreakSeconds: settings.value.pomodoroShortBreakMinutes * 60,
+    longBreakSeconds: settings.value.pomodoroLongBreakMinutes * 60,
+    cyclesBeforeLong: settings.value.pomodoroCyclesBeforeLong,
+  }
+}
+
+function startQuickFocus(mode: 'stopwatch' | 'countdown' | 'pomodoro') {
+  showQuickFocusPicker.value = false
+  const secs = mode === 'countdown' ? quickFocusMinutes.value * 60 : 0
+  timerComp.startTimer('quick', 'todo', 'Quick Focus', mode, secs, pomodoroConfig())
+  navigateTo('/focus')
+}
+
 let timerInterval: ReturnType<typeof setInterval> | null = null
 let labelTimeout: ReturnType<typeof setTimeout> | null = null
 const showTimerLabel = ref(false)
@@ -390,12 +409,12 @@ function toggleColorMode() {
         <!-- Active timer chip -->
         <NuxtLink
           v-if="settings.enableTimer && timerComp.isActive"
-          :to="timerComp.timer?.itemType === 'todo' ? '/todos' : '/bored'"
+          to="/focus"
           class="flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs transition-colors overflow-hidden"
           :class="timerComp.isRunning
             ? 'border-primary-500/40 text-primary-400 bg-primary-500/10'
             : 'border-(--ui-border) text-(--ui-text-muted)'"
-          :aria-label="`Timer: ${timerComp.displayTime}. Go to ${timerComp.timer?.itemType}`"
+          aria-label="Timer running. Go to Focus mode"
         >
           <span :class="{ 'animate-pulse': timerComp.isRunning }" aria-hidden="true">⏱</span>
           <Transition
@@ -414,6 +433,61 @@ function toggleColorMode() {
           </Transition>
           <span class="font-mono">{{ timerComp.displayTime }}</span>
         </NuxtLink>
+
+        <!-- Quick Focus (if not active, or even if active to change?) we only show if not active? Actually it's an option 'where we added global search for quick focus modes' -->
+        <div v-if="settings.enableTimer && !timerComp.isActive" class="relative">
+          <UButton
+            icon="i-heroicons-clock"
+            variant="ghost"
+            color="neutral"
+            size="sm"
+            class="min-h-[44px]"
+            aria-label="Quick Focus"
+            @click="showQuickFocusPicker = !showQuickFocusPicker; impact('light')"
+          />
+          <!-- Backdrop -->
+          <div v-if="showQuickFocusPicker" class="fixed inset-0 z-40" @click="showQuickFocusPicker = false" />
+          <!-- Dropdown -->
+          <div
+            v-if="showQuickFocusPicker"
+            class="absolute right-0 top-full mt-1 bg-(--ui-bg) border border-(--ui-border) rounded-xl shadow-xl p-1 z-50 min-w-44 space-y-0.5"
+          >
+            <button
+              class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-(--ui-bg-muted) flex items-center gap-2 text-(--ui-text)"
+              @click="startQuickFocus('stopwatch')"
+            >
+              <UIcon name="i-heroicons-play" class="w-4 h-4" /> Stopwatch
+            </button>
+            <div class="flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-(--ui-bg-muted) text-(--ui-text)">
+              <UIcon name="i-heroicons-clock" class="w-4 h-4 shrink-0" />
+              <div class="flex items-center gap-1">
+                <button
+                  class="w-6 h-6 rounded-md bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors active:scale-90"
+                  :class="{ 'opacity-30 pointer-events-none': quickFocusMinutes <= 5 }"
+                  @click="quickFocusMinutes = Math.max(5, quickFocusMinutes - 5)"
+                >
+                  <UIcon name="i-heroicons-minus" class="w-3 h-3" />
+                </button>
+                <span class="w-10 text-center font-semibold tabular-nums">{{ quickFocusMinutes }}</span>
+                <button
+                  class="w-6 h-6 rounded-md bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors active:scale-90"
+                  :class="{ 'opacity-30 pointer-events-none': quickFocusMinutes >= 120 }"
+                  @click="quickFocusMinutes = Math.min(120, quickFocusMinutes + 5)"
+                >
+                  <UIcon name="i-heroicons-plus" class="w-3 h-3" />
+                </button>
+              </div>
+              <span class="text-(--ui-text-muted) text-xs">min</span>
+              <button class="ml-auto text-primary-400 text-xs font-medium" @click="startQuickFocus('countdown')">Start</button>
+            </div>
+            <button
+              class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-(--ui-bg-muted) flex items-center gap-2 text-(--ui-text)"
+              @click="startQuickFocus('pomodoro')"
+            >
+              🍅 Pomodoro
+            </button>
+          </div>
+        </div>
 
         <!-- Global search -->
         <UButton

@@ -174,6 +174,16 @@ export function useTimer() {
     persist(null)
   }
 
+  function addTime(seconds: number): void {
+    if (!timer.value) return
+    if (timer.value.mode === 'stopwatch') return // +1 min naturally doesn't make sense for stopwatch, or we can just ignore it
+    timer.value = {
+      ...timer.value,
+      durationSeconds: timer.value.durationSeconds + seconds
+    }
+    persist(timer.value)
+  }
+
   function onTick(): { overtime: boolean; phaseTransition: PomodoroPhase | null } {
     _tick.value++
 
@@ -224,6 +234,7 @@ export function useTimer() {
     pauseTimer,
     resumeTimer,
     stopTimer,
+    addTime,
     onTick,
   }
 }
