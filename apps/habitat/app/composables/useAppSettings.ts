@@ -29,6 +29,7 @@ export interface AppSettings {
   use24HourTime: boolean
   theme: AppTheme
   reduceMotion: boolean
+  enableHaptics: boolean
   strictCsp: boolean
   tabOrder: string[]
 }
@@ -63,6 +64,7 @@ const DEFAULTS: AppSettings = {
   use24HourTime: false,
   theme: 'habitat',
   reduceMotion: false,
+  enableHaptics: true,
   strictCsp: false,
   tabOrder: [],
 }

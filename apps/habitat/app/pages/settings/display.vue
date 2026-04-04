@@ -128,6 +128,18 @@ function resetTabOrder() {
           />
         </div>
 
+        <!-- Haptic feedback -->
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Haptic feedback</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Vibration and tactile effects on interactions.</p>
+          </div>
+          <USwitch
+            :model-value="appSettings.enableHaptics"
+            @update:model-value="setAppSetting('enableHaptics', $event)"
+          />
+        </div>
+
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">24-hour time</p>

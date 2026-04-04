@@ -8,6 +8,12 @@ const props = defineProps<{
 const open = ref(props.defaultOpen ?? false)
 
 const buttonLabel = computed(() => (open.value && props.openLabel ? props.openLabel : props.label))
+const { impact } = useHaptics()
+
+function toggle() {
+  open.value = !open.value
+  void impact('light')
+}
 </script>
 
 <template>
@@ -15,7 +21,7 @@ const buttonLabel = computed(() => (open.value && props.openLabel ? props.openLa
     <button
       type="button"
       class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1.5 transition-colors"
-      @click="open = !open"
+      @click="toggle"
     >
       <UIcon
         :name="open ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'"

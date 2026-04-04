@@ -18,7 +18,7 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 
 async function load() {
-  const id = route.params.id as string
+  const id = route.params['id'] as string
   const to = new Date().toISOString().slice(0, 10)
   const fromDate = new Date()
   fromDate.setDate(fromDate.getDate() - 89)
@@ -123,6 +123,7 @@ async function deleteLog(id: string) {
   deletingLog.add(id)
   try {
     await db.deleteHabitLog(id)
+    void notification('warning')
     habitLogs.value = habitLogs.value.filter((l) => l.id !== id)
   } catch (err) {
     console.error('[deleteLog]', err)
@@ -158,7 +159,6 @@ const saving = ref(false)
 
 const {
   tagInput: editTagInput,
-  addTag: addEditTag,
   removeTag: removeEditTag,
   onTagKeydown: onEditTagKeydown,
 } = useTagInput(editForm.tags)

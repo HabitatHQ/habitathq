@@ -148,6 +148,7 @@ function isMotionReduced(): boolean {
 async function rollBored() {
   if (boredRolling.value) return
   boredRolling.value = true
+  void impact('medium')
   if (!isMotionReduced()) {
     boredShaking.value = true
     await new Promise((r) => setTimeout(r, 500))
@@ -157,12 +158,13 @@ async function rollBored() {
   // Try to find a context-matching result (up to 5 silent re-rolls)
   let result = await db.getBoredOracle([], null)
   let matched = true
-  if (anyActive.value) {
+  if (result && anyActive.value) {
     const firstTags = result.source === 'activity' ? result.activity.tags : result.todo.tags
     if (!matchesContext(firstTags)) {
       matched = false
       for (let attempt = 0; attempt < 4; attempt++) {
         const r = await db.getBoredOracle([], null)
+        if (!r) continue
         const t = r.source === 'activity' ? r.activity.tags : r.todo.tags
         if (matchesContext(t)) {
           result = r
@@ -341,7 +343,7 @@ async function toggle(habit: HabitWithSchedule) {
         actions: [
           {
             label: 'Undo',
-            click: async () => {
+            onClick: async () => {
               await db.toggleCompletion(habit.id, today)
               completions.value = await db.getCompletionsForDate(today)
               weekCompletions.value = await db.getCompletionsForDateRange(weekStart, today)
@@ -399,7 +401,7 @@ const logoQueued = ref(false)
 async function startLogoAnim() {
   logoAnimating.value = false
   await nextTick()
-  void logoSvgRef.value?.offsetWidth
+  void (logoSvgRef.value as HTMLElement | null)?.offsetWidth
   logoAnimating.value = true
 }
 

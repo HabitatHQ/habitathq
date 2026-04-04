@@ -2,6 +2,7 @@
 // Voice recorder bottom sheet
 const emit = defineEmits<{ close: [] }>()
 const store = useJotsStore()
+const { impact, notification } = useHaptics()
 
 // ─── Speech Recognition types ─────────────────────────────────────────────────
 interface SpeechRecognitionResult {
@@ -64,6 +65,7 @@ async function startRecording() {
     }
     mediaRecorder.start(200)
     isRecording.value = true
+    void impact('medium')
     recordDuration.value = 0
     timerIv = setInterval(() => {
       recordDuration.value++
@@ -115,6 +117,7 @@ function stopRecording() {
   }
   if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop()
   isRecording.value = false
+  void impact('medium')
 }
 
 // ─── Save ─────────────────────────────────────────────────────────────────────
@@ -135,6 +138,7 @@ async function saveRecording() {
       duration: recordDuration.value,
       created_at: new Date().toISOString(),
     })
+    void notification('success')
 
     const fullTranscript = (liveTranscript.value + partialTranscript.value).trim()
     if (fullTranscript) {

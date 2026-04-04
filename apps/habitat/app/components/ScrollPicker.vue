@@ -23,7 +23,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: number]
 }>()
 
-const { impact } = useHaptics()
+const { selectionChanged } = useHaptics()
 
 // Generate the list of selectable values
 const options = computed(() => {
@@ -78,7 +78,7 @@ function onScroll() {
     const val = options.value[clamped]
     if (val !== undefined && val !== props.modelValue) {
       emit('update:modelValue', val)
-      void impact('light')
+      void selectionChanged()
     }
   }
 }
@@ -111,7 +111,7 @@ function selectItem(index: number) {
   const val = options.value[index]
   if (val !== undefined && val !== props.modelValue) {
     emit('update:modelValue', val)
-    void impact('light')
+    void selectionChanged()
   }
   lastSnappedIndex = index
   scrollToIndex(index, 'smooth')

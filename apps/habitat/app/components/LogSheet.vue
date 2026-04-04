@@ -40,7 +40,7 @@ const emit = defineEmits<{
   close: []
 }>()
 
-const { impact } = useHaptics()
+const { impact, selectionChanged } = useHaptics()
 
 const pickerValue = ref(0)
 const manualMode = ref(false)
@@ -58,6 +58,7 @@ watch(
       // Trigger slide-up animation on next frame
       requestAnimationFrame(() => {
         sheetVisible.value = true
+        void impact('light')
       })
     } else {
       sheetVisible.value = false
@@ -101,7 +102,7 @@ function quickAdjust(direction: 1 | -1) {
   const newVal = Math.round((pickerValue.value + props.step * direction) * 1000) / 1000
   if (newVal >= props.min && newVal <= props.max) {
     pickerValue.value = newVal
-    void impact('light')
+    void selectionChanged()
   }
 }
 

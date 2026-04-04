@@ -7,6 +7,13 @@ defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [value: string]
 }>()
+
+const { selectionChanged } = useHaptics()
+
+function select(value: string) {
+  emit('update:modelValue', value)
+  void selectionChanged()
+}
 </script>
 
 <template>
@@ -20,7 +27,7 @@ const emit = defineEmits<{
         ? 'bg-primary-500/20 border-primary-500 text-primary-300'
         : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented) hover:text-(--ui-text-muted)'"
       :aria-pressed="modelValue === opt.value"
-      @click="emit('update:modelValue', opt.value)"
+      @click="select(opt.value)"
     >
       {{ opt.label }}
     </button>

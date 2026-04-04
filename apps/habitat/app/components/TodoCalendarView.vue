@@ -13,6 +13,7 @@ const emit = defineEmits<{
 }>()
 
 const { settings, set: setSetting } = useAppSettings()
+const { impact, selectionChanged } = useHaptics()
 
 // ─── Grain (month / week) — persisted ─────────────────────────────────────────
 
@@ -36,6 +37,7 @@ function prevPeriod() {
   if (grain.value === 'month') d.setMonth(d.getMonth() - 1)
   else d.setDate(d.getDate() - 7)
   viewDate.value = d
+  void impact('light')
 }
 
 function nextPeriod() {
@@ -43,6 +45,7 @@ function nextPeriod() {
   if (grain.value === 'month') d.setMonth(d.getMonth() + 1)
   else d.setDate(d.getDate() + 7)
   viewDate.value = d
+  void impact('light')
 }
 
 function goToToday() {
@@ -283,7 +286,7 @@ function onDayClick(date: string) {
               :class="grain === g[0]
                 ? 'bg-(--ui-bg) text-(--ui-text) shadow-sm'
                 : 'text-(--ui-text-dimmed) hover:text-(--ui-text-toned)'"
-              @click="grain = g[0]"
+              @click="grain = g[0]; selectionChanged()"
             >{{ g[1] }}</button>
           </div>
 
