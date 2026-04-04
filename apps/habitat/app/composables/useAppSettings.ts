@@ -43,7 +43,7 @@ const DEFAULTS: AppSettings = {
   enableBored: false,
   autoShowBored: true,
   enableContextFilter: false,
-  enableTimer: false,
+  enableTimer: true,
   pomodoroWorkMinutes: 25,
   pomodoroShortBreakMinutes: 5,
   pomodoroLongBreakMinutes: 15,
