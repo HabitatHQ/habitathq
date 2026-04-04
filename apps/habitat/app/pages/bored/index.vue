@@ -5,6 +5,7 @@ import type { BoredCategory, BoredOracleResult } from '~/types/database'
 const db = useDatabase()
 const { settings } = useAppSettings()
 const eggs = useEasterEggs()
+const { impact, selectionChanged, notification } = useHaptics()
 
 // ── Timer ─────────────────────────────────────────────────────────────────────
 
@@ -77,10 +78,12 @@ function handleBoredStart() {
       est * 60,
       pomodoroConfig(),
     )
+    void impact('medium')
     modeMenuOpen.value = false
   } else {
     modeMenuMinutes.value = 25
     modeMenuOpen.value = true
+    void impact('light')
   }
 }
 
@@ -95,11 +98,13 @@ function startBoredMode(mode: TimerMode) {
     secs,
     pomodoroConfig(),
   )
+  void impact('medium')
   modeMenuOpen.value = false
 }
 
 async function finishBoredTimerAndDone() {
   timer.stopTimer()
+  void impact('light')
   await markDone()
 }
 
@@ -191,6 +196,7 @@ async function roll() {
 
   const isMidnight = import.meta.client ? new Date().getHours() === 0 : false
 
+  void impact('medium')
   shaking.value = true
   if (!isMotionReduced()) {
     await new Promise((r) => setTimeout(r, 650))
@@ -227,6 +233,7 @@ async function markDone() {
       await db.toggleTodo(currentResult.value.todo.id)
     }
     currentResult.value = await db.getBoredOracle([...excludedCategories.value], maxMinutes.value)
+    void notification('success')
   } finally {
     marking.value = false
   }
@@ -290,7 +297,7 @@ const ORACLE_COPY: Record<string, { rolling: string; again: string; idle: string
 
 const oracleHint = computed(() => {
   if (midnightRoll.value && currentResult.value) return 'Something ancient answered instead'
-  const copy = ORACLE_COPY[oracle.value] ?? ORACLE_COPY['habitat']
+  const copy = ORACLE_COPY[oracle.value] ?? ORACLE_COPY['habitat']!
   if (shaking.value) return copy.rolling
   if (currentResult.value) return copy.again
   return copy.idle
@@ -316,7 +323,7 @@ const oracleHint = computed(() => {
         :class="maxMinutes === tf.value
           ? 'bg-primary-600 text-white'
           : 'bg-(--ui-bg-elevated) text-(--ui-text-toned) hover:bg-(--ui-bg-accented)'"
-        @click="maxMinutes = tf.value"
+        @click="maxMinutes = tf.value; selectionChanged()"
       >
         {{ tf.label }}
       </button>
@@ -332,7 +339,7 @@ const oracleHint = computed(() => {
           ? 'border-(--ui-border-accented) text-(--ui-text-dimmed) bg-(--ui-bg-muted)'
           : 'border-transparent text-white'"
         :style="excludedCategories.includes(cat.id) ? {} : { backgroundColor: cat.color + '33', borderColor: cat.color + '88', color: cat.color }"
-        @click="toggleCategory(cat.id)"
+        @click="toggleCategory(cat.id); selectionChanged()"
       >
         <UIcon :name="cat.icon" class="w-3.5 h-3.5" />
         {{ cat.name }}

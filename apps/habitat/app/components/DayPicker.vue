@@ -1,12 +1,14 @@
 <script setup lang="ts">
 const props = defineProps<{
   modelValue: number[]
-  labels: string[]
+  labels: readonly string[] | string[]
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [days: number[]]
 }>()
+
+const { selectionChanged } = useHaptics()
 
 function toggle(day: number) {
   const current = [...props.modelValue]
@@ -18,6 +20,7 @@ function toggle(day: number) {
     current.sort((a, b) => a - b)
   }
   emit('update:modelValue', current)
+  void selectionChanged()
 }
 </script>
 

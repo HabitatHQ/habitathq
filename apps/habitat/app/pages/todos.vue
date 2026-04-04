@@ -6,6 +6,7 @@ import { buildTodoPayload, validateTodoForm } from '~/utils/todos-helpers'
 const db = useDatabase()
 const { settings, set: setAppSetting } = useAppSettings()
 const { anyActive, matchesContext } = useContextFilter()
+const { impact, selectionChanged, notification } = useHaptics()
 
 // ── Timer ─────────────────────────────────────────────────────────────────────
 
@@ -53,9 +54,11 @@ function handleTodoStart(todo: Todo) {
       todo.estimated_minutes * 60,
       pomodoroConfig(),
     )
+    void impact('medium')
   } else {
     modeMenuMinutes.value = 25
     modeMenuItemId.value = todo.id
+    void impact('light')
   }
 }
 
@@ -68,6 +71,7 @@ function startMode(todo: Todo, mode: TimerMode) {
 async function finishTimerAndDone(todo: Todo) {
   timer.stopTimer()
   await toggleTodo(todo)
+  void impact('medium')
 }
 
 const calendarView = computed({
@@ -207,6 +211,7 @@ const filteredSections = computed((): Section[] => {
 async function toggleTodo(t: Todo) {
   const wasDone = t.is_done
   const updated = await db.toggleTodo(t.id)
+  void impact(updated.is_done ? 'medium' : 'light')
   const idx = todos.value.findIndex((x) => x.id === t.id)
   if (idx !== -1) todos.value[idx] = updated
   if (updated.is_done && timer.timer?.itemId === t.id) timer.stopTimer()
@@ -216,7 +221,7 @@ async function toggleTodo(t: Todo) {
       title: `"${t.title}" marked done`,
       color: 'success',
       duration: 4000,
-      actions: [{ label: 'Undo', click: () => toggleTodo(updated) }],
+      actions: [{ label: 'Undo', onClick: () => toggleTodo(updated) }],
     })
   }
 }
@@ -280,10 +285,12 @@ async function saveTodo() {
       const updated = await db.updateTodo({ id: editingTodo.value.id, ...payload })
       const idx = todos.value.findIndex((x) => x.id === editingTodo.value?.id)
       if (idx !== -1) todos.value[idx] = updated
+      void notification('success')
       toast.add({ title: 'Todo updated', color: 'success', duration: 2000 })
     } else {
       const created = await db.createTodo(payload)
       todos.value.push(created)
+      void notification('success')
       toast.add({ title: 'Todo created', color: 'success', duration: 2000 })
     }
     showModal.value = false
@@ -296,6 +303,7 @@ async function saveTodo() {
 async function archiveTodo(t: Todo) {
   try {
     await db.archiveTodo(t.id)
+    void notification('warning')
     todos.value = todos.value.filter((x) => x.id !== t.id)
     confirmArchiveTodo.value = null
     toast.add({ title: 'Todo archived', color: 'success', duration: 2000 })
@@ -456,13 +464,13 @@ function jotKindIcon(kind: string | undefined): string {
             class="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md transition-colors"
             :class="!calendarView ? 'bg-(--ui-bg) text-(--ui-text) shadow-sm' : 'text-(--ui-text-dimmed) hover:text-(--ui-text-toned)'"
             aria-label="List view"
-            @click="calendarView = false"
+            @click="calendarView = false; selectionChanged()"
           ><UIcon name="i-heroicons-list-bullet" class="w-4 h-4" /></button>
           <button
             class="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md transition-colors"
             :class="calendarView ? 'bg-(--ui-bg) text-(--ui-text) shadow-sm' : 'text-(--ui-text-dimmed) hover:text-(--ui-text-toned)'"
             aria-label="Calendar view"
-            @click="calendarView = true"
+            @click="calendarView = true; selectionChanged()"
           ><UIcon name="i-heroicons-calendar-days" class="w-4 h-4" /></button>
         </div>
         <UButton size="sm" class="min-h-[44px]" icon="i-heroicons-plus" @click="openAdd">Add</UButton>
@@ -476,7 +484,7 @@ function jotKindIcon(kind: string | undefined): string {
         :key="f[0]"
         class="px-3 py-2.5 min-h-[44px] rounded-full text-sm font-medium transition-colors"
         :class="filter === f[0] ? 'bg-primary-600 text-white' : 'bg-(--ui-bg-elevated) text-(--ui-text-toned) hover:bg-(--ui-bg-accented)'"
-        @click="filter = f[0]"
+        @click="filter = f[0]; selectionChanged()"
       >{{ f[1] }}</button>
     </div>
 
@@ -713,7 +721,7 @@ function jotKindIcon(kind: string | undefined): string {
                 :key="p[0]"
                 class="flex-1 py-1.5 rounded-lg text-sm font-medium transition-colors"
                 :class="form.priority === p[0] ? p[2] + ' text-white' : 'bg-(--ui-bg-elevated) text-(--ui-text-toned)'"
-                @click="form.priority = p[0]"
+                @click="form.priority = p[0]; selectionChanged()"
               >
                 {{ p[1] }}
               </button>
@@ -726,7 +734,7 @@ function jotKindIcon(kind: string | undefined): string {
 
           <div class="flex items-center justify-between">
             <span class="text-sm">Recurring</span>
-            <USwitch v-model="form.is_recurring" />
+            <USwitch :model-value="form.is_recurring" @update:model-value="v => { form.is_recurring = v; impact('light') }" />
           </div>
           <div v-if="form.is_recurring">
             <UFormField label="Recurrence">

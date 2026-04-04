@@ -2,6 +2,7 @@
 import type { HabitLog, HabitWithSchedule } from '~/types/database'
 
 const db = useDatabase()
+const { selectionChanged, notification } = useHaptics()
 
 const today = new Date().toISOString().slice(0, 10)
 const sevenDaysAgo = (() => {
@@ -120,6 +121,7 @@ async function saveSteps(value: number) {
       await db.logHabitValue(stepsHabit.value.id, today, value)
     }
     await refreshLogs()
+    void notification('success')
     showStepsSheet.value = false
   } finally {
     savingSteps.value = false
@@ -142,6 +144,7 @@ async function setWater(glasses: number) {
     await Promise.all(existing.map((l) => db.deleteHabitLog(l.id)))
     if (glasses > 0) await db.logHabitValue(waterHabit.value.id, today, glasses)
     await refreshLogs()
+    void selectionChanged()
   } finally {
     savingWater.value = false
   }
@@ -194,6 +197,7 @@ async function saveSleep(value: number) {
     await Promise.all(existing.map((l) => db.deleteHabitLog(l.id)))
     if (value > 0) await db.logHabitValue(sleepHabit.value.id, today, value)
     await refreshLogs()
+    void notification('success')
     showSleepSheet.value = false
   } finally {
     savingSleep.value = false
@@ -235,6 +239,7 @@ async function saveMeal(value: number) {
     await Promise.all(existing.map((l) => db.deleteHabitLog(l.id)))
     if (value > 0) await db.logHabitValue(mealSheetHabit.value.id, today, value)
     await refreshLogs()
+    void notification('success')
     closeMealLog()
   } finally {
     savingMeal.value = false

@@ -2,12 +2,14 @@
 // Image capture / gallery picker bottom sheet
 const emit = defineEmits<{ close: [] }>()
 const store = useJotsStore()
+const { impact, notification } = useHaptics()
 
 const errorMsg = ref<string | null>(null)
 const imagePreview = ref<{ url: string; file: File } | null>(null)
 const saving = ref(false)
 
 function pickFromGallery() {
+  void impact('light')
   const input = document.createElement('input')
   input.type = 'file'
   input.accept = 'image/*'
@@ -19,6 +21,7 @@ function pickFromGallery() {
 }
 
 function pickFromCamera() {
+  void impact('light')
   const input = document.createElement('input')
   input.type = 'file'
   input.accept = 'image/*'
@@ -61,6 +64,7 @@ async function saveImage() {
       url,
     )
     imagePreview.value = null
+    void notification('success')
     emit('close')
   } catch (err: any) {
     errorMsg.value = err.message

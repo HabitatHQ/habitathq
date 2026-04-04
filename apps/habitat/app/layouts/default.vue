@@ -14,7 +14,7 @@ const db = useDatabase()
 // ── Timer interval ────────────────────────────────────────────────────────────
 
 const timerComp = reactive(useTimer())
-const { impact } = useHaptics()
+const { impact, selectionChanged } = useHaptics()
 
 let timerInterval: ReturnType<typeof setInterval> | null = null
 let labelTimeout: ReturnType<typeof setTimeout> | null = null
@@ -61,6 +61,7 @@ const filterStripVisible = computed(
 function toggleFilterStrip() {
   showFilterStrip.value = !showFilterStrip.value
   if (!showFilterStrip.value) clearAll()
+  void impact('light')
 }
 
 // Keep strip shown while a context is active
@@ -276,6 +277,7 @@ function openSearch() {
   searchQuery.value = ''
   searchResults.value = []
   showSearch.value = true
+  void impact('light')
 }
 
 function searchResultRoute(r: SearchResult): string {
@@ -313,6 +315,7 @@ function setTheme(theme: AppTheme) {
 
 function toggleColorMode() {
   colorMode.preference = colorMode.value === 'dark' ? 'light' : 'dark'
+  void impact('light')
 }
 </script>
 
@@ -367,7 +370,7 @@ function toggleColorMode() {
             ? 'bg-primary-500/15 border-primary-500 text-primary-400'
             : 'border-(--ui-border) text-(--ui-text-muted) hover:border-(--ui-border-muted) hover:text-(--ui-text)'"
           :aria-pressed="isTagActive(tag)"
-          @click="toggleContext(tag)"
+          @click="toggleContext(tag); selectionChanged()"
         >
           {{ tag }}
         </button>
@@ -480,7 +483,7 @@ function toggleColorMode() {
               :title="t.name"
               :aria-label="`Switch to ${t.name} theme`"
               :aria-pressed="settings.theme === t.id"
-              @click="setTheme(t.id)"
+              @click="setTheme(t.id); selectionChanged()"
             />
           </div>
         </div>
@@ -490,7 +493,7 @@ function toggleColorMode() {
           <button
             class="min-w-[44px] min-h-[44px] flex items-center justify-center transition-all duration-200"
             aria-label="Profile menu"
-            @click="showAvatarMenu = !showAvatarMenu"
+            @click="showAvatarMenu = !showAvatarMenu; impact('light')"
           >
             <span
               class="w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all duration-200"
@@ -709,7 +712,7 @@ function toggleColorMode() {
           ? { base: 'flex-shrink-0 h-auto py-2.5 px-2.5 touch-none select-none' }
           : { base: 'flex-col gap-0.5 h-auto py-2 px-3 text-xs touch-none select-none' }"
         @pointerdown="(e: PointerEvent) => onNavPointerDown(index, e)"
-        @click.capture="navReorderMode ? $event.preventDefault() : undefined"
+        @click.capture="navReorderMode ? $event.preventDefault() : impact('light')"
       >
         <span v-if="navItems.length <= 5">{{ navLabel(item) }}</span>
       </UButton>

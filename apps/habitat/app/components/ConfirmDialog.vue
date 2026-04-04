@@ -16,6 +16,17 @@ const emit = defineEmits<{
   'update:open': [open: boolean]
 }>()
 
+const { impact, notification } = useHaptics()
+
+watch(() => props.open, (isOpen) => {
+  if (isOpen) void impact('light')
+})
+
+function handleConfirm() {
+  void notification('warning')
+  emit('confirm')
+}
+
 const iconBg = computed(() => {
   if (props.iconColor === 'red') return 'bg-red-500/10'
   if (props.iconColor === 'amber') return 'bg-amber-500/10'
@@ -49,7 +60,7 @@ const iconText = computed(() => {
           <UButton variant="ghost" color="neutral" @click="emit('cancel')">
             {{ cancelLabel ?? 'Cancel' }}
           </UButton>
-          <UButton :color="confirmColor ?? 'primary'" @click="emit('confirm')">
+          <UButton :color="(confirmColor ?? 'primary') as any" @click="handleConfirm">
             {{ confirmLabel ?? 'Confirm' }}
           </UButton>
         </div>
