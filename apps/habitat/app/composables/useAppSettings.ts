@@ -1,6 +1,8 @@
 export type AppTheme = 'habitat' | 'forest' | 'ocean'
+export type AppProfile = 'minimalist' | 'journaler' | 'productivity' | 'mindful'
 
 export interface AppSettings {
+  hasCompletedOnboarding: boolean
   enableToday: boolean
   enableJournalling: boolean
   enableHealth: boolean
@@ -36,6 +38,7 @@ export interface AppSettings {
 
 const KEY = 'habitat-app-settings'
 const DEFAULTS: AppSettings = {
+  hasCompletedOnboarding: false,
   enableToday: true,
   enableJournalling: true,
   enableHealth: false,
@@ -70,6 +73,45 @@ const DEFAULTS: AppSettings = {
 }
 
 /**
+ * Feature profile definitions for onboarding and debugging.
+ * Each profile specifies which top-level modules are active.
+ */
+export const PROFILE_SETTINGS: Record<AppProfile, Partial<AppSettings>> = {
+  minimalist: {
+    enableJournalling: false,
+    enableHealth: false,
+    enableTodos: false,
+    enableContextFilter: false,
+    enableTimer: false,
+    enableBored: false,
+  },
+  journaler: {
+    enableJournalling: true,
+    enableHealth: false,
+    enableTodos: false,
+    enableContextFilter: false,
+    enableTimer: false,
+    enableBored: false,
+  },
+  productivity: {
+    enableJournalling: false,
+    enableHealth: false,
+    enableTodos: true,
+    enableContextFilter: true,
+    enableTimer: true,
+    enableBored: true,
+  },
+  mindful: {
+    enableJournalling: true,
+    enableHealth: false,
+    enableTodos: true,
+    enableContextFilter: true,
+    enableTimer: true,
+    enableBored: true,
+  },
+}
+
+/**
  * Format a Date's time portion respecting the user's 12/24-hour preference.
  * Uses Intl.DateTimeFormat with the runtime locale.
  */
@@ -83,7 +125,18 @@ export function formatTime(date: Date, use24h: boolean): string {
 
 function readFromStorage(): AppSettings {
   try {
-    const stored = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') } as AppSettings
+    const raw = localStorage.getItem(KEY)
+    
+    // Auto-migrate existing users who don't have the onboarding flag
+    const isExistingUser = !!raw || localStorage.getItem('habitat-has-data') === '1'
+    const parsed = raw ? JSON.parse(raw) : {}
+    
+    const stored = { ...DEFAULTS, ...parsed } as AppSettings
+
+    if (isExistingUser && typeof parsed.hasCompletedOnboarding === 'undefined') {
+      stored.hasCompletedOnboarding = true
+    }
+
     if (!Number.isFinite(stored.weekDays) || stored.weekDays < 3 || stored.weekDays > 7)
       stored.weekDays = 3
     return stored
@@ -104,5 +157,18 @@ export function useAppSettings() {
     if (import.meta.client) localStorage.setItem(KEY, JSON.stringify(settings.value))
   }
 
-  return { settings: readonly(settings), set }
+  /**
+   * Update multiple settings at once to trigger only a single reactive update
+   * and single localStorage write.
+   */
+  function patch(patch: Partial<AppSettings>) {
+    settings.value = { ...settings.value, ...patch }
+    if (import.meta.client) localStorage.setItem(KEY, JSON.stringify(settings.value))
+  }
+
+  function applyProfile(id: AppProfile) {
+    patch(PROFILE_SETTINGS[id])
+  }
+
+  return { settings: readonly(settings), set, patch, applyProfile }
 }
