@@ -80,6 +80,7 @@ function handleBoredStart() {
     )
     void impact('medium')
     modeMenuOpen.value = false
+    void navigateTo('/focus')
   } else {
     modeMenuMinutes.value = 25
     modeMenuOpen.value = true
@@ -100,6 +101,7 @@ function startBoredMode(mode: TimerMode) {
   )
   void impact('medium')
   modeMenuOpen.value = false
+  void navigateTo('/focus')
 }
 
 async function finishBoredTimerAndDone() {
