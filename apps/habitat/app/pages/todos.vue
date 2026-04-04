@@ -635,15 +635,23 @@ function jotKindIcon(kind: string | undefined): string {
                     </button>
                     <div role="menuitem" class="flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-(--ui-bg-muted)">
                       <UIcon name="i-heroicons-clock" class="w-4 h-4 shrink-0" />
-                      <input
-                        v-model.number="modeMenuMinutes"
-                        type="number"
-                        min="1"
-                        max="480"
-                        class="w-14 px-1.5 py-0.5 text-sm bg-(--ui-bg-elevated) border border-(--ui-border) rounded text-center"
-                        aria-label="Countdown minutes"
-                        @click.stop
-                      />
+                      <div class="flex items-center gap-1" @click.stop>
+                        <button
+                          class="w-6 h-6 rounded-md bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors active:scale-90"
+                          :class="{ 'opacity-30 pointer-events-none': modeMenuMinutes <= 5 }"
+                          @click="modeMenuMinutes = Math.max(5, modeMenuMinutes - 5)"
+                        >
+                          <UIcon name="i-heroicons-minus" class="w-3 h-3" />
+                        </button>
+                        <span class="w-10 text-center font-semibold tabular-nums text-(--ui-text)">{{ modeMenuMinutes }}</span>
+                        <button
+                          class="w-6 h-6 rounded-md bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors active:scale-90"
+                          :class="{ 'opacity-30 pointer-events-none': modeMenuMinutes >= 120 }"
+                          @click="modeMenuMinutes = Math.min(120, modeMenuMinutes + 5)"
+                        >
+                          <UIcon name="i-heroicons-plus" class="w-3 h-3" />
+                        </button>
+                      </div>
                       <span class="text-(--ui-text-muted) text-xs">min</span>
                       <button class="ml-auto text-primary-400 text-xs font-medium" @click="startMode(todo, 'countdown')">Start</button>
                     </div>

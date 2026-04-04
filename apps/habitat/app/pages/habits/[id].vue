@@ -387,22 +387,21 @@ async function toggleToday() {
   }
 }
 
-// NUMERIC/LIMIT inline log
-const logInputOpen = ref(false)
-const logInputValue = ref(0)
+// NUMERIC/LIMIT log sheet
+const logSheetOpen = ref(false)
+const logSheetValue = ref(0)
 const loggingToday = ref(false)
 
-function openLogInput() {
+function openLogSheet() {
   const isAbsolute = settings.value.logInputMode === 'absolute'
-  logInputValue.value = isAbsolute
+  logSheetValue.value = isAbsolute
     ? habitLogs.value.filter((l) => l.date === todayStr).reduce((s, l) => s + l.value, 0)
     : 1
-  logInputOpen.value = true
+  logSheetOpen.value = true
 }
 
-async function submitTodayLog() {
+async function submitLogSheet(value: number) {
   if (!habit.value || loggingToday.value) return
-  const value = logInputValue.value
   const isAbsolute = settings.value.logInputMode === 'absolute'
   if (!isAbsolute && value <= 0) return
   loggingToday.value = true
@@ -418,7 +417,7 @@ async function submitTodayLog() {
       await db.logHabitValue(habit.value.id, todayStr, value)
     }
     habitLogs.value = await db.getHabitLogsForHabit(habit.value.id, from, todayStr)
-    logInputOpen.value = false
+    logSheetOpen.value = false
     await impact('medium')
   } finally {
     loggingToday.value = false
@@ -497,42 +496,17 @@ onMounted(load)
           {{ todayCompleted ? 'Completed today' : 'Log today' }}
         </UButton>
 
-        <!-- NUMERIC / LIMIT: inline log input -->
+        <!-- NUMERIC / LIMIT: log today via bottom sheet -->
         <template v-else>
-          <div v-if="!logInputOpen" class="flex gap-2">
-            <UButton
-              variant="soft"
-              color="primary"
-              icon="i-heroicons-plus"
-              class="flex-1 justify-center"
-              @click="openLogInput"
-            >
-              Log today
-            </UButton>
-          </div>
-          <div v-else class="flex items-center gap-2">
-            <input
-              v-model.number="logInputValue"
-              type="number"
-              min="0"
-              step="any"
-              class="flex-1 bg-(--ui-bg-elevated) border border-(--ui-border-accented) rounded-xl px-4 py-2.5 text-lg font-semibold text-(--ui-text) text-center focus:outline-none focus:border-primary-500 transition-colors"
-              autofocus
-              @keydown.enter="submitTodayLog"
-              @keydown.escape="logInputOpen = false"
-            />
-            <span class="text-xs text-(--ui-text-dimmed) shrink-0">
-              {{ settings.logInputMode === 'increment' ? 'add' : 'total' }}
-            </span>
-            <UButton
-              color="primary"
-              :loading="loggingToday"
-              icon="i-heroicons-check"
-              size="sm"
-              @click="submitTodayLog"
-            />
-            <UButton variant="ghost" color="neutral" icon="i-heroicons-x-mark" size="sm" @click="logInputOpen = false" />
-          </div>
+          <UButton
+            variant="soft"
+            color="primary"
+            icon="i-heroicons-plus"
+            class="w-full justify-center"
+            @click="openLogSheet"
+          >
+            Log today
+          </UButton>
         </template>
       </template>
 
@@ -931,6 +905,29 @@ onMounted(load)
       @confirm="archiveHabit"
       @cancel="showArchiveConfirm = false"
       @update:open="(v) => (showArchiveConfirm = v)"
+    />
+
+    <!-- ── Log sheet for NUMERIC / LIMIT habits ──────────────────────────────── -->
+    <LogSheet
+      v-if="habit && habit.type !== 'BOOLEAN'"
+      :open="logSheetOpen"
+      :title="habit.name"
+      :icon="habit.icon"
+      :icon-color="habit.color"
+      :current="logSheetValue"
+      :target="habit.target_value"
+      :min="0"
+      :max="Math.max(habit.target_value * 2, 50)"
+      :step="habit.target_value <= 10 ? 1
+        : habit.target_value <= 50 ? 5
+        : habit.target_value <= 500 ? 10
+        : habit.target_value <= 5000 ? 100
+        : 500"
+      :unit="''"
+      :accent="habit.type === 'LIMIT' ? 'amber' : 'primary'"
+      :loading="loggingToday"
+      @save="submitLogSheet"
+      @close="logSheetOpen = false"
     />
 
   </div>

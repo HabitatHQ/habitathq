@@ -101,26 +101,26 @@ const maxWeeklySteps = computed(() =>
 )
 
 // Steps log state
-const showStepsInput = ref(false)
-const stepsInput = ref(0)
+const showStepsSheet = ref(false)
+const stepsSheetValue = ref(0)
 const savingSteps = ref(false)
 
 function openStepsLog() {
-  stepsInput.value = Math.round(stepsToday.value)
-  showStepsInput.value = true
+  stepsSheetValue.value = Math.round(stepsToday.value)
+  showStepsSheet.value = true
 }
 
-async function saveSteps() {
+async function saveSteps(value: number) {
   if (!stepsHabit.value) return
   savingSteps.value = true
   try {
     const existing = todayLogs.value.filter((l) => l.habit_id === stepsHabit.value?.id)
     await Promise.all(existing.map((l) => db.deleteHabitLog(l.id)))
-    if (stepsInput.value > 0) {
-      await db.logHabitValue(stepsHabit.value.id, today, stepsInput.value)
+    if (value > 0) {
+      await db.logHabitValue(stepsHabit.value.id, today, value)
     }
     await refreshLogs()
-    showStepsInput.value = false
+    showStepsSheet.value = false
   } finally {
     savingSteps.value = false
   }
@@ -153,8 +153,8 @@ const sleepToday = computed(() =>
   sleepHabit.value ? logSumFor(sleepHabit.value.id, todayLogs.value) : 0,
 )
 const sleepGoal = computed(() => sleepHabit.value?.target_value ?? 8)
-const showSleepInput = ref(false)
-const sleepInput = ref(0)
+const showSleepSheet = ref(false)
+const sleepSheetValue = ref(0)
 const savingSleep = ref(false)
 
 // Weekly sleep bar chart (last 7 days)
@@ -182,19 +182,19 @@ const maxWeeklySleep = computed(() =>
 )
 
 function openSleepLog() {
-  sleepInput.value = sleepToday.value
-  showSleepInput.value = true
+  sleepSheetValue.value = sleepToday.value
+  showSleepSheet.value = true
 }
 
-async function saveSleep() {
+async function saveSleep(value: number) {
   if (!sleepHabit.value) return
   savingSleep.value = true
   try {
     const existing = todayLogs.value.filter((l) => l.habit_id === sleepHabit.value?.id)
     await Promise.all(existing.map((l) => db.deleteHabitLog(l.id)))
-    if (sleepInput.value > 0) await db.logHabitValue(sleepHabit.value.id, today, sleepInput.value)
+    if (value > 0) await db.logHabitValue(sleepHabit.value.id, today, value)
     await refreshLogs()
-    showSleepInput.value = false
+    showSleepSheet.value = false
   } finally {
     savingSleep.value = false
   }
@@ -213,24 +213,27 @@ const totalCaloriesToday = computed(() =>
 )
 
 // One meal editable at a time — avoids index-signature undefined issues
-const mealEdit = ref<{ habitId: string; value: number } | null>(null)
+const mealSheetHabit = ref<HabitWithSchedule | null>(null)
+const mealSheetValue = ref(0)
+const mealSheetOpen = computed(() => mealSheetHabit.value !== null)
 const savingMeal = ref(false)
 
-function openMealLog(habitId: string) {
-  mealEdit.value = { habitId, value: mealTotals.value.get(habitId) ?? 0 }
+function openMealLog(habit: HabitWithSchedule) {
+  mealSheetValue.value = mealTotals.value.get(habit.id) ?? 0
+  mealSheetHabit.value = habit
 }
 
 function closeMealLog() {
-  mealEdit.value = null
+  mealSheetHabit.value = null
 }
 
-async function saveMeal(habit: HabitWithSchedule) {
-  if (!mealEdit.value) return
+async function saveMeal(value: number) {
+  if (!mealSheetHabit.value) return
   savingMeal.value = true
   try {
-    const existing = todayLogs.value.filter((l) => l.habit_id === habit.id)
+    const existing = todayLogs.value.filter((l) => l.habit_id === mealSheetHabit.value?.id)
     await Promise.all(existing.map((l) => db.deleteHabitLog(l.id)))
-    if (mealEdit.value.value > 0) await db.logHabitValue(habit.id, today, mealEdit.value.value)
+    if (value > 0) await db.logHabitValue(mealSheetHabit.value.id, today, value)
     await refreshLogs()
     closeMealLog()
   } finally {
@@ -368,22 +371,7 @@ onMounted(load)
           </div>
         </div>
 
-        <!-- Log inline input -->
-        <div v-if="showStepsInput" class="flex items-center gap-2 pt-2 border-t border-(--ui-border)">
-          <UInput
-            v-model.number="stepsInput"
-            type="number"
-            min="0"
-            step="100"
-            placeholder="Total steps today"
-            class="flex-1"
-            autofocus
-          />
-          <UButton size="sm" :loading="savingSteps" @click="saveSteps">Save</UButton>
-          <UButton size="sm" variant="ghost" color="neutral" @click="showStepsInput = false">
-            <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
-          </UButton>
-        </div>
+
       </UCard>
 
       <!-- ── Water ────────────────────────────────────────────────────────────── -->
@@ -508,23 +496,7 @@ onMounted(load)
           </div>
         </div>
 
-        <!-- Log inline input -->
-        <div v-if="showSleepInput" class="flex items-center gap-2 pt-2 border-t border-(--ui-border)">
-          <UInput
-            v-model.number="sleepInput"
-            type="number"
-            min="0"
-            max="24"
-            step="0.5"
-            placeholder="Hours slept"
-            class="flex-1"
-            autofocus
-          />
-          <UButton size="sm" :loading="savingSleep" @click="saveSleep">Save</UButton>
-          <UButton size="sm" variant="ghost" color="neutral" @click="showSleepInput = false">
-            <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
-          </UButton>
-        </div>
+
       </UCard>
 
       <!-- ── Meals ─────────────────────────────────────────────────────────────── -->
@@ -565,7 +537,7 @@ onMounted(load)
                 </div>
                 <button
                   class="w-7 h-7 rounded-lg bg-(--ui-bg-elevated) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors"
-                  @click="openMealLog(meal.id)"
+                  @click="openMealLog(meal)"
                 >
                   <UIcon name="i-heroicons-pencil" class="w-3.5 h-3.5" />
                 </button>
@@ -581,29 +553,66 @@ onMounted(load)
               />
             </div>
 
-            <!-- Inline log input -->
-            <div
-              v-if="mealEdit?.habitId === meal.id"
-              class="flex items-center gap-2 px-3 py-2.5 border-t border-(--ui-border) bg-(--ui-bg-muted)/50"
-            >
-              <UInput
-                v-model.number="mealEdit.value"
-                type="number"
-                min="0"
-                step="10"
-                :placeholder="`${meal.name} calories`"
-                class="flex-1"
-                autofocus
-              />
-              <UButton size="sm" :loading="savingMeal" @click="saveMeal(meal)">Save</UButton>
-              <UButton size="sm" variant="ghost" color="neutral" @click="closeMealLog">
-                <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
-              </UButton>
-            </div>
+
           </li>
         </ul>
       </UCard>
 
     </template>
+
+    <!-- ── Steps log sheet ──────────────────────────────────────────────────────── -->
+    <LogSheet
+      :open="showStepsSheet"
+      title="Steps"
+      icon="i-heroicons-fire"
+      icon-color="#f43f5e"
+      :current="stepsSheetValue"
+      :target="stepsGoal"
+      :min="0"
+      :max="99900"
+      :step="100"
+      unit="steps"
+      accent="primary"
+      :loading="savingSteps"
+      @save="saveSteps"
+      @close="showStepsSheet = false"
+    />
+
+    <!-- ── Sleep log sheet ──────────────────────────────────────────────────────── -->
+    <LogSheet
+      :open="showSleepSheet"
+      title="Sleep"
+      icon="i-heroicons-moon"
+      icon-color="#818cf8"
+      :current="sleepSheetValue"
+      :target="sleepGoal"
+      :min="0"
+      :max="24"
+      :step="0.5"
+      unit="hrs"
+      accent="primary"
+      :loading="savingSleep"
+      @save="saveSleep"
+      @close="showSleepSheet = false"
+    />
+
+    <!-- ── Meal log sheet ───────────────────────────────────────────────────────── -->
+    <LogSheet
+      :open="mealSheetOpen"
+      :title="mealSheetHabit?.name ?? 'Meal'"
+      :icon="MEAL_ICONS[mealSheetHabit?.name ?? ''] ?? 'i-heroicons-beaker'"
+      icon-color="#fbbf24"
+      :current="mealSheetValue"
+      :target="mealSheetHabit?.target_value ?? 0"
+      :min="0"
+      :max="5000"
+      :step="50"
+      unit="kcal"
+      accent="amber"
+      :loading="savingMeal"
+      @save="saveMeal"
+      @close="closeMealLog"
+    />
+
   </div>
 </template>
