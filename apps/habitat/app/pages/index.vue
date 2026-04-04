@@ -41,9 +41,10 @@ const toggling = reactive(new Set<string>())
 const flashing = reactive(new Set<string>())
 const logging = reactive(new Set<string>())
 
-// Per-habit inline log input state (NUMERIC type)
-const logInputOpen = reactive(new Set<string>())
-const logInputValues = reactive<Record<string, number>>({})
+// Per-habit log sheet state (NUMERIC/LIMIT type)
+const logSheetHabit = ref<HabitWithSchedule | null>(null)
+const logSheetValue = ref(0)
+const logSheetOpen = computed(() => logSheetHabit.value !== null)
 
 // ─── TODOs ────────────────────────────────────────────────────────────────────
 
@@ -356,15 +357,19 @@ async function toggle(habit: HabitWithSchedule) {
 
 // ─── NUMERIC log ─────────────────────────────────────────────────────────────
 
-function openLogInput(habit: HabitWithSchedule) {
-  logInputValues[habit.id] =
+function openLogSheet(habit: HabitWithSchedule) {
+  logSheetValue.value =
     settings.value.logInputMode === 'absolute' ? getTodayLogSum(habit.id) : 1
-  logInputOpen.add(habit.id)
+  logSheetHabit.value = habit
 }
 
-async function submitLog(habit: HabitWithSchedule) {
-  if (logging.has(habit.id)) return
-  const value = logInputValues[habit.id] ?? 0
+function closeLogSheet() {
+  logSheetHabit.value = null
+}
+
+async function submitLogSheet(value: number) {
+  const habit = logSheetHabit.value
+  if (!habit || logging.has(habit.id)) return
   const isAbsolute = settings.value.logInputMode === 'absolute'
   if (!isAbsolute && value <= 0) return
   logging.add(habit.id)
@@ -378,7 +383,7 @@ async function submitLog(habit: HabitWithSchedule) {
     }
     logs.value = await db.getHabitLogsForDate(today)
     weekLogs.value = await db.getHabitLogsForDateRange(weekStart, today)
-    logInputOpen.delete(habit.id)
+    logSheetHabit.value = null
     await impact('medium')
   } finally {
     logging.delete(habit.id)
@@ -599,41 +604,14 @@ onMounted(async () => {
             </button>
           </template>
 
-          <!-- ── NUMERIC / LIMIT: inline log input ── -->
+          <!-- ── NUMERIC / LIMIT: log button → bottom sheet ── -->
           <template v-else>
-            <template v-if="logInputOpen.has(habit.id)">
-              <input
-                v-model.number="logInputValues[habit.id]"
-                type="number"
-                min="0"
-                step="any"
-                class="w-16 px-2 py-1 text-sm bg-(--ui-bg-elevated) border border-(--ui-border-accented) rounded-lg text-(--ui-text) text-center focus:outline-none"
-                :class="habit.type === 'NUMERIC' ? 'focus:border-primary-500' : 'focus:border-amber-500'"
-                @keyup.enter="submitLog(habit)"
-                @keyup.escape="logInputOpen.delete(habit.id)"
-              />
-              <button
-                class="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
-                :class="habit.type === 'NUMERIC' ? 'bg-primary-500' : 'bg-amber-500'"
-                :disabled="logging.has(habit.id)"
-                @click="submitLog(habit)"
-              >
-                <UIcon name="i-heroicons-check" class="w-3.5 h-3.5 text-white" />
-              </button>
-              <button
-                class="w-7 h-7 rounded-full border border-(--ui-border-accented) flex items-center justify-center flex-shrink-0 text-(--ui-text-dimmed)"
-                @click="logInputOpen.delete(habit.id)"
-              >
-                <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
-              </button>
-            </template>
-            <template v-else>
               <UButton
                 size="xs"
                 variant="soft"
                 :color="habit.type === 'LIMIT' && isOverLimit(habit) ? 'error' : habit.type === 'NUMERIC' ? 'primary' : 'warning'"
                 :disabled="logging.has(habit.id)"
-                @click="openLogInput(habit)"
+                @click="openLogSheet(habit)"
               >
                 Log
               </UButton>
@@ -644,7 +622,6 @@ onMounted(async () => {
                   :class="habit.type === 'NUMERIC' ? 'text-primary-400' : 'text-amber-400'"
                 />
               </div>
-            </template>
           </template>
           </li>
         </template>
@@ -894,6 +871,28 @@ onMounted(async () => {
       </section>
 
     </template>
+
+    <!-- ── Log sheet for NUMERIC / LIMIT habits ──────────────────────────────── -->
+    <LogSheet
+      :open="logSheetOpen"
+      :title="logSheetHabit?.name ?? ''"
+      :icon="logSheetHabit?.icon ?? ''"
+      :icon-color="logSheetHabit?.color ?? '#22d3ee'"
+      :current="logSheetValue"
+      :target="logSheetHabit?.target_value ?? 0"
+      :min="0"
+      :max="Math.max((logSheetHabit?.target_value ?? 10) * 2, 50)"
+      :step="logSheetHabit?.target_value && logSheetHabit.target_value <= 10 ? 1
+        : logSheetHabit?.target_value && logSheetHabit.target_value <= 50 ? 5
+        : logSheetHabit?.target_value && logSheetHabit.target_value <= 500 ? 10
+        : logSheetHabit?.target_value && logSheetHabit.target_value <= 5000 ? 100
+        : 500"
+      :unit="''"
+      :accent="logSheetHabit?.type === 'LIMIT' ? 'amber' : 'primary'"
+      :loading="logSheetHabit ? logging.has(logSheetHabit.id) : false"
+      @save="submitLogSheet"
+      @close="closeLogSheet"
+    />
 
   </div>
 </template>
