@@ -1,19 +1,17 @@
 import { Capacitor } from '@capacitor/core'
-import type { AppSettings } from '~/composables/useAppSettings'
+
 
 /**
  * Provides haptic feedback on native platforms; no-ops on web.
  * All methods respect the `enableHaptics` user setting.
  */
 export function useHaptics() {
+  // Obtain reactive settings once when the composable is called (during setup)
+  const { settings } = useAppSettings()
+
   function isDisabled(): boolean {
     if (!Capacitor.isNativePlatform()) return true
-    try {
-      const settings = useState<AppSettings>('app-settings')
-      return settings.value?.enableHaptics === false
-    } catch {
-      return false
-    }
+    return settings.value.enableHaptics === false
   }
 
   async function impact(style: 'light' | 'medium' | 'heavy' = 'medium') {
