@@ -126,11 +126,11 @@ export function formatTime(date: Date, use24h: boolean): string {
 function readFromStorage(): AppSettings {
   try {
     const raw = localStorage.getItem(KEY)
-    
+
     // Auto-migrate existing users who don't have the onboarding flag
     const isExistingUser = !!raw || localStorage.getItem('habitat-has-data') === '1'
     const parsed = raw ? JSON.parse(raw) : {}
-    
+
     const stored = { ...DEFAULTS, ...parsed } as AppSettings
 
     if (isExistingUser && typeof parsed.hasCompletedOnboarding === 'undefined') {

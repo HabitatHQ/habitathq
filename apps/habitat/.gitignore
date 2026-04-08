@@ -57,6 +57,9 @@ ehthumbs_vista.db
 # local only files
 scratch/
 
+# Git worktrees (contain their own node_modules — must not be watched by Vite)
+.worktrees/
+
 # Runtime data
 pids
 *.pid

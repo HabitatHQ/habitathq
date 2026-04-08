@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AppTheme, AppProfile } from '~/composables/useAppSettings'
+import type { AppProfile, AppTheme } from '~/composables/useAppSettings'
 
 definePageMeta({ layout: false })
 
@@ -133,7 +133,6 @@ function onLogoAnimEnd(e: AnimationEvent) {
 onMounted(() => {
   nextTick(playLogoAnimation)
 })
-
 </script>
 
 <template>

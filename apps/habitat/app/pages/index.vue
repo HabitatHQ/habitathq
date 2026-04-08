@@ -360,8 +360,7 @@ async function toggle(habit: HabitWithSchedule) {
 // ─── NUMERIC log ─────────────────────────────────────────────────────────────
 
 function openLogSheet(habit: HabitWithSchedule) {
-  logSheetValue.value =
-    settings.value.logInputMode === 'absolute' ? getTodayLogSum(habit.id) : 1
+  logSheetValue.value = settings.value.logInputMode === 'absolute' ? getTodayLogSum(habit.id) : 1
   logSheetHabit.value = habit
 }
 

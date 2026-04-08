@@ -179,7 +179,7 @@ export function useTimer() {
     if (timer.value.mode === 'stopwatch') return // +1 min naturally doesn't make sense for stopwatch, or we can just ignore it
     timer.value = {
       ...timer.value,
-      durationSeconds: timer.value.durationSeconds + seconds
+      durationSeconds: timer.value.durationSeconds + seconds,
     }
     persist(timer.value)
   }

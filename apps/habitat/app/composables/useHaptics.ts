@@ -1,6 +1,5 @@
 import { Capacitor } from '@capacitor/core'
 
-
 /**
  * Provides haptic feedback on native platforms; no-ops on web.
  * All methods respect the `enableHaptics` user setting.

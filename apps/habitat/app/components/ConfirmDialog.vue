@@ -18,9 +18,12 @@ const emit = defineEmits<{
 
 const { impact, notification } = useHaptics()
 
-watch(() => props.open, (isOpen) => {
-  if (isOpen) void impact('light')
-})
+watch(
+  () => props.open,
+  (isOpen) => {
+    if (isOpen) void impact('light')
+  },
+)
 
 function handleConfirm() {
   void notification('warning')
