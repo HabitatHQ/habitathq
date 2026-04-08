@@ -38,7 +38,7 @@ g['useAppSettings'] = () => ({
   }),
   set: vi.fn(),
 })
-g['useHaptics'] = () => ({ impact: vi.fn(), notification: vi.fn() })
+g['useHaptics'] = () => ({ impact: vi.fn(), notification: vi.fn(), selectionChanged: vi.fn() })
 g['useContextFilter'] = () => ({
   anyActive: ref(false),
   matchesContext: () => true,

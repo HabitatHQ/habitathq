@@ -424,7 +424,7 @@ async function clearAppData() {
     if (clearSelection.habits) localStorage.removeItem('habitat-has-data')
     showClearModal.value = false
   } catch (err) {
-    console.error('[clearAppData]', err)
+    logError('[clearAppData]', err)
     toast.add({ title: 'Failed to clear data', color: 'error', duration: 4000 })
   } finally {
     clearing.value = false
@@ -457,7 +457,7 @@ async function nukeOpfs(reload: boolean) {
   try {
     await fullWipe(reload)
   } catch (err) {
-    console.error('[nukeOpfs]', err)
+    logError('[nukeOpfs]', err)
     toast.add({
       title: 'Failed to wipe data',
       description: 'Try reloading and trying again.',

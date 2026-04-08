@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 
 definePageMeta({
-  layout: false
+  layout: false,
 })
 
 const timerComp = reactive(useTimer())
@@ -20,7 +20,7 @@ onMounted(() => {
     navigateTo('/')
     return
   }
-  
+
   localTimerInterval = setInterval(() => {
     const { overtime, phaseTransition } = timerComp.onTick()
     if (overtime) void impact('heavy')
@@ -36,10 +36,10 @@ onUnmounted(() => {
 const timeRange = computed(() => {
   if (!timerComp.timer || timerComp.timer.startedAt === null) return ''
   if (timerComp.timer.mode === 'stopwatch') return 'Ongoing session'
-  
+
   const start = new Date(timerComp.timer.startedAt)
   const end = new Date(start.getTime() + timerComp.timer.durationSeconds * 1000)
-  
+
   const formatTime = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
   return `${formatTime(start)} → ${formatTime(end)}`
 })
@@ -47,7 +47,7 @@ const timeRange = computed(() => {
 const progress = computed(() => {
   if (!timerComp.timer) return 0
   if (timerComp.timer.mode === 'stopwatch') {
-    return (timerComp.currentElapsed % 60) / 60 * 100
+    return ((timerComp.currentElapsed % 60) / 60) * 100
   }
   const p = (timerComp.currentElapsed / timerComp.timer.durationSeconds) * 100
   return Math.min(100, Math.max(0, p))
@@ -110,7 +110,7 @@ async function confirmDone() {
   timerComp.stopTimer()
   showEndConfirm.value = false
   void impact('heavy')
-  
+
   if (itemId && itemType) {
     try {
       if (itemType === 'todo') {
@@ -121,7 +121,8 @@ async function confirmDone() {
         toast.add({ title: 'Activity completed', color: 'success', duration: 2000 })
       }
     } catch (e) {
-      console.error(e)
+      logError('[confirmDone]', e)
+      toast.add({ title: 'Failed to complete task', color: 'error' })
     }
   }
   navigateTo('/')

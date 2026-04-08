@@ -32,14 +32,14 @@ const permissionSetupRunning = ref(false)
 
 onMounted(async () => {
   // ── 1. Notifications — runs independently of DB readiness ───────────────
-  scheduleAll().catch(console.error)
+  scheduleAll().catch((e) => logError('[scheduleAll]', e))
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
-      refreshAllStatuses().catch(console.error)
-      scheduleAll().catch(console.error)
+      refreshAllStatuses().catch((e) => logError('[refreshAllStatuses]', e))
+      scheduleAll().catch((e) => logError('[scheduleAll]', e))
     }
   })
-  registerNativeListeners().catch(console.error)
+  registerNativeListeners().catch((e) => logError('[registerNativeListeners]', e))
 
   // ── 1b. First-launch permission prompt (native only) ────────────────────
   if (isNative && !localStorage.getItem(ONBOARDED_KEY)) {

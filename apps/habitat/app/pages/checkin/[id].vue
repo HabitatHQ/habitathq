@@ -151,7 +151,7 @@ async function addQuestion() {
     newResponseType.value = 'TEXT'
     showAddQuestion.value = false
   } catch (err) {
-    console.error('[addQuestion]', err)
+    logError('[addQuestion]', err)
     toast.add({ title: 'Failed to add question', color: 'error', duration: 4000 })
   } finally {
     addingQuestion.value = false
@@ -167,7 +167,7 @@ async function deleteQuestion(qid: string) {
     responses.value.delete(qid)
     delete textValues[qid]
   } catch (err) {
-    console.error('[deleteQuestion]', err)
+    logError('[deleteQuestion]', err)
     toast.add({ title: 'Failed to delete question', color: 'error', duration: 4000 })
   } finally {
     deletingQuestion.delete(qid)
@@ -217,7 +217,9 @@ async function addReminder() {
     newReminderTime.value = ''
     newReminderDays.value = []
     showAddReminder.value = false
-    useNotifications().scheduleAll().catch(console.error)
+    useNotifications()
+      .scheduleAll()
+      .catch((e) => logError('[scheduleAll]', e))
   } finally {
     savingReminder.value = false
   }
@@ -229,7 +231,9 @@ async function removeReminder(rid: string) {
   try {
     await db.deleteCheckinReminder(rid)
     reminders.value = reminders.value.filter((r) => r.id !== rid)
-    useNotifications().scheduleAll().catch(console.error)
+    useNotifications()
+      .scheduleAll()
+      .catch((e) => logError('[scheduleAll]', e))
   } finally {
     deletingReminder.delete(rid)
   }

@@ -107,6 +107,7 @@ onMounted(() => {
   if (settings.value.enableContextFilter) void loadContextTags(db)
 
   timerInterval = setInterval(() => {
+    if (!timerComp.isActive) return
     const { overtime, phaseTransition } = timerComp.onTick()
     if (overtime) void impact('heavy')
     if (phaseTransition) void impact('medium')

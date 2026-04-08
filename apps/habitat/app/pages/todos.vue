@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { TimerMode } from '~/composables/useTimer'
 import type { BoredCategory, Todo } from '~/types/database'
-import { buildTodoPayload, validateTodoForm } from '~/utils/todos-helpers'
 import { toLocalDateKey } from '~/utils/format'
+import { buildTodoPayload, validateTodoForm } from '~/utils/todos-helpers'
 
 const db = useDatabase()
 const { settings, set: setAppSetting } = useAppSettings()
@@ -293,7 +293,7 @@ async function saveTodo() {
     }
     showModal.value = false
   } catch (err) {
-    console.error('[saveTodo]', err)
+    logError('[saveTodo]', err)
     toast.add({ title: 'Failed to save todo', color: 'error', duration: 4000 })
   }
 }
@@ -306,7 +306,7 @@ async function archiveTodo(t: Todo) {
     confirmArchiveTodo.value = null
     toast.add({ title: 'Todo archived', color: 'success', duration: 2000 })
   } catch (err) {
-    console.error('[archiveTodo]', err)
+    logError('[archiveTodo]', err)
     toast.add({ title: 'Failed to archive todo', color: 'error', duration: 4000 })
   }
 }
@@ -400,6 +400,9 @@ async function openJotPicker() {
       })),
       ...images.map((i) => ({ kind: 'image' as const, id: i.id, label: i.filename })),
     ]
+  } catch (err) {
+    logError('[openJotPicker]', err)
+    toast.add({ title: 'Failed to load jots', color: 'error', duration: 4000 })
   } finally {
     loadingJotPicker.value = false
   }

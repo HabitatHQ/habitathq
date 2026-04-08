@@ -161,6 +161,10 @@ export default defineNuxtConfig({
   // Vite config
   vite: {
     server: {
+      watch: {
+        // Exclude git worktrees (each has its own node_modules, ~500MB+)
+        ignored: [(path: string) => path.includes('/.worktrees/')],
+      },
       headers: {
         'Cross-Origin-Opener-Policy': 'same-origin',
         'Cross-Origin-Embedder-Policy': 'require-corp',
@@ -182,7 +186,6 @@ export default defineNuxtConfig({
       // Post-order: scan final HTML for inline <script> elements, compute
       // their SHA-256 hashes, and patch them into the CSP meta tag's script-src.
       cspHashPlugin(),
-      // @ts-expect-error — rollup-plugin-license Plugin<any> is compatible at runtime; type mismatch between rollup and vite plugin interfaces
       license({
         thirdParty: {
           includePrivate: false,
@@ -225,7 +228,9 @@ export default defineNuxtConfig({
       link: [
         { rel: 'icon', href: `${appBaseURL}favicon.svg`, type: 'image/svg+xml' },
         { rel: 'apple-touch-icon', href: `${appBaseURL}icons/icon-192.png` },
-        ...(isPWA && process.env['NODE_ENV'] === 'production' ? [{ rel: 'manifest' as const, href: `${appBaseURL}manifest.webmanifest` }] : []),
+        ...(isPWA && process.env['NODE_ENV'] === 'production'
+          ? [{ rel: 'manifest' as const, href: `${appBaseURL}manifest.webmanifest` }]
+          : []),
       ],
     },
   },

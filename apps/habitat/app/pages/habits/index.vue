@@ -187,7 +187,9 @@ async function handleCreate() {
           db.createReminder(newHabit.id, r.time, r.days.length ? [...r.days] : null),
         ),
       )
-      useNotifications().scheduleAll().catch(console.error)
+      useNotifications()
+        .scheduleAll()
+        .catch((e) => logError('[scheduleAll]', e))
     }
     await loadHabits()
     closeModal()

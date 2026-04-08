@@ -99,8 +99,8 @@ async function startRecording() {
       }
       sr.start()
     }
-  } catch (err: any) {
-    errorMsg.value = `Microphone access denied: ${err.message}`
+  } catch (err: unknown) {
+    errorMsg.value = `Microphone access denied: ${err instanceof Error ? err.message : String(err)}`
   }
 }
 

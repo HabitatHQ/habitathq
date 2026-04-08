@@ -120,7 +120,7 @@ async function saveCategory() {
     showCategoryModal.value = false
     await load()
   } catch (err) {
-    console.error('[saveCategory]', err)
+    logError('[saveCategory]', err)
     toast.add({ title: 'Failed to save category', color: 'error', duration: 4000 })
   } finally {
     saving.value = false
@@ -134,7 +134,7 @@ async function deleteCategory(c: BoredCategory) {
     await load()
     toast.add({ title: 'Category deleted', color: 'success', duration: 2000 })
   } catch (err) {
-    console.error('[deleteCategory]', err)
+    logError('[deleteCategory]', err)
     toast.add({ title: 'Failed to delete category', color: 'error', duration: 4000 })
   } finally {
     confirmDeleteCategory.value = null
@@ -160,7 +160,7 @@ async function saveActivity() {
     showActivityModal.value = false
     await load()
   } catch (err) {
-    console.error('[saveActivity]', err)
+    logError('[saveActivity]', err)
     toast.add({ title: 'Failed to save activity', color: 'error', duration: 4000 })
   } finally {
     saving.value = false
@@ -173,7 +173,7 @@ async function deleteActivity(a: BoredActivity) {
     await load()
     toast.add({ title: 'Activity deleted', color: 'success', duration: 2000 })
   } catch (err) {
-    console.error('[deleteActivity]', err)
+    logError('[deleteActivity]', err)
     toast.add({ title: 'Failed to delete activity', color: 'error', duration: 4000 })
   } finally {
     confirmDeleteActivity.value = null
@@ -188,7 +188,7 @@ async function archiveActivity(a: BoredActivity) {
     await load()
     toast.add({ title: 'Activity archived', color: 'success', duration: 2000 })
   } catch (err) {
-    console.error('[archiveActivity]', err)
+    logError('[archiveActivity]', err)
     toast.add({ title: 'Failed to archive activity', color: 'error', duration: 4000 })
   } finally {
     confirmArchiveActivity.value = null

@@ -126,7 +126,7 @@ async function deleteLog(id: string) {
     void notification('warning')
     habitLogs.value = habitLogs.value.filter((l) => l.id !== id)
   } catch (err) {
-    console.error('[deleteLog]', err)
+    logError('[deleteLog]', err)
     toast.add({ title: 'Failed to delete log entry', color: 'error', duration: 4000 })
   } finally {
     deletingLog.delete(id)
@@ -347,7 +347,9 @@ async function addReminder() {
     newReminderTime.value = ''
     newReminderDays.value = []
     showAddReminder.value = false
-    useNotifications().scheduleAll().catch(console.error)
+    useNotifications()
+      .scheduleAll()
+      .catch((e) => logError('[scheduleAll]', e))
   } finally {
     savingReminder.value = false
   }
@@ -359,7 +361,9 @@ async function removeReminder(id: string) {
   try {
     await db.deleteReminder(id)
     reminders.value = reminders.value.filter((r) => r.id !== id)
-    useNotifications().scheduleAll().catch(console.error)
+    useNotifications()
+      .scheduleAll()
+      .catch((e) => logError('[scheduleAll]', e))
   } finally {
     deletingReminder.delete(id)
   }

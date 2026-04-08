@@ -66,8 +66,8 @@ async function saveImage() {
     imagePreview.value = null
     void notification('success')
     emit('close')
-  } catch (err: any) {
-    errorMsg.value = err.message
+  } catch (err: unknown) {
+    errorMsg.value = err instanceof Error ? err.message : String(err)
   } finally {
     saving.value = false
   }
