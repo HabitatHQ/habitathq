@@ -93,8 +93,7 @@ const boredShaking = ref(false)
 const boredSectionVisible = computed(
   () =>
     !boredDismissed.value &&
-    doneCount.value === total.value &&
-    total.value > 0 &&
+    allHabitsDone.value &&
     settings.value.enableBored &&
     settings.value.autoShowBored,
 )
@@ -203,6 +202,9 @@ async function markBoredDone() {
 const todayCheckins = ref<CheckinDaySummary[]>([])
 const todayScribbles = ref<Scribble[]>([])
 const todayVoiceCount = ref(0)
+const hasTodayActivity = computed(
+  () => todayCheckins.value.length > 0 || todayScribbles.value.length > 0 || todayVoiceCount.value > 0,
+)
 
 function openVoiceIdb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -311,14 +313,13 @@ function weeklyInfo(habit: HabitWithSchedule): { done: number; target: number } 
 
 const doneCount = computed(() => visibleHabits.value.filter((h) => isHabitDone(h)).length)
 const total = computed(() => visibleHabits.value.length)
+const allHabitsDone = computed(() => doneCount.value === total.value && total.value > 0)
 const pct = computed(() => (total.value > 0 ? doneCount.value / total.value : 0))
 
 const R = 42
 const CIRC = 2 * Math.PI * R
 const dashOffset = computed(() => CIRC * (1 - pct.value))
-const ringGlowing = computed(
-  () => doneCount.value === total.value && total.value > 0 && !isMotionReduced(),
-)
+const ringGlowing = computed(() => allHabitsDone.value && !isMotionReduced())
 
 // ─── BOOLEAN toggle ───────────────────────────────────────────────────────────
 
@@ -505,7 +506,7 @@ onMounted(async () => {
           </div>
         </div>
         <p class="text-xs font-medium">
-          <span v-if="doneCount === total && total > 0" class="text-primary-400">All done today!</span>
+          <span v-if="allHabitsDone" class="text-primary-400">All done today!</span>
           <span v-else class="text-(--ui-text-dimmed)">{{ total - doneCount }} remaining</span>
         </p>
       </div>
@@ -809,7 +810,7 @@ onMounted(async () => {
 
       <!-- ── Today's activity ──────────────────────────────────────────────────── -->
       <section
-        v-if="todayCheckins.length > 0 || todayScribbles.length > 0 || todayVoiceCount > 0"
+        v-if="hasTodayActivity"
         class="space-y-2"
       >
         <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Today's Activity</p>
