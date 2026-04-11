@@ -16,15 +16,6 @@
 @import "./themes.css";
 @import "./typography.css";
 
-/* ── Typography — curated system font stacks ─────────────────────────────────
-   Overrides Tailwind v4's default --font-sans / --font-mono theme tokens so
-   every font-sans, font-mono, and tabular-nums utility uses these stacks.
-   No Google Fonts, no network fetch — 100% offline.
-   ──────────────────────────────────────────────────────────────────────────── */
-@theme {
-  --font-sans: ui-sans-serif, "Roboto", system-ui, sans-serif;
-  --font-mono: ui-monospace, Menlo, monospace;
-}
 
 /* ── Dark mode token overrides ────────────────────────────────────────────────
    Nuxt UI dark defaults use neutral-900 as the page background, but Habitat's
