@@ -21,29 +21,8 @@
    No Google Fonts, no network fetch — 100% offline.
    ──────────────────────────────────────────────────────────────────────────── */
 @theme {
-  --font-sans:
-    "Inter",                  /* Linux / Android (if installed)       */
-    ui-sans-serif,            /* SF Pro on Apple, Segoe UI on Windows */
-    system-ui,                /* platform default                     */
-    -apple-system,            /* older Safari/iOS fallback            */
-    "Segoe UI",               /* Windows                              */
-    "Roboto",                 /* Android                              */
-    "Noto Sans",              /* ChromeOS / Linux                     */
-    "Helvetica Neue",         /* legacy macOS                         */
-    Arial,                    /* universal baseline                   */
-    sans-serif;
-  --font-mono:
-    ui-monospace,             /* SF Mono on Apple                     */
-    "Cascadia Code",          /* Windows Terminal                     */
-    "JetBrains Mono",         /* JetBrains IDEs (if installed)        */
-    "Fira Code",              /* popular dev font                     */
-    "Source Code Pro",        /* Adobe                                */
-    Menlo,                    /* macOS fallback                       */
-    Monaco,                   /* older macOS                          */
-    Consolas,                 /* Windows                              */
-    "Liberation Mono",        /* Linux                                */
-    "Courier New",            /* universal baseline                   */
-    monospace;
+  --font-sans: ui-sans-serif, "Roboto", system-ui, sans-serif;
+  --font-mono: ui-monospace, Menlo, monospace;
 }
 
 /* ── Dark mode token overrides ────────────────────────────────────────────────
