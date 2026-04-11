@@ -1,0 +1,48 @@
+/* ── Habitat Typography Utilities ─────────────────────────────────────────────
+   Semantic typography classes that capture design intent rather than
+   implementation details. Change any class here and it propagates everywhere.
+
+   Font stacks are defined in main.css via @theme (--font-sans, --font-mono).
+   ──────────────────────────────────────────────────────────────────────────── */
+
+@layer utilities {
+  /* ── Timer display ─────────────────────────────────────────────────────────
+     Large timer/countdown digits on full-screen overlays.
+     Used on: focus.vue, JotsRecordSheet.vue
+     ──────────────────────────────────────────────────────────────────────── */
+  .type-timer {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.025em;
+    line-height: 1;
+  }
+
+  /* ── Duration / time values ────────────────────────────────────────────────
+     Inline elapsed time, countdowns, and clock values (e.g. "05:23", "12:30 PM").
+     Mono font + tabular digits prevent layout jank as numbers change.
+     Used on: todos.vue, bored/index.vue, jots/index.vue, habits/index.vue,
+              default.vue (header timer chip)
+     ──────────────────────────────────────────────────────────────────────── */
+  .type-duration {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Code / technical text ─────────────────────────────────────────────────
+     Monospaced text for versions, file paths, SQL, keyboard shortcuts,
+     commit SHAs, debug output, and inline code references.
+     Used on: settings/more.vue, settings/data.vue, jots/new.vue, jots/edit-[id].vue
+     ──────────────────────────────────────────────────────────────────────── */
+  .type-code {
+    font-family: var(--font-mono);
+  }
+
+  /* ── Tabular numbers ───────────────────────────────────────────────────────
+     Fixed-width digit alignment without switching to monospace.
+     Keeps the app's sans font but prevents counter/stat jank.
+     Used on: index.vue, health.vue, stats.vue, LogSheet.vue, ScrollPicker.vue
+     ──────────────────────────────────────────────────────────────────────── */
+  .type-numeric {
+    font-variant-numeric: tabular-nums;
+  }
+}

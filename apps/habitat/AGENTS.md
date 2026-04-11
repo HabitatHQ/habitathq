@@ -41,6 +41,9 @@ Both paths share the same `WorkerRequest` / `WorkerResponse<T>` message types.
 | `app/types/database.ts` | All types, WorkerRequest union, DbAdapter interface, export types |
 | `app/layouts/default.vue` | Header + bottom nav (filtered by settings flags) |
 | `app/utils/` | Pure helpers: `format.ts`, `scribble.ts`, `habit-helpers.ts`, `checkin-helpers.ts`, `todos-helpers.ts`, `error.ts` |
+| `app/assets/css/main.css` | Tailwind v4 + Nuxt UI entry, `@theme` font-stack overrides, global utilities |
+| `app/assets/css/typography.css` | Semantic typography classes: `type-timer`, `type-duration`, `type-code`, `type-numeric` |
+| `app/assets/css/themes.css` | Forest / Ocean / Habitat colour themes, sprout logo animation |
 
 ## Schema (user_version = 11)
 
@@ -82,6 +85,8 @@ Routes: `/`, `/matrix`, `/habits`, `/habits/[id]`, `/health`, `/todos`, `/bored`
 **Error logging**: use `logError(context, err)` from `~/utils/error.ts` instead of `console.error`.
 
 **DB operations in db-shared.ts**: use `db.queryAll` for all fetches (including post-write re-reads). Never use `db.queryOne` in functions that tests may override with call-counter mocks.
+
+**Typography**: use semantic classes from `typography.css` instead of raw `font-mono`/`tabular-nums` combos. `type-timer` — large timer displays; `type-duration` — inline time/duration values (mono + tabular); `type-code` — technical/code text; `type-numeric` — tabular number alignment (keeps sans font). Font stacks are defined via `@theme` in `main.css`.
 
 ## Config
 

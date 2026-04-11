@@ -14,6 +14,7 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
 @import "./themes.css";
+@import "./typography.css";
 
 /* ── Typography — curated system font stacks ─────────────────────────────────
    Overrides Tailwind v4's default --font-sans / --font-mono theme tokens so

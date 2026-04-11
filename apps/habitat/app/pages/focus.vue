@@ -227,7 +227,7 @@ function addOneMinute() {
 
       <div class="text-center space-y-8 w-full mt-auto">
         <div 
-          class="text-[4rem] font-light tabular-nums tracking-tight font-mono leading-none"
+          class="text-[4rem] font-light type-timer"
           :class="timerComp.isOvertime ? 'text-red-400 animate-pulse' : 'text-(--ui-text)'"
         >
           {{ timerComp.displayTime }}

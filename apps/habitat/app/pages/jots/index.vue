@@ -253,7 +253,7 @@ onUnmounted(() => {
             />
             <div class="flex-1 min-w-0">
               <p class="text-sm text-(--ui-text-toned) truncate">{{ fmtDate(item.data.created_at, appSettings.use24HourTime) }}</p>
-              <p class="text-xs tabular-nums text-(--ui-text-dimmed)">{{ fmtDuration((item.data as VoiceNote).duration) }}</p>
+              <p class="text-xs type-duration text-(--ui-text-dimmed)">{{ fmtDuration((item.data as VoiceNote).duration) }}</p>
             </div>
             <UButton
               :icon="hasLinkedTodo(item.data.id) ? 'i-heroicons-paper-clip' : 'i-heroicons-link'"
@@ -365,7 +365,7 @@ onUnmounted(() => {
               <UIcon name="i-heroicons-microphone" class="w-6 h-6 text-rose-400" />
             </div>
             <div>
-              <p class="text-sm font-mono tabular-nums font-medium text-(--ui-text-toned)">{{ fmtDuration((item.data as VoiceNote).duration) }}</p>
+              <p class="text-sm type-duration font-medium text-(--ui-text-toned)">{{ fmtDuration((item.data as VoiceNote).duration) }}</p>
               <p class="text-[10px] text-slate-600 mt-0.5">{{ timeAgo(item.data.created_at) }}</p>
             </div>
             <UButton
