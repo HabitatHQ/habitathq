@@ -95,6 +95,7 @@ const boredSectionVisible = computed(
     !boredDismissed.value &&
     doneCount.value === total.value &&
     total.value > 0 &&
+    settings.value.enableBored &&
     settings.value.autoShowBored,
 )
 
