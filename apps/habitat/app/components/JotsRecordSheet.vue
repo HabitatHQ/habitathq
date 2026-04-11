@@ -215,7 +215,7 @@ onUnmounted(() => {
     />
 
     <div class="flex flex-col items-center gap-5 py-4">
-      <div class="text-4xl font-mono tabular-nums text-(--ui-text)">
+      <div class="text-4xl type-timer text-(--ui-text)">
         {{ fmtDuration(recordDuration) }}
       </div>
 

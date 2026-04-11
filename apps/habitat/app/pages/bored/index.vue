@@ -520,7 +520,7 @@ const oracleHint = computed(() => {
           <!-- Timer controls when this item is being timed -->
           <template v-if="settings.enableTimer && timer.timer?.itemId === getBoredItemId()">
             <time
-              class="text-sm font-mono self-center"
+              class="text-sm type-duration self-center"
               :class="timer.isOvertime ? 'text-red-400 animate-pulse' : 'text-(--ui-text)'"
             >{{ timer.displayTime }}</time>
             <UButton

@@ -432,7 +432,7 @@ function toggleColorMode() {
               style="max-width: 7rem"
             >{{ timerComp.timer?.itemTitle }}</span>
           </Transition>
-          <span class="font-mono">{{ timerComp.displayTime }}</span>
+          <span class="type-duration">{{ timerComp.displayTime }}</span>
         </NuxtLink>
 
         <!-- Quick Focus (if not active, or even if active to change?) we only show if not active? Actually it's an option 'where we added global search for quick focus modes' -->
@@ -469,7 +469,7 @@ function toggleColorMode() {
                 >
                   <UIcon name="i-heroicons-minus" class="w-3 h-3" />
                 </button>
-                <span class="w-10 text-center font-semibold tabular-nums">{{ quickFocusMinutes }}</span>
+                <span class="w-10 text-center font-semibold type-numeric">{{ quickFocusMinutes }}</span>
                 <button
                   class="w-6 h-6 rounded-md bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors active:scale-90"
                   :class="{ 'opacity-30 pointer-events-none': quickFocusMinutes >= 120 }"

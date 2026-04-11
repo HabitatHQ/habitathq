@@ -504,7 +504,7 @@ onMounted(loadHabits)
               class="flex items-center gap-2"
             >
               <UIcon name="i-heroicons-bell" class="w-3.5 h-3.5 text-(--ui-text-dimmed) shrink-0" />
-              <span class="text-sm font-mono text-(--ui-text-toned)">{{ r.time }}</span>
+              <span class="text-sm type-duration text-(--ui-text-toned)">{{ r.time }}</span>
               <span class="text-xs text-(--ui-text-dimmed)">
                 {{ r.days.length ? r.days.map(d => HABIT_DAY_LABELS[d]).join(' ') : 'Every day' }}
               </span>

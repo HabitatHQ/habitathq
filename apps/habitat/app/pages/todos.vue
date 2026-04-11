@@ -582,7 +582,7 @@ function jotKindIcon(kind: string | undefined): string {
                 <!-- Running timer on THIS card -->
                 <div v-if="timer.timer?.itemId === todo.id" class="flex items-center gap-2 mt-2 pt-2 border-t border-(--ui-border)/50">
                   <time
-                    class="text-sm font-mono font-medium tabular-nums"
+                    class="text-sm type-duration font-medium"
                     :class="timer.isOvertime ? 'text-red-400 animate-pulse' : 'text-(--ui-text)'"
                   >{{ timer.displayTime }}</time>
                   <UButton

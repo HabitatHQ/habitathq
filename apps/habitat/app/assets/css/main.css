@@ -14,6 +14,8 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
 @import "./themes.css";
+@import "./typography.css";
+
 
 /* ── Dark mode token overrides ────────────────────────────────────────────────
    Nuxt UI dark defaults use neutral-900 as the page background, but Habitat's
