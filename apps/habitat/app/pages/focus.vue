@@ -172,7 +172,7 @@ function addOneMinute() {
     <main v-if="hasTimer" class="flex-1 flex flex-col items-center justify-center w-full px-6 pb-4">
       
       <div class="space-y-1 text-center mb-8">
-        <h1 class="text-4xl font-serif font-bold tracking-tight text-(--ui-text) leading-tight line-clamp-2">
+        <h1 class="text-4xl font-bold tracking-tight text-(--ui-text) leading-tight line-clamp-2">
           {{ timerComp.timer?.itemTitle || 'Quick Focus' }}
         </h1>
         <p class="text-[13px] font-medium tracking-wide uppercase text-(--ui-text-dimmed)">
@@ -227,7 +227,7 @@ function addOneMinute() {
 
       <div class="text-center space-y-8 w-full mt-auto">
         <div 
-          class="text-[4rem] font-light tabular-nums tracking-tight font-serif leading-none"
+          class="text-[4rem] font-light tabular-nums tracking-tight font-mono leading-none"
           :class="timerComp.isOvertime ? 'text-red-400 animate-pulse' : 'text-(--ui-text)'"
         >
           {{ timerComp.displayTime }}

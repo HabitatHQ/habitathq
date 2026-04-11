@@ -15,6 +15,37 @@
 @import "@nuxt/ui";
 @import "./themes.css";
 
+/* ── Typography — curated system font stacks ─────────────────────────────────
+   Overrides Tailwind v4's default --font-sans / --font-mono theme tokens so
+   every font-sans, font-mono, and tabular-nums utility uses these stacks.
+   No Google Fonts, no network fetch — 100% offline.
+   ──────────────────────────────────────────────────────────────────────────── */
+@theme {
+  --font-sans:
+    "Inter",                  /* Linux / Android (if installed)       */
+    ui-sans-serif,            /* SF Pro on Apple, Segoe UI on Windows */
+    system-ui,                /* platform default                     */
+    -apple-system,            /* older Safari/iOS fallback            */
+    "Segoe UI",               /* Windows                              */
+    "Roboto",                 /* Android                              */
+    "Noto Sans",              /* ChromeOS / Linux                     */
+    "Helvetica Neue",         /* legacy macOS                         */
+    Arial,                    /* universal baseline                   */
+    sans-serif;
+  --font-mono:
+    ui-monospace,             /* SF Mono on Apple                     */
+    "Cascadia Code",          /* Windows Terminal                     */
+    "JetBrains Mono",         /* JetBrains IDEs (if installed)        */
+    "Fira Code",              /* popular dev font                     */
+    "Source Code Pro",        /* Adobe                                */
+    Menlo,                    /* macOS fallback                       */
+    Monaco,                   /* older macOS                          */
+    Consolas,                 /* Windows                              */
+    "Liberation Mono",        /* Linux                                */
+    "Courier New",            /* universal baseline                   */
+    monospace;
+}
+
 /* ── Dark mode token overrides ────────────────────────────────────────────────
    Nuxt UI dark defaults use neutral-900 as the page background, but Habitat's
    design uses a deeper neutral-950 base so cards (neutral-900) have contrast.
