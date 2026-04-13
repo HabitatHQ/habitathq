@@ -205,6 +205,7 @@ export default defineNuxtConfig({
               ),
           },
         },
+        // biome-ignore lint/suspicious/noExplicitAny: rollup Plugin vs vite PluginOption mismatch
       }) as any,
     ],
   },

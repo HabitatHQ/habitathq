@@ -107,7 +107,6 @@ export function useJotsStore() {
     const map = new Map<string, Todo>()
     for (const t of todos.value) {
       if (t.archived_at) continue
-      // biome-ignore lint/complexity/useLiteralKeys: noPropertyAccessFromIndexSignature requires bracket notation
       const jotId = t.annotations['linked_jot_id']
       if (jotId) map.set(jotId, t)
     }

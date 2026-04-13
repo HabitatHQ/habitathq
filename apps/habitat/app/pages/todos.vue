@@ -124,7 +124,6 @@ async function load() {
 
 onMounted(async () => {
   await load()
-  // biome-ignore lint/complexity/useLiteralKeys: noPropertyAccessFromIndexSignature requires bracket notation
   const hid = route.query['highlight']
   if (typeof hid === 'string' && hid) {
     highlightedTodoId.value = hid

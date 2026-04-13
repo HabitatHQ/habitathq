@@ -63,6 +63,7 @@
       },
 
       "complexity": {
+        "useLiteralKeys": "off",
         "noExcessiveCognitiveComplexity": {
           "level": "warn",
           "options": { "maxAllowedComplexity": 20 }
@@ -100,7 +101,9 @@
       "includes": [
         "app/workers/database.worker.ts",
         "app/lib/db-native.ts",
-        "app/composables/useNotifications.ts"
+        "app/lib/db-shared.ts",
+        "app/composables/useNotifications.ts",
+        "app/composables/useTabReorder.ts"
       ],
       "linter": {
         "rules": {

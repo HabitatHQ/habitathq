@@ -146,6 +146,7 @@ function isMotionReduced(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: orchestrates animation + API + state
 async function rollBored() {
   if (boredRolling.value) return
   boredRolling.value = true

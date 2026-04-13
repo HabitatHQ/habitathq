@@ -290,6 +290,7 @@ const ORACLE_COPY: Record<string, { rolling: string; again: string; idle: string
 
 const oracleHint = computed(() => {
   if (midnightRoll.value && currentResult.value) return 'Something ancient answered instead'
+  // biome-ignore lint/style/noNonNullAssertion: 'habitat' key always exists
   const copy = ORACLE_COPY[oracle.value] ?? ORACLE_COPY['habitat']!
   if (shaking.value) return copy.rolling
   if (currentResult.value) return copy.again

@@ -61,7 +61,7 @@ async function startRecording() {
       if (e.data.size > 0) chunks.push(e.data)
     }
     mediaRecorder.onstop = () => {
-      stream.getTracks().forEach((t) => t.stop())
+      for (const t of stream.getTracks()) t.stop()
     }
     mediaRecorder.start(200)
     isRecording.value = true
@@ -86,7 +86,7 @@ async function startRecording() {
           if (r.isFinal) finalText += r[0].transcript
           else interimText += r[0].transcript
         }
-        if (finalText) liveTranscript.value += finalText + ' '
+        if (finalText) liveTranscript.value += `${finalText} `
         partialTranscript.value = interimText
       }
       sr.onerror = () => {}

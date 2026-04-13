@@ -57,6 +57,7 @@ function pickRandom(): string {
     idx = Math.floor(Math.random() * PHRASES.length)
   } while (idx === lastIndex && PHRASES.length > 1)
   lastIndex = idx
+  // biome-ignore lint/style/noNonNullAssertion: idx is bounded by PHRASES.length
   return PHRASES[idx]!
 }
 
