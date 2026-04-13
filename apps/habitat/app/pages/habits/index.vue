@@ -296,7 +296,7 @@ onMounted(loadHabits)
             <span v-if="habit.type !== 'BOOLEAN'" class="ml-1">
               · {{ habit.type === 'NUMERIC' ? `target ${habit.target_value}` : `limit ${habit.target_value}` }}
             </span>
-            <span v-if="habit.paused_until && habit.paused_until >= new Date().toISOString().slice(0, 10)" class="ml-1 text-amber-500">
+            <span v-if="habit.paused_until && habit.paused_until >= today" class="ml-1 text-amber-500">
               · Paused
             </span>
           </p>

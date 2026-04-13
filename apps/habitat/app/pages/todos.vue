@@ -312,8 +312,14 @@ async function archiveTodo(t: Todo) {
 }
 
 async function deleteTodoItem(t: Todo) {
-  await db.deleteTodo(t.id)
-  todos.value = todos.value.filter((x) => x.id !== t.id)
+  try {
+    await db.deleteTodo(t.id)
+    todos.value = todos.value.filter((x) => x.id !== t.id)
+    toast.add({ title: 'Todo deleted', color: 'success', duration: 2000 })
+  } catch (err) {
+    logError('[deleteTodo]', err)
+    toast.add({ title: 'Failed to delete todo', color: 'error', duration: 4000 })
+  }
 }
 
 async function deleteAndClose(t: Todo) {
@@ -456,7 +462,7 @@ function jotKindIcon(kind: string | undefined): string {
 <template>
   <div :class="calendarView ? 'space-y-4' : 'max-w-lg mx-auto space-y-5'">
     <!-- Header -->
-    <div :class="calendarView ? '' : ''" class="flex items-center justify-between">
+    <div class="flex items-center justify-between">
       <h1 class="text-2xl font-bold">TODOs</h1>
       <div class="flex items-center gap-2">
         <!-- List / Calendar toggle -->

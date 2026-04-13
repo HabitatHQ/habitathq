@@ -19,10 +19,11 @@ watchEffect(() => {
   if (!settings.value.enableToday) void navigateTo('/habits')
 })
 
-const today = new Date().toISOString().slice(0, 10)
-const todayDayOfWeek = new Date().getDay()
-const dayName = new Date().toLocaleDateString('en-US', { weekday: 'long' })
-const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' })
+const _now = new Date()
+const today = _now.toISOString().slice(0, 10)
+const todayDayOfWeek = _now.getDay()
+const dayName = _now.toLocaleDateString('en-US', { weekday: 'long' })
+const dateStr = _now.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })
 
 // Get current week start (Sunday)
 const weekStart = (() => {
@@ -203,7 +204,8 @@ const todayCheckins = ref<CheckinDaySummary[]>([])
 const todayScribbles = ref<Scribble[]>([])
 const todayVoiceCount = ref(0)
 const hasTodayActivity = computed(
-  () => todayCheckins.value.length > 0 || todayScribbles.value.length > 0 || todayVoiceCount.value > 0,
+  () =>
+    todayCheckins.value.length > 0 || todayScribbles.value.length > 0 || todayVoiceCount.value > 0,
 )
 
 function openVoiceIdb(): Promise<IDBDatabase> {

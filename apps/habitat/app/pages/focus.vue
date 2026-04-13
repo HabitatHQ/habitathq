@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+// Vue APIs via Nuxt auto-imports
 
 definePageMeta({
   layout: false,
