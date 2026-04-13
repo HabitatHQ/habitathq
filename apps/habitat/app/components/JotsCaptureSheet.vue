@@ -82,10 +82,10 @@ onUnmounted(() => {
   <div class="space-y-4">
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-2">
-        <UButton v-if="imagePreview" icon="i-heroicons-arrow-left" variant="ghost" color="neutral" size="sm" @click="cancelPreview" />
+        <UButton v-if="imagePreview" :icon="resolveIcon('arrow-left')" variant="ghost" color="neutral" size="sm" @click="cancelPreview" />
         <h3 class="text-base font-semibold">Photograph</h3>
       </div>
-      <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" @click="emit('close')" />
+      <UButton :icon="resolveIcon('x-mark')" variant="ghost" color="neutral" size="sm" @click="emit('close')" />
     </div>
 
     <UAlert
@@ -93,19 +93,19 @@ onUnmounted(() => {
       :title="errorMsg"
       color="error"
       variant="soft"
-      icon="i-heroicons-exclamation-circle"
-      :close-button="{ icon: 'i-heroicons-x-mark', color: 'error', variant: 'ghost', size: 'sm' }"
+      :icon="resolveIcon('exclamation-circle')"
+      :close-button="{ icon: resolveIcon('x-mark'), color: 'error', variant: 'ghost', size: 'sm' }"
       @close="errorMsg = null"
     />
 
     <div v-if="!imagePreview" class="flex flex-col items-center gap-5 py-4">
       <div class="w-20 h-20 rounded-2xl bg-(--ui-bg-elevated) border border-(--ui-border-accented) flex items-center justify-center">
-        <UIcon name="i-heroicons-photo" class="w-10 h-10 text-(--ui-text-dimmed)" />
+        <AppIcon name="photo" class="w-10 h-10 text-(--ui-text-dimmed)" />
       </div>
       <p class="text-xs text-(--ui-text-dimmed)">Choose an image source</p>
       <div class="flex gap-3">
-        <UButton icon="i-heroicons-photo" variant="soft" color="neutral" @click="pickFromGallery">Gallery</UButton>
-        <UButton icon="i-heroicons-camera" variant="soft" color="neutral" @click="pickFromCamera">Camera</UButton>
+        <UButton :icon="resolveIcon('photo')" variant="soft" color="neutral" @click="pickFromGallery">Gallery</UButton>
+        <UButton :icon="resolveIcon('camera')" variant="soft" color="neutral" @click="pickFromCamera">Camera</UButton>
       </div>
     </div>
 

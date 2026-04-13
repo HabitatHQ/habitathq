@@ -159,14 +159,14 @@ onUnmounted(() => {
       <div class="flex items-center gap-1.5">
         <UButton
           v-if="timeline.length > 0"
-          :icon="gridView ? 'i-heroicons-list-bullet' : 'i-heroicons-squares-2x2'"
+          :icon="resolveIcon(gridView ? 'list-bullet' : 'squares-2x2')"
           size="sm"
           color="neutral"
           variant="ghost"
           :aria-label="gridView ? 'Switch to list view' : 'Switch to grid view'"
           @click="gridView = !gridView"
         />
-        <UButton icon="i-heroicons-plus" size="sm" @click="showPickSheet = true">New</UButton>
+        <UButton :icon="resolveIcon('plus')" size="sm" @click="showPickSheet = true">New</UButton>
       </div>
     </header>
 
@@ -176,8 +176,8 @@ onUnmounted(() => {
       :title="errorMsg"
       color="error"
       variant="soft"
-      icon="i-heroicons-exclamation-circle"
-      :close-button="{ icon: 'i-heroicons-x-mark', color: 'error', variant: 'ghost', size: 'sm' }"
+      :icon="resolveIcon('exclamation-circle')"
+      :close-button="{ icon: resolveIcon('x-mark'), color: 'error', variant: 'ghost', size: 'sm' }"
       @close="errorMsg = null"
     />
 
@@ -202,7 +202,7 @@ onUnmounted(() => {
         >
           <div class="flex items-start gap-2.5">
             <div class="w-6 h-6 rounded-full bg-amber-500/10 flex items-center justify-center mt-0.5 shrink-0">
-              <UIcon name="i-heroicons-pencil" class="w-3.5 h-3.5 text-amber-400" />
+              <AppIcon name="pencil" class="w-3.5 h-3.5 text-amber-400" />
             </div>
             <div class="flex-1 min-w-0">
               <div class="flex items-start justify-between gap-2">
@@ -229,7 +229,7 @@ onUnmounted(() => {
               :title="hasLinkedTodo(item.data.id) ? 'View linked TODO' : 'Create TODO for this jot'"
               @click.stop="onJotLinkClick(item)"
             >
-              <UIcon :name="hasLinkedTodo(item.data.id) ? 'i-heroicons-paper-clip' : 'i-heroicons-link'" class="w-3.5 h-3.5" />
+              <AppIcon :name="hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link'" class="w-3.5 h-3.5" />
             </button>
           </div>
         </li>
@@ -241,10 +241,10 @@ onUnmounted(() => {
         >
           <div class="flex items-center gap-3">
             <div class="w-6 h-6 rounded-full bg-rose-500/10 flex items-center justify-center shrink-0">
-              <UIcon name="i-heroicons-microphone" class="w-3.5 h-3.5 text-rose-400" />
+              <AppIcon name="microphone" class="w-3.5 h-3.5 text-rose-400" />
             </div>
             <UButton
-              :icon="currentlyPlaying === item.data.id ? 'i-heroicons-pause' : 'i-heroicons-play'"
+              :icon="resolveIcon(currentlyPlaying === item.data.id ? 'pause' : 'play')"
               :color="currentlyPlaying === item.data.id ? 'primary' : 'neutral'"
               :variant="currentlyPlaying === item.data.id ? 'soft' : 'outline'"
               size="sm"
@@ -256,7 +256,7 @@ onUnmounted(() => {
               <p class="text-xs type-duration text-(--ui-text-dimmed)">{{ fmtDuration((item.data as VoiceNote).duration) }}</p>
             </div>
             <UButton
-              :icon="hasLinkedTodo(item.data.id) ? 'i-heroicons-paper-clip' : 'i-heroicons-link'"
+              :icon="resolveIcon(hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link')"
               color="neutral"
               variant="ghost"
               size="sm"
@@ -264,7 +264,7 @@ onUnmounted(() => {
               @click="onJotLinkClick(item)"
             />
             <UButton
-              icon="i-heroicons-trash"
+              :icon="resolveIcon('trash')"
               color="neutral"
               variant="ghost"
               size="sm"
@@ -281,7 +281,7 @@ onUnmounted(() => {
         >
           <div class="flex items-center gap-3">
             <div class="w-6 h-6 rounded-full bg-sky-500/10 flex items-center justify-center shrink-0">
-              <UIcon name="i-heroicons-photo" class="w-3.5 h-3.5 text-sky-400" />
+              <AppIcon name="photo" class="w-3.5 h-3.5 text-sky-400" />
             </div>
             <img
               v-if="(item.data as ImageNote).url"
@@ -294,7 +294,7 @@ onUnmounted(() => {
               <p class="text-xs text-(--ui-text-dimmed)">{{ fmtDate(item.data.created_at, appSettings.use24HourTime) }}</p>
             </div>
             <UButton
-              :icon="hasLinkedTodo(item.data.id) ? 'i-heroicons-paper-clip' : 'i-heroicons-link'"
+              :icon="resolveIcon(hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link')"
               color="neutral"
               variant="ghost"
               size="sm"
@@ -302,7 +302,7 @@ onUnmounted(() => {
               @click="onJotLinkClick(item)"
             />
             <UButton
-              icon="i-heroicons-trash"
+              :icon="resolveIcon('trash')"
               color="neutral"
               variant="ghost"
               size="sm"
@@ -345,7 +345,7 @@ onUnmounted(() => {
                     :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
                     @click.stop="onJotLinkClick(item)"
                   >
-                    <UIcon :name="hasLinkedTodo(item.data.id) ? 'i-heroicons-paper-clip' : 'i-heroicons-link'" class="w-3 h-3" />
+                    <AppIcon :name="hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link'" class="w-3 h-3" />
                   </button>
                   <span class="text-[10px] text-slate-600">{{ timeAgo(item.data.updated_at) }}</span>
                 </div>
@@ -362,14 +362,14 @@ onUnmounted(() => {
           <div class="h-0.5 bg-gradient-to-r from-rose-500/70 to-rose-600/30" />
           <div class="p-3 flex flex-col items-center gap-2.5 text-center">
             <div class="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mt-1">
-              <UIcon name="i-heroicons-microphone" class="w-6 h-6 text-rose-400" />
+              <AppIcon name="microphone" class="w-6 h-6 text-rose-400" />
             </div>
             <div>
               <p class="text-sm type-duration font-medium text-(--ui-text-toned)">{{ fmtDuration((item.data as VoiceNote).duration) }}</p>
               <p class="text-[10px] text-slate-600 mt-0.5">{{ timeAgo(item.data.created_at) }}</p>
             </div>
             <UButton
-              :icon="currentlyPlaying === item.data.id ? 'i-heroicons-pause' : 'i-heroicons-play'"
+              :icon="resolveIcon(currentlyPlaying === item.data.id ? 'pause' : 'play')"
               :color="currentlyPlaying === item.data.id ? 'primary' : 'neutral'"
               :variant="currentlyPlaying === item.data.id ? 'soft' : 'outline'"
               size="xs"
@@ -378,7 +378,7 @@ onUnmounted(() => {
             />
             <div class="flex items-center gap-0.5 pb-1">
               <UButton
-                :icon="hasLinkedTodo(item.data.id) ? 'i-heroicons-paper-clip' : 'i-heroicons-link'"
+                :icon="resolveIcon(hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link')"
                 color="neutral"
                 variant="ghost"
                 size="xs"
@@ -386,7 +386,7 @@ onUnmounted(() => {
                 @click.stop="onJotLinkClick(item)"
               />
               <UButton
-                icon="i-heroicons-trash"
+                :icon="resolveIcon('trash')"
                 color="neutral"
                 variant="ghost"
                 size="xs"
@@ -409,7 +409,7 @@ onUnmounted(() => {
             class="w-full object-cover rounded-t-2xl"
           />
           <div v-else class="w-full aspect-[4/3] bg-(--ui-bg-elevated) flex items-center justify-center rounded-t-2xl">
-            <UIcon name="i-heroicons-photo" class="w-8 h-8 text-slate-600" />
+            <AppIcon name="photo" class="w-8 h-8 text-slate-600" />
           </div>
           <div class="px-2.5 py-2 flex items-center justify-between gap-1">
             <div class="min-w-0">
@@ -422,10 +422,10 @@ onUnmounted(() => {
                 :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
                 @click="onJotLinkClick(item)"
               >
-                <UIcon :name="hasLinkedTodo(item.data.id) ? 'i-heroicons-paper-clip' : 'i-heroicons-link'" class="w-3 h-3" />
+                <AppIcon :name="hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link'" class="w-3 h-3" />
               </button>
               <UButton
-                icon="i-heroicons-trash"
+                :icon="resolveIcon('trash')"
                 color="neutral"
                 variant="ghost"
                 size="xs"
@@ -479,7 +479,7 @@ onUnmounted(() => {
         <div class="h-full overflow-y-auto p-5 space-y-5">
           <div class="flex items-center justify-between">
             <h3 class="text-base font-semibold">New Jot</h3>
-            <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" aria-label="Close" @click="showPickSheet = false" />
+            <UButton :icon="resolveIcon('x-mark')" variant="ghost" color="neutral" size="sm" aria-label="Close" @click="showPickSheet = false" />
           </div>
           <div class="flex flex-col items-center justify-center pt-8">
             <JotsRing class="hidden sm:flex" @select="onRingSelect" />

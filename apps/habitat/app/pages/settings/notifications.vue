@@ -39,7 +39,7 @@ onMounted(() => {
   <div class="space-y-6">
     <header class="flex items-center gap-2 mb-4">
       <NuxtLink to="/settings" class="sm:hidden p-1 -ml-1 rounded-lg text-(--ui-text-muted) hover:text-(--ui-text) hover:bg-(--ui-bg-elevated) transition-colors">
-        <UIcon name="i-heroicons-chevron-left" class="w-5 h-5" />
+        <AppIcon name="chevron-left" class="w-5 h-5" />
       </NuxtLink>
       <h2 class="text-xl font-bold">Notifications</h2>
     </header>
@@ -51,7 +51,7 @@ onMounted(() => {
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5 min-w-0">
             <div class="flex items-center gap-2">
-              <UIcon name="i-heroicons-bell" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
+              <AppIcon name="bell" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
               <p class="text-sm font-medium">Notifications</p>
             </div>
             <p class="text-xs text-(--ui-text-dimmed)">Deliver reminders for habits and check-ins.</p>
@@ -103,7 +103,7 @@ onMounted(() => {
           >
             <UButton
               size="sm" variant="ghost" color="neutral"
-              icon="i-heroicons-bell"
+              :icon="resolveIcon('bell')"
               :disabled="notifPermission !== 'granted'"
               @click="sendTestNotification"
             />
@@ -123,7 +123,7 @@ onMounted(() => {
           >
             <UButton
               size="sm" variant="ghost" color="neutral"
-              icon="i-heroicons-clock"
+              :icon="resolveIcon('clock')"
               :disabled="notifPermission !== 'granted' || !isNativeApp"
               @click="testScheduleOn"
             />
@@ -175,7 +175,7 @@ onMounted(() => {
             </div>
             <UButton
               size="sm" variant="ghost" color="neutral"
-              icon="i-heroicons-arrow-path"
+              :icon="resolveIcon('arrow-path')"
               :loading="pendingNotifsLoading"
               aria-label="Refresh scheduled notifications"
               @click="refreshPendingNotifs"
@@ -187,7 +187,7 @@ onMounted(() => {
               :key="i"
               class="flex items-center gap-3 py-2"
             >
-              <UIcon name="i-heroicons-bell" class="w-3.5 h-3.5 shrink-0 text-(--ui-text-dimmed)" />
+              <AppIcon name="bell" class="w-3.5 h-3.5 shrink-0 text-(--ui-text-dimmed)" />
               <span class="text-xs text-(--ui-text) min-w-0 truncate grow">{{ n.title }}</span>
               <span class="text-xs font-mono text-(--ui-text-muted) shrink-0">{{ n.when }}</span>
             </li>

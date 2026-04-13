@@ -295,12 +295,12 @@ function onDayClick(date: string) {
             <button
               class="p-1.5 rounded-lg hover:bg-(--ui-bg-elevated) text-(--ui-text-toned) transition-colors"
               @click="prevPeriod"
-            ><UIcon name="i-heroicons-chevron-left" class="w-4 h-4" /></button>
+            ><AppIcon name="chevron-left" class="w-4 h-4" /></button>
             <span class="text-sm font-semibold text-(--ui-text) text-center w-40 shrink-0">{{ periodLabel }}</span>
             <button
               class="p-1.5 rounded-lg hover:bg-(--ui-bg-elevated) text-(--ui-text-toned) transition-colors"
               @click="nextPeriod"
-            ><UIcon name="i-heroicons-chevron-right" class="w-4 h-4" /></button>
+            ><AppIcon name="chevron-right" class="w-4 h-4" /></button>
           </div>
 
           <!-- Today pill -->
@@ -449,7 +449,7 @@ function onDayClick(date: string) {
                       : 'border-(--ui-border-accented) hover:border-primary-400'"
                     @click.stop="emit('toggle', todo)"
                   >
-                    <UIcon v-if="todo.is_done" name="i-heroicons-check" class="w-3 h-3 text-white" />
+                    <AppIcon v-if="todo.is_done" name="check" class="w-3 h-3 text-white" />
                   </button>
                 </div>
               </template>
@@ -470,11 +470,11 @@ function onDayClick(date: string) {
             @click="unscheduledOpen = !unscheduledOpen"
           >
             <div class="flex items-center gap-2">
-              <UIcon name="i-heroicons-inbox" class="w-4 h-4 text-(--ui-text-dimmed)" />
+              <AppIcon name="inbox" class="w-4 h-4 text-(--ui-text-dimmed)" />
               <span class="text-sm font-medium">Unscheduled</span>
               <span class="text-xs px-1.5 py-0.5 rounded-full bg-(--ui-bg-elevated) text-(--ui-text-muted) font-mono">{{ unscheduledTodos.length }}</span>
             </div>
-            <UIcon :name="unscheduledOpen ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-4 h-4 text-(--ui-text-dimmed)" />
+            <AppIcon :name="unscheduledOpen ? 'chevron-up' : 'chevron-down'" class="w-4 h-4 text-(--ui-text-dimmed)" />
           </button>
           <div v-if="unscheduledOpen" class="border-t border-(--ui-border)/60 divide-y divide-(--ui-border)/40">
             <div
@@ -484,7 +484,7 @@ function onDayClick(date: string) {
             >
               <div class="w-1 h-4 rounded-full shrink-0" :class="priorityBarClass(todo.priority)" />
               <span class="text-sm flex-1 truncate">{{ todo.title }}</span>
-              <UButton variant="ghost" color="neutral" size="xs" icon="i-heroicons-pencil" @click="emit('edit', todo)" />
+              <UButton variant="ghost" color="neutral" size="xs" :icon="resolveIcon('pencil')" @click="emit('edit', todo)" />
             </div>
           </div>
         </div>
@@ -494,7 +494,7 @@ function onDayClick(date: string) {
       <!-- ── Desktop: Unscheduled sidebar ───────────────────────────────────── -->
       <div v-if="unscheduledTodos.length > 0" class="hidden sm:flex sm:flex-col gap-2 w-48 shrink-0">
         <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) flex items-center gap-1.5">
-          <UIcon name="i-heroicons-inbox" class="w-3.5 h-3.5" />
+          <AppIcon name="inbox" class="w-3.5 h-3.5" />
           Unscheduled
           <span class="ml-auto font-mono font-normal normal-case tracking-normal">{{ unscheduledTodos.length }}</span>
         </p>
@@ -532,13 +532,13 @@ function onDayClick(date: string) {
                 size="xs"
                 variant="soft"
                 color="primary"
-                icon="i-heroicons-plus"
+                :icon="resolveIcon('plus')"
                 @click="openDayCreate"
               >Add</UButton>
               <button
                 class="p-1.5 rounded-lg hover:bg-(--ui-bg-elevated) text-(--ui-text-dimmed) transition-colors"
                 @click="selectedDay = null"
-              ><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+              ><AppIcon name="x-mark" class="w-4 h-4" /></button>
             </div>
           </div>
 
@@ -555,7 +555,7 @@ function onDayClick(date: string) {
                 :class="todo.is_done ? 'border-green-500 bg-green-500' : 'border-(--ui-border-accented) hover:border-primary-400'"
                 @click="emit('toggle', todo)"
               >
-                <UIcon v-if="todo.is_done" name="i-heroicons-check" class="w-3 h-3 text-white" />
+                <AppIcon v-if="todo.is_done" name="check" class="w-3 h-3 text-white" />
               </button>
               <div class="flex-1 min-w-0">
                 <p
@@ -567,13 +567,13 @@ function onDayClick(date: string) {
                   <span v-if="todo.estimated_minutes" class="text-xs text-(--ui-text-dimmed) shrink-0">{{ todo.estimated_minutes }}m</span>
                 </div>
               </div>
-              <UButton variant="ghost" color="neutral" size="xs" icon="i-heroicons-pencil" @click="emit('edit', todo)" />
+              <UButton variant="ghost" color="neutral" size="xs" :icon="resolveIcon('pencil')" @click="emit('edit', todo)" />
             </div>
 
             <!-- Empty state -->
             <div v-if="selectedDayTodos.length === 0" class="flex flex-col items-center gap-3 py-10 text-(--ui-text-dimmed)">
               <p class="text-sm">No TODOs for this day.</p>
-              <UButton size="sm" variant="soft" color="primary" icon="i-heroicons-plus" @click="openDayCreate">
+              <UButton size="sm" variant="soft" color="primary" :icon="resolveIcon('plus')" @click="openDayCreate">
                 Add one
               </UButton>
             </div>

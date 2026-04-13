@@ -28,7 +28,7 @@ const activityTitleError = ref<string | null>(null)
 const categoryNameError = ref<string | null>(null)
 
 // Category form
-const catForm = reactive({ name: '', icon: 'i-heroicons-sparkles', color: '#6366f1' })
+const catForm = reactive({ name: '', icon: resolveIcon('sparkles'), color: '#6366f1' })
 
 // Activity form
 const actForm = reactive({
@@ -86,7 +86,7 @@ function openEditActivity(a: BoredActivity) {
 function openAddCategory() {
   editingCategory.value = null
   categoryNameError.value = null
-  Object.assign(catForm, { name: '', icon: 'i-heroicons-sparkles', color: '#6366f1' })
+  Object.assign(catForm, { name: '', icon: resolveIcon('sparkles'), color: '#6366f1' })
   showCategoryModal.value = true
 }
 
@@ -199,7 +199,7 @@ async function archiveActivity(a: BoredActivity) {
 <template>
   <div class="max-w-lg mx-auto space-y-6">
     <div class="flex items-center gap-3">
-      <UButton to="/bored" variant="ghost" color="neutral" size="sm" icon="i-heroicons-arrow-left" />
+      <UButton to="/bored" variant="ghost" color="neutral" size="sm" :icon="resolveIcon('arrow-left')" />
       <h1 class="text-xl font-bold">Manage Activities</h1>
     </div>
 
@@ -207,7 +207,7 @@ async function archiveActivity(a: BoredActivity) {
     <div v-for="cat in categories" :key="cat.id" class="space-y-2">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
-          <UIcon :name="cat.icon" class="w-4 h-4" :style="{ color: cat.color }" />
+          <AppIcon :name="cat.icon" class="w-4 h-4" :color="cat.color" />
           <span class="font-semibold text-sm">{{ cat.name }}</span>
           <span class="text-xs text-(--ui-text-dimmed)">({{ activitiesForCategory(cat.id).length }})</span>
         </div>
@@ -217,7 +217,7 @@ async function archiveActivity(a: BoredActivity) {
             variant="ghost"
             color="neutral"
             size="sm"
-            icon="i-heroicons-pencil"
+            :icon="resolveIcon('pencil')"
             @click="openEditCategory(cat)"
           />
           <UButton
@@ -225,14 +225,14 @@ async function archiveActivity(a: BoredActivity) {
             variant="ghost"
             color="error"
             size="sm"
-            icon="i-heroicons-trash"
+            :icon="resolveIcon('trash')"
             @click="confirmDeleteCategory = cat"
           />
           <UButton
             variant="ghost"
             color="neutral"
             size="sm"
-            icon="i-heroicons-plus"
+            :icon="resolveIcon('plus')"
             @click="openAddActivity(cat.id)"
           />
         </div>
@@ -253,7 +253,7 @@ async function archiveActivity(a: BoredActivity) {
                 {{ act.estimated_minutes }}m
               </span>
               <span v-if="act.is_recurring" class="text-xs text-(--ui-text-dimmed) flex items-center gap-0.5">
-                <UIcon name="i-heroicons-arrow-path" class="w-3 h-3" />
+                <AppIcon name="arrow-path" class="w-3 h-3" />
                 {{ act.recurrence_rule }}
               </span>
               <span v-if="act.done_count > 0" class="text-xs text-(--ui-text-dimmed)">
@@ -262,9 +262,9 @@ async function archiveActivity(a: BoredActivity) {
             </div>
           </div>
           <div class="flex items-center gap-1 ml-2 shrink-0">
-            <UButton variant="ghost" color="neutral" size="sm" icon="i-heroicons-pencil" @click="openEditActivity(act)" />
-            <UButton variant="ghost" color="neutral" size="sm" icon="i-heroicons-archive-box" @click="confirmArchiveActivity = act" />
-            <UButton variant="ghost" color="error" size="sm" icon="i-heroicons-trash" @click="confirmDeleteActivity = act" />
+            <UButton variant="ghost" color="neutral" size="sm" :icon="resolveIcon('pencil')" @click="openEditActivity(act)" />
+            <UButton variant="ghost" color="neutral" size="sm" :icon="resolveIcon('archive-box')" @click="confirmArchiveActivity = act" />
+            <UButton variant="ghost" color="error" size="sm" :icon="resolveIcon('trash')" @click="confirmDeleteActivity = act" />
           </div>
         </div>
         <div v-if="activitiesForCategory(cat.id).length === 0" class="text-xs text-slate-600 px-1">
@@ -278,7 +278,7 @@ async function archiveActivity(a: BoredActivity) {
       variant="soft"
       color="neutral"
       size="sm"
-      icon="i-heroicons-plus"
+      :icon="resolveIcon('plus')"
       class="w-full"
       @click="openAddCategory"
     >
@@ -293,7 +293,7 @@ async function archiveActivity(a: BoredActivity) {
             <UInput v-model="catForm.name" placeholder="Category name" class="w-full" />
           </UFormField>
           <p v-if="categoryNameError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
-            <UIcon name="i-heroicons-exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
+            <AppIcon name="exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
             {{ categoryNameError }}
           </p>
           <UFormField label="Icon (Heroicons class)">
@@ -321,7 +321,7 @@ async function archiveActivity(a: BoredActivity) {
             <UInput v-model="actForm.title" placeholder="Activity title" class="w-full" />
           </UFormField>
           <p v-if="activityTitleError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
-            <UIcon name="i-heroicons-exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
+            <AppIcon name="exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
             {{ activityTitleError }}
           </p>
           <UFormField label="Description">
@@ -363,7 +363,7 @@ async function archiveActivity(a: BoredActivity) {
     <!-- Delete activity confirm -->
     <ConfirmDialog
       :open="!!confirmDeleteActivity"
-      icon="i-heroicons-trash"
+      icon="trash"
       icon-color="red"
       :title="`Delete &quot;${confirmDeleteActivity?.title}&quot;?`"
       message="This cannot be undone."
@@ -377,7 +377,7 @@ async function archiveActivity(a: BoredActivity) {
     <!-- Delete category confirm -->
     <ConfirmDialog
       :open="!!confirmDeleteCategory"
-      icon="i-heroicons-trash"
+      icon="trash"
       icon-color="red"
       :title="`Delete &quot;${confirmDeleteCategory?.name}&quot;?`"
       message="All activities in this category will also be deleted."
@@ -391,7 +391,7 @@ async function archiveActivity(a: BoredActivity) {
     <!-- Archive activity confirm -->
     <ConfirmDialog
       :open="!!confirmArchiveActivity"
-      icon="i-heroicons-archive-box"
+      icon="archive-box"
       icon-color="amber"
       :title="`Archive &quot;${confirmArchiveActivity?.title}&quot;?`"
       message="Archived activities won't appear in the oracle."

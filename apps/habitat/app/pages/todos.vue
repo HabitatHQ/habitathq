@@ -452,9 +452,9 @@ async function unlinkJot() {
 }
 
 function jotKindIcon(kind: string | undefined): string {
-  if (kind === 'voice') return 'i-heroicons-microphone'
-  if (kind === 'image') return 'i-heroicons-photo'
-  return 'i-heroicons-pencil'
+  if (kind === 'voice') return resolveIcon('microphone')
+  if (kind === 'image') return resolveIcon('photo')
+  return resolveIcon('pencil')
 }
 </script>
 
@@ -471,15 +471,15 @@ function jotKindIcon(kind: string | undefined): string {
             :class="!calendarView ? 'bg-(--ui-bg) text-(--ui-text) shadow-sm' : 'text-(--ui-text-dimmed) hover:text-(--ui-text-toned)'"
             aria-label="List view"
             @click="calendarView = false; selectionChanged()"
-          ><UIcon name="i-heroicons-list-bullet" class="w-4 h-4" /></button>
+          ><AppIcon name="list-bullet" class="w-4 h-4" /></button>
           <button
             class="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md transition-colors"
             :class="calendarView ? 'bg-(--ui-bg) text-(--ui-text) shadow-sm' : 'text-(--ui-text-dimmed) hover:text-(--ui-text-toned)'"
             aria-label="Calendar view"
             @click="calendarView = true; selectionChanged()"
-          ><UIcon name="i-heroicons-calendar-days" class="w-4 h-4" /></button>
+          ><AppIcon name="calendar-days" class="w-4 h-4" /></button>
         </div>
-        <UButton size="sm" class="min-h-[44px]" icon="i-heroicons-plus" @click="openAdd">Add</UButton>
+        <UButton size="sm" class="min-h-[44px]" :icon="resolveIcon('plus')" @click="openAdd">Add</UButton>
       </div>
     </div>
 
@@ -539,8 +539,8 @@ function jotKindIcon(kind: string | undefined): string {
               :class="todo.is_done ? 'border-green-500 bg-green-500' : 'border-(--ui-border-accented) hover:border-(--ui-border-muted)'"
               @click="toggleTodo(todo)"
             >
-              <UIcon v-if="todo.is_done" name="i-heroicons-check" class="w-3.5 h-3.5 text-white" />
-              <UIcon v-else-if="todo.is_recurring" name="i-heroicons-arrow-path" class="w-3 h-3 text-(--ui-text-dimmed)" />
+              <AppIcon v-if="todo.is_done" name="check" class="w-3.5 h-3.5 text-white" />
+              <AppIcon v-else-if="todo.is_recurring" name="arrow-path" class="w-3 h-3 text-(--ui-text-dimmed)" />
             </button>
 
             <!-- Content -->
@@ -557,19 +557,19 @@ function jotKindIcon(kind: string | undefined): string {
                   class="text-xs flex items-center gap-0.5"
                   :class="isOverdue(todo, today) ? 'text-red-400' : 'text-(--ui-text-muted)'"
                 >
-                  <UIcon name="i-heroicons-calendar" class="w-3 h-3" />
+                  <AppIcon name="calendar" class="w-3 h-3" />
                   {{ formatDueDate(todo.due_date, today) }}
                 </time>
                 <span v-if="todo.estimated_minutes" class="text-xs text-(--ui-text-dimmed) flex items-center gap-0.5">
-                  <UIcon name="i-heroicons-clock" class="w-3 h-3" />
+                  <AppIcon name="clock" class="w-3 h-3" />
                   {{ todo.estimated_minutes }}m
                 </span>
                 <span v-if="todo.is_recurring" class="text-xs text-(--ui-text-dimmed) flex items-center gap-0.5">
-                  <UIcon name="i-heroicons-arrow-path" class="w-3 h-3" />
+                  <AppIcon name="arrow-path" class="w-3 h-3" />
                   Repeats {{ todo.recurrence_rule }}
                 </span>
                 <span v-if="todo.show_in_bored" class="text-xs text-amber-500 flex items-center gap-0.5">
-                  <UIcon name="i-heroicons-sparkles" class="w-3 h-3" />
+                  <AppIcon name="sparkles" class="w-3 h-3" />
                   Bored
                 </span>
               </div>
@@ -594,7 +594,7 @@ function jotKindIcon(kind: string | undefined): string {
                     size="xs"
                     variant="ghost"
                     color="neutral"
-                    :icon="timer.isRunning ? 'i-heroicons-pause' : 'i-heroicons-play'"
+                    :icon="resolveIcon(timer.isRunning ? 'pause' : 'play')"
                     :aria-label="timer.isRunning ? 'Pause timer' : 'Resume timer'"
                     @click="timer.isRunning ? timer.pauseTimer() : timer.resumeTimer()"
                   />
@@ -602,7 +602,7 @@ function jotKindIcon(kind: string | undefined): string {
                     size="xs"
                     variant="soft"
                     color="success"
-                    icon="i-heroicons-check"
+                    :icon="resolveIcon('check')"
                     aria-label="Done"
                     @click="finishTimerAndDone(todo)"
                   >Done</UButton>
@@ -610,7 +610,7 @@ function jotKindIcon(kind: string | undefined): string {
                     size="xs"
                     variant="ghost"
                     color="neutral"
-                    icon="i-heroicons-x-mark"
+                    :icon="resolveIcon('x-mark')"
                     aria-label="Stop timer"
                     @click="timer.stopTimer()"
                   />
@@ -624,7 +624,7 @@ function jotKindIcon(kind: string | undefined): string {
                     size="xs"
                     variant="soft"
                     color="neutral"
-                    icon="i-heroicons-play"
+                    :icon="resolveIcon('play')"
                     aria-label="Start timer"
                     @click="handleTodoStart(todo)"
                     @pointerdown="startLongPress(todo)"
@@ -645,17 +645,17 @@ function jotKindIcon(kind: string | undefined): string {
                       class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-(--ui-bg-muted) flex items-center gap-2"
                       @click="startMode(todo, 'stopwatch')"
                     >
-                      <UIcon name="i-heroicons-play" class="w-4 h-4" /> Stopwatch
+                      <AppIcon name="play" class="w-4 h-4" /> Stopwatch
                     </button>
                     <div role="menuitem" class="flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-(--ui-bg-muted)">
-                      <UIcon name="i-heroicons-clock" class="w-4 h-4 shrink-0" />
+                      <AppIcon name="clock" class="w-4 h-4 shrink-0" />
                       <div class="flex items-center gap-1" @click.stop>
                         <button
                           class="w-6 h-6 rounded-md bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors active:scale-90"
                           :class="{ 'opacity-30 pointer-events-none': modeMenuMinutes <= 5 }"
                           @click="modeMenuMinutes = Math.max(5, modeMenuMinutes - 5)"
                         >
-                          <UIcon name="i-heroicons-minus" class="w-3 h-3" />
+                          <AppIcon name="minus" class="w-3 h-3" />
                         </button>
                         <span class="w-10 text-center font-semibold tabular-nums text-(--ui-text)">{{ modeMenuMinutes }}</span>
                         <button
@@ -663,7 +663,7 @@ function jotKindIcon(kind: string | undefined): string {
                           :class="{ 'opacity-30 pointer-events-none': modeMenuMinutes >= 120 }"
                           @click="modeMenuMinutes = Math.min(120, modeMenuMinutes + 5)"
                         >
-                          <UIcon name="i-heroicons-plus" class="w-3 h-3" />
+                          <AppIcon name="plus" class="w-3 h-3" />
                         </button>
                       </div>
                       <span class="text-(--ui-text-muted) text-xs">min</span>
@@ -683,8 +683,8 @@ function jotKindIcon(kind: string | undefined): string {
 
             <!-- Actions -->
             <div class="flex flex-col gap-1 shrink-0">
-              <UButton variant="ghost" color="neutral" size="sm" icon="i-heroicons-pencil" class="min-h-[44px]" aria-label="Edit todo" @click="openEdit(todo)" />
-              <UButton variant="ghost" color="neutral" size="sm" icon="i-heroicons-archive-box" class="min-h-[44px]" aria-label="Archive todo" @click="confirmArchiveTodo = todo" />
+              <UButton variant="ghost" color="neutral" size="sm" :icon="resolveIcon('pencil')" class="min-h-[44px]" aria-label="Edit todo" @click="openEdit(todo)" />
+              <UButton variant="ghost" color="neutral" size="sm" :icon="resolveIcon('archive-box')" class="min-h-[44px]" aria-label="Archive todo" @click="confirmArchiveTodo = todo" />
             </div>
           </li>
         </ul>
@@ -693,7 +693,7 @@ function jotKindIcon(kind: string | undefined): string {
 
     <!-- Empty state -->
     <div v-if="filteredSections.length === 0" class="text-center py-12 text-(--ui-text-dimmed)">
-      <UIcon name="i-heroicons-check-circle" class="w-12 h-12 mx-auto mb-3 opacity-30" />
+      <AppIcon name="check-circle" class="w-12 h-12 mx-auto mb-3 opacity-30" />
       <p>No todos yet. Tap + to add one.</p>
     </div>
 
@@ -708,7 +708,7 @@ function jotKindIcon(kind: string | undefined): string {
             <UInput v-model="form.title" placeholder="What needs doing?" class="w-full" autofocus />
           </UFormField>
           <p v-if="titleError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
-            <UIcon name="i-heroicons-exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
+            <AppIcon name="exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
             {{ titleError }}
           </p>
 
@@ -785,7 +785,7 @@ function jotKindIcon(kind: string | undefined): string {
 
           <!-- Has a linked jot -->
           <div v-if="editingTodo.annotations['linked_jot_id']" class="flex items-center gap-2.5 p-2.5 rounded-xl bg-(--ui-bg-elevated) border border-(--ui-border-accented)">
-            <UIcon
+            <AppIcon
               :name="jotKindIcon(editingTodo.annotations['linked_jot_kind'])"
               class="w-4 h-4 text-(--ui-text-muted) shrink-0"
             />
@@ -793,7 +793,7 @@ function jotKindIcon(kind: string | undefined): string {
               {{ editingTodo.annotations['linked_jot_title'] || editingTodo.annotations['linked_jot_id'] }}
             </span>
             <UButton
-              icon="i-heroicons-arrow-top-right-on-square"
+              :icon="resolveIcon('arrow-top-right-on-square')"
               size="xs"
               variant="ghost"
               color="neutral"
@@ -801,7 +801,7 @@ function jotKindIcon(kind: string | undefined): string {
               @click="showModal = false; navigateTo('/jots')"
             />
             <UButton
-              icon="i-heroicons-x-mark"
+              :icon="resolveIcon('x-mark')"
               size="xs"
               variant="ghost"
               color="error"
@@ -817,7 +817,7 @@ function jotKindIcon(kind: string | undefined): string {
             class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1.5 transition-colors py-1"
             @click="openJotPicker"
           >
-            <UIcon name="i-heroicons-link" class="w-3.5 h-3.5" />
+            <AppIcon name="link" class="w-3.5 h-3.5" />
             Link a jot
           </button>
 
@@ -832,7 +832,7 @@ function jotKindIcon(kind: string | undefined): string {
                 class="flex items-center gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-(--ui-bg-elevated) transition-colors"
                 @click="selectJot(jot)"
               >
-                <UIcon :name="jotKindIcon(jot.kind)" class="w-3.5 h-3.5 text-(--ui-text-muted) shrink-0" />
+                <AppIcon :name="jotKindIcon(jot.kind)" class="w-3.5 h-3.5 text-(--ui-text-muted) shrink-0" />
                 <span class="text-sm text-(--ui-text-toned) truncate">{{ jot.label }}</span>
               </li>
             </ul>
@@ -846,7 +846,7 @@ function jotKindIcon(kind: string | undefined): string {
             variant="ghost"
             color="error"
             class="flex-none"
-            icon="i-heroicons-trash"
+            :icon="resolveIcon('trash')"
             @click="confirmDeleteTodo = editingTodo"
           />
           <UButton color="primary" class="flex-1" @click="saveTodo">Save</UButton>
@@ -857,7 +857,7 @@ function jotKindIcon(kind: string | undefined): string {
     <!-- Archive confirm -->
     <ConfirmDialog
       :open="!!confirmArchiveTodo"
-      icon="i-heroicons-archive-box"
+      icon="archive-box"
       icon-color="amber"
       :title="`Archive &quot;${confirmArchiveTodo?.title}&quot;?`"
       message="This todo will be moved to your archive."
@@ -871,7 +871,7 @@ function jotKindIcon(kind: string | undefined): string {
     <!-- Delete confirm -->
     <ConfirmDialog
       :open="!!confirmDeleteTodo"
-      icon="i-heroicons-trash"
+      icon="trash"
       icon-color="red"
       :title="`Delete &quot;${confirmDeleteTodo?.title}&quot;?`"
       message="This cannot be undone. The todo will be permanently removed."

@@ -75,7 +75,7 @@ onMounted(async () => {
   <div class="space-y-6">
     <header class="flex items-center gap-2 mb-4">
       <NuxtLink to="/settings" class="sm:hidden p-1 -ml-1 rounded-lg text-(--ui-text-muted) hover:text-(--ui-text) hover:bg-(--ui-bg-elevated) transition-colors">
-        <UIcon name="i-heroicons-chevron-left" class="w-5 h-5" />
+        <AppIcon name="chevron-left" class="w-5 h-5" />
       </NuxtLink>
       <h2 class="text-xl font-bold">Permissions</h2>
     </header>
@@ -88,7 +88,7 @@ onMounted(async () => {
         <div v-if="isInstalled" class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5 min-w-0">
             <div class="flex items-center gap-2">
-              <UIcon name="i-heroicons-arrow-down-tray" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
+              <AppIcon name="arrow-down-tray" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
               <p class="text-sm font-medium">Habitat is installed</p>
             </div>
             <p class="text-xs text-green-400">{{ isNativeApp ? 'Running as a native app' : 'Running as a standalone app' }}</p>
@@ -98,7 +98,7 @@ onMounted(async () => {
         <div v-else class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5 min-w-0">
             <div class="flex items-center gap-2">
-              <UIcon name="i-heroicons-arrow-down-tray" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
+              <AppIcon name="arrow-down-tray" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
               <p class="text-sm font-medium">Install Habitat</p>
             </div>
             <p class="text-xs text-(--ui-text-dimmed)">Add to your home screen for offline access and notifications</p>
@@ -107,7 +107,7 @@ onMounted(async () => {
             size="sm"
             variant="soft"
             color="primary"
-            icon="i-heroicons-arrow-down-tray"
+            :icon="resolveIcon('arrow-down-tray')"
             :loading="installing"
             class="shrink-0"
             @click="handleInstall"
@@ -120,7 +120,7 @@ onMounted(async () => {
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5 min-w-0">
             <div class="flex items-center gap-2">
-              <UIcon name="i-heroicons-bell" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
+              <AppIcon name="bell" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
               <p class="text-sm font-medium">Notifications</p>
             </div>
             <p class="text-xs text-(--ui-text-dimmed)">Deliver reminders for habits and check-ins.</p>
@@ -145,7 +145,7 @@ onMounted(async () => {
         <div v-if="isNativeApp" class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5 min-w-0">
             <div class="flex items-center gap-2">
-              <UIcon name="i-heroicons-clock" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
+              <AppIcon name="clock" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
               <p class="text-sm font-medium">Exact alarms</p>
             </div>
             <p class="text-xs text-(--ui-text-dimmed)">Fire reminders at the exact time you scheduled them.</p>
@@ -177,7 +177,7 @@ onMounted(async () => {
         <div v-if="isNativeApp" class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5 min-w-0">
             <div class="flex items-center gap-2">
-              <UIcon name="i-heroicons-battery-100" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
+              <AppIcon name="battery-100" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
               <p class="text-sm font-medium">Battery optimization</p>
             </div>
             <p class="text-xs text-(--ui-text-dimmed)">Exempt the app so reminders fire even when closed.</p>
@@ -209,8 +209,8 @@ onMounted(async () => {
         <div v-if="!isNativeApp" class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5 min-w-0">
             <div class="flex items-center gap-2">
-              <UIcon
-                :name="persistentStorage === 'granted' ? 'i-heroicons-lock-closed' : 'i-heroicons-lock-open'"
+              <AppIcon
+                :name="persistentStorage === 'granted' ? 'lock-closed' : 'lock-open'"
                 class="w-4 h-4 shrink-0"
                 :class="persistentStorage === 'granted' ? 'text-green-400' : 'text-(--ui-text-muted)'"
               />
@@ -252,7 +252,7 @@ onMounted(async () => {
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5 min-w-0">
             <div class="flex items-center gap-2">
-              <UIcon name="i-heroicons-microphone" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
+              <AppIcon name="microphone" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
               <p class="text-sm font-medium">Microphone</p>
             </div>
             <p class="text-xs text-(--ui-text-dimmed)">Required for voice recordings in Jots.</p>
@@ -269,7 +269,7 @@ onMounted(async () => {
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5 min-w-0">
             <div class="flex items-center gap-2">
-              <UIcon name="i-heroicons-camera" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
+              <AppIcon name="camera" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
               <p class="text-sm font-medium">Camera</p>
             </div>
             <p class="text-xs text-(--ui-text-dimmed)">Required to capture photos in Jots.</p>
@@ -286,7 +286,7 @@ onMounted(async () => {
         <div v-if="isIos" class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5 min-w-0">
             <div class="flex items-center gap-2">
-              <UIcon name="i-heroicons-photo" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
+              <AppIcon name="photo" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
               <p class="text-sm font-medium">Photo library</p>
             </div>
             <p class="text-xs text-(--ui-text-dimmed)">Required to pick existing photos for Jots.</p>
@@ -308,7 +308,7 @@ onMounted(async () => {
         <div class="p-5 space-y-4">
           <div class="flex items-center justify-between">
             <h3 class="font-semibold text-(--ui-text)">Install Habitat</h3>
-            <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" @click="showInstallModal = false" />
+            <UButton :icon="resolveIcon('x-mark')" variant="ghost" color="neutral" size="sm" @click="showInstallModal = false" />
           </div>
 
           <template v-if="isIosSafari">
@@ -316,7 +316,7 @@ onMounted(async () => {
               <li class="flex items-start gap-3">
                 <span class="text-primary-400 font-semibold shrink-0">1.</span>
                 <span>Tap the <strong class="text-(--ui-text)">Share</strong> button
-                  <UIcon name="i-heroicons-arrow-up-on-square" class="inline w-4 h-4 align-text-bottom text-(--ui-text)" />
+                  <AppIcon name="arrow-up-on-square" class="inline w-4 h-4 align-text-bottom text-(--ui-text)" />
                   in the Safari toolbar</span>
               </li>
               <li class="flex items-start gap-3">

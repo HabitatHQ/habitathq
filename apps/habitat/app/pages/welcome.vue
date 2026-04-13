@@ -22,25 +22,25 @@ const PROFILES: { id: AppProfile; name: string; description: string; icon: strin
     id: 'minimalist',
     name: 'Minimalist',
     description: 'A pure, distraction-free habit tracker.',
-    icon: 'i-heroicons-sparkles',
+    icon: resolveIcon('sparkles'),
   },
   {
     id: 'journaler',
     name: 'Journaler',
     description: 'Focus on reflection, daily check-ins, and mental wellness.',
-    icon: 'i-heroicons-book-open',
+    icon: resolveIcon('book-open'),
   },
   {
     id: 'productivity',
     name: 'Productivity',
     description: 'Task management, pomodoro timers, and context filtering.',
-    icon: 'i-heroicons-bolt',
+    icon: resolveIcon('bolt'),
   },
   {
     id: 'mindful',
     name: 'Mindful Productivity',
     description: 'The perfect balance of reflection and execution.',
-    icon: 'i-heroicons-scale',
+    icon: resolveIcon('scale'),
   },
 ]
 
@@ -220,7 +220,7 @@ onMounted(() => {
                   class="p-2.5 rounded-xl shrink-0 transition-colors"
                   :class="selectedProfile === p.id ? 'bg-primary-500 text-white' : 'bg-(--ui-bg-muted) text-(--ui-text-dimmed)'"
                 >
-                  <UIcon :name="p.icon" class="w-6 h-6" />
+                  <AppIcon :name="p.icon" class="w-6 h-6" />
                 </div>
                 <div>
                   <h3 
@@ -238,7 +238,7 @@ onMounted(() => {
 
             <div class="pt-2">
               <div class="flex gap-3 items-start px-1 py-3 mb-2 text-(--ui-text-dimmed)">
-                <UIcon name="i-heroicons-light-bulb" class="w-5 h-5 shrink-0 mt-0.5 text-amber-500" />
+                <AppIcon name="light-bulb" class="w-5 h-5 shrink-0 mt-0.5 text-amber-500" />
                 <p class="text-[13px] font-medium leading-relaxed">
                   You can explore the Settings tab later to further customize your modules and activate Health tracking!
                 </p>
@@ -285,7 +285,7 @@ onMounted(() => {
                   :aria-label="`Select ${t.name} theme`"
                   :aria-pressed="selectedTheme === t.id"
                 >
-                  <UIcon v-if="selectedTheme === t.id" name="i-heroicons-check" class="w-6 h-6 text-white absolute" />
+                  <AppIcon v-if="selectedTheme === t.id" name="check" class="w-6 h-6 text-white absolute" />
                 </div>
                 <span
                   class="text-sm transition-colors"
@@ -301,7 +301,7 @@ onMounted(() => {
               <!-- Habit check item -->
               <div class="flex items-center gap-3 p-3 rounded-xl border bg-(--ui-bg-muted)/50 border-(--ui-border)/50 opacity-80">
                 <div class="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center bg-primary-500/15">
-                  <UIcon name="i-heroicons-beaker" class="w-5 h-5 text-primary-500" />
+                  <AppIcon name="beaker" class="w-5 h-5 text-primary-500" />
                 </div>
                 <div class="flex-1 min-w-0 flex items-center">
                   <div class="min-w-0 pr-2 flex-1 text-left">
@@ -310,14 +310,14 @@ onMounted(() => {
                   </div>
                 </div>
                 <button class="w-7 h-7 rounded-full border-2 flex-shrink-0 flex items-center justify-center bg-primary-500 border-primary-500">
-                  <UIcon name="i-heroicons-check" class="w-3.5 h-3.5 text-white" />
+                  <AppIcon name="check" class="w-3.5 h-3.5 text-white" />
                 </button>
               </div>
 
               <!-- Unchecked metric habit -->
               <div class="flex items-center gap-3 p-3 rounded-xl border bg-(--ui-bg-muted) border-(--ui-border)">
                 <div class="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center bg-primary-500/15">
-                  <UIcon name="i-heroicons-book-open" class="w-5 h-5 text-primary-500" />
+                  <AppIcon name="book-open" class="w-5 h-5 text-primary-500" />
                 </div>
                 <div class="flex-1 min-w-0 flex items-center">
                   <div class="min-w-0 pr-2 flex-1 text-left">

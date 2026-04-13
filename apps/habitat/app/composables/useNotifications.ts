@@ -1,5 +1,6 @@
 import { Capacitor } from '@capacitor/core'
 import { reactive, readonly, ref } from 'vue'
+import { resolveIcon } from '~/utils/icons'
 
 // ─── Module-level singletons ──────────────────────────────────────────────────
 // Persists across composable calls so permission state stays in sync and timers
@@ -444,7 +445,7 @@ export function useNotifications() {
     function showNotif(title: string, body: string) {
       notifLog('fire', `${title}: ${body}`)
       if (toastOnly) {
-        toast.add({ title, description: body, icon: 'i-heroicons-bell', color: 'primary' })
+        toast.add({ title, description: body, icon: resolveIcon('bell'), color: 'primary' })
         return
       }
       if (Notification.permission !== 'granted') return
@@ -587,7 +588,7 @@ export function useNotifications() {
 
     if (typeof Notification === 'undefined') {
       notifLog('test', 'Notification API unavailable — using toast fallback')
-      toast.add({ title, description: body, icon: 'i-heroicons-bell', color: 'primary' })
+      toast.add({ title, description: body, icon: resolveIcon('bell'), color: 'primary' })
       return
     }
     _permission.value = Notification.permission

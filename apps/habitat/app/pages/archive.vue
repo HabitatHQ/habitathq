@@ -85,7 +85,7 @@ onMounted(loadHabits)
     <template v-if="tab === 'habits'">
       <EmptyState
         v-if="!loadingHabits && archivedHabits.length === 0"
-        icon="i-heroicons-archive-box"
+        icon="archive-box"
         title="No archived habits yet"
         description="Habits you archive will appear here."
       />
@@ -100,7 +100,7 @@ onMounted(loadHabits)
             class="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center opacity-60"
             :style="{ backgroundColor: habit.color + '33' }"
           >
-            <UIcon :name="habit.icon" class="w-5 h-5" :style="{ color: habit.color }" />
+            <AppIcon :name="habit.icon" :color="habit.color" class="w-5 h-5" />
           </div>
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-(--ui-text-muted) truncate">{{ habit.name }}</p>
@@ -115,12 +115,12 @@ onMounted(loadHabits)
     <!-- ── Check-in tab ─────────────────────────────────────────────────────────── -->
     <template v-else>
       <div v-if="loadingCheckins" class="flex items-center gap-2 text-xs text-(--ui-text-dimmed) py-4">
-        <UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 animate-spin" />
+        <AppIcon name="arrow-path" class="w-3.5 h-3.5 animate-spin" />
         Loading…
       </div>
       <EmptyState
         v-else-if="checkinDays.length === 0"
-        icon="i-heroicons-pencil-square"
+        icon="pencil-square"
         title="No check-in responses yet"
         description="Completed check-ins will appear here."
       />
@@ -132,7 +132,7 @@ onMounted(loadHabits)
           class="flex items-center gap-3 p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border)"
         >
           <div class="w-9 h-9 rounded-full bg-(--ui-bg-elevated) flex items-center justify-center flex-shrink-0">
-            <UIcon name="i-heroicons-pencil-square" class="w-4 h-4 text-(--ui-text-muted)" />
+            <AppIcon name="pencil-square" class="w-4 h-4 text-(--ui-text-muted)" />
           </div>
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-(--ui-text-toned) truncate">{{ day.label }}</p>

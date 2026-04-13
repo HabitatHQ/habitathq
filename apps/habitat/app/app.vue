@@ -105,21 +105,21 @@ function dismissPermissionModal() {
 
           <div class="space-y-3">
             <div class="flex gap-3 items-start">
-              <UIcon name="i-heroicons-bell" class="w-5 h-5 text-primary-400 mt-0.5 shrink-0" />
+              <AppIcon name="bell" class="w-5 h-5 text-primary-400 mt-0.5 shrink-0" />
               <div>
                 <p class="text-sm font-medium">Notifications</p>
                 <p class="text-xs text-(--ui-text-dimmed)">Show reminders for your habits and check-ins.</p>
               </div>
             </div>
             <div class="flex gap-3 items-start">
-              <UIcon name="i-heroicons-clock" class="w-5 h-5 text-primary-400 mt-0.5 shrink-0" />
+              <AppIcon name="clock" class="w-5 h-5 text-primary-400 mt-0.5 shrink-0" />
               <div>
                 <p class="text-sm font-medium">Exact alarms</p>
                 <p class="text-xs text-(--ui-text-dimmed)">Fire reminders at the exact time you scheduled them.</p>
               </div>
             </div>
             <div class="flex gap-3 items-start">
-              <UIcon name="i-heroicons-battery-100" class="w-5 h-5 text-primary-400 mt-0.5 shrink-0" />
+              <AppIcon name="battery-100" class="w-5 h-5 text-primary-400 mt-0.5 shrink-0" />
               <div>
                 <p class="text-sm font-medium">Battery optimization exemption</p>
                 <p class="text-xs text-(--ui-text-dimmed)">Keep reminders working when the app is in the background.</p>

@@ -159,7 +159,7 @@ async function handleCreate() {
       name: form.name.trim(),
       description: form.description.trim(),
       color: '#06b6d4',
-      icon: 'i-heroicons-star',
+      icon: resolveIcon('star'),
       frequency: 'daily',
       tags: [...form.tags],
       annotations: buildAnnotations(annotationEntries.value),
@@ -231,14 +231,14 @@ onMounted(loadHabits)
       <div class="flex items-center gap-2">
         <UButton
           to="/archive"
-          icon="i-heroicons-archive-box"
+          :icon="resolveIcon('archive-box')"
           variant="ghost"
           color="neutral"
           size="sm"
         />
         <UButton
           v-if="anyPaused"
-          icon="i-heroicons-play"
+          :icon="resolveIcon('play')"
           variant="ghost"
           color="neutral"
           size="sm"
@@ -248,20 +248,20 @@ onMounted(loadHabits)
         />
         <UButton
           v-if="habits.length > 0"
-          icon="i-heroicons-pause"
+          :icon="resolveIcon('pause')"
           variant="ghost"
           color="neutral"
           size="sm"
           title="Pause all habits"
           @click="openPauseAll"
         />
-        <UButton icon="i-heroicons-plus" size="sm" class="min-h-[44px]" @click="isOpen = true">New</UButton>
+        <UButton :icon="resolveIcon('plus')" size="sm" class="min-h-[44px]" @click="isOpen = true">New</UButton>
       </div>
     </header>
 
     <EmptyState
       v-if="habits.length === 0"
-      icon="i-heroicons-clipboard-document-list"
+      icon="clipboard-document-list"
       title="No habits yet"
       description="Tap New to create your first habit."
     />
@@ -278,7 +278,7 @@ onMounted(loadHabits)
           class="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
           :style="{ backgroundColor: habit.color + '33' }"
         >
-          <UIcon :name="habit.icon" class="w-5 h-5" :style="{ color: habit.color }" />
+          <AppIcon :name="habit.icon" :color="habit.color" class="w-5 h-5" />
         </div>
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-1.5 min-w-0">
@@ -327,9 +327,9 @@ onMounted(loadHabits)
           :aria-label="`Toggle ${habit.name} for today`"
           @click.prevent="quickToggle(habit, $event)"
         >
-          <UIcon v-if="todayCompletionHabitIds.has(habit.id)" name="i-heroicons-check" class="w-3.5 h-3.5 text-white" />
+          <AppIcon v-if="todayCompletionHabitIds.has(habit.id)" name="check" class="w-3.5 h-3.5 text-white" />
         </button>
-        <UIcon v-else name="i-heroicons-chevron-right" class="w-4 h-4 text-slate-700 flex-shrink-0" />
+        <AppIcon v-else name="chevron-right" class="w-4 h-4 text-slate-700 flex-shrink-0" />
       </NuxtLink>
     </ul>
 
@@ -365,7 +365,7 @@ onMounted(loadHabits)
           <UInput v-model="form.name" placeholder="e.g. Morning run" autofocus />
         </UFormField>
         <p v-if="nameError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
-          <UIcon name="i-heroicons-exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
+          <AppIcon name="exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
           {{ nameError }}
         </p>
 
@@ -455,7 +455,7 @@ onMounted(loadHabits)
             class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1"
             @click="form.show_due_time = !form.show_due_time"
           >
-            <UIcon :name="form.show_due_time ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5" />
+            <AppIcon :name="form.show_due_time ? 'chevron-down' : 'chevron-right'" class="w-3.5 h-3.5" />
             {{ form.show_due_time ? 'Remove due time' : 'Add due time' }}
           </button>
           <div v-if="form.show_due_time" class="mt-2">
@@ -469,7 +469,7 @@ onMounted(loadHabits)
             class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1"
             @click="showAnnotations = !showAnnotations"
           >
-            <UIcon :name="showAnnotations ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5" />
+            <AppIcon :name="showAnnotations ? 'chevron-down' : 'chevron-right'" class="w-3.5 h-3.5" />
             {{ showAnnotations ? 'Hide annotations' : annotationEntries.length > 0 ? `Annotations (${annotationEntries.length})` : 'Add annotations' }}
           </button>
           <div v-if="showAnnotations" class="mt-2 space-y-1.5">
@@ -478,11 +478,11 @@ onMounted(loadHabits)
               <span class="text-slate-600 text-xs">:</span>
               <UInput v-model="entry.value" placeholder="value" class="flex-1" />
               <button class="p-2 -m-1 text-slate-700 hover:text-red-400 transition-colors" @click="removeAnnotationEntry(i)">
-                <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
+                <AppIcon name="x-mark" class="w-4 h-4" />
               </button>
             </div>
             <button class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1" @click="addAnnotationEntry">
-              <UIcon name="i-heroicons-plus" class="w-3 h-3" /> Add annotation
+              <AppIcon name="plus" class="w-3 h-3" /> Add annotation
             </button>
           </div>
         </div>
@@ -493,7 +493,7 @@ onMounted(loadHabits)
             class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1"
             @click="showAddReminder = !showAddReminder"
           >
-            <UIcon :name="showAddReminder ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5" />
+            <AppIcon :name="showAddReminder ? 'chevron-down' : 'chevron-right'" class="w-3.5 h-3.5" />
             {{ showAddReminder ? 'Hide reminders' : pendingReminders.length > 0 ? `Reminders (${pendingReminders.length})` : 'Add reminders' }}
           </button>
           <div v-if="showAddReminder" class="mt-2 space-y-2">
@@ -503,13 +503,13 @@ onMounted(loadHabits)
               :key="i"
               class="flex items-center gap-2"
             >
-              <UIcon name="i-heroicons-bell" class="w-3.5 h-3.5 text-(--ui-text-dimmed) shrink-0" />
+              <AppIcon name="bell" class="w-3.5 h-3.5 text-(--ui-text-dimmed) shrink-0" />
               <span class="text-sm type-duration text-(--ui-text-toned)">{{ r.time }}</span>
               <span class="text-xs text-(--ui-text-dimmed)">
                 {{ r.days.length ? r.days.map(d => HABIT_DAY_LABELS[d]).join(' ') : 'Every day' }}
               </span>
               <button class="ml-auto p-1.5 -m-1 text-slate-700 hover:text-red-400 transition-colors" @click="removePendingReminder(i)">
-                <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
+                <AppIcon name="x-mark" class="w-4 h-4" />
               </button>
             </div>
 
@@ -535,7 +535,7 @@ onMounted(loadHabits)
         </div>
 
         <p v-if="scheduleError" class="text-sm text-red-400 flex items-center gap-1.5">
-          <UIcon name="i-heroicons-exclamation-circle" class="w-4 h-4 flex-shrink-0" />
+          <AppIcon name="exclamation-circle" class="w-4 h-4 flex-shrink-0" />
           {{ scheduleError }}
         </p>
 

@@ -23,8 +23,8 @@ function toggle() {
       class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1.5 transition-colors"
       @click="toggle"
     >
-      <UIcon
-        :name="open ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'"
+      <AppIcon
+        :name="open ? 'chevron-down' : 'chevron-right'"
         class="w-3.5 h-3.5"
       />
       {{ buttonLabel }}

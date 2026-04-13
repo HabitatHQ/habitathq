@@ -121,21 +121,21 @@ const nodes = [
     type: 'voice' as const,
     angle: 270,
     label: 'Voice',
-    icon: 'i-heroicons-microphone',
+    icon: resolveIcon('microphone'),
     color: 'rose',
   },
   {
     type: 'text' as const,
     angle: 30,
     label: 'Scribble',
-    icon: 'i-heroicons-pencil',
+    icon: resolveIcon('pencil'),
     color: 'amber',
   },
   {
     type: 'image' as const,
     angle: 150,
     label: 'Photograph',
-    icon: 'i-heroicons-camera',
+    icon: resolveIcon('camera'),
     color: 'sky',
   },
 ]
@@ -154,19 +154,19 @@ const compactOptions = [
   {
     type: 'voice' as const,
     label: 'Voice',
-    icon: 'i-heroicons-microphone',
+    icon: resolveIcon('microphone'),
     colorClasses: 'bg-rose-500/10 text-rose-400',
   },
   {
     type: 'text' as const,
     label: 'Scribble',
-    icon: 'i-heroicons-pencil',
+    icon: resolveIcon('pencil'),
     colorClasses: 'bg-amber-500/10 text-amber-400',
   },
   {
     type: 'image' as const,
     label: 'Photograph',
-    icon: 'i-heroicons-camera',
+    icon: resolveIcon('camera'),
     colorClasses: 'bg-sky-500/10 text-sky-400',
   },
 ]
@@ -184,7 +184,7 @@ const compactOptions = [
         @click="emit('select', opt.type)"
       >
         <div class="w-10 h-10 rounded-full flex items-center justify-center" :class="opt.colorClasses">
-          <UIcon :name="opt.icon" class="w-5 h-5" />
+          <AppIcon :name="opt.icon" class="w-5 h-5" />
         </div>
         <span class="text-xs text-(--ui-text-toned)">{{ opt.label }}</span>
       </button>
@@ -282,7 +282,7 @@ const compactOptions = [
             'bg-sky-500/15 border-sky-500/40 hover:border-sky-400 hover:bg-sky-500/25': node.color === 'sky',
           }"
         >
-          <UIcon
+          <AppIcon
             :name="node.icon"
             class="w-5 h-5"
             :class="{

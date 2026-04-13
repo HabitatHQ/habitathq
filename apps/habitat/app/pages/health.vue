@@ -247,9 +247,9 @@ async function saveMeal(value: number) {
 }
 
 const MEAL_ICONS: Record<string, string> = {
-  Breakfast: 'i-heroicons-sun',
-  Lunch: 'i-heroicons-sparkles',
-  Dinner: 'i-heroicons-moon',
+  Breakfast: resolveIcon('sun'),
+  Lunch: resolveIcon('sparkles'),
+  Dinner: resolveIcon('moon'),
 }
 
 onMounted(load)
@@ -268,7 +268,7 @@ onMounted(load)
       class="flex flex-col items-center justify-center gap-4 py-12 text-center"
     >
       <div class="w-16 h-16 rounded-full bg-(--ui-bg-elevated) flex items-center justify-center">
-        <UIcon name="i-heroicons-heart" class="w-8 h-8 text-rose-400" />
+        <AppIcon name="heart" class="w-8 h-8 text-rose-400" />
       </div>
       <div class="space-y-1">
         <p class="font-semibold text-(--ui-text)">No health habits yet</p>
@@ -283,11 +283,11 @@ onMounted(load)
       <UCard v-if="stepsHabit" :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-4' }">
         <header class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <UIcon name="i-heroicons-fire" class="w-4 h-4 text-rose-400" />
+            <AppIcon name="fire" class="w-4 h-4 text-rose-400" />
             <h3 class="text-xs font-semibold text-(--ui-text-muted) uppercase tracking-wide">Steps Today</h3>
           </div>
           <UButton
-            icon="i-heroicons-pencil-square"
+            :icon="resolveIcon('pencil-square')"
             variant="ghost"
             color="neutral"
             size="sm"
@@ -383,7 +383,7 @@ onMounted(load)
       <UCard v-if="waterHabit" :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-3' }">
         <header class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <UIcon name="i-heroicons-beaker" class="w-4 h-4 text-sky-400" />
+            <AppIcon name="beaker" class="w-4 h-4 text-sky-400" />
             <h3 class="text-xs font-semibold text-(--ui-text-muted) uppercase tracking-wide">Water Today</h3>
           </div>
           <div class="flex items-center gap-2">
@@ -397,14 +397,14 @@ onMounted(load)
                 :disabled="savingWater || waterToday <= 0"
                 @click="setWater(Math.max(0, Math.round(waterToday) - 1))"
               >
-                <UIcon name="i-heroicons-minus" class="w-3.5 h-3.5" />
+                <AppIcon name="minus" class="w-3.5 h-3.5" />
               </button>
               <button
                 class="w-7 h-7 rounded-lg bg-(--ui-bg-elevated) flex items-center justify-center text-(--ui-text-muted) hover:text-sky-400 disabled:opacity-30 transition-colors"
                 :disabled="savingWater || waterToday >= waterGoal"
                 @click="setWater(Math.round(waterToday) + 1)"
               >
-                <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
+                <AppIcon name="plus" class="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
@@ -422,7 +422,7 @@ onMounted(load)
             :disabled="savingWater"
             @click="setWater(i === Math.round(waterToday) ? i - 1 : i)"
           >
-            <UIcon name="i-heroicons-beaker" class="w-4 h-4" />
+            <AppIcon name="beaker" class="w-4 h-4" />
           </button>
         </div>
 
@@ -440,11 +440,11 @@ onMounted(load)
       <UCard v-if="sleepHabit" :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-4' }">
         <header class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <UIcon name="i-heroicons-moon" class="w-4 h-4 text-indigo-400" />
+            <AppIcon name="moon" class="w-4 h-4 text-indigo-400" />
             <h3 class="text-xs font-semibold text-(--ui-text-muted) uppercase tracking-wide">Sleep Last Night</h3>
           </div>
           <UButton
-            icon="i-heroicons-pencil-square"
+            :icon="resolveIcon('pencil-square')"
             variant="ghost"
             color="neutral"
             size="sm"
@@ -508,7 +508,7 @@ onMounted(load)
       <UCard v-if="mealHabits.length" :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-3' }">
         <header class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <UIcon name="i-heroicons-scale" class="w-4 h-4 text-amber-400" />
+            <AppIcon name="scale" class="w-4 h-4 text-amber-400" />
             <h3 class="text-xs font-semibold text-(--ui-text-muted) uppercase tracking-wide">Meals</h3>
           </div>
           <p class="text-xs text-(--ui-text-dimmed)">
@@ -526,8 +526,8 @@ onMounted(load)
             <!-- Meal row -->
             <div class="flex items-center justify-between px-3 py-3">
               <div class="flex items-center gap-2">
-                <UIcon
-                  :name="MEAL_ICONS[meal.name] ?? 'i-heroicons-beaker'"
+                <AppIcon
+                  :name="MEAL_ICONS[meal.name] ?? resolveIcon('beaker')"
                   class="w-4 h-4 text-(--ui-text-muted)"
                 />
                 <span class="text-sm font-medium">{{ meal.name }}</span>
@@ -544,7 +544,7 @@ onMounted(load)
                   class="w-7 h-7 rounded-lg bg-(--ui-bg-elevated) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors"
                   @click="openMealLog(meal)"
                 >
-                  <UIcon name="i-heroicons-pencil" class="w-3.5 h-3.5" />
+                  <AppIcon name="pencil" class="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>
@@ -569,7 +569,7 @@ onMounted(load)
     <LogSheet
       :open="showStepsSheet"
       title="Steps"
-      icon="i-heroicons-fire"
+      :icon="resolveIcon('fire')"
       icon-color="#f43f5e"
       :current="stepsSheetValue"
       :target="stepsGoal"
@@ -587,7 +587,7 @@ onMounted(load)
     <LogSheet
       :open="showSleepSheet"
       title="Sleep"
-      icon="i-heroicons-moon"
+      :icon="resolveIcon('moon')"
       icon-color="#818cf8"
       :current="sleepSheetValue"
       :target="sleepGoal"
@@ -605,7 +605,7 @@ onMounted(load)
     <LogSheet
       :open="mealSheetOpen"
       :title="mealSheetHabit?.name ?? 'Meal'"
-      :icon="MEAL_ICONS[mealSheetHabit?.name ?? ''] ?? 'i-heroicons-beaker'"
+      :icon="MEAL_ICONS[mealSheetHabit?.name ?? ''] ?? resolveIcon('beaker')"
       icon-color="#fbbf24"
       :current="mealSheetValue"
       :target="mealSheetHabit?.target_value ?? 0"

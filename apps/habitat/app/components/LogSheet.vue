@@ -156,7 +156,7 @@ const targetFormatted = computed(() => {
               class="w-11 h-11 rounded-2xl flex-shrink-0 flex items-center justify-center"
               :style="{ backgroundColor: iconColor + '18', border: `1px solid ${iconColor}33` }"
             >
-              <UIcon :name="icon" class="w-5 h-5" :style="{ color: iconColor }" />
+              <AppIcon :name="icon" class="w-5 h-5" :color="iconColor" />
             </div>
             <div class="flex-1 min-w-0">
               <p class="text-base font-semibold truncate text-(--ui-text)">{{ title }}</p>
@@ -174,8 +174,8 @@ const targetFormatted = computed(() => {
                 : 'bg-(--ui-bg-elevated) text-(--ui-text-dimmed) hover:text-(--ui-text-toned)'"
               @click="manualMode ? switchToPicker() : switchToManual()"
             >
-              <UIcon
-                :name="manualMode ? 'i-heroicons-adjustments-horizontal' : 'i-heroicons-pencil-square'"
+              <AppIcon
+                :name="manualMode ? 'adjustments-horizontal' : 'pencil-square'"
                 class="w-3.5 h-3.5 inline-block mr-1 -mt-0.5"
               />
               {{ manualMode ? 'Picker' : 'Type' }}
@@ -199,7 +199,7 @@ const targetFormatted = computed(() => {
               :class="{ 'opacity-30 pointer-events-none': pickerValue <= min }"
               @click="quickAdjust(-1)"
             >
-              <UIcon name="i-heroicons-minus" class="w-4 h-4" />
+              <AppIcon name="minus" class="w-4 h-4" />
             </button>
 
             <!-- Scroll picker -->
@@ -220,7 +220,7 @@ const targetFormatted = computed(() => {
               :class="{ 'opacity-30 pointer-events-none': pickerValue >= max }"
               @click="quickAdjust(1)"
             >
-              <UIcon name="i-heroicons-plus" class="w-4 h-4" />
+              <AppIcon name="plus" class="w-4 h-4" />
             </button>
           </div>
 

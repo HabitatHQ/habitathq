@@ -222,7 +222,7 @@ async function forceReload() {
   <div class="space-y-6">
     <header class="flex items-center gap-2 mb-4">
       <NuxtLink to="/settings" class="sm:hidden p-1 -ml-1 rounded-lg text-(--ui-text-muted) hover:text-(--ui-text) hover:bg-(--ui-bg-elevated) transition-colors">
-        <UIcon name="i-heroicons-chevron-left" class="w-5 h-5" />
+        <AppIcon name="chevron-left" class="w-5 h-5" />
       </NuxtLink>
       <h2 class="text-xl font-bold">More</h2>
     </header>
@@ -231,7 +231,7 @@ async function forceReload() {
     <section class="space-y-2">
       <button class="w-full flex items-center justify-between px-1 py-0.5" @click="aboutOpen = !aboutOpen">
         <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed)">About</p>
-        <UIcon :name="aboutOpen ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-slate-600" />
+        <AppIcon :name="aboutOpen ? 'chevron-up' : 'chevron-down'" class="w-3.5 h-3.5 text-slate-600" />
       </button>
       <UCard v-if="aboutOpen" :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
 
@@ -265,7 +265,7 @@ async function forceReload() {
         </div>
         <button class="w-full flex items-center justify-between px-4 py-3.5 text-left" @click="openLicenses">
           <p class="text-sm text-(--ui-text-muted)">Open source licenses</p>
-          <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-(--ui-text-dimmed) shrink-0" />
+          <AppIcon name="chevron-right" class="w-4 h-4 text-(--ui-text-dimmed) shrink-0" />
         </button>
 
         <!-- DB schema -->
@@ -276,12 +276,12 @@ async function forceReload() {
             </div>
             <div class="flex items-center gap-2 shrink-0">
               <UBadge v-if="dbInfo" :label="`v${dbInfo.userVersion}`" variant="subtle" color="neutral" size="sm" class="font-mono rounded-full" />
-              <UIcon :name="dbInfoOpen ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-4 h-4 text-(--ui-text-dimmed)" />
+              <AppIcon :name="dbInfoOpen ? 'chevron-down' : 'chevron-right'" class="w-4 h-4 text-(--ui-text-dimmed)" />
             </div>
           </button>
           <div v-if="dbInfoOpen" class="border-t border-(--ui-border) px-4 py-3 space-y-2">
             <div v-if="dbInfoLoading" class="flex items-center gap-2 text-xs text-(--ui-text-dimmed)">
-              <UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 animate-spin" /> Loading…
+              <AppIcon name="arrow-path" class="w-3.5 h-3.5 animate-spin" /> Loading…
             </div>
             <template v-else-if="dbInfo">
               <div class="flex items-center gap-2 mb-3">
@@ -294,7 +294,7 @@ async function forceReload() {
                   @click="expandedTable = expandedTable === table.name ? null : table.name"
                 >
                   <span class="text-xs font-mono text-(--ui-text-toned)">{{ table.name }}</span>
-                  <UIcon :name="expandedTable === table.name ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5 text-slate-600" />
+                  <AppIcon :name="expandedTable === table.name ? 'chevron-down' : 'chevron-right'" class="w-3.5 h-3.5 text-slate-600" />
                 </button>
                 <pre v-if="expandedTable === table.name" class="text-[10px] leading-relaxed font-mono text-(--ui-text-muted) bg-(--ui-bg) px-3 py-2 overflow-x-auto border-t border-(--ui-border)">{{ table.sql }}</pre>
               </div>
@@ -309,7 +309,7 @@ async function forceReload() {
                       <span class="text-xs font-mono text-(--ui-text-muted)">{{ idx.name }}</span>
                       <span class="text-[10px] text-slate-600 ml-2">on {{ idx.tbl_name }}</span>
                     </div>
-                    <UIcon :name="expandedTable === idx.name ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                    <AppIcon :name="expandedTable === idx.name ? 'chevron-down' : 'chevron-right'" class="w-3.5 h-3.5 text-slate-600 shrink-0" />
                   </button>
                   <pre v-if="expandedTable === idx.name" class="text-[10px] leading-relaxed font-mono text-(--ui-text-muted) bg-(--ui-bg) px-3 py-2 overflow-x-auto border-t border-(--ui-border)">{{ idx.sql }}</pre>
                 </div>
@@ -325,7 +325,7 @@ async function forceReload() {
     <section class="space-y-2">
       <button class="w-full flex items-center justify-between px-1 py-0.5" @click="diagOpen = !diagOpen">
         <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed)">Diagnostics</p>
-        <UIcon :name="diagOpen ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-slate-600" />
+        <AppIcon :name="diagOpen ? 'chevron-up' : 'chevron-down'" class="w-3.5 h-3.5 text-slate-600" />
       </button>
       <UCard v-if="diagOpen" :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
 
@@ -336,7 +336,7 @@ async function forceReload() {
             <p class="text-xs text-(--ui-text-dimmed)">Runs SQLite <span class="font-mono">PRAGMA integrity_check</span></p>
             <div v-if="integrityResults !== null" class="mt-1.5">
               <p v-if="integrityOk" class="text-xs text-green-400 flex items-center gap-1">
-                <UIcon name="i-heroicons-check-circle" class="w-3.5 h-3.5 shrink-0" /> ok
+                <AppIcon name="check-circle" class="w-3.5 h-3.5 shrink-0" /> ok
               </p>
               <ul v-else class="space-y-0.5">
                 <li v-for="(msg, i) in integrityResults" :key="i" class="text-xs text-red-400 font-mono break-all">{{ msg }}</li>
@@ -347,7 +347,7 @@ async function forceReload() {
             <UButton
               size="sm" variant="ghost" color="neutral"
               :loading="integrityLoading"
-              icon="i-heroicons-shield-check"
+              :icon="resolveIcon('shield-check')"
               @click="runIntegrityCheck"
             />
           </span>
@@ -366,7 +366,7 @@ async function forceReload() {
           >
             <UButton
               size="sm" variant="ghost" color="neutral"
-              icon="i-heroicons-bell"
+              :icon="resolveIcon('bell')"
               :disabled="notifPermission !== 'granted'"
               @click="sendTestNotification"
             />
@@ -386,7 +386,7 @@ async function forceReload() {
           >
             <UButton
               size="sm" variant="ghost" color="neutral"
-              icon="i-heroicons-clock"
+              :icon="resolveIcon('clock')"
               :disabled="notifPermission !== 'granted' || !isNativeApp"
               @click="testScheduleOn"
             />
@@ -431,7 +431,7 @@ async function forceReload() {
             </div>
             <UButton
               size="sm" variant="ghost" color="neutral"
-              icon="i-heroicons-arrow-path"
+              :icon="resolveIcon('arrow-path')"
               :loading="pendingNotifsLoading"
               aria-label="Refresh scheduled notifications"
               @click="refreshPendingNotifs"
@@ -443,7 +443,7 @@ async function forceReload() {
               :key="i"
               class="flex items-center gap-3 py-2"
             >
-              <UIcon name="i-heroicons-bell" class="w-3.5 h-3.5 shrink-0 text-(--ui-text-dimmed)" />
+              <AppIcon name="bell" class="w-3.5 h-3.5 shrink-0 text-(--ui-text-dimmed)" />
               <span class="text-xs text-(--ui-text) min-w-0 truncate grow">{{ n.title }}</span>
               <span class="text-xs font-mono text-(--ui-text-muted) shrink-0">{{ n.when }}</span>
             </li>
@@ -458,7 +458,7 @@ async function forceReload() {
                 <p class="text-sm font-medium">Storage</p>
                 <p class="text-xs text-(--ui-text-dimmed)">Browser quota and current usage.</p>
               </div>
-              <UButton size="sm" variant="ghost" color="neutral" icon="i-heroicons-arrow-path" @click="loadStorageEstimate" />
+              <UButton size="sm" variant="ghost" color="neutral" :icon="resolveIcon('arrow-path')" @click="loadStorageEstimate" />
             </div>
             <template v-if="storageEstimate">
               <div class="space-y-1">
@@ -475,8 +475,8 @@ async function forceReload() {
               </div>
               <div class="flex items-center justify-between gap-2">
                 <div class="flex items-center gap-1.5 text-xs">
-                  <UIcon
-                    :name="storagePersisted ? 'i-heroicons-lock-closed' : 'i-heroicons-lock-open'"
+                  <AppIcon
+                    :name="storagePersisted ? 'lock-closed' : 'lock-open'"
                     class="w-3.5 h-3.5"
                     :class="storagePersisted ? 'text-green-400' : 'text-amber-400'"
                   />
@@ -501,12 +501,12 @@ async function forceReload() {
               <p class="text-xs text-(--ui-text-dimmed)">OPFS files</p>
               <div class="flex items-center gap-2 shrink-0">
                 <span v-if="opfsFiles.length > 0" class="text-xs text-(--ui-text-dimmed)">{{ opfsFiles.length }} file{{ opfsFiles.length !== 1 ? 's' : '' }}</span>
-                <UIcon :name="opfsOpen ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5 text-(--ui-text-dimmed)" />
+                <AppIcon :name="opfsOpen ? 'chevron-down' : 'chevron-right'" class="w-3.5 h-3.5 text-(--ui-text-dimmed)" />
               </div>
             </button>
             <div v-if="opfsOpen" class="px-4 pb-3">
               <div v-if="opfsLoading" class="flex items-center gap-2 text-xs text-(--ui-text-dimmed)">
-                <UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 animate-spin" /> Scanning…
+                <AppIcon name="arrow-path" class="w-3.5 h-3.5 animate-spin" /> Scanning…
               </div>
               <div v-else-if="opfsFiles.length === 0" class="text-xs text-(--ui-text-dimmed)">No files found.</div>
               <ul v-else class="space-y-1.5">
@@ -516,7 +516,7 @@ async function forceReload() {
                 </li>
               </ul>
               <button class="mt-3 text-xs text-slate-600 hover:text-(--ui-text-muted) flex items-center gap-1 transition-colors" @click="loadOpfsFiles">
-                <UIcon name="i-heroicons-arrow-path" class="w-3 h-3" /> Refresh
+                <AppIcon name="arrow-path" class="w-3 h-3" /> Refresh
               </button>
             </div>
           </div>
@@ -540,7 +540,7 @@ async function forceReload() {
     <section class="space-y-2">
       <button class="w-full flex items-center justify-between px-1 py-0.5" @click="dragonsOpen = !dragonsOpen">
         <p class="text-xs font-semibold uppercase tracking-wider text-red-900/70">🐉 Here be dragons</p>
-        <UIcon :name="dragonsOpen ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-red-900/50" />
+        <AppIcon :name="dragonsOpen ? 'chevron-up' : 'chevron-down'" class="w-3.5 h-3.5 text-red-900/50" />
       </button>
       <UCard v-if="dragonsOpen" :ui="{ root: 'rounded-2xl ring-1 ring-red-900/30', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
 
@@ -563,7 +563,7 @@ async function forceReload() {
               <UBadge color="warning" variant="subtle" size="xs" class="shrink-0">Active</UBadge>
               <UButton
                 size="sm" variant="ghost" color="neutral"
-                icon="i-heroicons-arrow-path"
+                :icon="resolveIcon('arrow-path')"
                 aria-label="Disable strict CSP and reload"
                 @click="disableStrictCspAndReload"
               />
@@ -585,7 +585,7 @@ async function forceReload() {
           </div>
           <UButton
             size="sm" variant="ghost" color="neutral"
-            icon="i-heroicons-arrow-path" :loading="forceReloading" class="shrink-0"
+            :icon="resolveIcon('arrow-path')" :loading="forceReloading" class="shrink-0"
             @click="forceReload"
           />
         </div>
@@ -599,7 +599,7 @@ async function forceReload() {
         <div class="p-5 space-y-4 flex flex-col max-h-[80vh]">
           <div class="flex items-center justify-between shrink-0">
             <h3 class="font-semibold text-(--ui-text)">Open source licenses</h3>
-            <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" @click="showLicensesModal = false" />
+            <UButton :icon="resolveIcon('x-mark')" variant="ghost" color="neutral" size="sm" @click="showLicensesModal = false" />
           </div>
           <div v-if="licensesLoading" class="flex items-center justify-center py-8 text-(--ui-text-dimmed) text-sm">
             Loading…

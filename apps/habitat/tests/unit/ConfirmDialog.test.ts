@@ -20,7 +20,7 @@ describe('ConfirmDialog', () => {
   it('renders nothing when open is false', () => {
     const wrapper = mount(ConfirmDialog, {
       props: { ...baseProps, open: false },
-      global: { stubs: { UModal: UModalStub, UIcon: true, UButton: true } },
+      global: { stubs: { UModal: UModalStub, AppIcon: true, UButton: true } },
     })
     expect(wrapper.text()).toBe('')
   })
@@ -28,7 +28,7 @@ describe('ConfirmDialog', () => {
   it('renders title and message when open', () => {
     const wrapper = mount(ConfirmDialog, {
       props: baseProps,
-      global: { stubs: { UModal: UModalStub, UIcon: true, UButton: true } },
+      global: { stubs: { UModal: UModalStub, AppIcon: true, UButton: true } },
     })
     expect(wrapper.text()).toContain('Delete item?')
     expect(wrapper.text()).toContain('This cannot be undone.')
@@ -40,7 +40,7 @@ describe('ConfirmDialog', () => {
       global: {
         stubs: {
           UModal: UModalStub,
-          UIcon: true,
+          AppIcon: true,
           UButton: {
             name: 'UButton',
             props: ['color'],
@@ -63,7 +63,7 @@ describe('ConfirmDialog', () => {
       global: {
         stubs: {
           UModal: UModalStub,
-          UIcon: true,
+          AppIcon: true,
           UButton: {
             name: 'UButton',
             props: ['color'],
@@ -86,7 +86,7 @@ describe('ConfirmDialog', () => {
       global: {
         stubs: {
           UModal: UModalStub,
-          UIcon: true,
+          AppIcon: true,
           UButton: {
             name: 'UButton',
             template: '<button @click="$emit(\'click\')"><slot /></button>',

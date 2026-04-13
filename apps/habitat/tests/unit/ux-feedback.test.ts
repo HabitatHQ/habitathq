@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { shallowMount, flushPromises } from '@vue/test-utils'
+import { shallowMount, flushPromises, config } from '@vue/test-utils'
 import { ref } from 'vue'
 
 vi.mock('@capacitor/core', () => ({
@@ -69,6 +69,7 @@ g['useTagInput'] = () => ({
   onTagKeydown: vi.fn(),
 })
 g['useLongPress'] = () => ({ start: vi.fn(), cancel: vi.fn(), activated: ref(false) })
+g['resolveIcon'] = (name: string) => `i-heroicons-${name}`
 
 // Stub localStorage for settings/data.vue which calls localStorage.removeItem
 vi.stubGlobal('localStorage', {
@@ -89,6 +90,9 @@ vi.stubGlobal('indexedDB', {
   }),
   open: vi.fn(() => ({ onsuccess: null, onerror: null, onupgradeneeded: null })),
 })
+
+// Make resolveIcon available in Vue template context for all shallowMount calls
+config.global.mocks.resolveIcon = (name: string) => `i-heroicons-${name}`
 
 // ── Shared DB stub ────────────────────────────────────────────────────────────
 const mockDb = {

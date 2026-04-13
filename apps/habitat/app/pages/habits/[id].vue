@@ -449,7 +449,7 @@ onMounted(load)
           class="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0"
           :style="{ backgroundColor: habit.color + '33' }"
         >
-          <UIcon :name="habit.icon" class="w-6 h-6" :style="{ color: habit.color }" />
+          <AppIcon :name="habit.icon" :color="habit.color" class="w-6 h-6" />
         </div>
         <div class="flex-1 min-w-0">
           <h2 class="text-xl font-bold truncate">{{ habit.name }}</h2>
@@ -462,7 +462,7 @@ onMounted(load)
         v-if="isPaused"
         class="flex items-center gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30"
       >
-        <UIcon name="i-heroicons-pause-circle" class="w-5 h-5 text-amber-400 flex-shrink-0" />
+        <AppIcon name="pause-circle" class="w-5 h-5 text-amber-400 flex-shrink-0" />
         <p class="text-sm text-amber-300 flex-1">
           Paused until {{ fmtArchived(habit.paused_until!) }}
         </p>
@@ -492,7 +492,7 @@ onMounted(load)
           v-if="habit.type === 'BOOLEAN'"
           :variant="todayCompleted ? 'soft' : 'solid'"
           :color="todayCompleted ? 'success' : 'primary'"
-          :icon="todayCompleted ? 'i-heroicons-check-circle' : 'i-heroicons-plus-circle'"
+          :icon="resolveIcon(todayCompleted ? 'check-circle' : 'plus-circle')"
           :loading="togglingToday"
           class="w-full justify-center"
           @click="toggleToday"
@@ -505,7 +505,7 @@ onMounted(load)
           <UButton
             variant="soft"
             color="primary"
-            icon="i-heroicons-plus"
+            :icon="resolveIcon('plus')"
             class="w-full justify-center"
             @click="openLogSheet"
           >
@@ -536,7 +536,7 @@ onMounted(load)
             size="sm"
             variant="ghost"
             color="neutral"
-            :icon="showAddReminder ? 'i-heroicons-chevron-up' : 'i-heroicons-plus'"
+            :icon="resolveIcon(showAddReminder ? 'chevron-up' : 'plus')"
             @click="showAddReminder = !showAddReminder"
           />
         </div>
@@ -556,7 +556,7 @@ onMounted(load)
             :disabled="deletingReminder.has(r.id)"
             @click="removeReminder(r.id)"
           >
-            <UIcon name="i-heroicons-trash" class="w-4 h-4" />
+            <AppIcon name="trash" class="w-4 h-4" />
           </button>
         </div>
 
@@ -706,7 +706,7 @@ onMounted(load)
               :disabled="deletingLog.has(entry.id)"
               @click="deleteLog(entry.id)"
             >
-              <UIcon name="i-heroicons-trash" class="w-4 h-4" />
+              <AppIcon name="trash" class="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -820,7 +820,7 @@ onMounted(load)
               class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1"
               @click="editForm.show_due_time = !editForm.show_due_time"
             >
-              <UIcon :name="editForm.show_due_time ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5" />
+              <AppIcon :name="editForm.show_due_time ? 'chevron-down' : 'chevron-right'" class="w-3.5 h-3.5" />
               {{ editForm.show_due_time ? 'Remove due time' : 'Add due time' }}
             </button>
             <div v-if="editForm.show_due_time" class="mt-2">
@@ -834,7 +834,7 @@ onMounted(load)
               class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1"
               @click="editShowAnnotations = !editShowAnnotations"
             >
-              <UIcon :name="editShowAnnotations ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5" />
+              <AppIcon :name="editShowAnnotations ? 'chevron-down' : 'chevron-right'" class="w-3.5 h-3.5" />
               {{ editShowAnnotations ? 'Hide annotations' : editAnnotationEntries.length > 0 ? `Annotations (${editAnnotationEntries.length})` : 'Add annotations' }}
             </button>
             <div v-if="editShowAnnotations" class="mt-2 space-y-1.5">
@@ -843,17 +843,17 @@ onMounted(load)
                 <span class="text-slate-600 text-xs">:</span>
                 <UInput v-model="entry.value" placeholder="value" class="flex-1" />
                 <button class="text-slate-700 hover:text-red-400 transition-colors" @click="removeEditAnnotationEntry(i)">
-                  <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
+                  <AppIcon name="x-mark" class="w-3.5 h-3.5" />
                 </button>
               </div>
               <button class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1" @click="addEditAnnotationEntry">
-                <UIcon name="i-heroicons-plus" class="w-3 h-3" /> Add annotation
+                <AppIcon name="plus" class="w-3 h-3" /> Add annotation
               </button>
             </div>
           </div>
 
           <p v-if="editScheduleError" class="text-sm text-red-400 flex items-center gap-1.5">
-            <UIcon name="i-heroicons-exclamation-circle" class="w-4 h-4 flex-shrink-0" />
+            <AppIcon name="exclamation-circle" class="w-4 h-4 flex-shrink-0" />
             {{ editScheduleError }}
           </p>
 
@@ -873,7 +873,7 @@ onMounted(load)
         <div class="p-5 space-y-4">
           <div class="flex items-start gap-3">
             <div class="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center flex-shrink-0">
-              <UIcon name="i-heroicons-pause-circle" class="w-5 h-5 text-amber-400" />
+              <AppIcon name="pause-circle" class="w-5 h-5 text-amber-400" />
             </div>
             <div class="space-y-1">
               <p class="font-semibold">Pause "{{ habit?.name }}"</p>
@@ -900,7 +900,7 @@ onMounted(load)
     <!-- ── Archive confirm ─────────────────────────────────────────────────────── -->
     <ConfirmDialog
       :open="showArchiveConfirm"
-      icon="i-heroicons-archive-box"
+      icon="archive-box"
       icon-color="amber"
       :title="`Archive &quot;${habit?.name}&quot;?`"
       message="The habit and all its history will be preserved in your archive."

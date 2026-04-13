@@ -107,8 +107,8 @@ async function save() {
           class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1.5 transition-colors"
           @click="annotExpanded = !annotExpanded"
         >
-          <UIcon
-            :name="annotExpanded ? 'i-heroicons-chevron-down' : 'i-heroicons-tag'"
+          <AppIcon
+            :name="annotExpanded ? 'chevron-down' : 'tag'"
             class="w-3.5 h-3.5"
           />
           <span v-if="annotationCount > 0">{{ annotationCount }} annotation{{ annotationCount !== 1 ? 's' : '' }}</span>
@@ -118,7 +118,7 @@ async function save() {
           <div v-for="(val, key) in textForm.annotations" :key="key" class="flex items-center gap-2">
             <span class="text-[11px] text-(--ui-text-dimmed) font-mono shrink-0">{{ key }}</span>
             <span class="text-[11px] text-(--ui-text-muted) flex-1 min-w-0 truncate">{{ val }}</span>
-            <UButton icon="i-heroicons-x-mark" color="neutral" variant="ghost" size="sm" class="text-slate-600 hover:text-red-400 shrink-0" @click="removeAnnot(String(key))" />
+            <UButton :icon="resolveIcon('x-mark')" color="neutral" variant="ghost" size="sm" class="text-slate-600 hover:text-red-400 shrink-0" @click="removeAnnot(String(key))" />
           </div>
           <div class="flex items-center gap-1.5">
             <UInput v-model="newAnnotKey" placeholder="key" size="xs" variant="outline" class="flex-1" @keydown.enter="commitAnnot" />

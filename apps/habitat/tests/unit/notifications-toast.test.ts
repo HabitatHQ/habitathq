@@ -19,6 +19,7 @@ vi.mock('@capacitor/core', () => ({
   },
 }))
 
+import { resolveIcon } from '~/utils/icons'
 import { useNotifications } from '~/composables/useNotifications'
 
 // ── Shared stubs ─────────────────────────────────────────────────────────────
@@ -38,6 +39,7 @@ beforeAll(() => {
   g['useToast'] = () => ({ add: mockToastAdd })
   g['useDatabase'] = () => dbStub
   g['useRouter'] = () => ({ push: vi.fn() })
+  g['resolveIcon'] = resolveIcon
 })
 
 beforeEach(() => {
