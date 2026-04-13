@@ -52,6 +52,11 @@ ehthumbs_vista.db
 .vs/
 .aider*
 
+# Claude Code — track shared project hooks, ignore local settings
+!.claude/
+.claude/*
+!.claude/settings.json
+
 ### Others ###
 
 # local only files
