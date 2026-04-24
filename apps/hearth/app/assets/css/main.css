@@ -1,0 +1,123 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+@import "./themes.css";
+
+/* ── Dark mode base overrides ─────────────────────────────────────────────
+   Deeper background so cards have contrast. Warm-shifted slate-950.
+   ───────────────────────────────────────────────────────────────────────── */
+.dark {
+  --ui-bg: #0c1219;
+  --ui-bg-muted: #111922;
+  --ui-bg-elevated: #172030;
+  --ui-bg-accented: #1d2a3e;
+  --ui-text: var(--ui-color-neutral-100);
+}
+
+/* ── Hearth logo flame ────────────────────────────────────────────────────
+   Animated flame icon in amber. Animation via .flame-anim class.
+   ───────────────────────────────────────────────────────────────────────── */
+.hearth-logo {
+  color: #f59e0b;
+  cursor: pointer;
+}
+
+@keyframes flame-flicker {
+  0%,
+  100% {
+    transform: scaleY(1) scaleX(1);
+  }
+  25% {
+    transform: scaleY(1.06) scaleX(0.97);
+  }
+  50% {
+    transform: scaleY(0.97) scaleX(1.03);
+  }
+  75% {
+    transform: scaleY(1.04) scaleX(0.98);
+  }
+}
+
+.hearth-logo.flame-anim {
+  animation: flame-flicker 1.2s ease-in-out;
+  transform-origin: center bottom;
+}
+
+/* ── Envelope bar animations ──────────────────────────────────────────────
+   Width animates from 0 on mount. Use with inline style for target width.
+   ───────────────────────────────────────────────────────────────────────── */
+@keyframes bar-fill {
+  from {
+    width: 0%;
+  }
+}
+
+.envelope-bar {
+  animation: bar-fill 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── Safe area utilities ──────────────────────────────────────────────────── */
+@layer utilities {
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  .safe-area-x {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* ── Page slide transition (for add transaction, sub-pages) ──────────────── */
+.slide-up-enter-active {
+  transition:
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.28s ease;
+}
+.slide-up-leave-active {
+  transition:
+    transform 0.22s cubic-bezier(0.55, 0, 1, 0.45),
+    opacity 0.22s ease;
+}
+.slide-up-enter-from {
+  transform: translateY(40%);
+  opacity: 0;
+}
+.slide-up-leave-to {
+  transform: translateY(40%);
+  opacity: 0;
+}
+
+/* ── Theme crossfade ────────────────────────────────────────────────────── */
+html.theme-transitioning,
+html.theme-transitioning * {
+  transition:
+    background-color 200ms ease,
+    color 200ms ease;
+}
+
+/* ── Reduce motion ──────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .envelope-bar {
+    animation: none;
+  }
+  .hearth-logo.flame-anim {
+    animation: none;
+  }
+  .slide-up-enter-active,
+  .slide-up-leave-active {
+    transition: none;
+  }
+  html.theme-transitioning,
+  html.theme-transitioning * {
+    transition: none;
+  }
+}
+
+/* ── Financial number typography ────────────────────────────────────────── */
+/* Large dollar amount — whole part bigger than decimal */
+.amount-display {
+  font-feature-settings: "tnum" 1; /* tabular numbers */
+  font-variant-numeric: tabular-nums;
+}
