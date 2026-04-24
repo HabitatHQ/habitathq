@@ -12,6 +12,9 @@ import type {
   IouBalance,
   IouSplit,
   MerchantMapping,
+  MonthlyTotal,
+  RecurringPatternRow,
+  RecurringStatus,
   SavingsGoal,
   Transaction,
   TransactionType,
@@ -139,5 +142,49 @@ export function useDatabase() {
       type: TransactionType,
     ): Promise<{ account_id: string; cnt: number } | null> =>
       sendToWorker({ type: 'GET_RECENT_ACCOUNT_BY_TYPE', payload: { type } }),
+
+    // ── Reports ─────────────────────────────────────────────────────────
+    getMonthlyTotals: (months = 6): Promise<MonthlyTotal[]> =>
+      sendToWorker({ type: 'GET_MONTHLY_TOTALS', payload: { months } }),
+
+    // ── Recurring ───────────────────────────────────────────────────────
+    detectRecurring: (): Promise<RecurringPatternRow[]> =>
+      sendToWorker({ type: 'DETECT_RECURRING' }),
+    getRecurringPatterns: (
+      status?: RecurringStatus,
+      includeDismissed = false,
+    ): Promise<RecurringPatternRow[]> =>
+      sendToWorker({ type: 'GET_RECURRING_PATTERNS', payload: { status, includeDismissed } }),
+    updateRecurringPattern: (id: string, status: RecurringStatus): Promise<RecurringPatternRow> =>
+      sendToWorker({ type: 'UPDATE_RECURRING_PATTERN', payload: { id, status } }),
+    confirmAllRecurring: (minConfidence = 0.8): Promise<{ updated: number }> =>
+      sendToWorker({ type: 'CONFIRM_ALL_RECURRING', payload: { minConfidence } }),
+
+    // ── Receipts ─────────────────────────────────────────────────────────
+    saveReceiptImage: (
+      transaction_id: string,
+      image_data: string,
+      mime_type?: string,
+    ): Promise<{ id: string; file_size: number }> =>
+      sendToWorker({
+        type: 'SAVE_RECEIPT_IMAGE',
+        payload: { transaction_id, image_data, mime_type },
+      }),
+    getReceiptImage: (
+      transaction_id: string,
+    ): Promise<{
+      id: string
+      transaction_id: string
+      mime_type: string
+      file_size: number
+    } | null> => sendToWorker({ type: 'GET_RECEIPT_IMAGE', payload: { transaction_id } }),
+    deleteReceiptImage: (transaction_id: string): Promise<null> =>
+      sendToWorker({ type: 'DELETE_RECEIPT_IMAGE', payload: { transaction_id } }),
+
+    // ── Import ──────────────────────────────────────────────────────────
+    importTransactions: (
+      transactions: Array<Omit<Transaction, 'id' | 'created_at' | 'updated_at'>>,
+    ): Promise<{ imported: number }> =>
+      sendToWorker({ type: 'IMPORT_TRANSACTIONS', payload: { transactions } }),
   }
 }

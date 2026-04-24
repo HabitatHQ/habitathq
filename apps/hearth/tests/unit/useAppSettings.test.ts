@@ -203,3 +203,45 @@ describe('useAppSettings — shared state', () => {
     expect(b.settings.value.theme).toBe('forest')
   })
 })
+
+// ── voiceAutoSubmitTimeout ───────────────────────────────────────────────
+
+describe('useAppSettings — voiceAutoSubmitTimeout', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('defaults to 2 seconds', async () => {
+    const { useAppSettings } = await import('~/composables/useAppSettings')
+    const { settings, reset } = useAppSettings()
+    reset()
+    expect(settings.value.voiceAutoSubmitTimeout).toBe(2)
+  })
+
+  it('accepts 0 (off), 1, 2, 3 as valid values', async () => {
+    const { useAppSettings } = await import('~/composables/useAppSettings')
+    const { settings, set, reset } = useAppSettings()
+    reset()
+    for (const val of [0, 1, 2, 3] as const) {
+      set('voiceAutoSubmitTimeout', val)
+      expect(settings.value.voiceAutoSubmitTimeout).toBe(val)
+    }
+  })
+
+  it('persists to localStorage', async () => {
+    const { useAppSettings } = await import('~/composables/useAppSettings')
+    const { set, reset } = useAppSettings()
+    reset()
+    set('voiceAutoSubmitTimeout', 3)
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
+    expect(stored.voiceAutoSubmitTimeout).toBe(3)
+  })
+
+  it('resets to default 2', async () => {
+    const { useAppSettings } = await import('~/composables/useAppSettings')
+    const { settings, set, reset } = useAppSettings()
+    set('voiceAutoSubmitTimeout', 0)
+    reset()
+    expect(settings.value.voiceAutoSubmitTimeout).toBe(2)
+  })
+})

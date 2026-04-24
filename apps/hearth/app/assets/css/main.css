@@ -105,6 +105,13 @@ html.theme-transitioning * {
   .hearth-logo.flame-anim {
     animation: none;
   }
+  .voice-pulse {
+    animation: none;
+  }
+  .listening-dots::after {
+    animation: none;
+    content: "...";
+  }
   .slide-up-enter-active,
   .slide-up-leave-active {
     transition: none;
@@ -113,6 +120,46 @@ html.theme-transitioning * {
   html.theme-transitioning * {
     transition: none;
   }
+}
+
+/* ── Voice input pulse ──────────────────────────────────────────────────── */
+@keyframes voice-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.4);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(244, 63, 94, 0);
+    transform: scale(1.05);
+  }
+}
+
+.voice-pulse {
+  animation: voice-pulse 1.5s ease-in-out infinite;
+}
+
+/* ── Voice listening dots ──────────────────────────────────────────────── */
+@keyframes listening-dots {
+  0%,
+  20% {
+    content: "";
+  }
+  40% {
+    content: ".";
+  }
+  60% {
+    content: "..";
+  }
+  80%,
+  100% {
+    content: "...";
+  }
+}
+
+.listening-dots::after {
+  animation: listening-dots 1.5s steps(1) infinite;
+  content: "";
 }
 
 /* ── Financial number typography ────────────────────────────────────────── */

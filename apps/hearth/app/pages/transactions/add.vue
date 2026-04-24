@@ -121,6 +121,7 @@ async function submit() {
       is_recurring: 0,
       transfer_to_account_id: form.type === 'transfer' ? form.toAccountId : null,
       split_id: null,
+      source: 'manual',
     })
 
     // Create IOU split if requested

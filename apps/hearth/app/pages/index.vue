@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { DashboardSummary } from '~/types/database'
+import type { DashboardSummary, RecurringPatternRow } from '~/types/database'
 import { currentPeriod, formatDateRelative, offsetPeriod, splitCurrencyParts } from '~/utils/format'
 
 const db = useDatabase()
@@ -22,7 +22,18 @@ async function load() {
 }
 
 watch(period, load)
-onMounted(load)
+onMounted(async () => {
+  await load()
+  // Load recurring after dashboard — non-blocking, best-effort
+  try {
+    const patterns = await db.getRecurringPatterns('confirmed')
+    upcomingRecurring.value = patterns
+      .filter((p) => p.next_expected >= new Date().toISOString().slice(0, 10))
+      .slice(0, 3)
+  } catch {
+    // Recurring table might not exist yet on first load
+  }
+})
 
 function prevPeriod() {
   period.value = offsetPeriod(period.value, -1)
@@ -55,6 +66,9 @@ const groupedTransactions = computed(() => {
 })
 
 const router = useRouter()
+
+// ── Recurring widget ──────────────────────────────────────────────────────
+const upcomingRecurring = ref<RecurringPatternRow[]>([])
 </script>
 
 <template>
@@ -173,6 +187,32 @@ const router = useRouter()
             <span class="font-medium text-(--ui-text)">{{ bal.net_amount > 0 ? bal.from_user_name : bal.to_user_name }}</span>
           </span>
           <span class="ml-auto font-mono font-medium text-amber-400">{{ formatAmount(Math.abs(bal.net_amount)) }}</span>
+        </div>
+      </div>
+    </NuxtLink>
+
+    <!-- ── Upcoming recurring widget ──────────────────────────────────────── -->
+    <NuxtLink
+      v-if="upcomingRecurring.length"
+      to="/recurring"
+      class="block rounded-xl bg-(--ui-bg-muted) border border-(--ui-border) p-4 hover:bg-(--ui-bg-elevated) transition-colors"
+      aria-label="Upcoming recurring transactions — view all"
+    >
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-xs uppercase tracking-widest text-(--ui-text-muted) font-medium">
+          Upcoming ({{ upcomingRecurring.length }})
+        </span>
+        <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-(--ui-text-muted)" />
+      </div>
+      <div class="space-y-1.5">
+        <div
+          v-for="p in upcomingRecurring"
+          :key="p.id"
+          class="flex items-center gap-2 text-sm"
+        >
+          <span class="text-(--ui-text) truncate flex-1">{{ p.merchant }}</span>
+          <span class="text-xs text-(--ui-text-muted) shrink-0">{{ formatDateRelative(p.next_expected) }}</span>
+          <span class="font-mono font-medium text-(--ui-text) shrink-0 ml-1">{{ formatAmount(p.average_amount) }}</span>
         </div>
       </div>
     </NuxtLink>

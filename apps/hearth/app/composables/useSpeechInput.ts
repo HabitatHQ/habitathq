@@ -5,6 +5,7 @@ interface SpeechInputReturn {
   isSupported: Ref<boolean>
   isListening: Ref<boolean>
   transcript: Ref<string>
+  confidence: Ref<number>
   error: Ref<string | null>
   start: () => Promise<void>
   stop: () => void
@@ -24,6 +25,7 @@ export function useSpeechInput(): SpeechInputReturn {
   const isSupported = ref(false)
   const isListening = ref(false)
   const transcript = ref('')
+  const confidence = ref(1)
   const error = ref<string | null>(null)
 
   if (import.meta.client) {
@@ -37,6 +39,7 @@ export function useSpeechInput(): SpeechInputReturn {
   async function start() {
     error.value = null
     transcript.value = ''
+    confidence.value = 1
 
     if (Capacitor.isNativePlatform()) {
       await startNative()
@@ -66,8 +69,12 @@ export function useSpeechInput(): SpeechInputReturn {
       let interimTranscript = ''
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const result = e.results[i]
-        if (result.isFinal) finalTranscript += result[0].transcript
-        else interimTranscript += result[0].transcript
+        if (result.isFinal) {
+          finalTranscript += result[0].transcript
+          confidence.value = result[0].confidence ?? 1
+        } else {
+          interimTranscript += result[0].transcript
+        }
       }
       transcript.value = finalTranscript || interimTranscript
     }
@@ -136,5 +143,5 @@ export function useSpeechInput(): SpeechInputReturn {
     stop()
   })
 
-  return { isSupported, isListening, transcript, error, start, stop }
+  return { isSupported, isListening, transcript, confidence, error, start, stop }
 }

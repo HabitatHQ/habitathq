@@ -16,9 +16,11 @@ const accounts = ref<Account[]>([])
 
 const NLP_TIERS: { id: NlpTier; label: string; desc: string }[] = [
   { id: 'regex', label: 'Lite', desc: 'Instant, pattern matching' },
-  { id: 'embeddings', label: 'Standard', desc: '~30 MB model download' },
-  { id: 'llm', label: 'Enhanced', desc: '~500 MB model download' },
+  { id: 'embeddings', label: 'Standard', desc: '~15 MB model download' },
+  { id: 'llm', label: 'Enhanced', desc: 'Coming soon' },
 ]
+
+const nlp = useNlpParser()
 
 onMounted(async () => {
   try {
@@ -192,6 +194,33 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
               <span class="text-[10px] opacity-60">{{ t.desc }}</span>
             </button>
           </div>
+          <!-- Model download progress -->
+          <div v-if="nlp.status.value === 'loading'" class="mt-3 space-y-1">
+            <div class="h-1.5 rounded-full bg-(--ui-bg-elevated) overflow-hidden">
+              <div class="h-full rounded-full bg-primary-500 transition-all" :style="{ width: `${nlp.modelProgress.value}%` }" />
+            </div>
+            <p class="text-[10px] text-(--ui-text-muted)">Downloading model... {{ nlp.modelProgress.value }}%</p>
+          </div>
+        </div>
+
+        <!-- Voice auto-submit timeout -->
+        <div class="p-4">
+          <p class="text-sm font-medium text-(--ui-text) mb-2">Voice auto-submit</p>
+          <p class="text-xs text-(--ui-text-muted) mb-3">Auto-send voice input after a pause</p>
+          <div class="flex gap-2" role="group" aria-label="Voice auto-submit timeout">
+            <button
+              v-for="opt in [{ v: 0, label: 'Off' }, { v: 1, label: '1s' }, { v: 2, label: '2s' }, { v: 3, label: '3s' }]"
+              :key="opt.v"
+              class="flex-1 py-2 rounded-xl text-xs font-medium transition-all min-h-[44px]"
+              :class="settings.voiceAutoSubmitTimeout === opt.v
+                ? 'bg-primary-500/15 text-primary-400 border border-primary-500/30'
+                : 'text-(--ui-text-muted) bg-(--ui-bg-elevated) border border-transparent hover:text-(--ui-text)'"
+              :aria-pressed="settings.voiceAutoSubmitTimeout === opt.v"
+              @click="set('voiceAutoSubmitTimeout', opt.v as 0 | 1 | 2 | 3)"
+            >
+              {{ opt.label }}
+            </button>
+          </div>
         </div>
 
         <!-- Default expense account -->
@@ -281,6 +310,20 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
           </div>
           <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-(--ui-text-muted)" aria-hidden="true" />
         </button>
+
+        <!-- Import CSV -->
+        <NuxtLink
+          to="/import"
+          class="flex items-center gap-3 w-full p-4 text-left hover:bg-(--ui-bg-elevated) transition-colors min-h-[60px]"
+          aria-label="Import transactions from CSV"
+        >
+          <UIcon name="i-heroicons-table-cells" class="w-5 h-5 text-primary-400 shrink-0" aria-hidden="true" />
+          <div class="flex-1">
+            <p class="text-sm font-medium text-(--ui-text)">Import from CSV</p>
+            <p class="text-xs text-(--ui-text-muted)">Import transactions from YNAB, Mint, or any CSV</p>
+          </div>
+          <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-(--ui-text-muted)" aria-hidden="true" />
+        </NuxtLink>
 
         <!-- Reset -->
         <button

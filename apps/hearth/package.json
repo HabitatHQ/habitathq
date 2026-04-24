@@ -34,12 +34,17 @@
   "dependencies": {
     "@capacitor-community/speech-recognition": "^7.0.1",
     "@capacitor-community/sqlite": "^8.0.0",
+    "@capacitor/camera": "^8.1.0",
     "@capacitor/local-notifications": "^8.0.1",
+    "@huggingface/transformers": "^4.2.0",
     "@nuxt/ui": "^4.4.0",
     "@sqlite.org/sqlite-wasm": "3.51.2-build6",
+    "echarts": "^6.0.0",
     "fflate": "^0.8.2",
     "nuxt": "^4.3.1",
+    "tesseract.js": "^7.0.0",
     "vue": "latest",
+    "vue-echarts": "^8.0.1",
     "vue-router": "latest"
   },
   "pnpm": {

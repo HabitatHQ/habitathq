@@ -15,6 +15,7 @@ export interface AppSettings {
   nlpTier: NlpTier
   defaultExpenseAccount: string | null
   defaultIncomeAccount: string | null
+  voiceAutoSubmitTimeout: 0 | 1 | 2 | 3
 }
 
 const DEFAULTS: AppSettings = {
@@ -28,6 +29,7 @@ const DEFAULTS: AppSettings = {
   nlpTier: 'regex',
   defaultExpenseAccount: null,
   defaultIncomeAccount: null,
+  voiceAutoSubmitTimeout: 2,
 }
 
 const STORAGE_KEY = 'hearth-settings'

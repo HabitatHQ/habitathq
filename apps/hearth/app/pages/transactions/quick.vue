@@ -10,6 +10,8 @@ const toast = useToast()
 const { settings } = useAppSettings()
 const nlp = useNlpParser()
 const speech = useSpeechInput()
+const camera = useCamera()
+const ocr = useOcr()
 
 // ── Reference data ───────────────────────────────────────────────────────
 const accounts = ref<Account[]>([])
@@ -35,12 +37,28 @@ const flatCategories = computed(() => {
 const inputText = ref('')
 const isProcessing = ref(false)
 
+// ── Voice confirmation state ─────────────────────────────────────────────
+type VoiceMode = 'idle' | 'listening' | 'confirming'
+const voiceMode = ref<VoiceMode>('idle')
+const autoSubmitTimer = ref<ReturnType<typeof setTimeout> | null>(null)
+const voiceTipDismissed = ref(false)
+
+// Persist tip dismissal in localStorage
+if (import.meta.client) {
+  voiceTipDismissed.value = localStorage.getItem('hearth-voice-tip-dismissed') === '1'
+}
+function dismissVoiceTip() {
+  voiceTipDismissed.value = true
+  if (import.meta.client) localStorage.setItem('hearth-voice-tip-dismissed', '1')
+}
+
 // ── Card stack ───────────────────────────────────────────────────────────
 interface QuickAddCard extends ParsedTransaction {
   saved: boolean
   undoTimer: ReturnType<typeof setTimeout> | null
   fading: boolean
   savedTxId: string | null
+  source: 'manual' | 'voice' | 'ocr'
 }
 
 const cards = ref<QuickAddCard[]>([])
@@ -82,12 +100,20 @@ function buildContext(): ParserContext {
   }
 }
 
+// Track whether current input originated from voice
+let inputFromVoice = false
+
 // ── Submit ────────────────────────────────────────────────────────────────
 async function handleSubmit() {
   const text = inputText.value.trim()
   if (!text || isProcessing.value) return
   isProcessing.value = true
   inputText.value = ''
+  cancelAutoSubmit()
+  voiceMode.value = 'idle'
+
+  const wasVoice = inputFromVoice
+  inputFromVoice = false
 
   try {
     const result = await nlp.parse(text, buildContext())
@@ -98,6 +124,7 @@ async function handleSubmit() {
         undoTimer: null,
         fading: false,
         savedTxId: null,
+        source: wasVoice ? 'voice' : 'manual',
       }
       cards.value.unshift(card)
       autoSave(card)
@@ -126,6 +153,7 @@ async function autoSave(card: QuickAddCard) {
       is_recurring: 0,
       transfer_to_account_id: card.transferToAccountId,
       split_id: null,
+      source: card.source,
     } as Omit<Transaction, 'id' | 'created_at' | 'updated_at'>)
 
     card.savedTxId = tx.id
@@ -226,7 +254,30 @@ async function toggleVoice() {
     speech.stop()
     return
   }
+  cancelAutoSubmit()
+  voiceMode.value = 'listening'
+  inputFromVoice = true
   await speech.start()
+}
+
+function cancelAutoSubmit() {
+  if (autoSubmitTimer.value) {
+    clearTimeout(autoSubmitTimer.value)
+    autoSubmitTimer.value = null
+  }
+}
+
+function reRecord() {
+  cancelAutoSubmit()
+  inputText.value = ''
+  voiceMode.value = 'listening'
+  inputFromVoice = true
+  speech.start()
+}
+
+function confirmSend() {
+  cancelAutoSubmit()
+  handleSubmit()
 }
 
 // Auto-fill input from speech transcript
@@ -237,15 +288,88 @@ watch(
   },
 )
 
-// Auto-submit when speech ends with a transcript
+// Transition from listening → confirming when speech ends with a transcript
 watch(
   () => speech.isListening.value,
   (listening, wasListening) => {
     if (wasListening && !listening && inputText.value.trim()) {
-      handleSubmit()
+      voiceMode.value = 'confirming'
+
+      // Don't auto-submit if confidence is low or auto-submit is disabled
+      const timeout = settings.value.voiceAutoSubmitTimeout
+      if (timeout > 0 && speech.confidence.value >= 0.7) {
+        autoSubmitTimer.value = setTimeout(() => {
+          handleSubmit()
+        }, timeout * 1000)
+      }
+    } else if (wasListening && !listening && !inputText.value.trim()) {
+      // Speech ended with no transcript
+      voiceMode.value = 'idle'
     }
   },
 )
+
+// Low confidence indicator
+const isLowConfidence = computed(() => speech.confidence.value < 0.7)
+
+// ── Receipt scanning ─────────────────────────────────────────────────────
+const scanningReceipt = ref(false)
+
+async function scanReceipt() {
+  const photo = await camera.capturePhoto()
+  if (!photo) return
+
+  scanningReceipt.value = true
+  try {
+    const parsed = await ocr.recognize(photo)
+    if (!parsed || (!parsed.total && !parsed.merchant)) {
+      toast.add({ title: "Couldn't read this receipt", color: 'warning' as const })
+      return
+    }
+
+    // Build a card from OCR result
+    const ctx = buildContext()
+    const amount = parsed.total
+    const merchant = parsed.merchant ?? ''
+    const date = parsed.date ?? new Date().toISOString().slice(0, 10)
+
+    // Try to resolve category from merchant
+    let categoryId: string | null = null
+    if (merchant) {
+      const normalized = merchant.toLowerCase().trim()
+      const mapping = merchantMappings.value.get(normalized)
+      if (mapping) categoryId = mapping.category_id
+    }
+
+    const card: QuickAddCard = {
+      clientId: crypto.randomUUID(),
+      rawText: `Receipt: ${merchant}`,
+      type: 'expense',
+      typeConfidence: 'high',
+      amount,
+      amountConfidence: amount != null ? 'high' : 'low',
+      merchant,
+      merchantConfidence: merchant ? 'medium' : 'low',
+      categoryId,
+      categoryConfidence: categoryId ? 'medium' : 'low',
+      accountId: ctx.defaultAccountByType.expense,
+      accountConfidence: 'medium',
+      transferToAccountId: null,
+      date,
+      dateConfidence: parsed.date ? 'medium' : 'low',
+      description: '',
+      saved: false,
+      undoTimer: null,
+      fading: false,
+      savedTxId: null,
+      source: 'ocr',
+    }
+    cards.value.unshift(card)
+    if (amount != null) autoSave(card)
+  } finally {
+    scanningReceipt.value = false
+  }
+}
 
 // Category name lookup
 function categoryLabel(id: string | null): string {
@@ -277,11 +401,24 @@ function categoryLabel(id: string | null): string {
 
     <!-- ── Input bar ───────────────────────────────────────────────────────── -->
     <div class="flex items-center gap-2 px-4 py-3 border-b border-(--ui-border)">
+      <button
+        class="flex items-center justify-center w-10 h-10 rounded-xl text-(--ui-text-muted) hover:text-(--ui-text) hover:bg-(--ui-bg-muted) transition-colors"
+        :disabled="scanningReceipt"
+        aria-label="Scan receipt"
+        @click="scanReceipt"
+      >
+        <UIcon
+          name="i-heroicons-camera"
+          class="w-5 h-5"
+          :class="scanningReceipt ? 'animate-pulse' : ''"
+        />
+      </button>
       <input
         v-model="inputText"
         type="text"
         placeholder="$6 coffee at Blue Bottle yesterday..."
         class="flex-1 bg-transparent text-sm text-(--ui-text) placeholder:text-(--ui-text-dimmed) outline-none min-h-[44px]"
+        :class="voiceMode === 'confirming' && isLowConfidence ? 'bg-amber-500/10 rounded-lg px-2' : ''"
         @keydown.enter="handleSubmit"
       />
       <button
@@ -289,10 +426,10 @@ function categoryLabel(id: string | null): string {
         class="flex items-center justify-center w-10 h-10 rounded-xl transition-colors"
         :class="
           speech.isListening.value
-            ? 'text-rose-400 bg-rose-500/10 animate-pulse'
+            ? 'text-rose-400 bg-rose-500/10 voice-pulse'
             : 'text-(--ui-text-muted) hover:text-(--ui-text) hover:bg-(--ui-bg-muted)'
         "
-        aria-label="Voice input"
+        :aria-label="speech.isListening.value ? 'Stop voice input' : 'Start voice input'"
         @click="toggleVoice"
       >
         <UIcon name="i-heroicons-microphone" class="w-5 h-5" />
@@ -307,9 +444,62 @@ function categoryLabel(id: string | null): string {
       </button>
     </div>
 
+    <!-- ── Listening / Confirming feedback ─────────────────────────────────── -->
+    <div
+      v-if="voiceMode === 'listening' || voiceMode === 'confirming'"
+      aria-live="polite"
+      class="px-4 pt-2 space-y-2"
+    >
+      <!-- Listening state -->
+      <p
+        v-if="voiceMode === 'listening'"
+        class="text-xs text-rose-400 font-medium listening-dots"
+      >
+        Listening
+      </p>
+
+      <!-- Confirming state -->
+      <template v-if="voiceMode === 'confirming'">
+        <p class="text-xs text-(--ui-text-muted)">
+          I heard:
+        </p>
+        <div class="flex items-center gap-2">
+          <button
+            class="flex items-center gap-1 px-3 min-h-[36px] rounded-lg text-xs font-medium text-(--ui-text-muted) hover:text-(--ui-text) bg-(--ui-bg-muted) hover:bg-(--ui-bg-elevated) transition-colors"
+            :class="isLowConfidence ? 'ring-1 ring-amber-500/50' : ''"
+            @click="reRecord"
+          >
+            <UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5" />
+            Re-record
+          </button>
+          <button
+            class="flex items-center gap-1 px-3 min-h-[36px] rounded-lg text-xs font-medium text-white bg-primary-500 hover:bg-primary-600 transition-colors"
+            @click="confirmSend"
+          >
+            <UIcon name="i-heroicons-paper-airplane" class="w-3.5 h-3.5" />
+            Send
+          </button>
+          <span
+            v-if="isLowConfidence"
+            class="text-[10px] text-amber-400 ml-auto"
+          >
+            Low confidence — review before sending
+          </span>
+        </div>
+      </template>
+    </div>
+
     <!-- ── Speech error ────────────────────────────────────────────────────── -->
     <div v-if="speech.error.value" class="px-4 pt-2">
       <UAlert :description="speech.error.value" color="error" variant="soft" icon="i-heroicons-exclamation-triangle" />
+    </div>
+
+    <!-- ── OCR scanning progress ─────────────────────────────────────────── -->
+    <div v-if="scanningReceipt" class="px-4 pt-2 space-y-2">
+      <div class="h-2 rounded-full bg-(--ui-bg-elevated) overflow-hidden">
+        <div class="h-full rounded-full bg-primary-500 transition-all" :style="{ width: `${ocr.progress.value}%` }" />
+      </div>
+      <p class="text-xs text-(--ui-text-muted) text-center">Scanning receipt... {{ ocr.progress.value }}%</p>
     </div>
 
     <!-- ── Card stack ──────────────────────────────────────────────────────── -->
@@ -491,6 +681,29 @@ function categoryLabel(id: string | null): string {
           Type or say something like<br />
           "$6 coffee at Blue Bottle yesterday"
         </p>
+
+        <!-- First-use voice tip -->
+        <div
+          v-if="speech.isSupported.value && !voiceTipDismissed"
+          class="mt-6 max-w-xs mx-auto rounded-xl bg-(--ui-bg-muted) border border-(--ui-border) p-3 text-left"
+        >
+          <div class="flex items-start gap-2">
+            <UIcon name="i-heroicons-microphone" class="w-5 h-5 text-primary-400 shrink-0 mt-0.5" />
+            <div class="flex-1">
+              <p class="text-xs font-medium text-(--ui-text)">Tip: Voice input</p>
+              <p class="text-xs text-(--ui-text-dimmed) mt-0.5">
+                Tap the mic button to add expenses by voice. Just say "six dollars coffee at Starbucks" and it'll be parsed automatically.
+              </p>
+            </div>
+            <button
+              class="shrink-0 text-(--ui-text-dimmed) hover:text-(--ui-text) p-1"
+              aria-label="Dismiss tip"
+              @click="dismissVoiceTip"
+            >
+              <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

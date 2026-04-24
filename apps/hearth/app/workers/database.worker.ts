@@ -1,4 +1,6 @@
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm'
+import { detectRecurringPatterns } from '~/lib/recurring/detect'
+import type { DetectableTransaction, RecurringPattern } from '~/lib/recurring/types'
 import type { WorkerRequest, WorkerResponse } from '~/types/database'
 
 await (async () => {
@@ -191,6 +193,44 @@ await (async () => {
           ON merchant_mappings(merchant);
       `)
       db.exec('PRAGMA user_version = 3')
+    }
+    if (version < 4) {
+      db.exec("ALTER TABLE transactions ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'")
+      db.exec('PRAGMA user_version = 4')
+    }
+    if (version < 5) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS recurring_patterns (
+          id              TEXT PRIMARY KEY,
+          merchant        TEXT NOT NULL,
+          type            TEXT NOT NULL CHECK(type IN ('expense', 'income', 'transfer')),
+          interval        TEXT NOT NULL CHECK("interval" IN ('weekly', 'biweekly', 'monthly', 'quarterly', 'annual')),
+          average_amount  REAL NOT NULL,
+          last_occurrence TEXT NOT NULL,
+          next_expected   TEXT NOT NULL,
+          confidence      REAL NOT NULL,
+          status          TEXT NOT NULL DEFAULT 'detected' CHECK(status IN ('detected', 'confirmed', 'dismissed')),
+          category_id     TEXT REFERENCES categories(id) ON DELETE SET NULL,
+          account_id      TEXT REFERENCES accounts(id) ON DELETE SET NULL,
+          transaction_ids TEXT NOT NULL DEFAULT '[]',
+          created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+      `)
+      db.exec('PRAGMA user_version = 5')
+    }
+    if (version < 6) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS receipt_images (
+          id             TEXT PRIMARY KEY,
+          transaction_id TEXT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+          image_data     BLOB NOT NULL,
+          mime_type      TEXT NOT NULL DEFAULT 'image/jpeg',
+          file_size      INTEGER NOT NULL,
+          created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+      `)
+      db.exec('PRAGMA user_version = 6')
     }
 
     // ─── Seed data ────────────────────────────────────────────────────────
@@ -523,12 +563,16 @@ await (async () => {
           is_private,
         ] = t
         db.exec(
-          `INSERT OR IGNORE INTO transactions VALUES (
+          `INSERT OR IGNORE INTO transactions
+            (id, date, amount, currency, account_id, user_id, type, category_id,
+             description, merchant, is_private, is_recurring, transfer_to_account_id,
+             split_id, created_at, updated_at, source)
+           VALUES (
             '${id}','${date}',${amount},'USD','${account_id}',
             '${user_id}','${type}','${category_id}',
             '${String(description).replace(/'/g, "''")}',
             '${String(merchant).replace(/'/g, "''")}',
-            ${is_private},0,NULL,NULL,'${now}','${now}'
+            ${is_private},0,NULL,NULL,'${now}','${now}','manual'
           )`,
         )
       }
@@ -781,7 +825,11 @@ await (async () => {
           const id = uuid()
           const ts = now()
           db.exec(
-            `INSERT INTO transactions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            `INSERT INTO transactions
+              (id, date, amount, currency, account_id, user_id, type, category_id,
+               description, merchant, is_private, is_recurring, transfer_to_account_id,
+               split_id, created_at, updated_at, source)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
             B([
               id,
               p.date,
@@ -799,6 +847,7 @@ await (async () => {
               p.split_id ?? null,
               ts,
               ts,
+              p.source ?? 'manual',
             ]),
           )
           return db.selectObject('SELECT * FROM transactions WHERE id = ?', B([id]))
@@ -1415,6 +1464,217 @@ await (async () => {
                GROUP BY account_id ORDER BY cnt DESC LIMIT 1`,
               B([type]),
             ) ?? null
+          )
+        }
+
+        case 'DETECT_RECURRING': {
+          // Fetch all transactions for detection
+          const allTxns = db.selectObjects(
+            'SELECT id, date, amount, type, merchant, category_id, account_id FROM transactions ORDER BY date',
+          ) as unknown as DetectableTransaction[]
+
+          // Fetch existing patterns
+          const existingRows = db.selectObjects('SELECT * FROM recurring_patterns') as Array<{
+            id: string
+            merchant: string
+            type: string
+            interval: string
+            average_amount: number
+            last_occurrence: string
+            next_expected: string
+            confidence: number
+            status: string
+            category_id: string | null
+            account_id: string | null
+            transaction_ids: string
+          }>
+
+          const existing: RecurringPattern[] = existingRows.map((r) => ({
+            id: r.id,
+            merchant: r.merchant,
+            type: r.type as RecurringPattern['type'],
+            interval: r.interval as RecurringPattern['interval'],
+            averageAmount: r.average_amount,
+            lastOccurrence: r.last_occurrence,
+            nextExpected: r.next_expected,
+            confidence: r.confidence,
+            status: r.status as RecurringPattern['status'],
+            categoryId: r.category_id,
+            accountId: r.account_id,
+            transactionIds: JSON.parse(r.transaction_ids),
+          }))
+
+          const detected = detectRecurringPatterns(allTxns, existing)
+          const ts = now()
+
+          // Insert newly detected patterns
+          for (const p of detected) {
+            db.exec(
+              `INSERT INTO recurring_patterns (id, merchant, type, "interval", average_amount,
+                last_occurrence, next_expected, confidence, status, category_id, account_id,
+                transaction_ids, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+              B([
+                p.id,
+                p.merchant,
+                p.type,
+                p.interval,
+                p.averageAmount,
+                p.lastOccurrence,
+                p.nextExpected,
+                p.confidence,
+                p.status,
+                p.categoryId,
+                p.accountId,
+                JSON.stringify(p.transactionIds),
+                ts,
+                ts,
+              ]),
+            )
+          }
+
+          return detected
+        }
+
+        case 'GET_RECURRING_PATTERNS': {
+          const { status, includeDismissed } = req.payload
+          let sql = 'SELECT * FROM recurring_patterns'
+          const params: unknown[] = []
+          if (status) {
+            sql += ' WHERE status = ?'
+            params.push(status)
+          } else if (!includeDismissed) {
+            sql += " WHERE status != 'dismissed'"
+          }
+          sql += ' ORDER BY next_expected ASC'
+          return db.selectObjects(sql, params.length ? B(params) : undefined)
+        }
+
+        case 'UPDATE_RECURRING_PATTERN': {
+          const { id, status } = req.payload
+          db.exec(
+            `UPDATE recurring_patterns SET status = ?, updated_at = ? WHERE id = ?`,
+            B([status, now(), id]),
+          )
+          // If confirming, mark matched transactions as recurring
+          if (status === 'confirmed') {
+            const row = db.selectObject(
+              'SELECT transaction_ids FROM recurring_patterns WHERE id = ?',
+              B([id]),
+            ) as { transaction_ids: string } | undefined
+            if (row) {
+              const txIds = JSON.parse(row.transaction_ids) as string[]
+              for (const txId of txIds) {
+                db.exec('UPDATE transactions SET is_recurring = 1 WHERE id = ?', B([txId]))
+              }
+            }
+          }
+          return db.selectObject('SELECT * FROM recurring_patterns WHERE id = ?', B([id]))
+        }
+
+        case 'CONFIRM_ALL_RECURRING': {
+          const { minConfidence } = req.payload
+          const rows = db.selectObjects(
+            "SELECT id, transaction_ids FROM recurring_patterns WHERE status = 'detected' AND confidence >= ?",
+            B([minConfidence]),
+          ) as Array<{ id: string; transaction_ids: string }>
+          const ts = now()
+          for (const row of rows) {
+            db.exec(
+              `UPDATE recurring_patterns SET status = 'confirmed', updated_at = ? WHERE id = ?`,
+              B([ts, row.id]),
+            )
+            const txIds = JSON.parse(row.transaction_ids) as string[]
+            for (const txId of txIds) {
+              db.exec('UPDATE transactions SET is_recurring = 1 WHERE id = ?', B([txId]))
+            }
+          }
+          return { updated: rows.length }
+        }
+
+        case 'SAVE_RECEIPT_IMAGE': {
+          const { transaction_id, image_data, mime_type } = req.payload
+          const id = uuid()
+          const blob = Uint8Array.from(atob(image_data), (c) => c.charCodeAt(0))
+          db.exec(
+            'INSERT INTO receipt_images (id, transaction_id, image_data, mime_type, file_size, created_at) VALUES (?,?,?,?,?,?)',
+            B([id, transaction_id, blob, mime_type ?? 'image/jpeg', blob.length, now()]),
+          )
+          return { id, file_size: blob.length }
+        }
+
+        case 'GET_RECEIPT_IMAGE': {
+          const { transaction_id } = req.payload
+          const row = db.selectObject(
+            'SELECT id, transaction_id, mime_type, file_size, created_at FROM receipt_images WHERE transaction_id = ?',
+            B([transaction_id]),
+          )
+          return row ?? null
+        }
+
+        case 'DELETE_RECEIPT_IMAGE': {
+          const { transaction_id } = req.payload
+          db.exec('DELETE FROM receipt_images WHERE transaction_id = ?', B([transaction_id]))
+          return null
+        }
+
+        case 'IMPORT_TRANSACTIONS': {
+          const { transactions: txList } = req.payload
+          const ts = now()
+          let imported = 0
+          db.exec('BEGIN TRANSACTION')
+          try {
+            for (const p of txList) {
+              const id = uuid()
+              db.exec(
+                `INSERT INTO transactions
+                  (id, date, amount, currency, account_id, user_id, type, category_id,
+                   description, merchant, is_private, is_recurring, transfer_to_account_id,
+                   split_id, created_at, updated_at, source)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                B([
+                  id,
+                  p.date,
+                  p.amount,
+                  p.currency ?? 'USD',
+                  p.account_id ?? null,
+                  p.user_id ?? null,
+                  p.type,
+                  p.category_id ?? null,
+                  p.description ?? '',
+                  p.merchant ?? '',
+                  p.is_private ?? 0,
+                  p.is_recurring ?? 0,
+                  p.transfer_to_account_id ?? null,
+                  p.split_id ?? null,
+                  ts,
+                  ts,
+                  p.source ?? 'import',
+                ]),
+              )
+              imported++
+            }
+            db.exec('COMMIT')
+          } catch (e) {
+            db.exec('ROLLBACK')
+            throw e
+          }
+          return { imported }
+        }
+
+        case 'GET_MONTHLY_TOTALS': {
+          const { months } = req.payload
+          return db.selectObjects(
+            `SELECT
+               strftime('%Y-%m', date) AS period,
+               SUM(CASE WHEN type = 'expense' THEN ABS(amount) ELSE 0 END) AS expenses,
+               SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) AS income
+             FROM transactions
+             WHERE date >= date('now', '-' || ? || ' months', 'start of month')
+               AND type != 'transfer'
+             GROUP BY period
+             ORDER BY period`,
+            B([months]),
           )
         }
 

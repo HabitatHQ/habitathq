@@ -3,6 +3,7 @@
 export type UserRole = 'owner' | 'partner' | 'family' | 'child'
 export type AccountType = 'checking' | 'savings' | 'credit' | 'cash'
 export type TransactionType = 'expense' | 'income' | 'transfer'
+export type TransactionSource = 'manual' | 'import' | 'voice' | 'ocr'
 export type EnvelopeScope = 'personal' | 'household'
 export type BudgetPeriod = 'monthly' | 'weekly' | 'yearly'
 
@@ -58,6 +59,7 @@ export interface Transaction {
   is_recurring: number
   transfer_to_account_id: string | null
   split_id: string | null
+  source: TransactionSource
   created_at: string
   updated_at: string
 }
@@ -150,6 +152,32 @@ export interface DbInfo {
   user_count: number
   account_count: number
   envelope_count: number
+}
+
+export interface MonthlyTotal {
+  period: string // YYYY-MM
+  expenses: number
+  income: number
+}
+
+export type RecurringInterval = 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'annual'
+export type RecurringStatus = 'detected' | 'confirmed' | 'dismissed'
+
+export interface RecurringPatternRow {
+  id: string
+  merchant: string
+  type: TransactionType
+  interval: RecurringInterval
+  average_amount: number
+  last_occurrence: string
+  next_expected: string
+  confidence: number
+  status: RecurringStatus
+  category_id: string | null
+  account_id: string | null
+  transaction_ids: string // JSON array
+  created_at: string
+  updated_at: string
 }
 
 export type ChoreFrequency = 'daily' | 'weekly' | 'monthly'
@@ -262,6 +290,26 @@ export type WorkerRequestBody =
       payload: { merchant: string; category_id: string; account_id?: string | null }
     }
   | { type: 'GET_RECENT_ACCOUNT_BY_TYPE'; payload: { type: TransactionType } }
+  | { type: 'GET_MONTHLY_TOTALS'; payload: { months: number } }
+  | { type: 'DETECT_RECURRING' }
+  | {
+      type: 'GET_RECURRING_PATTERNS'
+      payload: { status?: RecurringStatus; includeDismissed?: boolean }
+    }
+  | { type: 'UPDATE_RECURRING_PATTERN'; payload: { id: string; status: RecurringStatus } }
+  | { type: 'CONFIRM_ALL_RECURRING'; payload: { minConfidence: number } }
+  | {
+      type: 'SAVE_RECEIPT_IMAGE'
+      payload: { transaction_id: string; image_data: string; mime_type?: string }
+    }
+  | { type: 'GET_RECEIPT_IMAGE'; payload: { transaction_id: string } }
+  | { type: 'DELETE_RECEIPT_IMAGE'; payload: { transaction_id: string } }
+  | {
+      type: 'IMPORT_TRANSACTIONS'
+      payload: {
+        transactions: Array<Omit<Transaction, 'id' | 'created_at' | 'updated_at'>>
+      }
+    }
 
 export type WorkerRequest = WorkerRequestBody & { id: string }
 
