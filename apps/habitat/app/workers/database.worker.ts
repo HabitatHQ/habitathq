@@ -303,6 +303,10 @@ await (async () => {
           'CREATE INDEX IF NOT EXISTS idx_todos_due_date ON todos(due_date)',
           'CREATE INDEX IF NOT EXISTS idx_todos_is_done ON todos(is_done)',
         ],
+        12: [
+          'ALTER TABLE checkin_templates ADD COLUMN archived_at TEXT',
+          'ALTER TABLE checkin_questions ADD COLUMN archived_at TEXT',
+        ],
       }
 
       for (let v = userVersion + 1; v in migrations; v++) {
@@ -314,7 +318,7 @@ await (async () => {
       }
 
       // Ensure fresh installs (user_version = 0) are stamped at the current baseline.
-      if (userVersion === 0) db.exec('PRAGMA user_version = 11')
+      if (userVersion === 0) db.exec('PRAGMA user_version = 12')
     }
 
     runMigrations()
@@ -331,7 +335,7 @@ await (async () => {
         title: string,
         schedule_type: string,
         days_active: number[] | null,
-        qs: Omit<CheckinQuestion, 'id' | 'template_id'>[],
+        qs: Omit<CheckinQuestion, 'id' | 'template_id' | 'archived_at'>[],
       ): void {
         const tid = crypto.randomUUID()
         exec(
@@ -1004,6 +1008,7 @@ await (async () => {
             // entry in the OPFS root (the SAH pool directory lives there).
             db.close()
             const root = await navigator.storage.getDirectory()
+            // @ts-expect-error - FileSystemDirectoryHandle async iterator missing from standard TS DOM lib
             for await (const [name] of root.entries()) {
               await root.removeEntry(name, { recursive: true }).catch(() => {})
             }

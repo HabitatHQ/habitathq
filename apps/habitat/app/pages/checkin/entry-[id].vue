@@ -5,9 +5,9 @@ import { toLocalDateKey } from '~/utils/format'
 const db = useDatabase()
 const route = useRoute()
 const router = useRouter()
-const { impact, notify } = useHaptics()
+const { notification } = useHaptics()
 
-const templateId = computed(() => route.params.id as string)
+const templateId = computed(() => route.params['id'] as string)
 
 // ─── Template + questions ─────────────────────────────────────────────────────
 
@@ -28,7 +28,7 @@ async function loadTemplate() {
 // ─── Date navigation ──────────────────────────────────────────────────────────
 
 const todayKey = toLocalDateKey()
-const initDateStr = route.query.date as string | undefined
+const initDateStr = route.query['date'] as string | undefined
 const initialDate = initDateStr ? new Date(`${initDateStr}T12:00:00`) : new Date()
 const currentDate = ref(initialDate)
 const dateKey = computed(() => toLocalDateKey(currentDate.value))
@@ -130,7 +130,7 @@ onUnmounted(() => {
 // ─── Actions ──────────────────────────────────────────────────────────────────
 
 function handleDone() {
-  void notify('success')
+  void notification('success')
   router.back()
 }
 

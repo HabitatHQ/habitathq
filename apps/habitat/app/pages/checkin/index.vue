@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { CheckinTemplate } from '~/types/database'
+import { toLocalDateKey } from '~/utils/format'
 
 const db = useDatabase()
 const toast = useToast()
@@ -28,6 +29,15 @@ function isCompleted(t: CheckinTemplate) {
 onMounted(loadTemplates)
 
 // ─── Schedule label ───────────────────────────────────────────────────────────
+
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+function checkinScheduleLabel(t: CheckinTemplate): string {
+  if (t.schedule_type === 'DAILY') return 'Daily'
+  if (t.schedule_type === 'MONTHLY') return 'Monthly'
+  if (!t.days_active || t.days_active.length === 0) return 'Weekly'
+  return `Weekly · ${t.days_active.map((d) => DAY_NAMES[d]).join(', ')}`
+}
 
 // ─── Create template ─────────────────────────────────────────────────────────
 

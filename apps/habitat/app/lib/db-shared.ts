@@ -491,9 +491,10 @@ export async function getCheckinTemplates(db: DbAdapter): Promise<CheckinTemplat
       (SELECT COUNT(DISTINCT r.logged_date)
        FROM checkin_responses r
        JOIN checkin_questions q ON r.question_id = q.id
-       WHERE q.template_id = t.id) AS response_day_count,
-      (SELECT COUNT(*) FROM checkin_questions q WHERE q.template_id = t.id) AS question_count
+       WHERE q.template_id = t.id AND q.archived_at IS NULL) AS response_day_count,
+      (SELECT COUNT(*) FROM checkin_questions q WHERE q.template_id = t.id AND q.archived_at IS NULL) AS question_count
      FROM checkin_templates t
+     WHERE t.archived_at IS NULL
      ORDER BY t.title ASC`,
   )
   return rows.map(parseCheckinTemplate)
@@ -512,7 +513,7 @@ export async function getCheckinTemplate(
 
 export async function createCheckinTemplate(
   db: DbAdapter,
-  payload: Omit<CheckinTemplate, 'id'>,
+  payload: Omit<CheckinTemplate, 'id' | 'archived_at' | 'response_day_count' | 'question_count'>,
 ): Promise<CheckinTemplate> {
   const id = crypto.randomUUID()
   await db.exec(
@@ -560,7 +561,8 @@ export async function updateCheckinTemplate(
 }
 
 export async function deleteCheckinTemplate(db: DbAdapter, id: string): Promise<null> {
-  await db.exec('DELETE FROM checkin_templates WHERE id = ?', [id])
+  const now = new Date().toISOString()
+  await db.exec('UPDATE checkin_templates SET archived_at = ? WHERE id = ?', [now, id])
   return null
 }
 
@@ -578,7 +580,7 @@ export async function getCheckinSummaryForDate(
      FROM checkin_templates ct
      JOIN checkin_questions cq ON cq.template_id = ct.id
      JOIN checkin_responses cr ON cr.question_id = cq.id
-     WHERE cr.logged_date = ?
+     WHERE cr.logged_date = ? AND ct.archived_at IS NULL AND cq.archived_at IS NULL
      GROUP BY ct.id, ct.title
      ORDER BY ct.title`,
     [date],
@@ -642,7 +644,7 @@ export async function getCheckinQuestions(
   template_id: string,
 ): Promise<CheckinQuestion[]> {
   const rows = await db.queryAll<Record<string, unknown>>(
-    'SELECT * FROM checkin_questions WHERE template_id = ? ORDER BY display_order ASC',
+    'SELECT * FROM checkin_questions WHERE template_id = ? AND archived_at IS NULL ORDER BY display_order ASC',
     [template_id],
   )
   return rows.map(parseCheckinQuestion)
@@ -650,7 +652,7 @@ export async function getCheckinQuestions(
 
 export async function createCheckinQuestion(
   db: DbAdapter,
-  payload: Omit<CheckinQuestion, 'id'>,
+  payload: Omit<CheckinQuestion, 'id' | 'archived_at'>,
 ): Promise<CheckinQuestion> {
   const id = crypto.randomUUID()
   await db.exec(
@@ -694,7 +696,8 @@ export async function updateCheckinQuestion(
 }
 
 export async function deleteCheckinQuestion(db: DbAdapter, id: string): Promise<null> {
-  await db.exec('DELETE FROM checkin_questions WHERE id = ?', [id])
+  const now = new Date().toISOString()
+  await db.exec('UPDATE checkin_questions SET archived_at = ? WHERE id = ?', [now, id])
   return null
 }
 

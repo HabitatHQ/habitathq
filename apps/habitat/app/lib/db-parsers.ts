@@ -135,14 +135,20 @@ export function parseCheckinEntry(row: Record<string, unknown>): CheckinEntry {
 }
 
 export function parseCheckinTemplate(row: Record<string, unknown>): CheckinTemplate {
-  return {
+  const result: CheckinTemplate = {
     id: row['id'] as string,
     title: row['title'] as string,
     schedule_type: ((row['schedule_type'] as string) ?? 'DAILY') as 'DAILY' | 'WEEKLY' | 'MONTHLY',
     days_active: row['days_active'] ? JSON.parse(row['days_active'] as string) : null,
-    response_day_count: row['response_day_count'] as number | undefined,
-    question_count: row['question_count'] as number | undefined,
+    archived_at: (row['archived_at'] as string | null) ?? null,
   }
+  if (row['response_day_count'] !== undefined) {
+    result.response_day_count = row['response_day_count'] as number
+  }
+  if (row['question_count'] !== undefined) {
+    result.question_count = row['question_count'] as number
+  }
+  return result
 }
 
 export function parseCheckinQuestion(row: Record<string, unknown>): CheckinQuestion {
@@ -152,6 +158,7 @@ export function parseCheckinQuestion(row: Record<string, unknown>): CheckinQuest
     prompt: row['prompt'] as string,
     response_type: ((row['response_type'] as string) ?? 'TEXT') as 'SCALE' | 'TEXT' | 'BOOLEAN',
     display_order: (row['display_order'] as number) ?? 0,
+    archived_at: (row['archived_at'] as string | null) ?? null,
   }
 }
 

@@ -5,11 +5,9 @@ import BackNav from '~/components/BackNav.vue'
 import AppIcon from '~/components/AppIcon.vue'
 import EmptyState from '~/components/EmptyState.vue'
 import type { CheckinHistoryRow, CheckinEntry } from '~/types/database'
-import { useRouter } from 'vue-router'
-import { checkinScheduleLabel } from '~/utils/checkin-helpers'
+
 
 const { getCheckinHistory, getCheckinEntries, getCheckinResponseDates } = useDatabase()
-const router = useRouter()
 const { impact } = useHaptics()
 
 // ─── State ──────────────────────────────────────────────────────────────────
@@ -310,7 +308,7 @@ function toggleText(id: string) {
             <div class="flex items-center justify-between mb-3">
               <h4 class="font-semibold text-primary-500">{{ tpl.title }}</h4>
               <span class="text-xs px-2 py-0.5 bg-(--ui-bg-muted) rounded-md text-(--ui-text-toned)">
-                {{ checkinScheduleLabel(tpl.schedule_type) }}
+                {{ tpl.schedule_type === 'DAILY' ? 'Daily' : tpl.schedule_type === 'MONTHLY' ? 'Monthly' : 'Weekly' }}
               </span>
             </div>
             
@@ -408,7 +406,7 @@ function toggleText(id: string) {
               <div class="flex items-center justify-between mb-3">
                 <h4 class="font-semibold text-primary-500">{{ tpl.title }}</h4>
                 <span class="text-xs px-2 py-0.5 bg-(--ui-bg-muted) rounded-md text-(--ui-text-toned)">
-                  {{ checkinScheduleLabel(tpl.schedule_type) }}
+                  {{ tpl.schedule_type === 'DAILY' ? 'Daily' : tpl.schedule_type === 'MONTHLY' ? 'Monthly' : 'Weekly' }}
                 </span>
               </div>
               

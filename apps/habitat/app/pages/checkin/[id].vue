@@ -8,7 +8,7 @@ import type {
 const db = useDatabase()
 const toast = useToast()
 const route = useRoute()
-const templateId = computed(() => route.params.id as string)
+const templateId = computed(() => route.params['id'] as string)
 
 // ─── Template + questions ─────────────────────────────────────────────────────
 
@@ -73,7 +73,6 @@ async function deleteQuestion(qid: string) {
 // ─── Reminders ────────────────────────────────────────────────────────────────
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 
 const reminders = ref<CheckinReminder[]>([])
 const showAddReminder = ref(false)
@@ -91,14 +90,7 @@ function reminderDaysLabel(r: CheckinReminder): string {
   return r.days_active.map((d) => DAY_NAMES[d]).join(', ')
 }
 
-function toggleNewReminderDay(day: number) {
-  const idx = newReminderDays.value.indexOf(day)
-  if (idx >= 0) newReminderDays.value.splice(idx, 1)
-  else {
-    newReminderDays.value.push(day)
-    newReminderDays.value.sort((a, b) => a - b)
-  }
-}
+
 
 async function addReminder() {
   if (!newReminderTime.value || savingReminder.value) return

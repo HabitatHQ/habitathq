@@ -63,6 +63,7 @@ export interface CheckinTemplate {
   title: string
   schedule_type: 'DAILY' | 'WEEKLY' | 'MONTHLY'
   days_active: number[] | null
+  archived_at: string | null
   /** Number of distinct days with at least one response. Added by GET_CHECKIN_TEMPLATES subquery. */
   response_day_count?: number
   question_count?: number
@@ -74,6 +75,7 @@ export interface CheckinQuestion {
   prompt: string
   response_type: 'SCALE' | 'TEXT' | 'BOOLEAN'
   display_order: number
+  archived_at: string | null
 }
 
 export interface CheckinResponse {
@@ -229,7 +231,7 @@ export type WorkerRequest =
   | { id: string; type: 'DELETE_CHECKIN_ENTRY'; payload: { id: string } }
   | { id: string; type: 'GET_CHECKIN_ENTRIES'; payload: { from: string; to: string } }
   | { id: string; type: 'GET_CHECKIN_TEMPLATES' }
-  | { id: string; type: 'CREATE_CHECKIN_TEMPLATE'; payload: Omit<CheckinTemplate, 'id'> }
+  | { id: string; type: 'CREATE_CHECKIN_TEMPLATE'; payload: Omit<CheckinTemplate, 'id' | 'archived_at' | 'response_day_count' | 'question_count'> }
   | {
       id: string
       type: 'UPDATE_CHECKIN_TEMPLATE'
@@ -237,7 +239,7 @@ export type WorkerRequest =
     }
   | { id: string; type: 'DELETE_CHECKIN_TEMPLATE'; payload: { id: string } }
   | { id: string; type: 'GET_CHECKIN_QUESTIONS'; payload: { template_id: string } }
-  | { id: string; type: 'CREATE_CHECKIN_QUESTION'; payload: Omit<CheckinQuestion, 'id'> }
+  | { id: string; type: 'CREATE_CHECKIN_QUESTION'; payload: Omit<CheckinQuestion, 'id' | 'archived_at'> }
   | {
       id: string
       type: 'UPDATE_CHECKIN_QUESTION'

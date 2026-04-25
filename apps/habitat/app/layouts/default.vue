@@ -241,7 +241,7 @@ function isMotionReduced(): boolean {
 async function startLogoAnim() {
   logoAnimating.value = false
   await nextTick()
-  void logoSvgRef.value?.offsetWidth // force reflow so CSS animation restarts
+  void logoSvgRef.value?.getBoundingClientRect() // force reflow so CSS animation restarts
   logoAnimating.value = true
 }
 

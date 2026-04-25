@@ -213,6 +213,10 @@ async function runMigrations(): Promise<void> {
       'CREATE INDEX IF NOT EXISTS idx_todos_due_date ON todos(due_date)',
       'CREATE INDEX IF NOT EXISTS idx_todos_is_done ON todos(is_done)',
     ],
+    12: [
+      'ALTER TABLE checkin_templates ADD COLUMN archived_at TEXT',
+      'ALTER TABLE checkin_questions ADD COLUMN archived_at TEXT',
+    ],
   }
 
   for (let v = userVersion + 1; v in migrations; v++) {
@@ -223,7 +227,7 @@ async function runMigrations(): Promise<void> {
     userVersion = v
   }
 
-  if (userVersion === 0) await db().execute('PRAGMA user_version = 11', false)
+  if (userVersion === 0) await db().execute('PRAGMA user_version = 12', false)
 }
 
 // ─── Default seeds ────────────────────────────────────────────────────────────
@@ -235,7 +239,7 @@ async function seedDefaults(): Promise<void> {
     title: string,
     schedule_type: string,
     days_active: number[] | null,
-    qs: Omit<CheckinQuestion, 'id' | 'template_id'>[],
+    qs: Omit<CheckinQuestion, 'id' | 'template_id' | 'archived_at'>[],
   ): Promise<void> {
     const tid = crypto.randomUUID()
     await exec(

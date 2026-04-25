@@ -139,7 +139,7 @@ async function exportSqlite() {
   exportingDb.value = true
   try {
     const bytes = await db.exportDb()
-    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/x-sqlite3' }))
+    const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'application/x-sqlite3' }))
     try {
       const a = document.createElement('a')
       a.href = url
@@ -171,18 +171,22 @@ function openImport() {
   importInput.value?.click()
 }
 
+function isRecord(obj: unknown): obj is Record<string, unknown> {
+  return typeof obj === 'object' && obj !== null && !Array.isArray(obj)
+}
+
 async function onImportFileSelected(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
   ;(e.target as HTMLInputElement).value = ''
   try {
     const raw = JSON.parse(await file.text()) as unknown
-    if (typeof raw !== 'object' || raw === null) {
+    if (!isRecord(raw)) {
       importError.value = 'Invalid file.'
       showImportModal.value = true
       return
     }
-    const ver = (raw as Record<string, unknown>).version
+    const ver = raw['version']
     if (typeof ver !== 'number') {
       importError.value = 'Missing version field — not a Habitat export.'
       showImportModal.value = true
