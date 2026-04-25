@@ -465,20 +465,14 @@ function jotKindIcon(kind: string | undefined): string {
       <h1 class="text-2xl font-bold">TODOs</h1>
       <div class="flex items-center gap-2">
         <!-- List / Calendar toggle -->
-        <div class="flex bg-(--ui-bg-elevated) rounded-lg p-0.5 gap-0.5">
-          <button
-            class="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md transition-colors"
-            :class="!calendarView ? 'bg-(--ui-bg) text-(--ui-text) shadow-sm' : 'text-(--ui-text-dimmed) hover:text-(--ui-text-toned)'"
-            aria-label="List view"
-            @click="calendarView = false; selectionChanged()"
-          ><AppIcon name="list-bullet" class="w-4 h-4" /></button>
-          <button
-            class="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md transition-colors"
-            :class="calendarView ? 'bg-(--ui-bg) text-(--ui-text) shadow-sm' : 'text-(--ui-text-dimmed) hover:text-(--ui-text-toned)'"
-            aria-label="Calendar view"
-            @click="calendarView = true; selectionChanged()"
-          ><AppIcon name="calendar-days" class="w-4 h-4" /></button>
-        </div>
+        <ViewSwitcher
+          :model-value="calendarView ? 'calendar' : 'list'"
+          :options="[
+            { value: 'list', icon: 'list-bullet', ariaLabel: 'List view' },
+            { value: 'calendar', icon: 'calendar-days', ariaLabel: 'Calendar view' }
+          ]"
+          @update:model-value="v => calendarView = (v === 'calendar')"
+        />
         <UButton size="sm" class="min-h-[44px]" :icon="resolveIcon('plus')" @click="openAdd">Add</UButton>
       </div>
     </div>

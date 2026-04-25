@@ -224,22 +224,13 @@ function toggleText(id: string) {
     <!-- Header -->
     <header class="flex items-center justify-between">
       <BackNav to="/checkin" label="Check-ins" />
-      <div class="flex items-center bg-(--ui-bg-elevated) p-1 rounded-lg gap-1">
-        <button
-          class="px-2.5 py-1.5 rounded-md text-sm transition-colors flex items-center gap-1.5"
-          :class="viewMode === 'calendar' ? 'bg-(--ui-bg) shadow-sm text-(--ui-text)' : 'text-(--ui-text-dimmed)'"
-          @click="viewMode = 'calendar'"
-        >
-          <AppIcon name="calendar-days" class="w-4 h-4" />
-        </button>
-        <button
-          class="px-2.5 py-1.5 rounded-md text-sm transition-colors flex items-center gap-1.5"
-          :class="viewMode === 'timeline' ? 'bg-(--ui-bg) shadow-sm text-(--ui-text)' : 'text-(--ui-text-dimmed)'"
-          @click="viewMode = 'timeline'"
-        >
-          <AppIcon name="list-bullet" class="w-4 h-4" />
-        </button>
-      </div>
+      <ViewSwitcher
+        v-model="viewMode"
+        :options="[
+          { value: 'timeline', icon: 'list-bullet', ariaLabel: 'Timeline view' },
+          { value: 'calendar', icon: 'calendar-days', ariaLabel: 'Calendar view' }
+        ]"
+      />
     </header>
 
     <h2 class="text-2xl font-bold px-1">History</h2>
