@@ -319,6 +319,11 @@ const totalIncome = computed(() =>
     <div class="flex-1 overflow-y-auto p-4 space-y-4">
       <!-- ── Step 1: Upload ────────────────────────────────────────────────── -->
       <template v-if="step === 'upload'">
+        <HelpTip id="csv-import" :dismissable="false">
+          <template #label>How does CSV import work?</template>
+          <p>Export a CSV file from your bank or budgeting app, then upload it here. Hearth will walk you through mapping columns, matching categories, and detecting duplicates before importing.</p>
+          <p>If you're coming from <strong class="text-(--ui-text)">YNAB</strong> or <strong class="text-(--ui-text)">Mint</strong>, pick the matching preset below for automatic column mapping.</p>
+        </HelpTip>
         <label
           class="flex flex-col items-center justify-center gap-3 p-8 rounded-2xl border-2 border-dashed border-(--ui-border) hover:border-primary-500/50 cursor-pointer transition-colors"
         >

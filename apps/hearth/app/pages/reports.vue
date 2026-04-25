@@ -468,6 +468,12 @@ function onTrendClick(params: any) {
       </button>
     </div>
 
+    <HelpTip id="reports-overview">
+      <template #label>About these reports</template>
+      <p><strong class="text-(--ui-text)">Spent</strong> counts only expenses, not transfers between your accounts. <strong class="text-(--ui-text)">Saved</strong> is income minus expenses for the month.</p>
+      <p>Tap any chart segment to drill into the transactions behind it. Use the arrows above to view different months.</p>
+    </HelpTip>
+
     <!-- ── Summary cards ───────────────────────────────────────────────────── -->
     <div class="grid grid-cols-3 gap-3">
       <div class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) p-4 text-center" aria-label="Total expenses">

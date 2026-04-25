@@ -104,6 +104,11 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
       class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) p-5 space-y-4"
       aria-label="Monthly spending summary"
     >
+      <HelpTip id="dashboard-summary">
+        <template #label>How is this calculated?</template>
+        <p>This shows your total spending for the current month across all accounts, compared to the combined budget from all your envelopes.</p>
+        <p>Transfers between accounts (like credit card payments) are not counted as spending.</p>
+      </HelpTip>
       <div v-if="loading" class="space-y-3 animate-pulse">
         <div class="h-10 bg-(--ui-bg-elevated) rounded-lg w-40" />
         <div class="h-3 bg-(--ui-bg-elevated) rounded-full w-full" />
@@ -223,7 +228,9 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
       <!-- Envelopes -->
       <section aria-label="Budget envelopes">
         <div class="flex items-center justify-between mb-3">
-          <h2 class="text-xs uppercase tracking-widest text-(--ui-text-muted) font-medium">Envelopes</h2>
+          <div class="flex items-center gap-2">
+            <h2 class="text-xs uppercase tracking-widest text-(--ui-text-muted) font-medium">Envelopes</h2>
+          </div>
           <NuxtLink to="/envelopes" class="text-xs text-primary-400 hover:text-primary-300 transition-colors min-h-[44px] flex items-center px-1">
             See all
           </NuxtLink>

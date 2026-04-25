@@ -174,6 +174,11 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
     <!-- ── Quick Add ──────────────────────────────────────────────────────── -->
     <section aria-label="Quick Add settings">
       <h2 class="text-xs uppercase tracking-widest text-(--ui-text-muted) font-medium mb-3">Quick Add</h2>
+      <HelpTip id="quick-add-settings" class="mb-3">
+        <template #label>What is Quick Add?</template>
+        <p>Quick Add lets you type or speak transactions in plain language, like "coffee $6 at Blue Bottle" or "transfer $500 to savings." Hearth parses the text and fills in the form for you.</p>
+        <p><strong class="text-(--ui-text)">Parsing quality</strong> controls how the text is understood. Lite is instant and uses pattern matching. Standard downloads a small AI model for better accuracy.</p>
+      </HelpTip>
       <div class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) divide-y divide-(--ui-border) overflow-hidden">
 
         <!-- NLP Tier -->
@@ -334,7 +339,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
           <UIcon name="i-heroicons-trash" class="w-5 h-5 text-rose-400 shrink-0" aria-hidden="true" />
           <div class="flex-1">
             <p class="text-sm font-medium text-rose-400">Reset database</p>
-            <p class="text-xs text-(--ui-text-muted)">Delete all data and start over</p>
+            <p class="text-xs text-(--ui-text-muted)">Permanently deletes all transactions, accounts, envelopes, and settings. Export first if you want a backup.</p>
           </div>
         </button>
       </div>

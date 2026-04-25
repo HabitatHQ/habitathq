@@ -197,6 +197,14 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
           {{ opt.label }}
         </button>
       </div>
+      <div class="px-4 pt-2">
+        <HelpTip id="tx-types">
+          <template #label>Which type should I pick?</template>
+          <p><strong class="text-(--ui-text)">Expense</strong> — money you spent (groceries, bills, dining out).</p>
+          <p><strong class="text-(--ui-text)">Income</strong> — money you received (salary, freelance, refunds).</p>
+          <p><strong class="text-(--ui-text)">Transfer</strong> — moving money between your own accounts. Use this for credit card payments, moving to savings, etc. Transfers don't count as spending in your budgets or reports.</p>
+        </HelpTip>
+      </div>
 
       <!-- ── Amount display ──────────────────────────────────────────────── -->
       <div
@@ -331,7 +339,10 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
         <!-- Privacy toggle -->
         <div class="flex items-center gap-3 py-2 px-3 rounded-xl bg-(--ui-bg-muted) min-h-[52px]">
           <UIcon name="i-heroicons-eye-slash" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
-          <span class="text-sm text-(--ui-text) flex-1">Private transaction</span>
+          <div class="flex-1">
+            <span class="text-sm text-(--ui-text)">Private transaction</span>
+            <p class="text-[11px] text-(--ui-text-dimmed) mt-0.5">Hidden from other household members on the dashboard</p>
+          </div>
           <button
             type="button"
             class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
@@ -352,7 +363,10 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
         <template v-if="form.type === 'expense' && otherUsers.length">
           <div class="flex items-center gap-3 py-2 px-3 rounded-xl bg-(--ui-bg-muted) min-h-[52px]">
             <UIcon name="i-heroicons-user-group" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
-            <span class="text-sm text-(--ui-text) flex-1">Split with household</span>
+            <div class="flex-1">
+              <span class="text-sm text-(--ui-text)">Split with household</span>
+              <p class="text-[11px] text-(--ui-text-dimmed) mt-0.5">Track how much they owe you for this expense</p>
+            </div>
             <button
               type="button"
               class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
