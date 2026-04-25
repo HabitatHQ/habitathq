@@ -79,8 +79,14 @@ self.addEventListener('message', async (e: MessageEvent) => {
       }
 
       case 'PARSE': {
+        // Reconstruct Map from plain object sent over postMessage
+        const ctx = req.payload.context
+        if (ctx.merchantMappings && !(ctx.merchantMappings instanceof Map)) {
+          ctx.merchantMappings = new Map(Object.entries(ctx.merchantMappings))
+        }
+
         // Step 1: Always run regex parser first
-        const result = parseUtterance(req.payload.input, req.payload.context)
+        const result = parseUtterance(req.payload.input, ctx)
 
         // Step 2: If embeddings tier is active and any field is low confidence,
         // run embeddings to enhance

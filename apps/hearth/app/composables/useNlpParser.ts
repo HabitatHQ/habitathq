@@ -82,7 +82,10 @@ export function useNlpParser() {
 
   async function parse(input: string, context: ParserContext): Promise<ParseResult> {
     await (initPromise ?? init())
-    return sendToNlp<ParseResult>({ type: 'PARSE', payload: { input, context } })
+    // JSON roundtrip strips Vue reactive Proxies; Map → plain object for the wire
+    const mappingsObj = Object.fromEntries(context.merchantMappings)
+    const wireContext = JSON.parse(JSON.stringify({ ...context, merchantMappings: mappingsObj }))
+    return sendToNlp<ParseResult>({ type: 'PARSE', payload: { input, context: wireContext } })
   }
 
   async function getStatus(): Promise<NlpStatusData> {
