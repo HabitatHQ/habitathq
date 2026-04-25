@@ -21,7 +21,17 @@ await (async () => {
       })
       if (got) return true
     }
-    return false
+    // Retries exhausted — previous holder likely crashed; steal the stale lock
+    return new Promise<boolean>((resolve) => {
+      void navigator.locks.request('hearth-db', { steal: true }, (lock) => {
+        if (!lock) {
+          resolve(false)
+          return Promise.resolve()
+        }
+        resolve(true)
+        return new Promise(() => {})
+      })
+    })
   }
 
   const hasLock = await tryAcquireDbLock()

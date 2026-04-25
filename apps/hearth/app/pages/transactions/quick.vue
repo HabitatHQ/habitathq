@@ -86,10 +86,11 @@ onMounted(async () => {
 
 // ── Build parser context ─────────────────────────────────────────────────
 function buildContext(): ParserContext {
-  const allCategories = categoryTree.value.flatMap((p) => [p, ...(p.children ?? [])])
+  const rawTree = toRaw(categoryTree.value)
+  const allCategories = rawTree.flatMap((p) => [p, ...(p.children ?? [])])
   return {
     categories: allCategories,
-    accounts: accounts.value,
+    accounts: toRaw(accounts.value),
     merchantMappings: toRaw(merchantMappings.value),
     defaultAccountByType: {
       expense: settings.value.defaultExpenseAccount ?? accounts.value[0]?.id ?? null,
