@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { toRaw } from 'vue'
 import type { ParsedTransaction, ParserContext } from '~/lib/nlp/types'
 import type { Account, Category, Transaction, User } from '~/types/database'
 import { formatAmount, transactionAmountPrefix } from '~/utils/format'
@@ -14,11 +13,11 @@ const speech = useSpeechInput()
 const camera = useCamera()
 const ocr = useOcr()
 
-// ── Reference data ───────────────────────────────────────────────────────
-const accounts = ref<Account[]>([])
-const categoryTree = ref<Array<Category & { children: Category[] }>>([])
-const currentUser = ref<User | null>(null)
-const merchantMappings = ref<Map<string, { category_id: string; account_id: string | null }>>(
+// ── Reference data (shallowRef: replaced wholesale, never mutated in-place) ──
+const accounts = shallowRef<Account[]>([])
+const categoryTree = shallowRef<Array<Category & { children: Category[] }>>([])
+const currentUser = shallowRef<User | null>(null)
+const merchantMappings = shallowRef<Map<string, { category_id: string; account_id: string | null }>>(
   new Map(),
 )
 
@@ -86,12 +85,11 @@ onMounted(async () => {
 
 // ── Build parser context ─────────────────────────────────────────────────
 function buildContext(): ParserContext {
-  const rawTree = toRaw(categoryTree.value)
-  const allCategories = rawTree.flatMap((p) => [p, ...(p.children ?? [])])
+  const allCategories = categoryTree.value.flatMap((p) => [p, ...(p.children ?? [])])
   return {
     categories: allCategories,
-    accounts: toRaw(accounts.value),
-    merchantMappings: toRaw(merchantMappings.value),
+    accounts: accounts.value,
+    merchantMappings: merchantMappings.value,
     defaultAccountByType: {
       expense: settings.value.defaultExpenseAccount ?? accounts.value[0]?.id ?? null,
       income: settings.value.defaultIncomeAccount ?? accounts.value[0]?.id ?? null,
