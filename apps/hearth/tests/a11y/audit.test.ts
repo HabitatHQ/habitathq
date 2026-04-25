@@ -11,6 +11,7 @@ const PAGES = [
   { name: 'Reports', path: '/reports' },
   { name: 'Household', path: '/household' },
   { name: 'Settings', path: '/settings' },
+  { name: 'Import', path: '/import' },
 ]
 
 for (const { name, path } of PAGES) {
