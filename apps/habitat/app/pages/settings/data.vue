@@ -175,6 +175,10 @@ function isRecord(obj: unknown): obj is Record<string, unknown> {
   return typeof obj === 'object' && obj !== null && !Array.isArray(obj)
 }
 
+function isHabitatExport(obj: unknown): obj is HabitatExport {
+  return isRecord(obj) && obj['version'] === 1
+}
+
 async function onImportFileSelected(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
@@ -197,7 +201,12 @@ async function onImportFileSelected(e: Event) {
       showImportModal.value = true
       return
     }
-    importPreview.value = raw as HabitatExport
+    if (!isHabitatExport(raw)) {
+      importError.value = 'Data validation failed.'
+      showImportModal.value = true
+      return
+    }
+    importPreview.value = raw
     showImportModal.value = true
   } catch {
     importError.value = 'Could not parse file as JSON.'

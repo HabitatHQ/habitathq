@@ -72,7 +72,7 @@ async function deleteQuestion(qid: string) {
 
 // ─── Reminders ────────────────────────────────────────────────────────────────
 
-const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const CHECKIN_DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 const reminders = ref<CheckinReminder[]>([])
 const showAddReminder = ref(false)
@@ -87,7 +87,7 @@ async function loadReminders() {
 
 function reminderDaysLabel(r: CheckinReminder): string {
   if (!r.days_active || r.days_active.length === 0) return 'Every day'
-  return r.days_active.map((d) => DAY_NAMES[d]).join(', ')
+  return r.days_active.map((d) => CHECKIN_DAY_LABELS[d]).join(', ')
 }
 
 
@@ -183,7 +183,7 @@ function scheduleLabel(t: CheckinTemplate): string {
   if (t.schedule_type === 'DAILY') return 'Daily'
   if (t.schedule_type === 'MONTHLY') return 'Monthly'
   if (!t.days_active || t.days_active.length === 0) return 'Weekly'
-  return `Weekly · ${t.days_active.map((d) => DAY_NAMES[d]).join(', ')}`
+  return `Weekly · ${t.days_active.map((d) => CHECKIN_DAY_LABELS[d]).join(', ')}`
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────

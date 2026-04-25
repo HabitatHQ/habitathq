@@ -1004,12 +1004,9 @@ await (async () => {
             result = await shared.searchGlobal(adapter, req.payload.query)
             break
           case 'NUKE_OPFS': {
-            // Close DB to release all OPFS sync-access handles, then wipe every
-            // entry in the OPFS root (the SAH pool directory lives there).
-            db.close()
             const root = await navigator.storage.getDirectory()
-            // @ts-expect-error - FileSystemDirectoryHandle async iterator missing from standard TS DOM lib
-            for await (const [name] of root.entries()) {
+            // @ts-ignore - Conflict between lib.dom and lib.esnext.disposable across tools
+            for await (const [name] of root) {
               await root.removeEntry(name, { recursive: true }).catch(() => {})
             }
             result = null
