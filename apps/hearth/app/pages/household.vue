@@ -93,7 +93,7 @@ function iOwe(b: IouBalance): boolean {
         <h2 class="text-xs uppercase tracking-widest text-(--ui-text-muted) font-medium">Balances</h2>
       </div>
       <HelpTip id="iou-balances">
-        <template #label>How do IOUs work?</template>
+        <template #label>How do <abbr title="I Owe You">IOU</abbr>s work?</template>
         <p>When you split an expense with a household member, Hearth tracks who owes whom. These balances add up across all splits.</p>
         <p><strong class="text-(--ui-text)">Settle Up</strong> clears the balance between two people. Use this after someone pays the other back (in cash, Venmo, etc.).</p>
       </HelpTip>

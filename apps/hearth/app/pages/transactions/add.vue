@@ -200,9 +200,20 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
       <div class="px-4 pt-2">
         <HelpTip id="tx-types">
           <template #label>Which type should I pick?</template>
-          <p><strong class="text-(--ui-text)">Expense</strong> — money you spent (groceries, bills, dining out).</p>
-          <p><strong class="text-(--ui-text)">Income</strong> — money you received (salary, freelance, refunds).</p>
-          <p><strong class="text-(--ui-text)">Transfer</strong> — moving money between your own accounts. Use this for credit card payments, moving to savings, etc. Transfers don't count as spending in your budgets or reports.</p>
+          <dl class="space-y-1.5">
+            <div>
+              <dt class="inline font-medium text-(--ui-text)">Expense</dt>
+              <dd class="inline"> — money you spent (groceries, bills, dining out).</dd>
+            </div>
+            <div>
+              <dt class="inline font-medium text-(--ui-text)">Income</dt>
+              <dd class="inline"> — money you received (salary, freelance, refunds).</dd>
+            </div>
+            <div>
+              <dt class="inline font-medium text-(--ui-text)">Transfer</dt>
+              <dd class="inline"> — moving money between your own accounts. Use this for credit card payments, moving to savings, etc. Transfers don't count as spending in your budgets or reports.</dd>
+            </div>
+          </dl>
         </HelpTip>
       </div>
 

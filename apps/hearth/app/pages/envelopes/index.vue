@@ -129,7 +129,11 @@ async function deleteEnvelope(id: string) {
       <template #label>What are envelopes?</template>
       <p>Envelopes are a budgeting method where you divide your money into categories, like putting cash into physical envelopes. Each envelope has a monthly budget.</p>
       <p>When you spend money in a category linked to an envelope, it draws from that envelope's budget. The bar shows how much you've used.</p>
-      <p><strong class="text-(--ui-text)">Green</strong> = on track. <strong class="text-amber-400">Amber</strong> = getting close to the limit. <strong class="text-rose-400">Red</strong> = overspent.</p>
+      <dl class="flex gap-3">
+        <div><dt class="inline font-medium text-(--ui-text)">Green</dt> <dd class="inline">= on track</dd></div>
+        <div><dt class="inline font-medium text-amber-400">Amber</dt> <dd class="inline">= getting close</dd></div>
+        <div><dt class="inline font-medium text-rose-400">Red</dt> <dd class="inline">= overspent</dd></div>
+      </dl>
     </HelpTip>
 
     <!-- ── Overall budget summary ──────────────────────────────────────────── -->

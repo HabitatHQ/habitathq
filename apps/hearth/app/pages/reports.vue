@@ -470,7 +470,16 @@ function onTrendClick(params: any) {
 
     <HelpTip id="reports-overview">
       <template #label>About these reports</template>
-      <p><strong class="text-(--ui-text)">Spent</strong> counts only expenses, not transfers between your accounts. <strong class="text-(--ui-text)">Saved</strong> is income minus expenses for the month.</p>
+      <dl class="space-y-1">
+        <div>
+          <dt class="inline font-medium text-(--ui-text)">Spent</dt>
+          <dd class="inline"> — counts only expenses, not transfers between your accounts.</dd>
+        </div>
+        <div>
+          <dt class="inline font-medium text-(--ui-text)">Saved</dt>
+          <dd class="inline"> — income minus expenses for the month.</dd>
+        </div>
+      </dl>
       <p>Tap any chart segment to drill into the transactions behind it. Use the arrows above to view different months.</p>
     </HelpTip>
 
