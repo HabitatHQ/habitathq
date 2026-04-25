@@ -12,8 +12,9 @@ dist
 node_modules/
 .pnpm-debug.log*
 
-# Capacitor
-ios/
+# Capacitor — native project dirs (android/, ios/) are tracked because they
+# contain customisations (app icons, splash screens, build configs) that
+# would be lost if regenerated with `cap add`.
 
 # Env
 .env

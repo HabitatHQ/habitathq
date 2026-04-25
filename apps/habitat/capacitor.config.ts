@@ -6,6 +6,7 @@ const config: CapacitorConfig = {
   webDir: '.output/public',
   server: {
     androidScheme: 'https',
+    iosScheme: 'https',
   },
   plugins: {
     StatusBar: {
