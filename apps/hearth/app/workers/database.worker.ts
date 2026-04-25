@@ -649,9 +649,20 @@ await (async () => {
       return JSON.stringify(v) // arrays, plain objects → JSON string
     }
 
-    /** Bind wrapper — sqlite-wasm's BindingSpec types are overly strict */
+    /** Bind wrapper — sqlite-wasm's BindingSpec types are overly strict.
+     * Returns { bind: values } which db.exec() accepts as an options object.
+     * db.selectObject/selectObjects/selectValue pass bind directly to stmt.bind()
+     * which expects a raw array, so we patch those methods to unwrap. */
     // biome-ignore lint/suspicious/noExplicitAny: sqlite-wasm BindingSpec workaround
     const B = (values: any[]): any => ({ bind: values })
+
+    // Patch select methods to unwrap B()'s { bind: [...] } into a raw array
+    // biome-ignore lint/suspicious/noExplicitAny: sqlite-wasm method patching
+    for (const m of ['selectObject', 'selectObjects', 'selectValue'] as const) {
+      const orig = (db as any)[m].bind(db)
+      ;(db as any)[m] = (sql: string, b?: any, ...rest: any[]) =>
+        orig(sql, b && typeof b === 'object' && !Array.isArray(b) ? b.bind : b, ...rest)
+    }
 
     function chorePeriodKey(frequency: string, date: string): string {
       const d = new Date(date)
