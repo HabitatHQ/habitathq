@@ -90,6 +90,7 @@ export default defineNuxtConfig({
       },
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2,wasm}'],
+        globIgnores: ['**/ort-wasm-*.wasm'],
       },
       devOptions: {
         enabled: false,
