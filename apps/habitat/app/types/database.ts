@@ -83,6 +83,19 @@ export interface CheckinResponse {
   value_text: string | null
 }
 
+export interface CheckinHistoryRow {
+  template_id: string
+  template_title: string
+  schedule_type: string
+  question_id: string
+  prompt: string
+  response_type: 'SCALE' | 'TEXT' | 'BOOLEAN'
+  display_order: number
+  logged_date: string
+  value_numeric: number | null
+  value_text: string | null
+}
+
 export interface Scribble {
   id: string
   title: string
@@ -264,6 +277,11 @@ export type WorkerRequest =
   | { id: string; type: 'DELETE_CHECKIN_REMINDER'; payload: { id: string } }
   | { id: string; type: 'GET_CHECKIN_TEMPLATE'; payload: { id: string } }
   | { id: string; type: 'GET_CHECKIN_RESPONSE_DATES' }
+  | {
+      id: string
+      type: 'GET_CHECKIN_HISTORY'
+      payload: { from: string; to: string; template_id?: string }
+    }
   | { id: string; type: 'PAUSE_ALL_HABITS'; payload: { until: string | null } }
   | { id: string; type: 'EXPORT_JSON_DATA'; payload: ExportSelection }
   | { id: string; type: 'IMPORT_JSON'; payload: HabitatExport }

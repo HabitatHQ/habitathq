@@ -31,7 +31,9 @@ async function loadTemplate() {
 // ─── Date navigation ──────────────────────────────────────────────────────────
 
 const todayKey = toLocalDateKey()
-const currentDate = ref(new Date())
+const initDateStr = route.query.date as string | undefined
+const initialDate = initDateStr ? new Date(`${initDateStr}T12:00:00`) : new Date()
+const currentDate = ref(initialDate)
 const dateKey = computed(() => toLocalDateKey(currentDate.value))
 const isToday = computed(() => dateKey.value === todayKey)
 

@@ -5,6 +5,7 @@ import type {
   BoredOracleResult,
   CheckinDaySummary,
   CheckinEntry,
+  CheckinHistoryRow,
   CheckinQuestion,
   CheckinReminder,
   CheckinResponse,
@@ -157,6 +158,12 @@ export function useDatabase() {
       sendToWorker({ type: 'GET_CHECKIN_TEMPLATE', payload: { id } }),
     getCheckinResponseDates: (): Promise<Array<{ date: string; count: number }>> =>
       sendToWorker({ type: 'GET_CHECKIN_RESPONSE_DATES' }),
+    getCheckinHistory: (
+      from: string,
+      to: string,
+      template_id?: string,
+    ): Promise<CheckinHistoryRow[]> =>
+      sendToWorker({ type: 'GET_CHECKIN_HISTORY', payload: { from, to, template_id } }),
     exportJsonData: (sel: ExportSelection): Promise<HabitatExport> =>
       sendToWorker({ type: 'EXPORT_JSON_DATA', payload: sel }),
     importJson: (data: HabitatExport): Promise<null> =>

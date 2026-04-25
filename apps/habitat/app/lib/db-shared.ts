@@ -30,6 +30,7 @@ import type {
   BoredOracleResult,
   CheckinDaySummary,
   CheckinEntry,
+  CheckinHistoryRow,
   CheckinQuestion,
   CheckinReminder,
   CheckinResponse,
@@ -595,6 +596,42 @@ export async function getCheckinResponseDates(
     'SELECT logged_date as date, COUNT(*) as count FROM checkin_responses GROUP BY logged_date ORDER BY logged_date DESC',
   )
   return rows.map((r) => ({ date: r['date'] as string, count: r['count'] as number }))
+}
+
+export async function getCheckinHistory(
+  db: DbAdapter,
+  from: string,
+  to: string,
+  template_id?: string,
+): Promise<CheckinHistoryRow[]> {
+  const where = template_id
+    ? 'WHERE cr.logged_date >= ? AND cr.logged_date <= ? AND ct.id = ?'
+    : 'WHERE cr.logged_date >= ? AND cr.logged_date <= ?'
+  const bind: unknown[] = template_id ? [from, to, template_id] : [from, to]
+  const rows = await db.queryAll<Record<string, unknown>>(
+    `SELECT
+       ct.id AS template_id, ct.title AS template_title, ct.schedule_type,
+       cq.id AS question_id, cq.prompt, cq.response_type, cq.display_order,
+       cr.logged_date, cr.value_numeric, cr.value_text
+     FROM checkin_responses cr
+     JOIN checkin_questions cq ON cq.id = cr.question_id
+     JOIN checkin_templates ct ON ct.id = cq.template_id
+     ${where}
+     ORDER BY cr.logged_date DESC, ct.title ASC, cq.display_order ASC`,
+    bind,
+  )
+  return rows.map((r) => ({
+    template_id: r['template_id'] as string,
+    template_title: r['template_title'] as string,
+    schedule_type: r['schedule_type'] as string,
+    question_id: r['question_id'] as string,
+    prompt: r['prompt'] as string,
+    response_type: r['response_type'] as 'SCALE' | 'TEXT' | 'BOOLEAN',
+    display_order: r['display_order'] as number,
+    logged_date: r['logged_date'] as string,
+    value_numeric: (r['value_numeric'] as number | null) ?? null,
+    value_text: (r['value_text'] as string | null) ?? null,
+  }))
 }
 
 // ─── Check-in questions ───────────────────────────────────────────────────────

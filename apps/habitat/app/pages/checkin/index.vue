@@ -67,16 +67,28 @@ async function createTemplate() {
     <!-- Header -->
     <header class="flex items-center justify-between">
       <h2 class="text-2xl font-bold">Check-in</h2>
-      <UButton
-        :icon="resolveIcon('plus')"
-        variant="soft"
-        color="neutral"
-        size="sm"
-        class="min-h-[44px]"
-        @click="openCreate"
-      >
-        New
-      </UButton>
+      <div class="flex items-center gap-2">
+        <UButton
+          :icon="resolveIcon('clock')"
+          variant="ghost"
+          color="neutral"
+          size="sm"
+          class="min-h-[44px]"
+          to="/checkin/history"
+        >
+          History
+        </UButton>
+        <UButton
+          :icon="resolveIcon('plus')"
+          variant="soft"
+          color="neutral"
+          size="sm"
+          class="min-h-[44px]"
+          @click="openCreate"
+        >
+          New
+        </UButton>
+      </div>
     </header>
 
     <!-- Loading -->

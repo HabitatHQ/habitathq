@@ -645,6 +645,8 @@ export async function dispatchNative(req: WorkerRequestBody): Promise<unknown> {
       return shared.deleteCheckinResponse(adapter, req.payload.id)
     case 'GET_CHECKIN_RESPONSE_DATES':
       return shared.getCheckinResponseDates(adapter)
+    case 'GET_CHECKIN_HISTORY':
+      return shared.getCheckinHistory(adapter, req.payload.from, req.payload.to, req.payload.template_id)
     case 'GET_CHECKIN_SUMMARY_FOR_DATE':
       return shared.getCheckinSummaryForDate(adapter, req.payload.date)
     case 'GET_SCRIBBLES':

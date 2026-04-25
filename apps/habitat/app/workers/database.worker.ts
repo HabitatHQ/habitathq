@@ -915,6 +915,14 @@ await (async () => {
           case 'GET_CHECKIN_RESPONSE_DATES':
             result = await shared.getCheckinResponseDates(adapter)
             break
+          case 'GET_CHECKIN_HISTORY':
+            result = await shared.getCheckinHistory(
+              adapter,
+              req.payload.from,
+              req.payload.to,
+              req.payload.template_id,
+            )
+            break
           case 'GET_CHECKIN_SUMMARY_FOR_DATE':
             result = await shared.getCheckinSummaryForDate(adapter, req.payload.date)
             break
