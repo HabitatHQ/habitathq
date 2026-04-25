@@ -65,6 +65,7 @@ export interface CheckinTemplate {
   days_active: number[] | null
   /** Number of distinct days with at least one response. Added by GET_CHECKIN_TEMPLATES subquery. */
   response_day_count?: number
+  question_count?: number
 }
 
 export interface CheckinQuestion {

@@ -491,7 +491,8 @@ export async function getCheckinTemplates(db: DbAdapter): Promise<CheckinTemplat
       (SELECT COUNT(DISTINCT r.logged_date)
        FROM checkin_responses r
        JOIN checkin_questions q ON r.question_id = q.id
-       WHERE q.template_id = t.id) AS response_day_count
+       WHERE q.template_id = t.id) AS response_day_count,
+      (SELECT COUNT(*) FROM checkin_questions q WHERE q.template_id = t.id) AS question_count
      FROM checkin_templates t
      ORDER BY t.title ASC`,
   )

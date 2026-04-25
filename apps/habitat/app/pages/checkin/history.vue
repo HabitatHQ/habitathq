@@ -304,7 +304,7 @@ function toggleText(id: string) {
           <NuxtLink
             v-for="[tplId, tpl] in selectedDayData.templates.entries()"
             :key="tplId"
-            :to="`/checkin/${tplId}?date=${selectedDate}`"
+            :to="`/checkin/entry-${tplId}?date=${selectedDate}`"
             class="block bg-(--ui-bg-elevated) border border-(--ui-border) rounded-xl p-4 active:scale-[0.99] transition-transform"
           >
             <div class="flex items-center justify-between mb-3">
@@ -402,7 +402,7 @@ function toggleText(id: string) {
             <NuxtLink
               v-for="[tplId, tpl] in dataByDate.get(date)?.templates.entries()"
               :key="tplId"
-              :to="`/checkin/${tplId}?date=${date}`"
+              :to="`/checkin/entry-${tplId}?date=${date}`"
               class="block bg-(--ui-bg-elevated) border border-(--ui-border) rounded-xl p-4 active:scale-[0.99] transition-transform"
             >
               <div class="flex items-center justify-between mb-3">

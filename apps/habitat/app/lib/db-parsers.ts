@@ -139,8 +139,9 @@ export function parseCheckinTemplate(row: Record<string, unknown>): CheckinTempl
     id: row['id'] as string,
     title: row['title'] as string,
     schedule_type: ((row['schedule_type'] as string) ?? 'DAILY') as 'DAILY' | 'WEEKLY' | 'MONTHLY',
-    days_active: safeJsonParse(row['days_active'] as string | null, null),
-    response_day_count: (row['response_day_count'] as number) ?? 0,
+    days_active: row['days_active'] ? JSON.parse(row['days_active'] as string) : null,
+    response_day_count: row['response_day_count'] as number | undefined,
+    question_count: row['question_count'] as number | undefined,
   }
 }
 
