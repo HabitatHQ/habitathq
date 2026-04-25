@@ -52,7 +52,7 @@ const iconText = computed(() => {
             class="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
             :class="iconBg"
           >
-            <UIcon :name="icon" class="w-5 h-5" :class="iconText" />
+            <AppIcon :name="icon" class="w-5 h-5" :class="iconText" />
           </div>
           <div class="space-y-1">
             <p class="font-semibold">{{ title }}</p>

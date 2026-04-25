@@ -372,7 +372,7 @@ function toggleColorMode() {
           <path class="sprout-soil" d="M 8,40 C 12,37 28,37 32,40" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" pathLength="1" />
         </svg>
         <span v-if="!filterStripVisible" class="text-lg font-semibold tracking-tight">Habitat</span>
-        <UIcon v-else name="i-heroicons-tag" class="w-4 h-4 text-(--ui-text-muted)" aria-hidden="true" />
+        <AppIcon v-else name="tag" class="w-4 h-4 text-(--ui-text-muted)" aria-hidden="true" />
       </div>
 
       <!-- Middle: context filter chip strip (flex-1, only when strip open) -->
@@ -438,7 +438,7 @@ function toggleColorMode() {
         <!-- Quick Focus (if not active, or even if active to change?) we only show if not active? Actually it's an option 'where we added global search for quick focus modes' -->
         <div v-if="settings.enableTimer && !timerComp.isActive" class="relative">
           <UButton
-            icon="i-heroicons-clock"
+            :icon="resolveIcon('clock')"
             variant="ghost"
             color="neutral"
             size="sm"
@@ -457,17 +457,17 @@ function toggleColorMode() {
               class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-(--ui-bg-muted) flex items-center gap-2 text-(--ui-text)"
               @click="startQuickFocus('stopwatch')"
             >
-              <UIcon name="i-heroicons-play" class="w-4 h-4" /> Stopwatch
+              <AppIcon name="play" class="w-4 h-4" /> Stopwatch
             </button>
             <div class="flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-(--ui-bg-muted) text-(--ui-text)">
-              <UIcon name="i-heroicons-clock" class="w-4 h-4 shrink-0" />
+              <AppIcon name="clock" class="w-4 h-4 shrink-0" />
               <div class="flex items-center gap-1">
                 <button
                   class="w-6 h-6 rounded-md bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors active:scale-90"
                   :class="{ 'opacity-30 pointer-events-none': quickFocusMinutes <= 5 }"
                   @click="quickFocusMinutes = Math.max(5, quickFocusMinutes - 5)"
                 >
-                  <UIcon name="i-heroicons-minus" class="w-3 h-3" />
+                  <AppIcon name="minus" class="w-3 h-3" />
                 </button>
                 <span class="w-10 text-center font-semibold type-numeric">{{ quickFocusMinutes }}</span>
                 <button
@@ -475,7 +475,7 @@ function toggleColorMode() {
                   :class="{ 'opacity-30 pointer-events-none': quickFocusMinutes >= 120 }"
                   @click="quickFocusMinutes = Math.min(120, quickFocusMinutes + 5)"
                 >
-                  <UIcon name="i-heroicons-plus" class="w-3 h-3" />
+                  <AppIcon name="plus" class="w-3 h-3" />
                 </button>
               </div>
               <span class="text-(--ui-text-muted) text-xs">min</span>
@@ -492,7 +492,7 @@ function toggleColorMode() {
 
         <!-- Global search -->
         <UButton
-          icon="i-heroicons-magnifying-glass"
+          :icon="resolveIcon('magnifying-glass')"
           variant="ghost"
           color="neutral"
           size="sm"
@@ -504,7 +504,7 @@ function toggleColorMode() {
         <!-- Context filter toggle (only when feature on and tags exist) -->
         <UButton
           v-if="settings.enableContextFilter && contextTags.length > 0"
-          :icon="showFilterStrip ? 'i-heroicons-x-mark' : 'i-heroicons-tag'"
+          :icon="resolveIcon(showFilterStrip ? 'x-mark' : 'tag')"
           variant="ghost"
           color="neutral"
           size="sm"
@@ -516,7 +516,7 @@ function toggleColorMode() {
 
         <!-- Dark / light mode toggle -->
         <UButton
-          :icon="colorMode.value === 'dark' ? 'i-heroicons-sun' : 'i-heroicons-moon'"
+          :icon="resolveIcon(colorMode.value === 'dark' ? 'sun' : 'moon')"
           variant="ghost"
           color="neutral"
           size="sm"
@@ -528,7 +528,7 @@ function toggleColorMode() {
         <!-- Theme picker -->
         <div class="relative">
           <UButton
-            icon="i-heroicons-swatch"
+            :icon="resolveIcon('swatch')"
             variant="ghost"
             color="neutral"
             size="sm"
@@ -576,7 +576,7 @@ function toggleColorMode() {
                 ? 'border-primary-500 bg-primary-500/15 text-primary-400'
                 : 'border-(--ui-border-accented) text-(--ui-text-muted) hover:border-(--ui-border-accented) hover:text-(--ui-text)'"
             >
-              <UIcon name="i-heroicons-user-circle" class="w-5 h-5" />
+              <AppIcon name="user-circle" class="w-5 h-5" />
             </span>
           </button>
           <!-- Backdrop -->
@@ -598,7 +598,7 @@ function toggleColorMode() {
                 : 'text-(--ui-text) hover:bg-(--ui-bg-elevated)'"
               @click="showAvatarMenu = false"
             >
-              <UIcon name="i-heroicons-calendar-days" class="w-4 h-4" />
+              <AppIcon name="calendar-days" class="w-4 h-4" />
               Matrix
             </NuxtLink>
             <NuxtLink
@@ -609,7 +609,7 @@ function toggleColorMode() {
                 : 'text-(--ui-text) hover:bg-(--ui-bg-elevated)'"
               @click="showAvatarMenu = false"
             >
-              <UIcon name="i-heroicons-chart-bar" class="w-4 h-4" />
+              <AppIcon name="chart-bar" class="w-4 h-4" />
               Stats
             </NuxtLink>
             <NuxtLink
@@ -620,7 +620,7 @@ function toggleColorMode() {
                 : 'text-(--ui-text) hover:bg-(--ui-bg-elevated)'"
               @click="showAvatarMenu = false"
             >
-              <UIcon name="i-heroicons-cog-6-tooth" class="w-4 h-4" />
+              <AppIcon name="cog-6-tooth" class="w-4 h-4" />
               Settings
             </NuxtLink>
           </div>
@@ -636,7 +636,7 @@ function toggleColorMode() {
       <div class="modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm" @click="closeSearch" />
       <div class="relative w-full max-w-md mx-4 bg-(--ui-bg-muted) border border-(--ui-border) rounded-2xl overflow-hidden shadow-2xl">
         <div class="flex items-center gap-2 px-3 py-2 border-b border-(--ui-border)">
-          <UIcon name="i-heroicons-magnifying-glass" class="w-4 h-4 text-(--ui-text-dimmed) shrink-0" />
+          <AppIcon name="magnifying-glass" class="w-4 h-4 text-(--ui-text-dimmed) shrink-0" />
           <!-- eslint-disable-next-line vuejs-accessibility/no-autofocus -->
           <input
             v-model="searchQuery"
@@ -645,7 +645,7 @@ function toggleColorMode() {
             class="flex-1 bg-transparent text-sm text-(--ui-text) placeholder:text-(--ui-text-dimmed) outline-none"
             @keydown.escape="closeSearch"
           />
-          <UIcon v-if="searchLoading" name="i-heroicons-arrow-path" class="w-4 h-4 animate-spin text-(--ui-text-dimmed) shrink-0" />
+          <AppIcon v-if="searchLoading" name="arrow-path" class="w-4 h-4 animate-spin text-(--ui-text-dimmed) shrink-0" />
         </div>
         <ul v-if="searchResults.length" class="max-h-[60dvh] overflow-y-auto overscroll-contain divide-y divide-(--ui-border)/40">
           <li v-for="r in searchResults" :key="`${r.kind}-${r.id}`">
@@ -654,8 +654,8 @@ function toggleColorMode() {
               class="flex items-center gap-3 px-4 py-2.5 hover:bg-(--ui-bg-elevated) transition-colors"
               @click="closeSearch"
             >
-              <UIcon
-                :name="r.kind === 'habit' ? (r.icon || 'i-heroicons-star') : r.kind === 'todo' ? 'i-heroicons-check-circle' : r.kind === 'scribble' ? 'i-heroicons-document-text' : 'i-heroicons-pencil-square'"
+              <AppIcon
+                :name="r.kind === 'habit' ? (r.icon || 'star') : r.kind === 'todo' ? 'check-circle' : r.kind === 'scribble' ? 'document-text' : 'pencil-square'"
                 class="w-4 h-4 shrink-0"
                 :class="r.kind === 'habit' ? 'text-primary-400' : 'text-(--ui-text-dimmed)'"
               />
@@ -682,7 +682,7 @@ function toggleColorMode() {
       description="Habitat requires the Origin Private File System (OPFS) API, which is not available in this browser. Please use a modern browser such as Chrome, Firefox, or Safari 17+."
       color="error"
       variant="soft"
-      icon="i-heroicons-exclamation-triangle"
+      :icon="resolveIcon('exclamation-triangle')"
       class="rounded-none border-0 border-b border-red-900/50"
     />
     <UAlert
@@ -690,7 +690,7 @@ function toggleColorMode() {
       :description="$dbError"
       color="error"
       variant="soft"
-      icon="i-heroicons-exclamation-triangle"
+      :icon="resolveIcon('exclamation-triangle')"
       class="rounded-none border-0 border-b border-red-900/50"
     />
     <UAlert
@@ -699,8 +699,8 @@ function toggleColorMode() {
       description="Your browser appears to have cleared on-device storage. If data is missing, use Export in Settings regularly to back up."
       color="warning"
       variant="soft"
-      icon="i-heroicons-exclamation-triangle"
-      :close-button="{ icon: 'i-heroicons-x-mark', variant: 'ghost', color: 'neutral', size: 'sm' }"
+      :icon="resolveIcon('exclamation-triangle')"
+      :close-button="{ icon: resolveIcon('x-mark'), variant: 'ghost', color: 'neutral', size: 'sm' }"
       class="rounded-none border-0 border-b border-amber-900/50"
       @close="evictionDetected = false"
     />
@@ -754,7 +754,7 @@ function toggleColorMode() {
           : undefined"
       >
         <span class="text-xs text-(--ui-text-muted) flex items-center gap-1.5">
-          <UIcon name="i-heroicons-arrows-right-left" class="w-3.5 h-3.5" />
+          <AppIcon name="arrows-right-left" class="w-3.5 h-3.5" />
           Drag to reorder tabs
         </span>
         <button

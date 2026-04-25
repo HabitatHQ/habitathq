@@ -303,7 +303,7 @@ const oracleHint = computed(() => {
     <!-- Header -->
     <div class="flex items-center justify-between">
       <h1 class="text-2xl font-bold">I'm Bored</h1>
-      <UButton to="/bored/activities" variant="ghost" color="neutral" size="sm" icon="i-heroicons-cog-6-tooth">
+      <UButton to="/bored/activities" variant="ghost" color="neutral" size="sm" :icon="resolveIcon('cog-6-tooth')">
         Manage
       </UButton>
     </div>
@@ -335,7 +335,7 @@ const oracleHint = computed(() => {
         :style="excludedCategories.includes(cat.id) ? {} : { backgroundColor: cat.color + '33', borderColor: cat.color + '88', color: cat.color }"
         @click="toggleCategory(cat.id); selectionChanged()"
       >
-        <UIcon :name="cat.icon" class="w-3.5 h-3.5" />
+        <AppIcon :name="cat.icon" class="w-3.5 h-3.5" />
         {{ cat.name }}
       </button>
     </div>
@@ -362,11 +362,11 @@ const oracleHint = computed(() => {
           <div v-if="eggActive === 'hab-eight'" class="egg-eight">8</div>
           <div v-else-if="eggActive === 'hab-certain'" class="egg-certain-flash" />
           <div v-else-if="currentResult && !shaking" class="result-content">
-            <UIcon
+            <AppIcon
               v-if="resultCategory"
               :name="resultCategory.icon"
               class="w-8 h-8 shrink-0"
-              :style="{ color: resultCategory.color }"
+              :color="resultCategory.color"
             />
             <span
               v-if="resultCategory"
@@ -397,11 +397,11 @@ const oracleHint = computed(() => {
         <div class="stone-face">
           <span v-if="eggActive === 'for-thirteenth'" class="rune-ancient">ᚱ</span>
           <div v-else-if="currentResult && !shaking" class="rune-result">
-            <UIcon
+            <AppIcon
               v-if="resultCategory"
               :name="resultCategory.icon"
               class="w-8 h-8 shrink-0"
-              :style="{ color: resultCategory.color }"
+              :color="resultCategory.color"
             />
             <span
               v-if="resultCategory"
@@ -440,11 +440,11 @@ const oracleHint = computed(() => {
             <div class="jelly-rim-glow" />
             <div class="jelly-face">
               <div v-if="currentResult && !shaking" class="jelly-result">
-                <UIcon
+                <AppIcon
                   v-if="resultCategory"
                   :name="resultCategory.icon"
                   class="w-7 h-7 shrink-0"
-                  :style="{ color: resultCategory.color }"
+                  :color="resultCategory.color"
                 />
                 <span
                   v-if="resultCategory"
@@ -489,11 +489,11 @@ const oracleHint = computed(() => {
               class="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium"
               :style="{ backgroundColor: resultCategory.color + '22', color: resultCategory.color }"
             >
-              <UIcon :name="resultCategory.icon" class="w-3 h-3" />
+              <AppIcon :name="resultCategory.icon" class="w-3 h-3" />
               {{ resultCategory.name }}
             </span>
             <span v-if="resultEstimate" class="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-(--ui-bg-elevated) text-(--ui-text-toned)">
-              <UIcon name="i-heroicons-clock" class="w-3 h-3" />
+              <AppIcon name="clock" class="w-3 h-3" />
               {{ resultEstimate }}
             </span>
             <span v-if="currentResult.source === 'todo'" class="text-xs px-2 py-0.5 rounded-full bg-blue-900/40 text-blue-300">
@@ -528,7 +528,7 @@ const oracleHint = computed(() => {
               size="sm"
               variant="ghost"
               color="neutral"
-              :icon="timer.isRunning ? 'i-heroicons-pause' : 'i-heroicons-play'"
+              :icon="resolveIcon(timer.isRunning ? 'pause' : 'play')"
               :aria-label="timer.isRunning ? 'Pause timer' : 'Resume timer'"
               @click="timer.isRunning ? timer.pauseTimer() : timer.resumeTimer()"
             />
@@ -536,7 +536,7 @@ const oracleHint = computed(() => {
               size="sm"
               variant="soft"
               color="success"
-              icon="i-heroicons-check"
+              :icon="resolveIcon('check')"
               :loading="marking"
               @click="finishBoredTimerAndDone"
             >Done</UButton>
@@ -544,7 +544,7 @@ const oracleHint = computed(() => {
               size="sm"
               variant="ghost"
               color="neutral"
-              icon="i-heroicons-x-mark"
+              :icon="resolveIcon('x-mark')"
               aria-label="Stop timer"
               @click="timer.stopTimer()"
             />
@@ -556,7 +556,7 @@ const oracleHint = computed(() => {
               variant="soft"
               color="success"
               size="sm"
-              icon="i-heroicons-check"
+              :icon="resolveIcon('check')"
               :loading="marking"
               @click="markDone"
             >
@@ -570,7 +570,7 @@ const oracleHint = computed(() => {
                 size="sm"
                 variant="soft"
                 color="neutral"
-                icon="i-heroicons-play"
+                :icon="resolveIcon('play')"
                 @click="handleBoredStart"
                 @pointerdown="startLongPress"
                 @pointerup="cancelLongPress"
@@ -587,10 +587,10 @@ const oracleHint = computed(() => {
                   class="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-(--ui-bg-muted) flex items-center gap-2"
                   @click="startBoredMode('stopwatch')"
                 >
-                  <UIcon name="i-heroicons-play" class="w-4 h-4" /> Stopwatch
+                  <AppIcon name="play" class="w-4 h-4" /> Stopwatch
                 </button>
                 <div role="menuitem" class="flex items-center gap-2 px-3 py-2 text-sm rounded-lg hover:bg-(--ui-bg-muted)">
-                  <UIcon name="i-heroicons-clock" class="w-4 h-4 shrink-0" />
+                  <AppIcon name="clock" class="w-4 h-4 shrink-0" />
                   <input
                     v-model.number="modeMenuMinutes"
                     type="number"
@@ -617,7 +617,7 @@ const oracleHint = computed(() => {
               variant="soft"
               color="neutral"
               size="sm"
-              icon="i-heroicons-arrow-path"
+              :icon="resolveIcon('arrow-path')"
               @click="roll"
             >
               Roll again
@@ -628,7 +628,7 @@ const oracleHint = computed(() => {
               variant="ghost"
               color="neutral"
               size="sm"
-              icon="i-heroicons-arrow-right"
+              :icon="resolveIcon('arrow-right')"
             >
               View TODO
             </UButton>
@@ -638,7 +638,7 @@ const oracleHint = computed(() => {
               variant="ghost"
               color="neutral"
               size="sm"
-              icon="i-heroicons-arrow-right"
+              :icon="resolveIcon('arrow-right')"
             >
               View all
             </UButton>

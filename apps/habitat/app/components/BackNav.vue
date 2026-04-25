@@ -8,7 +8,7 @@ defineProps<{
 <template>
   <div class="flex items-center gap-2 -mb-1">
     <UButton
-      icon="i-heroicons-arrow-left"
+      :icon="resolveIcon('arrow-left')"
       variant="ghost"
       color="neutral"
       size="sm"

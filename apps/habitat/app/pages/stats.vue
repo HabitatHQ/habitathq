@@ -393,7 +393,7 @@ onMounted(load)
             class="w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center"
             :style="{ backgroundColor: item.habit.color + '33' }"
           >
-            <UIcon :name="item.habit.icon" class="w-3 h-3" :style="{ color: item.habit.color }" />
+            <AppIcon :name="item.habit.icon" :color="item.habit.color" class="w-3 h-3" />
           </div>
           <p class="w-20 text-xs text-(--ui-text-muted) truncate flex-shrink-0">{{ item.habit.name }}</p>
           <div class="flex-1 h-1.5 bg-(--ui-bg-elevated) rounded-full overflow-hidden">

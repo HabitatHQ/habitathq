@@ -201,7 +201,7 @@ onUnmounted(() => {
   <div class="space-y-4">
     <div class="flex items-center justify-between">
       <h3 class="text-base font-semibold">Voice Recording</h3>
-      <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" :disabled="isRecording" @click="handleClose" />
+      <UButton :icon="resolveIcon('x-mark')" variant="ghost" color="neutral" size="sm" :disabled="isRecording" @click="handleClose" />
     </div>
 
     <UAlert
@@ -209,8 +209,8 @@ onUnmounted(() => {
       :title="errorMsg"
       color="error"
       variant="soft"
-      icon="i-heroicons-exclamation-circle"
-      :close-button="{ icon: 'i-heroicons-x-mark', color: 'error', variant: 'ghost', size: 'sm' }"
+      :icon="resolveIcon('exclamation-circle')"
+      :close-button="{ icon: resolveIcon('x-mark'), color: 'error', variant: 'ghost', size: 'sm' }"
       @close="errorMsg = null"
     />
 
@@ -226,8 +226,8 @@ onUnmounted(() => {
           : 'bg-(--ui-bg-elevated) border-2 border-(--ui-border-accented) hover:border-primary-500'"
         @click="isRecording ? stopRecording() : startRecording()"
       >
-        <UIcon
-          :name="isRecording ? 'i-heroicons-stop' : 'i-heroicons-microphone'"
+        <AppIcon
+          :name="isRecording ? 'stop' : 'microphone'"
           class="w-8 h-8"
           :class="isRecording ? 'text-red-400' : 'text-rose-400'"
         />

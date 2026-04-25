@@ -1,3 +1,5 @@
+import { resolveIcon } from '~/utils/icons'
+
 export interface NavItem {
   to: string
   icon: string
@@ -10,11 +12,11 @@ export interface NavItem {
 }
 
 export const ALL_NAV_ITEMS: NavItem[] = [
-  { to: '/', icon: 'i-heroicons-home', label: 'Today', today: true },
-  { to: '/habits', icon: 'i-heroicons-list-bullet', label: 'Habits' },
-  { to: '/checkin', icon: 'i-heroicons-pencil-square', label: 'Check-in', journalling: true },
-  { to: '/todos', icon: 'i-heroicons-check-circle', label: 'TODOs', todos: true },
-  { to: '/bored', icon: 'i-heroicons-face-smile', label: 'Bored', bored: true },
-  { to: '/health', icon: 'i-heroicons-heart', label: 'Health', health: true },
-  { to: '/jots', icon: 'i-heroicons-document-text', label: 'Jots', journalling: true },
+  { to: '/', icon: resolveIcon('home'), label: 'Today', today: true },
+  { to: '/habits', icon: resolveIcon('list-bullet'), label: 'Habits' },
+  { to: '/checkin', icon: resolveIcon('pencil-square'), label: 'Check-in', journalling: true },
+  { to: '/todos', icon: resolveIcon('check-circle'), label: 'TODOs', todos: true },
+  { to: '/bored', icon: resolveIcon('face-smile'), label: 'Bored', bored: true },
+  { to: '/health', icon: resolveIcon('heart'), label: 'Health', health: true },
+  { to: '/jots', icon: resolveIcon('document-text'), label: 'Jots', journalling: true },
 ]

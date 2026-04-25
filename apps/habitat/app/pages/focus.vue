@@ -149,7 +149,7 @@ function addOneMinute() {
     <!-- Top Action Bar -->
     <header class="w-full px-4 flex items-center justify-between shrink-0">
       <UButton
-        icon="i-heroicons-chevron-down"
+        :icon="resolveIcon('chevron-down')"
         variant="ghost"
         color="neutral"
         size="lg"
@@ -158,7 +158,7 @@ function addOneMinute() {
         @click="minimize"
       />
       <UButton
-        icon="i-heroicons-x-mark"
+        :icon="resolveIcon('x-mark')"
         variant="ghost"
         color="neutral"
         size="lg"
@@ -247,7 +247,7 @@ function addOneMinute() {
             aria-label="Play/Pause"
             @click="playPause"
           >
-            <UIcon :name="timerComp.isRunning ? 'i-heroicons-pause-16-solid' : 'i-heroicons-play-16-solid'" class="w-8 h-8" />
+            <AppIcon :name="timerComp.isRunning ? 'pause' : 'play'" variant="micro" class="w-8 h-8" />
           </button>
         </div>
       </div>
@@ -258,7 +258,7 @@ function addOneMinute() {
       <template #content>
         <div class="p-6 text-center space-y-5">
           <div class="mx-auto w-12 h-12 bg-red-100 dark:bg-red-900/30 text-red-500 rounded-full flex items-center justify-center mb-2">
-            <UIcon name="i-heroicons-stop-circle" class="w-6 h-6" />
+            <AppIcon name="stop-circle" class="w-6 h-6" />
           </div>
           <h3 class="text-lg font-bold text-(--ui-text)">{{ endModalTitle }}</h3>
           <p class="text-sm text-(--ui-text-muted)">

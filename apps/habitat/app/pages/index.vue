@@ -472,7 +472,7 @@ onMounted(async () => {
             Private, offline, and flexible habit tracking. Let's get started.
           </p>
         </div>
-        <UButton to="/habits" size="lg" icon="i-heroicons-plus" class="px-8">
+        <UButton to="/habits" size="lg" :icon="resolveIcon('plus')" class="px-8">
           Create My First Habit
         </UButton>
       </div>
@@ -537,7 +537,7 @@ onMounted(async () => {
             class="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center"
             :style="{ backgroundColor: habit.color + '22' }"
           >
-            <UIcon :name="habit.icon" class="w-5 h-5" :style="{ color: habit.color }" />
+            <AppIcon :name="habit.icon" :color="habit.color" class="w-5 h-5" />
           </div>
 
           <!-- Name + subtitle -->
@@ -606,7 +606,7 @@ onMounted(async () => {
               :disabled="toggling.has(habit.id)"
               @click="toggle(habit)"
             >
-              <UIcon v-if="isHabitDone(habit)" name="i-heroicons-check" class="w-3.5 h-3.5 text-white" />
+              <AppIcon v-if="isHabitDone(habit)" name="check" class="w-3.5 h-3.5 text-white" />
             </button>
           </template>
 
@@ -622,8 +622,8 @@ onMounted(async () => {
                 Log
               </UButton>
               <div v-if="isHabitDone(habit)" class="w-5 flex-shrink-0 flex items-center justify-center">
-                <UIcon
-                  name="i-heroicons-check-circle"
+                <AppIcon
+                  name="check-circle"
                   class="w-5 h-5"
                   :class="habit.type === 'NUMERIC' ? 'text-primary-400' : 'text-amber-400'"
                 />
@@ -670,8 +670,8 @@ onMounted(async () => {
               :aria-label="todoToggledIds.has(todo.id) ? `Mark '${todo.title}' not done` : `Mark '${todo.title}' done`"
               @click="toggleTodoLocal(todo)"
             >
-              <UIcon v-if="todoToggledIds.has(todo.id)" name="i-heroicons-check" class="w-3 h-3 text-white" aria-hidden="true" />
-              <UIcon v-else-if="todo.is_recurring" name="i-heroicons-arrow-path" class="w-2.5 h-2.5 text-(--ui-text-dimmed)" aria-hidden="true" />
+              <AppIcon v-if="todoToggledIds.has(todo.id)" name="check" class="w-3 h-3 text-white" aria-hidden="true" />
+              <AppIcon v-else-if="todo.is_recurring" name="arrow-path" class="w-2.5 h-2.5 text-(--ui-text-dimmed)" aria-hidden="true" />
             </button>
 
             <!-- Title + estimate -->
@@ -681,14 +681,14 @@ onMounted(async () => {
                 :class="todoToggledIds.has(todo.id) ? 'line-through text-(--ui-text-dimmed)' : 'text-(--ui-text)'"
               >{{ todo.title }}</p>
               <p v-if="todo.estimated_minutes" class="text-xs text-(--ui-text-dimmed) flex items-center gap-0.5 mt-0.5">
-                <UIcon name="i-heroicons-clock" class="w-3 h-3" />
+                <AppIcon name="clock" class="w-3 h-3" />
                 {{ todo.estimated_minutes }}m
               </p>
             </div>
           </li>
         </ul>
 
-        <UButton to="/todos" variant="ghost" color="neutral" size="xs" icon="i-heroicons-arrow-right" trailing aria-label="See all todos">
+        <UButton to="/todos" variant="ghost" color="neutral" size="xs" :icon="resolveIcon('arrow-right')" trailing aria-label="See all todos">
           See all
         </UButton>
       </section>
@@ -710,7 +710,7 @@ onMounted(async () => {
               aria-label="Dismiss"
               @click="boredDismissed = true"
             >
-              <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
+              <AppIcon name="x-mark" class="w-4 h-4" />
             </button>
           </div>
 
@@ -728,11 +728,11 @@ onMounted(async () => {
               <template v-if="settings.theme === 'habitat'">
                 <div class="mini-ball-specular" />
                 <div class="mini-ball-window">
-                  <UIcon
+                  <AppIcon
                     v-if="boredOracleResult && !boredShaking && boredCategory"
                     :name="boredCategory.icon"
+                    :color="boredCategory.color"
                     class="w-3 h-3"
-                    :style="{ color: boredCategory.color }"
                   />
                   <span v-else class="mini-idle-symbol">?</span>
                 </div>
@@ -742,11 +742,11 @@ onMounted(async () => {
               <template v-else-if="settings.theme === 'forest'">
                 <div class="mini-stone-moss" />
                 <div class="mini-stone-face">
-                  <UIcon
+                  <AppIcon
                     v-if="boredOracleResult && !boredShaking && boredCategory"
                     :name="boredCategory.icon"
+                    :color="boredCategory.color"
                     class="w-3 h-3"
-                    :style="{ color: boredCategory.color }"
                   />
                   <span v-else class="mini-idle-symbol rune">ᛟ</span>
                 </div>
@@ -758,11 +758,11 @@ onMounted(async () => {
                 <div class="mini-bubble mini-bubble-1" />
                 <div class="mini-bubble mini-bubble-2" />
                 <div class="mini-bubble mini-bubble-3" />
-                <UIcon
+                <AppIcon
                   v-if="boredOracleResult && !boredShaking && boredCategory"
                   :name="boredCategory.icon"
+                  :color="boredCategory.color"
                   class="w-3 h-3 relative z-10"
-                  :style="{ color: boredCategory.color }"
                 />
                 <span v-else class="mini-idle-symbol ocean relative z-10">✦</span>
               </template>
@@ -781,7 +781,7 @@ onMounted(async () => {
                     class="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium"
                     :style="{ backgroundColor: boredCategory.color + '22', color: boredCategory.color }"
                   >
-                    <UIcon :name="boredCategory.icon" class="w-3 h-3" />
+                    <AppIcon :name="boredCategory.icon" class="w-3 h-3" />
                     {{ boredCategory.name }}
                   </span>
                   <span v-if="boredEstimate" class="text-xs px-2 py-0.5 rounded-full bg-(--ui-bg-elevated) text-(--ui-text-toned)">
@@ -802,7 +802,7 @@ onMounted(async () => {
             variant="soft"
             color="success"
             size="sm"
-            icon="i-heroicons-check"
+            :icon="resolveIcon('check')"
             :loading="boredMarking"
             @click="markBoredDone"
           >
@@ -828,13 +828,13 @@ onMounted(async () => {
             class="flex items-center gap-3 p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border) hover:border-(--ui-border-accented) transition-colors"
           >
             <div class="w-8 h-8 rounded-full bg-primary-500/10 flex-shrink-0 flex items-center justify-center">
-              <UIcon name="i-heroicons-pencil-square" class="w-4 h-4 text-primary-400" />
+              <AppIcon name="pencil-square" class="w-4 h-4 text-primary-400" />
             </div>
             <div class="flex-1 min-w-0">
               <p class="text-sm font-medium text-(--ui-text) truncate">{{ ci.title }}</p>
               <p class="text-xs text-(--ui-text-dimmed)">{{ ci.response_count }} {{ ci.response_count === 1 ? 'response' : 'responses' }}</p>
             </div>
-            <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-slate-600 flex-shrink-0" />
+            <AppIcon name="chevron-right" class="w-4 h-4 text-slate-600 flex-shrink-0" />
           </NuxtLink>
 
           <!-- Scribbles updated today -->
@@ -844,7 +844,7 @@ onMounted(async () => {
             class="flex items-center gap-3 p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border) hover:border-(--ui-border-accented) transition-colors"
           >
             <div class="w-8 h-8 rounded-full bg-amber-500/10 flex-shrink-0 flex items-center justify-center">
-              <UIcon name="i-heroicons-pencil" class="w-4 h-4 text-amber-400" />
+              <AppIcon name="pencil" class="w-4 h-4 text-amber-400" />
             </div>
             <div class="flex-1 min-w-0">
               <p class="text-sm font-medium text-(--ui-text)">Scribbles</p>
@@ -852,7 +852,7 @@ onMounted(async () => {
                 {{ todayScribbles.length }} {{ todayScribbles.length === 1 ? 'note' : 'notes' }} updated today
               </p>
             </div>
-            <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-slate-600 flex-shrink-0" />
+            <AppIcon name="chevron-right" class="w-4 h-4 text-slate-600 flex-shrink-0" />
           </NuxtLink>
 
           <!-- Voice notes recorded today -->
@@ -862,7 +862,7 @@ onMounted(async () => {
             class="flex items-center gap-3 p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border) hover:border-(--ui-border-accented) transition-colors"
           >
             <div class="w-8 h-8 rounded-full bg-rose-500/10 flex-shrink-0 flex items-center justify-center">
-              <UIcon name="i-heroicons-microphone" class="w-4 h-4 text-rose-400" />
+              <AppIcon name="microphone" class="w-4 h-4 text-rose-400" />
             </div>
             <div class="flex-1 min-w-0">
               <p class="text-sm font-medium text-(--ui-text)">Voice Notes</p>
@@ -870,7 +870,7 @@ onMounted(async () => {
                 {{ todayVoiceCount }} {{ todayVoiceCount === 1 ? 'recording' : 'recordings' }} today
               </p>
             </div>
-            <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-slate-600 flex-shrink-0" />
+            <AppIcon name="chevron-right" class="w-4 h-4 text-slate-600 flex-shrink-0" />
           </NuxtLink>
 
         </div>

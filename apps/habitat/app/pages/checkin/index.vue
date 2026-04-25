@@ -68,7 +68,7 @@ async function createTemplate() {
     <header class="flex items-center justify-between">
       <h2 class="text-2xl font-bold">Check-in</h2>
       <UButton
-        icon="i-heroicons-plus"
+        :icon="resolveIcon('plus')"
         variant="soft"
         color="neutral"
         size="sm"
@@ -81,7 +81,7 @@ async function createTemplate() {
 
     <!-- Loading -->
     <div v-if="loading" class="flex items-center justify-center py-12">
-      <UIcon name="i-heroicons-arrow-path" class="w-5 h-5 animate-spin text-slate-600" />
+      <AppIcon name="arrow-path" class="w-5 h-5 animate-spin text-slate-600" />
     </div>
 
     <!-- Template list -->
@@ -99,14 +99,14 @@ async function createTemplate() {
                 {{ checkinScheduleLabel(t) }}<span v-if="t.response_day_count"> · {{ t.response_day_count }} {{ t.response_day_count === 1 ? 'session' : 'sessions' }}</span>
               </p>
             </div>
-            <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-slate-600 flex-shrink-0" />
+            <AppIcon name="chevron-right" class="w-4 h-4 text-slate-600 flex-shrink-0" />
           </NuxtLink>
         </li>
       </ul>
 
       <EmptyState
         v-if="templates.length === 0"
-        icon="i-heroicons-pencil-square"
+        :icon="resolveIcon('pencil-square')"
         title="No check-ins yet"
         description="Create one to get started."
       />
@@ -116,7 +116,7 @@ async function createTemplate() {
     <AppModal v-model="showCreate">
         <div class="flex items-center justify-between">
           <h3 class="font-semibold text-(--ui-text)">New Check-in</h3>
-          <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" @click="showCreate = false" />
+          <UButton :icon="resolveIcon('x-mark')" variant="ghost" color="neutral" size="sm" @click="showCreate = false" />
         </div>
 
         <!-- Title -->
@@ -127,7 +127,7 @@ async function createTemplate() {
           @keydown.enter="createTemplate"
         />
         <p v-if="newTitleError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
-          <UIcon name="i-heroicons-exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
+          <AppIcon name="exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
           {{ newTitleError }}
         </p>
 

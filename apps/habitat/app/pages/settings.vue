@@ -2,12 +2,12 @@
 const route = useRoute()
 
 const SETTINGS_SECTIONS = [
-  { to: '/settings/display', label: 'Display', icon: 'i-heroicons-swatch' },
-  { to: '/settings/features', label: 'Features', icon: 'i-heroicons-squares-2x2' },
-  { to: '/settings/notifications', label: 'Notifications', icon: 'i-heroicons-bell' },
-  { to: '/settings/permissions', label: 'Permissions', icon: 'i-heroicons-shield-check' },
-  { to: '/settings/data', label: 'Data', icon: 'i-heroicons-circle-stack' },
-  { to: '/settings/more', label: 'More', icon: 'i-heroicons-ellipsis-horizontal-circle' },
+  { to: '/settings/display', label: 'Display', icon: resolveIcon('swatch') },
+  { to: '/settings/features', label: 'Features', icon: resolveIcon('squares-2x2') },
+  { to: '/settings/notifications', label: 'Notifications', icon: resolveIcon('bell') },
+  { to: '/settings/permissions', label: 'Permissions', icon: resolveIcon('shield-check') },
+  { to: '/settings/data', label: 'Data', icon: resolveIcon('circle-stack') },
+  { to: '/settings/more', label: 'More', icon: resolveIcon('ellipsis-horizontal-circle') },
 ]
 </script>
 
@@ -27,7 +27,7 @@ const SETTINGS_SECTIONS = [
             ? 'bg-(--ui-bg-elevated) text-(--ui-text)'
             : 'text-(--ui-text-muted) hover:text-(--ui-text-toned) hover:bg-(--ui-bg-muted)'"
         >
-          <UIcon :name="s.icon" class="w-4 h-4 shrink-0" />
+          <AppIcon :name="s.icon" class="w-4 h-4 shrink-0" />
           {{ s.label }}
         </NuxtLink>
         <p class="mt-4 px-3 text-[11px] text-(--ui-text-dimmed) leading-relaxed">

@@ -50,7 +50,7 @@ async function confirmHealthSetup() {
         type: 'NUMERIC',
         target_value: healthSetup.stepGoal,
         color: '#ef4444',
-        icon: 'i-heroicons-fire',
+        icon: resolveIcon('fire'),
         tags: ['habitat-health', 'habitat-steps'],
       })
     }
@@ -63,7 +63,7 @@ async function confirmHealthSetup() {
           type: 'LIMIT',
           target_value: meal.calories,
           color: '#f59e0b',
-          icon: 'i-heroicons-sparkles',
+          icon: resolveIcon('sparkles'),
           tags: ['habitat-health', 'habitat-meals'],
         })
       }
@@ -75,7 +75,7 @@ async function confirmHealthSetup() {
         type: 'NUMERIC',
         target_value: healthSetup.waterGoal,
         color: '#0ea5e9',
-        icon: 'i-heroicons-beaker',
+        icon: resolveIcon('beaker'),
         tags: ['habitat-health', 'habitat-water'],
       })
     }
@@ -86,7 +86,7 @@ async function confirmHealthSetup() {
         type: 'NUMERIC',
         target_value: healthSetup.sleepGoal,
         color: '#6366f1',
-        icon: 'i-heroicons-moon',
+        icon: resolveIcon('moon'),
         tags: ['habitat-health', 'habitat-sleep'],
       })
     }
@@ -101,7 +101,7 @@ async function confirmHealthSetup() {
   <div class="space-y-6">
     <header class="flex items-center gap-2 mb-4">
       <NuxtLink to="/settings" class="sm:hidden p-1 -ml-1 rounded-lg text-(--ui-text-muted) hover:text-(--ui-text) hover:bg-(--ui-bg-elevated) transition-colors">
-        <UIcon name="i-heroicons-chevron-left" class="w-5 h-5" />
+        <AppIcon name="chevron-left" class="w-5 h-5" />
       </NuxtLink>
       <h2 class="text-xl font-bold">Features</h2>
     </header>
@@ -320,11 +320,11 @@ async function confirmHealthSetup() {
                 />
                 <span class="text-xs text-(--ui-text-dimmed) shrink-0">kcal</span>
                 <button class="text-slate-700 hover:text-red-400 transition-colors shrink-0" @click="removeMeal(i)">
-                  <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
+                  <AppIcon name="x-mark" class="w-4 h-4" />
                 </button>
               </div>
               <button class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1 mt-1" @click="addMeal">
-                <UIcon name="i-heroicons-plus" class="w-3 h-3" /> Add meal
+                <AppIcon name="plus" class="w-3 h-3" /> Add meal
               </button>
             </div>
           </div>

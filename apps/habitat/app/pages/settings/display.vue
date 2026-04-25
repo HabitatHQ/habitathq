@@ -70,7 +70,7 @@ function resetTabOrder() {
   <div class="space-y-6">
     <header class="flex items-center gap-2 mb-4">
       <NuxtLink to="/settings" class="sm:hidden p-1 -ml-1 rounded-lg text-(--ui-text-muted) hover:text-(--ui-text) hover:bg-(--ui-bg-elevated) transition-colors">
-        <UIcon name="i-heroicons-chevron-left" class="w-5 h-5" />
+        <AppIcon name="chevron-left" class="w-5 h-5" />
       </NuxtLink>
       <h2 class="text-xl font-bold">Display</h2>
     </header>
@@ -237,10 +237,10 @@ function resetTabOrder() {
               aria-label="Drag to reorder"
               @pointerdown="(e: PointerEvent) => tabOrderContainerRef && onPointerDown(index, e, tabOrderContainerRef)"
             >
-              <UIcon name="i-heroicons-bars-3" class="w-4 h-4" />
+              <AppIcon name="bars-3" class="w-4 h-4" />
             </button>
             <!-- Tab icon + label -->
-            <UIcon :name="item.icon" class="w-5 h-5 text-(--ui-text-muted)" />
+            <AppIcon :name="item.icon" class="w-5 h-5 text-(--ui-text-muted)" />
             <span class="text-sm font-medium">{{ item.label }}</span>
           </div>
         </div>

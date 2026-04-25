@@ -323,12 +323,12 @@ onMounted(async () => {
 
     <!-- Loading -->
     <div v-if="loading" class="flex items-center justify-center py-12">
-      <UIcon name="i-heroicons-arrow-path" class="w-5 h-5 animate-spin text-slate-600" />
+      <AppIcon name="arrow-path" class="w-5 h-5 animate-spin text-slate-600" />
     </div>
 
     <!-- Not found -->
     <div v-else-if="!template" class="flex flex-col items-center gap-3 py-12 text-center">
-      <UIcon name="i-heroicons-exclamation-circle" class="w-8 h-8 text-slate-700" />
+      <AppIcon name="exclamation-circle" class="w-8 h-8 text-slate-700" />
       <p class="text-sm text-(--ui-text-dimmed)">Check-in not found.</p>
       <UButton variant="ghost" color="neutral" size="sm" to="/checkin">Go back</UButton>
     </div>
@@ -343,21 +343,21 @@ onMounted(async () => {
         </div>
         <div class="flex items-center gap-0.5 mt-1">
           <UButton
-            icon="i-heroicons-pencil-square"
+            :icon="resolveIcon('pencil-square')"
             variant="ghost"
             color="neutral"
             size="sm"
             @click="openEdit"
           />
           <UButton
-            icon="i-heroicons-chevron-left"
+            :icon="resolveIcon('chevron-left')"
             variant="ghost"
             color="neutral"
             size="sm"
             @click="prevDay"
           />
           <UButton
-            icon="i-heroicons-chevron-right"
+            :icon="resolveIcon('chevron-right')"
             variant="ghost"
             color="neutral"
             size="sm"
@@ -376,7 +376,7 @@ onMounted(async () => {
           v-if="questions.length === 0"
           class="flex flex-col items-center gap-3 py-8 text-center"
         >
-          <UIcon name="i-heroicons-plus-circle" class="w-7 h-7 text-slate-700" />
+          <AppIcon name="plus-circle" class="w-7 h-7 text-slate-700" />
           <p class="text-sm text-(--ui-text-dimmed)">No questions yet. Add one below.</p>
         </div>
 
@@ -393,7 +393,7 @@ onMounted(async () => {
               :disabled="deletingQuestion.has(q.id)"
               @click="deleteQuestion(q.id)"
             >
-              <UIcon name="i-heroicons-trash" class="w-3.5 h-3.5" />
+              <AppIcon name="trash" class="w-3.5 h-3.5" />
             </button>
           </div>
 
@@ -434,7 +434,7 @@ onMounted(async () => {
                 class="flex items-center gap-1 text-xs text-green-400 mt-1"
                 aria-live="polite"
               >
-                <UIcon name="i-heroicons-check" class="w-3 h-3" />
+                <AppIcon name="check" class="w-3 h-3" />
                 Saved
               </span>
             </Transition>
@@ -472,7 +472,7 @@ onMounted(async () => {
             size="xs"
             variant="ghost"
             color="neutral"
-            :icon="showAddQuestion ? 'i-heroicons-chevron-up' : 'i-heroicons-plus'"
+            :icon="resolveIcon(showAddQuestion ? 'chevron-up' : 'plus')"
             @click="showAddQuestion = !showAddQuestion"
           />
         </div>
@@ -523,7 +523,7 @@ onMounted(async () => {
             size="xs"
             variant="ghost"
             color="neutral"
-            :icon="showAddReminder ? 'i-heroicons-chevron-up' : 'i-heroicons-plus'"
+            :icon="resolveIcon(showAddReminder ? 'chevron-up' : 'plus')"
             @click="showAddReminder = !showAddReminder"
           />
         </div>
@@ -542,7 +542,7 @@ onMounted(async () => {
             :disabled="deletingReminder.has(r.id)"
             @click="removeReminder(r.id)"
           >
-            <UIcon name="i-heroicons-trash" class="w-4 h-4" />
+            <AppIcon name="trash" class="w-4 h-4" />
           </button>
         </div>
 
@@ -580,7 +580,7 @@ onMounted(async () => {
           variant="soft"
           color="error"
           size="sm"
-          icon="i-heroicons-trash"
+          :icon="resolveIcon('trash')"
           @click="showDeleteConfirm = true"
         >
           Delete check-in
@@ -593,7 +593,7 @@ onMounted(async () => {
     <AppModal v-model="showEdit">
         <div class="flex items-center justify-between">
           <h3 class="font-semibold text-(--ui-text)">Edit Check-in</h3>
-          <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" @click="showEdit = false" />
+          <UButton :icon="resolveIcon('x-mark')" variant="ghost" color="neutral" size="sm" @click="showEdit = false" />
         </div>
 
         <UInput v-model="editTitle" placeholder="Name" @keydown.enter="saveEdit" />
@@ -621,7 +621,7 @@ onMounted(async () => {
     <!-- ── Delete confirm ─────────────────────────────────────────────────── -->
     <ConfirmDialog
       :open="showDeleteConfirm"
-      icon="i-heroicons-trash"
+      icon="trash"
       icon-color="red"
       :title="`Delete &quot;${template?.title}&quot;?`"
       message="This will delete the check-in along with all its questions and responses. This cannot be undone."

@@ -217,7 +217,7 @@ onMounted(() => {
       v-if="!loading && habits.length === 0"
       class="flex flex-col items-center justify-center gap-4 py-8 text-center"
     >
-      <UIcon name="i-heroicons-table-cells" class="w-10 h-10 text-(--ui-text-dimmed) opacity-30" />
+      <AppIcon name="table-cells" class="w-10 h-10 text-(--ui-text-dimmed) opacity-30" />
       <div class="space-y-1">
         <p class="font-semibold text-(--ui-text)">No habits to display</p>
         <p class="text-sm text-(--ui-text-dimmed) max-w-xs">Create habits to see your completion history in this grid view.</p>
@@ -257,7 +257,7 @@ onMounted(() => {
               class="w-6 h-6 rounded-full shrink-0 flex items-center justify-center"
               :style="{ backgroundColor: habit.color + '33' }"
             >
-              <UIcon :name="habit.icon" class="w-3.5 h-3.5" :style="{ color: habit.color }" />
+              <AppIcon :name="habit.icon" :color="habit.color" class="w-3.5 h-3.5" />
             </div>
             <span class="text-xs font-medium text-(--ui-text) truncate">{{ habit.name }}</span>
           </div>
@@ -278,7 +278,7 @@ onMounted(() => {
               :disabled="toggling.has(`${habit.id}:${date}`)"
               @click="toggle(habit, date)"
             >
-              <UIcon v-if="isDone(habit, date)" name="i-heroicons-check" class="w-3.5 h-3.5 text-white" />
+              <AppIcon v-if="isDone(habit, date)" name="check" class="w-3.5 h-3.5 text-white" />
             </button>
 
             <!-- NUMERIC / LIMIT -->
@@ -333,7 +333,7 @@ onMounted(() => {
             class="w-7 h-7 rounded-full shrink-0 flex items-center justify-center"
             :style="{ backgroundColor: cellEdit.habit.color + '33' }"
           >
-            <UIcon :name="cellEdit.habit.icon" class="w-4 h-4" :style="{ color: cellEdit.habit.color }" />
+            <AppIcon :name="cellEdit.habit.icon" :color="cellEdit.habit.color" class="w-4 h-4" />
           </div>
           <div class="flex-1 min-w-0">
             <p class="text-sm font-semibold text-(--ui-text) truncate">{{ cellEdit.habit.name }}</p>
@@ -346,7 +346,7 @@ onMounted(() => {
             </p>
           </div>
           <button class="p-2 text-(--ui-text-dimmed) hover:text-(--ui-text-toned) transition-colors" @click="cellEdit = null">
-            <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
+            <AppIcon name="x-mark" class="w-5 h-5" />
           </button>
         </div>
 
@@ -371,7 +371,7 @@ onMounted(() => {
             :disabled="savingCell"
             @click="saveCell"
           >
-            <UIcon name="i-heroicons-check" class="w-5 h-5 text-white" />
+            <AppIcon name="check" class="w-5 h-5 text-white" />
           </button>
         </div>
 

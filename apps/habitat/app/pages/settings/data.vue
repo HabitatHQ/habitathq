@@ -474,7 +474,7 @@ async function nukeOpfs(reload: boolean) {
   <div class="space-y-6">
     <header class="flex items-center gap-2 mb-4">
       <NuxtLink to="/settings" class="sm:hidden p-1 -ml-1 rounded-lg text-(--ui-text-muted) hover:text-(--ui-text) hover:bg-(--ui-bg-elevated) transition-colors">
-        <UIcon name="i-heroicons-chevron-left" class="w-5 h-5" />
+        <AppIcon name="chevron-left" class="w-5 h-5" />
       </NuxtLink>
       <h2 class="text-xl font-bold">Data</h2>
     </header>
@@ -489,7 +489,7 @@ async function nukeOpfs(reload: boolean) {
             <p class="text-xs text-(--ui-text-dimmed)">Download selected data as a versioned JSON file.</p>
           </div>
           <UButton
-            icon="i-heroicons-arrow-down-tray"
+            :icon="resolveIcon('arrow-down-tray')"
             variant="ghost"
             color="neutral"
             size="sm"
@@ -504,7 +504,7 @@ async function nukeOpfs(reload: boolean) {
           </div>
           <input ref="importInput" type="file" accept=".json" class="hidden" @change="onImportFileSelected" />
           <UButton
-            icon="i-heroicons-arrow-up-tray"
+            :icon="resolveIcon('arrow-up-tray')"
             variant="ghost"
             color="neutral"
             size="sm"
@@ -518,7 +518,7 @@ async function nukeOpfs(reload: boolean) {
             <p class="text-xs text-(--ui-text-dimmed)">Download the raw <span class="font-mono">.sqlite3</span> database file.</p>
           </div>
           <UButton
-            icon="i-heroicons-circle-stack"
+            :icon="resolveIcon('circle-stack')"
             variant="ghost"
             color="neutral"
             size="sm"
@@ -533,7 +533,7 @@ async function nukeOpfs(reload: boolean) {
             <p class="text-xs text-(--ui-text-dimmed)">Download text notes, voice recordings, and images as a <span class="font-mono">.zip</span>.</p>
           </div>
           <UButton
-            icon="i-heroicons-document-text"
+            :icon="resolveIcon('document-text')"
             variant="ghost"
             color="neutral"
             size="sm"
@@ -555,7 +555,7 @@ async function nukeOpfs(reload: boolean) {
           </div>
           <span class="shrink-0">
             <UButton
-              icon="i-heroicons-trash"
+              :icon="resolveIcon('trash')"
               variant="ghost" color="error" size="sm"
               @click="showClearModal = true"
             />
@@ -569,7 +569,7 @@ async function nukeOpfs(reload: boolean) {
           </div>
           <span class="shrink-0">
             <UButton
-              icon="i-heroicons-fire"
+              :icon="resolveIcon('fire')"
               variant="ghost" color="error" size="sm"
               @click="showNukeModal = true"
             />
@@ -585,7 +585,7 @@ async function nukeOpfs(reload: boolean) {
         <div class="p-5 space-y-4">
           <div class="flex items-center justify-between">
             <h3 class="font-semibold text-(--ui-text)">Export data</h3>
-            <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" @click="showExportModal = false" />
+            <UButton :icon="resolveIcon('x-mark')" variant="ghost" color="neutral" size="sm" @click="showExportModal = false" />
           </div>
 
           <label class="flex items-center gap-2.5 cursor-pointer">
@@ -621,7 +621,7 @@ async function nukeOpfs(reload: boolean) {
               :key="err"
               class="text-xs text-red-400 flex items-center gap-1.5"
             >
-              <UIcon name="i-heroicons-exclamation-circle" class="w-3.5 h-3.5 shrink-0" />
+              <AppIcon name="exclamation-circle" class="w-3.5 h-3.5 shrink-0" />
               {{ err }}
             </li>
           </ul>
@@ -630,7 +630,7 @@ async function nukeOpfs(reload: boolean) {
             <UButton variant="ghost" color="neutral" size="sm" @click="showExportModal = false">Cancel</UButton>
             <UButton
               size="sm"
-              icon="i-heroicons-arrow-down-tray"
+              :icon="resolveIcon('arrow-down-tray')"
               :loading="exporting"
               :disabled="exportNoneSelected"
               @click="downloadJson"
@@ -648,7 +648,7 @@ async function nukeOpfs(reload: boolean) {
         <div class="p-5 space-y-4">
           <div class="flex items-center justify-between">
             <h3 class="font-semibold text-(--ui-text)">Export Jots</h3>
-            <UButton icon="i-heroicons-x-mark" variant="ghost" color="neutral" size="sm" @click="showJotsExportModal = false" />
+            <UButton :icon="resolveIcon('x-mark')" variant="ghost" color="neutral" size="sm" @click="showJotsExportModal = false" />
           </div>
 
           <p class="text-sm text-(--ui-text-muted)">Choose which types to include. All selected types are bundled into a single <span class="font-mono">.zip</span>.</p>
@@ -680,7 +680,7 @@ async function nukeOpfs(reload: boolean) {
           <div class="flex gap-2 pt-1">
             <UButton
               class="flex-1"
-              icon="i-heroicons-arrow-down-tray"
+              :icon="resolveIcon('arrow-down-tray')"
               :loading="exportingJots"
               :disabled="!jotsExportSel.text && !jotsExportSel.voice && !jotsExportSel.images"
               @click="exportJotsZip"
@@ -699,7 +699,7 @@ async function nukeOpfs(reload: boolean) {
         <div v-if="importError" class="p-5 space-y-4">
           <div class="flex items-start gap-3">
             <div class="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0">
-              <UIcon name="i-heroicons-exclamation-circle" class="w-5 h-5 text-red-400" />
+              <AppIcon name="exclamation-circle" class="w-5 h-5 text-red-400" />
             </div>
             <div class="space-y-1">
               <p class="font-semibold">Cannot import</p>
@@ -714,7 +714,7 @@ async function nukeOpfs(reload: boolean) {
         <div v-else-if="importDone" class="p-5 space-y-4">
           <div class="flex items-start gap-3">
             <div class="w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center flex-shrink-0">
-              <UIcon name="i-heroicons-check-circle" class="w-5 h-5 text-green-400" />
+              <AppIcon name="check-circle" class="w-5 h-5 text-green-400" />
             </div>
             <div class="space-y-1">
               <p class="font-semibold">Import complete</p>
@@ -729,7 +729,7 @@ async function nukeOpfs(reload: boolean) {
         <div v-else-if="importPreview" class="p-5 space-y-4">
           <div class="flex items-start gap-3">
             <div class="w-10 h-10 rounded-full bg-primary-500/10 flex items-center justify-center flex-shrink-0">
-              <UIcon name="i-heroicons-arrow-up-tray" class="w-5 h-5 text-primary-400" />
+              <AppIcon name="arrow-up-tray" class="w-5 h-5 text-primary-400" />
             </div>
             <div class="space-y-1">
               <p class="font-semibold">Import data?</p>
@@ -768,7 +768,7 @@ async function nukeOpfs(reload: boolean) {
         <div class="p-5 space-y-4">
           <div class="flex items-start gap-3">
             <div class="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0">
-              <UIcon name="i-heroicons-exclamation-triangle" class="w-5 h-5 text-red-400" />
+              <AppIcon name="exclamation-triangle" class="w-5 h-5 text-red-400" />
             </div>
             <div class="space-y-1">
               <p class="font-semibold">Clear app data?</p>
@@ -815,7 +815,7 @@ async function nukeOpfs(reload: boolean) {
         <div v-if="wiped" class="p-5 space-y-4">
           <div class="flex items-start gap-3">
             <div class="w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center flex-shrink-0">
-              <UIcon name="i-heroicons-check-circle" class="w-5 h-5 text-green-400" />
+              <AppIcon name="check-circle" class="w-5 h-5 text-green-400" />
             </div>
             <div class="space-y-1">
               <p class="font-semibold">All data wiped</p>
@@ -827,7 +827,7 @@ async function nukeOpfs(reload: boolean) {
         <div v-else class="p-5 space-y-4">
           <div class="flex items-start gap-3">
             <div class="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0">
-              <UIcon name="i-heroicons-fire" class="w-5 h-5 text-red-400" />
+              <AppIcon name="fire" class="w-5 h-5 text-red-400" />
             </div>
             <div class="space-y-1">
               <p class="font-semibold">Wipe OPFS storage?</p>

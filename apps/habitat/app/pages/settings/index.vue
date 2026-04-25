@@ -3,37 +3,37 @@ const SETTINGS_SECTIONS = [
   {
     to: '/settings/display',
     label: 'Display',
-    icon: 'i-heroicons-swatch',
+    icon: resolveIcon('swatch'),
     description: 'Theme, color mode, layout options',
   },
   {
     to: '/settings/features',
     label: 'Features',
-    icon: 'i-heroicons-squares-2x2',
+    icon: resolveIcon('squares-2x2'),
     description: 'Feature flags and Pomodoro config',
   },
   {
     to: '/settings/notifications',
     label: 'Notifications',
-    icon: 'i-heroicons-bell',
+    icon: resolveIcon('bell'),
     description: 'Reminders, test notification, log',
   },
   {
     to: '/settings/permissions',
     label: 'Permissions',
-    icon: 'i-heroicons-shield-check',
+    icon: resolveIcon('shield-check'),
     description: 'Install, media, battery, storage',
   },
   {
     to: '/settings/data',
     label: 'Data',
-    icon: 'i-heroicons-circle-stack',
+    icon: resolveIcon('circle-stack'),
     description: 'Export, import, and clear data',
   },
   {
     to: '/settings/more',
     label: 'More',
-    icon: 'i-heroicons-ellipsis-horizontal-circle',
+    icon: resolveIcon('ellipsis-horizontal-circle'),
     description: 'About, diagnostics, danger zone',
   },
 ]
@@ -65,7 +65,7 @@ onMounted(() => {
     <UInput
       v-model="search"
       placeholder="Search settings…"
-      icon="i-heroicons-magnifying-glass"
+      :icon="resolveIcon('magnifying-glass')"
       class="sm:hidden"
     />
 
@@ -77,13 +77,13 @@ onMounted(() => {
         class="flex items-center gap-3 px-4 py-3.5 rounded-2xl bg-(--ui-bg-elevated) hover:bg-(--ui-bg-accented) transition-colors"
       >
         <div class="w-9 h-9 rounded-xl bg-(--ui-bg) flex items-center justify-center shrink-0">
-          <UIcon :name="s.icon" class="w-4.5 h-4.5 text-(--ui-text-muted)" />
+          <AppIcon :name="s.icon" class="w-4.5 h-4.5 text-(--ui-text-muted)" />
         </div>
         <div class="flex-1 min-w-0">
           <p class="text-sm font-medium text-(--ui-text)">{{ s.label }}</p>
           <p class="text-xs text-(--ui-text-dimmed) truncate">{{ s.description }}</p>
         </div>
-        <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-(--ui-text-dimmed) shrink-0" />
+        <AppIcon name="chevron-right" class="w-4 h-4 text-(--ui-text-dimmed) shrink-0" />
       </NuxtLink>
     </nav>
 

@@ -4,6 +4,7 @@ import { ref } from 'vue'
 
 // Stub Nuxt auto-imports used by JotsRing
 vi.stubGlobal('useAppSettings', () => ({ settings: ref({ reduceMotion: false }) }))
+vi.stubGlobal('resolveIcon', (name: string) => `i-heroicons-${name}`)
 
 import JotsRing from '~/components/JotsRing.vue'
 
@@ -20,14 +21,14 @@ describe('JotsRing', () => {
 
   it('renders three ring-node buttons in default mode', () => {
     const wrapper = mount(JotsRing, {
-      global: { stubs: { UIcon: true } },
+      global: { stubs: { AppIcon: true } },
     })
     expect(wrapper.findAll('button.jots-ring-node')).toHaveLength(3)
   })
 
   it('emits select with "text" when the text node is clicked', async () => {
     const wrapper = mount(JotsRing, {
-      global: { stubs: { UIcon: true } },
+      global: { stubs: { AppIcon: true } },
     })
     await wrapper.find('button[data-jot-type="text"]').trigger('click')
     expect(wrapper.emitted('select')).toBeTruthy()
@@ -36,7 +37,7 @@ describe('JotsRing', () => {
 
   it('emits select with "voice" when the voice node is clicked', async () => {
     const wrapper = mount(JotsRing, {
-      global: { stubs: { UIcon: true } },
+      global: { stubs: { AppIcon: true } },
     })
     await wrapper.find('button[data-jot-type="voice"]').trigger('click')
     expect(wrapper.emitted('select')![0]).toEqual(['voice'])
@@ -44,7 +45,7 @@ describe('JotsRing', () => {
 
   it('emits select with "image" when the image node is clicked', async () => {
     const wrapper = mount(JotsRing, {
-      global: { stubs: { UIcon: true } },
+      global: { stubs: { AppIcon: true } },
     })
     await wrapper.find('button[data-jot-type="image"]').trigger('click')
     expect(wrapper.emitted('select')![0]).toEqual(['image'])
@@ -53,7 +54,7 @@ describe('JotsRing', () => {
   it('renders compact mode with three buttons', () => {
     const wrapper = mount(JotsRing, {
       props: { compact: true },
-      global: { stubs: { UIcon: true } },
+      global: { stubs: { AppIcon: true } },
     })
     expect(wrapper.findAll('button')).toHaveLength(3)
   })
@@ -61,7 +62,7 @@ describe('JotsRing', () => {
   it('emits select from compact mode', async () => {
     const wrapper = mount(JotsRing, {
       props: { compact: true },
-      global: { stubs: { UIcon: true } },
+      global: { stubs: { AppIcon: true } },
     })
     await wrapper.find('button[data-jot-type="text"]').trigger('click')
     expect(wrapper.emitted('select')![0]).toEqual(['text'])
