@@ -73,7 +73,7 @@ const form = reactive({
   due_time: '',
 })
 
-const { tagInput, addTag, removeTag, onTagKeydown } = useTagInput(form.tags)
+const { tagInput, removeTag, onTagKeydown } = useTagInput(form.tags)
 const annotationEntries = ref<{ key: string; value: string }[]>([])
 const showAnnotations = ref(false)
 

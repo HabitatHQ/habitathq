@@ -303,6 +303,20 @@ await (async () => {
           'CREATE INDEX IF NOT EXISTS idx_todos_due_date ON todos(due_date)',
           'CREATE INDEX IF NOT EXISTS idx_todos_is_done ON todos(is_done)',
         ],
+        12: [
+          'ALTER TABLE checkin_templates ADD COLUMN archived_at TEXT',
+          'ALTER TABLE checkin_questions ADD COLUMN archived_at TEXT',
+        ],
+        13: [
+          `CREATE TABLE IF NOT EXISTS checkin_completions (
+            id TEXT PRIMARY KEY,
+            template_id TEXT NOT NULL REFERENCES checkin_templates(id) ON DELETE CASCADE,
+            date TEXT NOT NULL,
+            completed_at TEXT NOT NULL,
+            UNIQUE(template_id, date)
+          )`,
+          'CREATE INDEX IF NOT EXISTS idx_checkin_completions_date ON checkin_completions(date)',
+        ],
       }
 
       for (let v = userVersion + 1; v in migrations; v++) {
@@ -314,7 +328,7 @@ await (async () => {
       }
 
       // Ensure fresh installs (user_version = 0) are stamped at the current baseline.
-      if (userVersion === 0) db.exec('PRAGMA user_version = 11')
+      if (userVersion === 0) db.exec('PRAGMA user_version = 13')
     }
 
     runMigrations()
@@ -331,7 +345,7 @@ await (async () => {
         title: string,
         schedule_type: string,
         days_active: number[] | null,
-        qs: Omit<CheckinQuestion, 'id' | 'template_id'>[],
+        qs: Omit<CheckinQuestion, 'id' | 'template_id' | 'archived_at'>[],
       ): void {
         const tid = crypto.randomUUID()
         exec(
@@ -352,22 +366,41 @@ await (async () => {
           apply: () =>
             insertTemplate('Morning Check-in', 'DAILY', null, [
               { prompt: 'How did you sleep?', response_type: 'SCALE', display_order: 0 },
+              { prompt: 'What did you dream about?', response_type: 'TEXT', display_order: 1 },
               {
                 prompt: 'How is your energy level right now?',
                 response_type: 'SCALE',
-                display_order: 1,
+                display_order: 2,
               },
               {
                 prompt: "What's your main intention for today?",
                 response_type: 'TEXT',
-                display_order: 2,
+                display_order: 3,
               },
               {
                 prompt: 'Are you feeling anxious or stressed?',
                 response_type: 'BOOLEAN',
-                display_order: 3,
+                display_order: 4,
               },
             ]),
+        },
+        {
+          key: 'checkin_template:morning_dream_update',
+          apply: () => {
+            const rows = queryRaw("SELECT id FROM checkin_templates WHERE title = 'Morning Check-in' AND archived_at IS NULL")
+            for (const t of rows) {
+              const qs = queryRaw('SELECT id, prompt FROM checkin_questions WHERE template_id = ?', [t['id']])
+              if (!qs.some((q) => q['prompt'] === 'What did you dream about?')) {
+                // Shift existing orders
+                exec('UPDATE checkin_questions SET display_order = display_order + 1 WHERE template_id = ? AND display_order >= 1', [t['id']])
+                // Insert new question
+                exec(
+                  'INSERT INTO checkin_questions (id, template_id, prompt, response_type, display_order) VALUES (?,?,?,?,?)',
+                  [crypto.randomUUID(), t['id'], 'What did you dream about?', 'TEXT', 1],
+                )
+              }
+            }
+          },
         },
         {
           key: 'checkin_template:evening_reflection',
@@ -863,6 +896,12 @@ await (async () => {
           case 'DELETE_CHECKIN_RESPONSE':
             result = await shared.deleteCheckinResponse(adapter, req.payload.id)
             break
+          case 'TOGGLE_CHECKIN_COMPLETION':
+            result = await shared.toggleCheckinCompletion(adapter, req.payload.template_id, req.payload.date)
+            break
+          case 'GET_CHECKIN_COMPLETIONS_FOR_DATE':
+            result = await shared.getCheckinCompletionsForDate(adapter, req.payload.date)
+            break
           case 'GET_SCRIBBLES':
             result = await shared.getScribbles(adapter)
             break
@@ -914,6 +953,14 @@ await (async () => {
             break
           case 'GET_CHECKIN_RESPONSE_DATES':
             result = await shared.getCheckinResponseDates(adapter)
+            break
+          case 'GET_CHECKIN_HISTORY':
+            result = await shared.getCheckinHistory(
+              adapter,
+              req.payload.from,
+              req.payload.to,
+              req.payload.template_id,
+            )
             break
           case 'GET_CHECKIN_SUMMARY_FOR_DATE':
             result = await shared.getCheckinSummaryForDate(adapter, req.payload.date)
@@ -992,11 +1039,9 @@ await (async () => {
             result = await shared.searchGlobal(adapter, req.payload.query)
             break
           case 'NUKE_OPFS': {
-            // Close DB to release all OPFS sync-access handles, then wipe every
-            // entry in the OPFS root (the SAH pool directory lives there).
-            db.close()
             const root = await navigator.storage.getDirectory()
-            for await (const [name] of root.entries()) {
+            // @ts-ignore - Conflict between lib.dom and lib.esnext.disposable across tools
+            for await (const [name] of root) {
               await root.removeEntry(name, { recursive: true }).catch(() => {})
             }
             result = null

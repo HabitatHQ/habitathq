@@ -19,7 +19,7 @@ function isMotionReduced(): boolean {
 async function startLogoAnim() {
   logoAnimating.value = false
   await nextTick()
-  void logoSvgRef.value?.offsetWidth
+  void logoSvgRef.value?.getBoundingClientRect()
   logoAnimating.value = true
 }
 

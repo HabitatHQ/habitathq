@@ -63,8 +63,10 @@ export interface CheckinTemplate {
   title: string
   schedule_type: 'DAILY' | 'WEEKLY' | 'MONTHLY'
   days_active: number[] | null
+  archived_at: string | null
   /** Number of distinct days with at least one response. Added by GET_CHECKIN_TEMPLATES subquery. */
   response_day_count?: number
+  question_count?: number
 }
 
 export interface CheckinQuestion {
@@ -73,12 +75,33 @@ export interface CheckinQuestion {
   prompt: string
   response_type: 'SCALE' | 'TEXT' | 'BOOLEAN'
   display_order: number
+  archived_at: string | null
 }
 
 export interface CheckinResponse {
   id: string
   question_id: string
   logged_date: string // YYYY-MM-DD
+  value_numeric: number | null
+  value_text: string | null
+}
+
+export interface CheckinCompletion {
+  id: string
+  template_id: string
+  date: string // YYYY-MM-DD
+  completed_at: string // ISO timestamp
+}
+
+export interface CheckinHistoryRow {
+  template_id: string
+  template_title: string
+  schedule_type: string
+  question_id: string
+  prompt: string
+  response_type: 'SCALE' | 'TEXT' | 'BOOLEAN'
+  display_order: number
+  logged_date: string
   value_numeric: number | null
   value_text: string | null
 }
@@ -215,7 +238,7 @@ export type WorkerRequest =
   | { id: string; type: 'DELETE_CHECKIN_ENTRY'; payload: { id: string } }
   | { id: string; type: 'GET_CHECKIN_ENTRIES'; payload: { from: string; to: string } }
   | { id: string; type: 'GET_CHECKIN_TEMPLATES' }
-  | { id: string; type: 'CREATE_CHECKIN_TEMPLATE'; payload: Omit<CheckinTemplate, 'id'> }
+  | { id: string; type: 'CREATE_CHECKIN_TEMPLATE'; payload: Omit<CheckinTemplate, 'id' | 'archived_at' | 'response_day_count' | 'question_count'> }
   | {
       id: string
       type: 'UPDATE_CHECKIN_TEMPLATE'
@@ -223,7 +246,7 @@ export type WorkerRequest =
     }
   | { id: string; type: 'DELETE_CHECKIN_TEMPLATE'; payload: { id: string } }
   | { id: string; type: 'GET_CHECKIN_QUESTIONS'; payload: { template_id: string } }
-  | { id: string; type: 'CREATE_CHECKIN_QUESTION'; payload: Omit<CheckinQuestion, 'id'> }
+  | { id: string; type: 'CREATE_CHECKIN_QUESTION'; payload: Omit<CheckinQuestion, 'id' | 'archived_at'> }
   | {
       id: string
       type: 'UPDATE_CHECKIN_QUESTION'
@@ -242,6 +265,12 @@ export type WorkerRequest =
       }
     }
   | { id: string; type: 'DELETE_CHECKIN_RESPONSE'; payload: { id: string } }
+  | {
+      id: string
+      type: 'TOGGLE_CHECKIN_COMPLETION'
+      payload: { template_id: string; date: string }
+    }
+  | { id: string; type: 'GET_CHECKIN_COMPLETIONS_FOR_DATE'; payload: { date: string } }
   | { id: string; type: 'GET_SCRIBBLES' }
   | {
       id: string
@@ -264,6 +293,11 @@ export type WorkerRequest =
   | { id: string; type: 'DELETE_CHECKIN_REMINDER'; payload: { id: string } }
   | { id: string; type: 'GET_CHECKIN_TEMPLATE'; payload: { id: string } }
   | { id: string; type: 'GET_CHECKIN_RESPONSE_DATES' }
+  | {
+      id: string
+      type: 'GET_CHECKIN_HISTORY'
+      payload: { from: string; to: string; template_id?: string }
+    }
   | { id: string; type: 'PAUSE_ALL_HABITS'; payload: { until: string | null } }
   | { id: string; type: 'EXPORT_JSON_DATA'; payload: ExportSelection }
   | { id: string; type: 'IMPORT_JSON'; payload: HabitatExport }
@@ -327,6 +361,7 @@ export interface CheckinDaySummary {
   template_id: string
   title: string
   response_count: number
+  is_completed: boolean
 }
 
 export interface DbInfo {

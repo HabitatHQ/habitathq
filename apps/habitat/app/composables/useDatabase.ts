@@ -5,6 +5,8 @@ import type {
   BoredOracleResult,
   CheckinDaySummary,
   CheckinEntry,
+  CheckinCompletion,
+  CheckinHistoryRow,
   CheckinQuestion,
   CheckinReminder,
   CheckinResponse,
@@ -90,7 +92,7 @@ export function useDatabase() {
       sendToWorker({ type: 'GET_CHECKIN_ENTRIES', payload: { from, to } }),
     getCheckinTemplates: (): Promise<CheckinTemplate[]> =>
       sendToWorker({ type: 'GET_CHECKIN_TEMPLATES' }),
-    createCheckinTemplate: (p: Omit<CheckinTemplate, 'id'>): Promise<CheckinTemplate> =>
+    createCheckinTemplate: (p: Omit<CheckinTemplate, 'id' | 'archived_at' | 'response_day_count' | 'question_count'>): Promise<CheckinTemplate> =>
       sendToWorker({ type: 'CREATE_CHECKIN_TEMPLATE', payload: p }),
     updateCheckinTemplate: (
       p: Partial<CheckinTemplate> & { id: string },
@@ -99,7 +101,7 @@ export function useDatabase() {
       sendToWorker({ type: 'DELETE_CHECKIN_TEMPLATE', payload: { id } }),
     getCheckinQuestions: (template_id: string): Promise<CheckinQuestion[]> =>
       sendToWorker({ type: 'GET_CHECKIN_QUESTIONS', payload: { template_id } }),
-    createCheckinQuestion: (p: Omit<CheckinQuestion, 'id'>): Promise<CheckinQuestion> =>
+    createCheckinQuestion: (p: Omit<CheckinQuestion, 'id' | 'archived_at'>): Promise<CheckinQuestion> =>
       sendToWorker({ type: 'CREATE_CHECKIN_QUESTION', payload: p }),
     updateCheckinQuestion: (
       p: Partial<CheckinQuestion> & { id: string },
@@ -120,6 +122,10 @@ export function useDatabase() {
       }),
     deleteCheckinResponse: (id: string): Promise<null> =>
       sendToWorker({ type: 'DELETE_CHECKIN_RESPONSE', payload: { id } }),
+    toggleCheckinCompletion: (template_id: string, date: string): Promise<void> =>
+      sendToWorker({ type: 'TOGGLE_CHECKIN_COMPLETION', payload: { template_id, date } }),
+    getCheckinCompletionsForDate: (date: string): Promise<CheckinCompletion[]> =>
+      sendToWorker({ type: 'GET_CHECKIN_COMPLETIONS_FOR_DATE', payload: { date } }),
     getScribbles: (): Promise<Scribble[]> => sendToWorker({ type: 'GET_SCRIBBLES' }),
     createScribble: (p: Omit<Scribble, 'id' | 'created_at' | 'updated_at'>): Promise<Scribble> =>
       sendToWorker({ type: 'CREATE_SCRIBBLE', payload: p }),
@@ -157,6 +163,15 @@ export function useDatabase() {
       sendToWorker({ type: 'GET_CHECKIN_TEMPLATE', payload: { id } }),
     getCheckinResponseDates: (): Promise<Array<{ date: string; count: number }>> =>
       sendToWorker({ type: 'GET_CHECKIN_RESPONSE_DATES' }),
+    getCheckinHistory: (
+      from: string,
+      to: string,
+      template_id?: string,
+    ): Promise<CheckinHistoryRow[]> =>
+      sendToWorker({
+        type: 'GET_CHECKIN_HISTORY',
+        payload: { from, to, ...(template_id !== undefined ? { template_id } : {}) },
+      }),
     exportJsonData: (sel: ExportSelection): Promise<HabitatExport> =>
       sendToWorker({ type: 'EXPORT_JSON_DATA', payload: sel }),
     importJson: (data: HabitatExport): Promise<null> =>
