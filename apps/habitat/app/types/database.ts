@@ -86,6 +86,13 @@ export interface CheckinResponse {
   value_text: string | null
 }
 
+export interface CheckinCompletion {
+  id: string
+  template_id: string
+  date: string // YYYY-MM-DD
+  completed_at: string // ISO timestamp
+}
+
 export interface CheckinHistoryRow {
   template_id: string
   template_title: string
@@ -258,6 +265,12 @@ export type WorkerRequest =
       }
     }
   | { id: string; type: 'DELETE_CHECKIN_RESPONSE'; payload: { id: string } }
+  | {
+      id: string
+      type: 'TOGGLE_CHECKIN_COMPLETION'
+      payload: { template_id: string; date: string }
+    }
+  | { id: string; type: 'GET_CHECKIN_COMPLETIONS_FOR_DATE'; payload: { date: string } }
   | { id: string; type: 'GET_SCRIBBLES' }
   | {
       id: string
@@ -348,6 +361,7 @@ export interface CheckinDaySummary {
   template_id: string
   title: string
   response_count: number
+  is_completed: boolean
 }
 
 export interface DbInfo {

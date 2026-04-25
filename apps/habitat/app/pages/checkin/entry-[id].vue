@@ -129,7 +129,10 @@ onUnmounted(() => {
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
 
-function handleDone() {
+async function handleDone() {
+  if (template.value) {
+    await db.toggleCheckinCompletion(template.value.id, dateKey.value)
+  }
   void notification('success')
   router.back()
 }

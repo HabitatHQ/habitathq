@@ -30,6 +30,7 @@ import type {
   BoredOracleResult,
   CheckinDaySummary,
   CheckinEntry,
+  CheckinCompletion,
   CheckinHistoryRow,
   CheckinQuestion,
   CheckinReminder,
@@ -576,19 +577,62 @@ export async function getCheckinSummaryForDate(
   date: string,
 ): Promise<CheckinDaySummary[]> {
   const rows = await db.queryAll<Record<string, unknown>>(
-    `SELECT ct.id as template_id, ct.title, COUNT(cr.id) as response_count
+    `SELECT 
+       ct.id as template_id, 
+       ct.title, 
+       (SELECT COUNT(*) 
+        FROM checkin_responses cr 
+        JOIN checkin_questions cq ON cq.id = cr.question_id 
+        WHERE cq.template_id = ct.id AND cr.logged_date = ?) as response_count,
+       EXISTS(SELECT 1 FROM checkin_completions WHERE template_id = ct.id AND date = ?) as is_completed
      FROM checkin_templates ct
-     JOIN checkin_questions cq ON cq.template_id = ct.id
-     JOIN checkin_responses cr ON cr.question_id = cq.id
-     WHERE cr.logged_date = ? AND ct.archived_at IS NULL AND cq.archived_at IS NULL
-     GROUP BY ct.id, ct.title
+     WHERE ct.archived_at IS NULL
      ORDER BY ct.title`,
-    [date],
+    [date, date],
   )
   return rows.map((r) => ({
     template_id: r['template_id'] as string,
     title: r['title'] as string,
     response_count: r['response_count'] as number,
+    is_completed: !!r['is_completed'],
+  }))
+}
+
+export async function toggleCheckinCompletion(
+  db: DbAdapter,
+  template_id: string,
+  date: string,
+): Promise<void> {
+  const existing = await db.queryOne<Record<string, unknown>>(
+    'SELECT id FROM checkin_completions WHERE template_id = ? AND date = ?',
+    [template_id, date],
+  )
+  if (existing) {
+    await db.exec('DELETE FROM checkin_completions WHERE template_id = ? AND date = ?', [
+      template_id,
+      date,
+    ])
+  } else {
+    await db.exec(
+      'INSERT INTO checkin_completions (id, template_id, date, completed_at) VALUES (?,?,?,?)',
+      [crypto.randomUUID(), template_id, date, new Date().toISOString()],
+    )
+  }
+}
+
+export async function getCheckinCompletionsForDate(
+  db: DbAdapter,
+  date: string,
+): Promise<CheckinCompletion[]> {
+  const rows = await db.queryAll<Record<string, unknown>>(
+    'SELECT * FROM checkin_completions WHERE date = ?',
+    [date],
+  )
+  return rows.map((r) => ({
+    id: r['id'] as string,
+    template_id: r['template_id'] as string,
+    date: r['date'] as string,
+    completed_at: r['completed_at'] as string,
   }))
 }
 
@@ -596,9 +640,16 @@ export async function getCheckinResponseDates(
   db: DbAdapter,
 ): Promise<Array<{ date: string; count: number }>> {
   const rows = await db.queryAll<Record<string, unknown>>(
-    'SELECT logged_date as date, COUNT(*) as count FROM checkin_responses GROUP BY logged_date ORDER BY logged_date DESC',
+    `SELECT date, SUM(cnt) as count FROM (
+      SELECT logged_date as date, COUNT(*) as cnt FROM checkin_responses GROUP BY logged_date
+      UNION ALL
+      SELECT date, COUNT(*) as cnt FROM checkin_completions GROUP BY date
+    ) GROUP BY date ORDER BY date DESC`,
   )
-  return rows.map((r) => ({ date: r['date'] as string, count: r['count'] as number }))
+  return rows.map((r) => ({
+    date: r['date'] as string,
+    count: r['count'] as number,
+  }))
 }
 
 export async function getCheckinHistory(

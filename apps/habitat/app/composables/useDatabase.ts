@@ -5,6 +5,7 @@ import type {
   BoredOracleResult,
   CheckinDaySummary,
   CheckinEntry,
+  CheckinCompletion,
   CheckinHistoryRow,
   CheckinQuestion,
   CheckinReminder,
@@ -121,6 +122,10 @@ export function useDatabase() {
       }),
     deleteCheckinResponse: (id: string): Promise<null> =>
       sendToWorker({ type: 'DELETE_CHECKIN_RESPONSE', payload: { id } }),
+    toggleCheckinCompletion: (template_id: string, date: string): Promise<void> =>
+      sendToWorker({ type: 'TOGGLE_CHECKIN_COMPLETION', payload: { template_id, date } }),
+    getCheckinCompletionsForDate: (date: string): Promise<CheckinCompletion[]> =>
+      sendToWorker({ type: 'GET_CHECKIN_COMPLETIONS_FOR_DATE', payload: { date } }),
     getScribbles: (): Promise<Scribble[]> => sendToWorker({ type: 'GET_SCRIBBLES' }),
     createScribble: (p: Omit<Scribble, 'id' | 'created_at' | 'updated_at'>): Promise<Scribble> =>
       sendToWorker({ type: 'CREATE_SCRIBBLE', payload: p }),

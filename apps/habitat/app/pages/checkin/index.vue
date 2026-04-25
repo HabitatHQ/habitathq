@@ -9,21 +9,20 @@ const loading = ref(true)
 
 // ─── Load ────────────────────────────────────────────────────────────────────
 
+const todaySummary = ref<Map<string, { count: number; completed: boolean }>>(new Map())
+
 async function loadTemplates() {
   templates.value = await db.getCheckinTemplates()
   const today = toLocalDateKey(new Date())
   const summary = await db.getCheckinSummaryForDate(today)
-  todayResponses.value = new Map(summary.map((s) => [s.template_id, s.response_count]))
+  todaySummary.value = new Map(
+    summary.map((s) => [s.template_id, { count: s.response_count, completed: s.is_completed }]),
+  )
   loading.value = false
 }
 
-const todayResponses = ref<Map<string, number>>(new Map())
-
 function isCompleted(t: CheckinTemplate) {
-  const qc = t.question_count ?? 0
-  if (qc === 0) return false
-  const rc = todayResponses.value.get(t.id) ?? 0
-  return rc >= qc
+  return todaySummary.value.get(t.id)?.completed ?? false
 }
 
 onMounted(loadTemplates)

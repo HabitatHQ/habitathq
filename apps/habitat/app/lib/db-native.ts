@@ -217,6 +217,16 @@ async function runMigrations(): Promise<void> {
       'ALTER TABLE checkin_templates ADD COLUMN archived_at TEXT',
       'ALTER TABLE checkin_questions ADD COLUMN archived_at TEXT',
     ],
+    13: [
+      `CREATE TABLE IF NOT EXISTS checkin_completions (
+        id TEXT PRIMARY KEY,
+        template_id TEXT NOT NULL REFERENCES checkin_templates(id) ON DELETE CASCADE,
+        date TEXT NOT NULL,
+        completed_at TEXT NOT NULL,
+        UNIQUE(template_id, date)
+      )`,
+      'CREATE INDEX IF NOT EXISTS idx_checkin_completions_date ON checkin_completions(date)',
+    ],
   }
 
   for (let v = userVersion + 1; v in migrations; v++) {
@@ -227,7 +237,7 @@ async function runMigrations(): Promise<void> {
     userVersion = v
   }
 
-  if (userVersion === 0) await db().execute('PRAGMA user_version = 12', false)
+  if (userVersion === 0) await db().execute('PRAGMA user_version = 13', false)
 }
 
 // ─── Default seeds ────────────────────────────────────────────────────────────
@@ -260,22 +270,47 @@ async function seedDefaults(): Promise<void> {
       apply: () =>
         insertTemplate('Morning Check-in', 'DAILY', null, [
           { prompt: 'How did you sleep?', response_type: 'SCALE', display_order: 0 },
+          { prompt: 'What did you dream about?', response_type: 'TEXT', display_order: 1 },
           {
             prompt: 'How is your energy level right now?',
             response_type: 'SCALE',
-            display_order: 1,
+            display_order: 2,
           },
           {
             prompt: "What's your main intention for today?",
             response_type: 'TEXT',
-            display_order: 2,
+            display_order: 3,
           },
           {
             prompt: 'Are you feeling anxious or stressed?',
             response_type: 'BOOLEAN',
-            display_order: 3,
+            display_order: 4,
           },
         ]),
+    },
+    {
+      key: 'checkin_template:morning_dream_update',
+      apply: async () => {
+        const rows = await queryRaw(
+          "SELECT id FROM checkin_templates WHERE title = 'Morning Check-in' AND archived_at IS NULL",
+        )
+        for (const t of rows) {
+          const qs = await queryRaw(
+            'SELECT id, prompt FROM checkin_questions WHERE template_id = ?',
+            [t['id']],
+          )
+          if (!qs.some((q) => q['prompt'] === 'What did you dream about?')) {
+            await exec(
+              'UPDATE checkin_questions SET display_order = display_order + 1 WHERE template_id = ? AND display_order >= 1',
+              [t['id']],
+            )
+            await exec(
+              'INSERT INTO checkin_questions (id, template_id, prompt, response_type, display_order) VALUES (?,?,?,?,?)',
+              [crypto.randomUUID(), t['id'], 'What did you dream about?', 'TEXT', 1],
+            )
+          }
+        }
+      },
     },
     {
       key: 'checkin_template:evening_reflection',
@@ -647,6 +682,10 @@ export async function dispatchNative(req: WorkerRequestBody): Promise<unknown> {
       )
     case 'DELETE_CHECKIN_RESPONSE':
       return shared.deleteCheckinResponse(adapter, req.payload.id)
+    case 'TOGGLE_CHECKIN_COMPLETION':
+      return shared.toggleCheckinCompletion(adapter, req.payload.template_id, req.payload.date)
+    case 'GET_CHECKIN_COMPLETIONS_FOR_DATE':
+      return shared.getCheckinCompletionsForDate(adapter, req.payload.date)
     case 'GET_CHECKIN_RESPONSE_DATES':
       return shared.getCheckinResponseDates(adapter)
     case 'GET_CHECKIN_HISTORY':
