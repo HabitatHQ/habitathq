@@ -140,6 +140,7 @@ export default defineNuxtConfig({
   runtimeConfig: {
     public: {
       buildTarget: buildTarget ?? 'pwa',
+      buildTime: new Date().toISOString(),
     },
   },
 })

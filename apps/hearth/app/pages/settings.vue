@@ -5,6 +5,8 @@ import type { Account, HearthExport } from '~/types/database'
 
 const { settings, set, reset } = useAppSettings()
 const db = useDatabase()
+const runtimeConfig = useRuntimeConfig()
+const isNativeApp = import.meta.client && 'Capacitor' in window
 
 const dbInfo = ref<{
   transaction_count: number
@@ -67,6 +69,27 @@ async function resetDatabase() {
   if (!confirm('Reset all data? This cannot be undone.')) return
   await db.nukeOpfs()
   location.reload()
+}
+
+// ─── Here be dragons ─────────────────────────────────────────────────────────
+const dragonsOpen = ref(false)
+const forceReloading = ref(false)
+
+async function forceReload() {
+  forceReloading.value = true
+  try {
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations()
+      await Promise.all(registrations.map((r) => r.unregister()))
+    }
+    if ('caches' in window) {
+      const keys = await caches.keys()
+      await Promise.all(keys.map((k) => caches.delete(k)))
+    }
+    window.location.reload()
+  } catch {
+    forceReloading.value = false
+  }
 }
 
 const THEMES: { id: AppTheme; name: string }[] = [
@@ -355,29 +378,74 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
           <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-(--ui-text-muted)" aria-hidden="true" />
         </NuxtLink>
 
-        <!-- Reset -->
-        <button
-          class="flex items-center gap-3 w-full p-4 text-left hover:bg-rose-500/5 transition-colors min-h-[60px]"
-          aria-label="Reset database"
-          @click="resetDatabase"
-        >
-          <UIcon name="i-heroicons-trash" class="w-5 h-5 text-rose-400 shrink-0" aria-hidden="true" />
-          <div class="flex-1">
-            <p class="text-sm font-medium text-rose-400">Reset database</p>
-            <p class="text-xs text-(--ui-text-muted)">Permanently deletes all transactions, accounts, envelopes, and settings. Export first if you want a backup.</p>
-          </div>
-        </button>
       </div>
     </section>
 
     <!-- ── About ──────────────────────────────────────────────────────────── -->
     <section aria-label="About">
       <h2 class="text-xs uppercase tracking-widest text-(--ui-text-muted) font-medium mb-3">About</h2>
-      <div class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) p-4 text-center space-y-1">
-        <p class="text-2xl">🔥</p>
-        <p class="font-semibold text-(--ui-text)">Hearth</p>
-        <p class="text-xs text-(--ui-text-muted)">Family finance, local-first</p>
-        <p class="text-xs text-(--ui-text-dimmed)">v0.1.0</p>
+      <div class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) divide-y divide-(--ui-border) overflow-hidden">
+        <div class="p-4 text-center space-y-1">
+          <p class="text-2xl">🔥</p>
+          <p class="font-semibold text-(--ui-text)">Hearth</p>
+          <p class="text-xs text-(--ui-text-muted)">Family finance, local-first</p>
+          <p class="text-xs text-(--ui-text-dimmed)">v0.1.0</p>
+        </div>
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <p class="text-sm text-(--ui-text-muted)">Build</p>
+          <UBadge :label="runtimeConfig.public.buildTarget" variant="subtle" color="neutral" size="sm" class="rounded-full font-mono" />
+        </div>
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <p class="text-sm text-(--ui-text-muted)">Built</p>
+          <p class="text-sm font-mono text-(--ui-text-toned)">{{ runtimeConfig.public.buildTime ? new Date(runtimeConfig.public.buildTime as string).toLocaleString() : '—' }}</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Here be dragons ────────────────────────────────────────────────── -->
+    <section class="space-y-2">
+      <button class="w-full flex items-center justify-between px-1 py-0.5" @click="dragonsOpen = !dragonsOpen">
+        <p class="text-xs font-semibold uppercase tracking-wider text-rose-400/70">🐉 Here be dragons</p>
+        <UIcon :name="dragonsOpen ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-rose-400/50" />
+      </button>
+      <div v-if="dragonsOpen" class="rounded-2xl bg-(--ui-bg-muted) border border-rose-500/20 divide-y divide-(--ui-border) overflow-hidden">
+
+        <!-- Force reload — PWA only -->
+        <div v-if="!isNativeApp" class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5 mr-4">
+            <p class="text-sm font-medium text-(--ui-text)">Force reload</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Unregister service worker, clear JS/CSS caches, and reload. OPFS data is preserved.</p>
+          </div>
+          <UButton
+            size="sm" variant="ghost" color="neutral"
+            icon="i-heroicons-arrow-path" :loading="forceReloading" class="shrink-0"
+            @click="forceReload"
+          />
+        </div>
+
+        <!-- Reset settings -->
+        <button
+          class="flex items-center gap-3 w-full px-4 py-3.5 text-left hover:bg-(--ui-bg-elevated) transition-colors min-h-[44px]"
+          @click="reset(); location.reload()"
+        >
+          <UIcon name="i-heroicons-cog-6-tooth" class="w-5 h-5 text-(--ui-text-muted) shrink-0" />
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium text-(--ui-text)">Reset settings</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Restore all preferences to defaults. Data is not affected.</p>
+          </div>
+        </button>
+
+        <!-- Nuke database -->
+        <button
+          class="flex items-center gap-3 w-full px-4 py-3.5 text-left hover:bg-rose-500/5 transition-colors min-h-[44px]"
+          @click="resetDatabase"
+        >
+          <UIcon name="i-heroicons-trash" class="w-5 h-5 text-rose-400 shrink-0" />
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium text-rose-400">Nuke database</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Permanently deletes all data. Cannot be undone.</p>
+          </div>
+        </button>
       </div>
     </section>
   </div>
