@@ -8,6 +8,8 @@ import {
   formatCurrency,
   formatDateRelative,
   formatPeriod,
+  formatWithHomeEquiv,
+  getCurrencySymbol,
   offsetPeriod,
   splitCurrencyParts,
   transactionAmountClass,
@@ -131,10 +133,8 @@ describe('formatCompact — additional', () => {
   })
 
   it('uses currency symbol for non-USD', () => {
-    // Non-USD currencies fall back to the currency code
     const result = formatCompact(5000, 'EUR')
-    expect(result).toContain('EUR')
-    expect(result).toContain('5.0K')
+    expect(result).toBe('€5.0K')
   })
 })
 
@@ -403,5 +403,63 @@ describe('transactionAmountPrefix', () => {
   })
   it('transfer has no prefix', () => {
     expect(transactionAmountPrefix('transfer')).toBe('')
+  })
+})
+
+// ── getCurrencySymbol ──────────────────────────────────────────────────────
+
+describe('getCurrencySymbol', () => {
+  it('returns $ for USD', () => {
+    expect(getCurrencySymbol('USD')).toBe('$')
+  })
+  it('returns € for EUR', () => {
+    expect(getCurrencySymbol('EUR')).toBe('€')
+  })
+  it('returns £ for GBP', () => {
+    expect(getCurrencySymbol('GBP')).toBe('£')
+  })
+  it('returns ¥ for JPY', () => {
+    expect(getCurrencySymbol('JPY')).toBe('¥')
+  })
+})
+
+// ── formatCompact — multi-currency ──────────────────────────────────────────
+
+describe('formatCompact — Intl currency symbols', () => {
+  it('uses € for EUR', () => {
+    expect(formatCompact(5000, 'EUR')).toBe('€5.0K')
+  })
+  it('uses £ for GBP', () => {
+    expect(formatCompact(1234, 'GBP')).toBe('£1.2K')
+  })
+  it('still uses $ for USD', () => {
+    expect(formatCompact(5000)).toBe('$5.0K')
+  })
+  it('handles negative EUR', () => {
+    expect(formatCompact(-5000, 'EUR')).toBe('-€5.0K')
+  })
+})
+
+// ── formatWithHomeEquiv ─────────────────────────────────────────────────────
+
+describe('formatWithHomeEquiv', () => {
+  it('returns just amount when currency matches home', () => {
+    const result = formatWithHomeEquiv(50, 'USD', null, 'USD')
+    expect(result).toEqual({ primary: '$50.00', annotation: null })
+  })
+
+  it('returns amount with annotation for foreign currency', () => {
+    const result = formatWithHomeEquiv(50, 'EUR', 55.25, 'USD')
+    expect(result).toEqual({ primary: '€50.00', annotation: '≈ $55.25' })
+  })
+
+  it('returns no annotation when homeAmount is null', () => {
+    const result = formatWithHomeEquiv(50, 'EUR', null, 'USD')
+    expect(result).toEqual({ primary: '€50.00', annotation: null })
+  })
+
+  it('returns no annotation when currencies match even with homeAmount', () => {
+    const result = formatWithHomeEquiv(50, 'USD', 50, 'USD')
+    expect(result).toEqual({ primary: '$50.00', annotation: null })
   })
 })

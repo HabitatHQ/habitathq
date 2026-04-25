@@ -31,6 +31,8 @@ export interface ParsedTransaction {
   dateConfidence: Confidence
   /** Optional description / note */
   description: string
+  /** Detected currency code (e.g., 'EUR'), undefined if not detected */
+  currency?: string
 }
 
 /** Context passed to the parser: categories, accounts, mappings */

@@ -7,6 +7,7 @@ import { currentPeriod, formatCompact } from '~/utils/format'
 const db = useDatabase()
 const router = useRouter()
 const { settings } = useAppSettings()
+const homeCurrency = computed(() => settings.value.currency)
 const { ensureLoaded, loaded: chartsLoaded } = useCharts()
 
 const period = ref(currentPeriod())
@@ -157,7 +158,7 @@ const categoryDonutOptions = computed(() => {
         label: {
           show: true,
           position: 'center',
-          formatter: `{total|${formatAmount(totalExpenses.value)}}\n{label|Total Spent}`,
+          formatter: `{total|${formatAmount(totalExpenses.value, homeCurrency.value)}}\n{label|Total Spent}`,
           rich: {
             total: {
               fontSize: 18,
@@ -202,7 +203,7 @@ const personDonutOptions = computed(() => {
         label: {
           show: true,
           position: 'center',
-          formatter: `{total|${formatAmount(totalExpenses.value)}}\n{label|Household}`,
+          formatter: `{total|${formatAmount(totalExpenses.value, homeCurrency.value)}}\n{label|Household}`,
           rich: {
             total: {
               fontSize: 18,
@@ -255,7 +256,7 @@ const trendOptions = computed(() => ({
   xAxis: { type: 'category', data: monthLabels.value, boundaryGap: false },
   yAxis: {
     type: 'value',
-    axisLabel: { formatter: (v: number) => formatCompact(v) },
+    axisLabel: { formatter: (v: number) => formatCompact(v, homeCurrency.value) },
     splitLine: { lineStyle: { color: 'rgba(148,163,184,0.1)' } },
   },
   series: [
@@ -293,7 +294,7 @@ const budgetOptions = computed(() => ({
   grid: { left: 120, right: 30, top: 8, bottom: 24 },
   xAxis: {
     type: 'value',
-    axisLabel: { formatter: (v: number) => formatCompact(v) },
+    axisLabel: { formatter: (v: number) => formatCompact(v, homeCurrency.value) },
     splitLine: { lineStyle: { color: 'rgba(148,163,184,0.1)' } },
   },
   yAxis: {
@@ -340,7 +341,7 @@ const incomeVsExpenseOptions = computed(() => ({
   xAxis: { type: 'category', data: monthLabels.value },
   yAxis: {
     type: 'value',
-    axisLabel: { formatter: (v: number) => formatCompact(v) },
+    axisLabel: { formatter: (v: number) => formatCompact(v, homeCurrency.value) },
     splitLine: { lineStyle: { color: 'rgba(148,163,184,0.1)' } },
   },
   series: [
@@ -377,7 +378,7 @@ const savingsOptions = computed(() => ({
   xAxis: { type: 'category', data: monthLabels.value, boundaryGap: false },
   yAxis: {
     type: 'value',
-    axisLabel: { formatter: (v: number) => formatCompact(v) },
+    axisLabel: { formatter: (v: number) => formatCompact(v, homeCurrency.value) },
     splitLine: { lineStyle: { color: 'rgba(148,163,184,0.1)' } },
   },
   series: [
@@ -408,7 +409,7 @@ const savingsOptions = computed(() => ({
         data: [{ yAxis: avgSavings.value, name: 'Average' }],
         lineStyle: { color: '#94a3b8', type: 'dashed' },
         label: {
-          formatter: `Avg: ${formatCompact(avgSavings.value)}`,
+          formatter: `Avg: ${formatCompact(avgSavings.value, homeCurrency.value)}`,
           color: '#94a3b8',
           fontSize: 10,
         },
@@ -487,11 +488,11 @@ function onTrendClick(params: any) {
     <div class="grid grid-cols-3 gap-3">
       <div class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) p-4 text-center" aria-label="Total expenses">
         <p class="text-xs uppercase tracking-widest text-(--ui-text-muted) font-medium mb-1">Spent</p>
-        <p class="text-xl font-bold font-mono text-rose-400 amount-display">{{ formatAmount(totalExpenses) }}</p>
+        <p class="text-xl font-bold font-mono text-rose-400 amount-display">{{ formatAmount(totalExpenses, homeCurrency) }}</p>
       </div>
       <div class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) p-4 text-center" aria-label="Total income">
         <p class="text-xs uppercase tracking-widest text-(--ui-text-muted) font-medium mb-1">Income</p>
-        <p class="text-xl font-bold font-mono text-green-400 amount-display">{{ formatAmount(totalIncome) }}</p>
+        <p class="text-xl font-bold font-mono text-green-400 amount-display">{{ formatAmount(totalIncome, homeCurrency) }}</p>
       </div>
       <div class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) p-4 text-center" aria-label="Net savings">
         <p class="text-xs uppercase tracking-widest text-(--ui-text-muted) font-medium mb-1">Saved</p>
@@ -499,7 +500,7 @@ function onTrendClick(params: any) {
           class="text-xl font-bold font-mono amount-display"
           :class="netSavings >= 0 ? 'text-primary-400' : 'text-rose-400'"
         >
-          {{ formatAmount(Math.abs(netSavings)) }}
+          {{ formatAmount(Math.abs(netSavings), homeCurrency) }}
         </p>
       </div>
     </div>
@@ -582,7 +583,7 @@ function onTrendClick(params: any) {
           <div class="flex-1 min-w-0 space-y-1">
             <div class="flex justify-between items-center">
               <span class="text-sm font-medium text-(--ui-text) truncate">{{ cat.name }}</span>
-              <span class="font-mono text-sm font-semibold text-(--ui-text) shrink-0 ml-2">{{ formatAmount(cat.total) }}</span>
+              <span class="font-mono text-sm font-semibold text-(--ui-text) shrink-0 ml-2">{{ formatAmount(cat.total, homeCurrency) }}</span>
             </div>
             <div class="flex items-center gap-2">
               <div class="flex-1 h-1 rounded-full bg-(--ui-bg-elevated) overflow-hidden">
@@ -619,7 +620,7 @@ function onTrendClick(params: any) {
               <p class="font-semibold text-(--ui-text)">{{ person.name }}</p>
               <p class="text-xs text-(--ui-text-muted)">{{ person.count }} transactions</p>
             </div>
-            <p class="font-mono font-bold text-(--ui-text) text-lg amount-display">{{ formatAmount(person.total) }}</p>
+            <p class="font-mono font-bold text-(--ui-text) text-lg amount-display">{{ formatAmount(person.total, homeCurrency) }}</p>
           </div>
           <div
             class="h-2 rounded-full bg-(--ui-bg-elevated) overflow-hidden"
@@ -627,7 +628,7 @@ function onTrendClick(params: any) {
             :aria-valuenow="totalExpenses > 0 ? Math.round((person.total / totalExpenses) * 100) : 0"
             aria-valuemin="0"
             aria-valuemax="100"
-            :aria-label="`${person.name} spent ${formatAmount(person.total)}`"
+            :aria-label="`${person.name} spent ${formatAmount(person.total, homeCurrency)}`"
           >
             <div
               class="h-full rounded-full bg-primary-500 envelope-bar"

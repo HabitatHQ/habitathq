@@ -1,8 +1,16 @@
 <script setup lang="ts">
 import type { DashboardSummary, RecurringPatternRow } from '~/types/database'
-import { currentPeriod, formatDateRelative, offsetPeriod, splitCurrencyParts } from '~/utils/format'
+import {
+  currentPeriod,
+  formatAmount,
+  formatDateRelative,
+  offsetPeriod,
+  splitCurrencyParts,
+} from '~/utils/format'
 
 const db = useDatabase()
+const { settings } = useAppSettings()
+const homeCurrency = computed(() => settings.value.currency)
 
 const period = ref(currentPeriod())
 const summary = ref<DashboardSummary | null>(null)
@@ -50,8 +58,12 @@ const budgetBarPercent = computed(() => {
 })
 
 // Split large amounts into whole + decimal for typographic treatment
-const spentParts = computed(() => splitCurrencyParts(summary.value?.spent_this_month ?? 0))
-const remainingParts = computed(() => splitCurrencyParts(summary.value?.budget_remaining ?? 0))
+const spentParts = computed(() =>
+  splitCurrencyParts(summary.value?.spent_this_month ?? 0, homeCurrency.value),
+)
+const remainingParts = computed(() =>
+  splitCurrencyParts(summary.value?.budget_remaining ?? 0, homeCurrency.value),
+)
 
 // Group transactions by date label
 const groupedTransactions = computed(() => {
@@ -118,7 +130,7 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
         <!-- Spent amount — typographic split: dollars big, cents small -->
         <div class="space-y-0.5">
           <p class="text-xs uppercase tracking-widest text-(--ui-text-muted) font-medium">Spent this month</p>
-          <div class="flex items-end gap-0.5 amount-display" aria-label="Amount spent: {{ formatAmount(summary.spent_this_month) }}">
+          <div class="flex items-end gap-0.5 amount-display" aria-label="Amount spent: {{ formatAmount(summary.spent_this_month, homeCurrency) }}">
             <span class="text-4xl font-bold font-mono text-(--ui-text) leading-none">
               {{ spentParts.whole }}
             </span>
@@ -146,8 +158,8 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
           </div>
           <div class="flex justify-between text-sm">
             <span class="text-(--ui-text-muted)">
-              <span class="font-mono font-medium text-(--ui-text)">{{ formatAmount(summary.budget_remaining) }}</span>
-              remaining of {{ formatAmount(summary.budget_total) }}
+              <span class="font-mono font-medium text-(--ui-text)">{{ formatAmount(summary.budget_remaining, homeCurrency) }}</span>
+              remaining of {{ formatAmount(summary.budget_total, homeCurrency) }}
             </span>
             <span
               class="font-mono text-xs font-medium"
@@ -162,7 +174,7 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
         <div class="flex items-center gap-1.5 text-sm">
           <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-500/10 text-green-400 text-xs font-medium">
             <UIcon name="i-heroicons-arrow-down-tray" class="w-3 h-3" />
-            {{ formatAmount(summary.income_this_month) }} income
+            {{ formatAmount(summary.income_this_month, homeCurrency) }} income
           </span>
         </div>
       </template>
@@ -191,7 +203,7 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
             owes
             <span class="font-medium text-(--ui-text)">{{ bal.net_amount > 0 ? bal.from_user_name : bal.to_user_name }}</span>
           </span>
-          <span class="ml-auto font-mono font-medium text-amber-400">{{ formatAmount(Math.abs(bal.net_amount)) }}</span>
+          <span class="ml-auto font-mono font-medium text-amber-400">{{ formatAmount(Math.abs(bal.net_amount), homeCurrency) }}</span>
         </div>
       </div>
     </NuxtLink>
@@ -217,7 +229,7 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
         >
           <span class="text-(--ui-text) truncate flex-1">{{ p.merchant }}</span>
           <span class="text-xs text-(--ui-text-muted) shrink-0">{{ formatDateRelative(p.next_expected) }}</span>
-          <span class="font-mono font-medium text-(--ui-text) shrink-0 ml-1">{{ formatAmount(p.average_amount) }}</span>
+          <span class="font-mono font-medium text-(--ui-text) shrink-0 ml-1">{{ formatAmount(p.average_amount, homeCurrency) }}</span>
         </div>
       </div>
     </NuxtLink>
@@ -263,7 +275,7 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
                   class="font-mono text-xs"
                   :class="envelopeColorClass(env.percent_used, env.is_overspent).text"
                 >
-                  {{ formatAmount(env.spent) }} / {{ formatAmount(env.budget_amount) }}
+                  {{ formatAmount(env.spent, homeCurrency) }} / {{ formatAmount(env.budget_amount, homeCurrency) }}
                 </span>
               </div>
               <div
@@ -321,7 +333,7 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
                       class="text-sm shrink-0"
                       :class="transactionAmountClass(tx.type)"
                     >
-                      {{ transactionAmountPrefix(tx.type) }}{{ formatAmount(tx.amount) }}
+                      {{ transactionAmountPrefix(tx.type) }}{{ formatAmount(tx.amount, tx.currency) }}
                     </span>
                   </NuxtLink>
                 </li>
@@ -347,8 +359,8 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
               {{ goal.name }}
             </span>
             <span class="text-sm font-mono text-(--ui-text-muted)">
-              {{ formatAmount(goal.current_amount) }} /
-              <span class="text-(--ui-text)">{{ formatAmount(goal.target_amount) }}</span>
+              {{ formatAmount(goal.current_amount, homeCurrency) }} /
+              <span class="text-(--ui-text)">{{ formatAmount(goal.target_amount, homeCurrency) }}</span>
             </span>
           </div>
           <div

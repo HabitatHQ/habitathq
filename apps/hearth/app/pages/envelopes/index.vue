@@ -3,6 +3,8 @@ import type { EnvelopeWithSpending } from '~/types/database'
 import { currentPeriod } from '~/utils/format'
 
 const db = useDatabase()
+const { settings } = useAppSettings()
+const homeCurrency = computed(() => settings.value.currency)
 
 const period = ref(currentPeriod())
 const envelopes = ref<EnvelopeWithSpending[]>([])
@@ -141,7 +143,7 @@ async function deleteEnvelope(id: string) {
       <div class="flex items-end justify-between">
         <div>
           <p class="text-xs uppercase tracking-widest text-(--ui-text-muted) font-medium mb-1">Total Budget</p>
-          <p class="text-3xl font-bold font-mono amount-display">{{ formatAmount(totalBudget) }}</p>
+          <p class="text-3xl font-bold font-mono amount-display">{{ formatAmount(totalBudget, homeCurrency) }}</p>
         </div>
         <div class="text-right">
           <p class="text-xs text-(--ui-text-muted)">remaining</p>
@@ -149,7 +151,7 @@ async function deleteEnvelope(id: string) {
             class="text-xl font-bold font-mono amount-display"
             :class="totalRemaining < 0 ? 'text-rose-400' : 'text-green-400'"
           >
-            {{ formatAmount(Math.abs(totalRemaining)) }}
+            {{ formatAmount(Math.abs(totalRemaining), homeCurrency) }}
           </p>
         </div>
       </div>
@@ -171,7 +173,7 @@ async function deleteEnvelope(id: string) {
       </div>
 
       <div class="flex justify-between text-sm text-(--ui-text-muted)">
-        <span class="font-mono">{{ formatAmount(totalSpent) }} spent</span>
+        <span class="font-mono">{{ formatAmount(totalSpent, homeCurrency) }} spent</span>
         <span v-if="overspentCount > 0" class="text-rose-400 font-medium">
           {{ overspentCount }} {{ overspentCount === 1 ? 'envelope' : 'envelopes' }} overspent
         </span>
@@ -280,12 +282,12 @@ async function deleteEnvelope(id: string) {
           <!-- Amount row -->
           <div class="flex justify-between text-sm">
             <span class="font-mono" :class="envelopeColorClass(env.percent_used, env.is_overspent).text">
-              {{ formatAmount(env.spent) }} spent
+              {{ formatAmount(env.spent, homeCurrency) }} spent
             </span>
             <span class="font-mono text-(--ui-text-muted)">
-              {{ env.is_overspent ? '−' : '' }}{{ formatAmount(Math.abs(env.remaining)) }}
+              {{ env.is_overspent ? '−' : '' }}{{ formatAmount(Math.abs(env.remaining), homeCurrency) }}
               {{ env.is_overspent ? 'over' : 'left' }}
-              of {{ formatAmount(env.budget_amount) }}
+              of {{ formatAmount(env.budget_amount, homeCurrency) }}
             </span>
           </div>
         </li>

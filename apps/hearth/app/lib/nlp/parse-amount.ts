@@ -1,9 +1,37 @@
 import type { Confidence } from './types'
 
-const CURRENCY_RE = /\$\s?(\d{1,7}(?:,\d{3})*(?:\.\d{1,2})?)/
-const AMOUNT_DOLLARS_RE = /(\d{1,7}(?:,\d{3})*(?:\.\d{1,2})?)\s*(?:dollars?|bucks?|usd)/i
+// ── Symbol-prefixed amounts ───────────────────────────────────────────────
+const USD_RE = /\$\s?(\d{1,7}(?:,\d{3})*(?:\.\d{1,2})?)/
+const EUR_RE = /€\s?(\d{1,7}(?:,\d{3})*(?:\.\d{1,2})?)/
+const GBP_RE = /£\s?(\d{1,7}(?:,\d{3})*(?:\.\d{1,2})?)/
+const YEN_RE = /¥\s?(\d{1,9}(?:,\d{3})*)/
+
+// ── Word/code-suffixed amounts ────────────────────────────────────────────
+const AMOUNT_WORDS_RE =
+  /(\d{1,7}(?:,\d{3})*(?:\.\d{1,2})?)\s*(?:dollars?|bucks?|usd|euros?|eur|pounds?|gbp|yen|jpy|cad|aud)/i
+
+const CURRENCY_WORD_MAP: Record<string, string> = {
+  dollar: 'USD',
+  dollars: 'USD',
+  buck: 'USD',
+  bucks: 'USD',
+  usd: 'USD',
+  euro: 'EUR',
+  euros: 'EUR',
+  eur: 'EUR',
+  pound: 'GBP',
+  pounds: 'GBP',
+  gbp: 'GBP',
+  yen: 'JPY',
+  jpy: 'JPY',
+  cad: 'CAD',
+  aud: 'AUD',
+}
+
+// ── Bare number ───────────────────────────────────────────────────────────
 const BARE_NUMBER_RE = /(?:^|\s)(\d{1,7}(?:\.\d{1,2})?)(?:\s|$)/
 
+// ── Written numbers ───────────────────────────────────────────────────────
 const WRITTEN_NUMBERS: Record<string, number> = {
   one: 1,
   two: 2,
@@ -43,30 +71,68 @@ export interface AmountResult {
   amount: number
   confidence: Confidence
   matchedText: string
+  currency?: string
 }
 
 export function parseAmount(text: string): AmountResult | null {
-  // 1. $12.50 style (highest confidence)
-  const currencyMatch = CURRENCY_RE.exec(text)
-  if (currencyMatch?.[1]) {
+  // 1. €50 style
+  const eurMatch = EUR_RE.exec(text)
+  if (eurMatch?.[1]) {
     return {
-      amount: parseFloat(currencyMatch[1].replace(/,/g, '')),
+      amount: parseFloat(eurMatch[1].replace(/,/g, '')),
       confidence: 'high',
-      matchedText: currencyMatch[0],
+      matchedText: eurMatch[0],
+      currency: 'EUR',
     }
   }
 
-  // 2. "12.50 dollars" style
-  const dollarMatch = AMOUNT_DOLLARS_RE.exec(text)
-  if (dollarMatch?.[1]) {
+  // 2. £12.50 style
+  const gbpMatch = GBP_RE.exec(text)
+  if (gbpMatch?.[1]) {
     return {
-      amount: parseFloat(dollarMatch[1].replace(/,/g, '')),
+      amount: parseFloat(gbpMatch[1].replace(/,/g, '')),
       confidence: 'high',
-      matchedText: dollarMatch[0],
+      matchedText: gbpMatch[0],
+      currency: 'GBP',
     }
   }
 
-  // 3. Written numbers: "five dollars", "twenty bucks"
+  // 3. ¥3000 style
+  const yenMatch = YEN_RE.exec(text)
+  if (yenMatch?.[1]) {
+    return {
+      amount: parseFloat(yenMatch[1].replace(/,/g, '')),
+      confidence: 'high',
+      matchedText: yenMatch[0],
+      currency: 'JPY',
+    }
+  }
+
+  // 4. $12.50 style
+  const usdMatch = USD_RE.exec(text)
+  if (usdMatch?.[1]) {
+    return {
+      amount: parseFloat(usdMatch[1].replace(/,/g, '')),
+      confidence: 'high',
+      matchedText: usdMatch[0],
+      currency: 'USD',
+    }
+  }
+
+  // 5. "12.50 dollars/euros/GBP" style
+  const wordMatch = AMOUNT_WORDS_RE.exec(text)
+  if (wordMatch?.[1]) {
+    const word = wordMatch[0].replace(wordMatch[1], '').trim().toLowerCase()
+    const currency = CURRENCY_WORD_MAP[word]
+    return {
+      amount: parseFloat(wordMatch[1].replace(/,/g, '')),
+      confidence: 'high',
+      matchedText: wordMatch[0],
+      currency,
+    }
+  }
+
+  // 6. Written numbers: "five dollars", "twenty bucks"
   const writtenMatch = WRITTEN_RE.exec(text)
   if (writtenMatch?.[1]) {
     const num = WRITTEN_NUMBERS[writtenMatch[1].toLowerCase()]
@@ -79,7 +145,7 @@ export function parseAmount(text: string): AmountResult | null {
     }
   }
 
-  // 4. Bare number (lowest confidence — only if it looks reasonable as an amount)
+  // 7. Bare number (lowest confidence — no currency detected)
   const bareMatch = BARE_NUMBER_RE.exec(text)
   if (bareMatch?.[1]) {
     const val = parseFloat(bareMatch[1])

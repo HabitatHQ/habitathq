@@ -1,8 +1,12 @@
 <script setup lang="ts">
+import { SUPPORTED_CURRENCIES } from '~/lib/currency/convert'
 import type { Account, Category, User } from '~/types/database'
+import { formatAmount, formatCurrency } from '~/utils/format'
 
 const db = useDatabase()
 const router = useRouter()
+const { settings } = useAppSettings()
+const homeCurrency = computed(() => settings.value.currency)
 
 // ── Form state ────────────────────────────────────────────────────────────
 
@@ -11,6 +15,7 @@ type TxType = 'expense' | 'income' | 'transfer'
 const form = reactive({
   type: 'expense' as TxType,
   amountStr: '',
+  currency: 'USD',
   date: new Date().toISOString().slice(0, 10),
   accountId: '',
   toAccountId: '',
@@ -41,9 +46,21 @@ onMounted(async () => {
   accounts.value = accts
   categories.value = cats
   users.value = usrs
-  if (accts[0]) form.accountId = accts[0].id
+  if (accts[0]) {
+    form.accountId = accts[0].id
+    form.currency = accts[0].currency || homeCurrency.value
+  }
   if (accts[1]) form.toAccountId = accts[1].id
 })
+
+// Sync currency when account changes
+watch(
+  () => form.accountId,
+  (id) => {
+    const acct = accounts.value.find((a) => a.id === id)
+    if (acct) form.currency = acct.currency || homeCurrency.value
+  },
+)
 
 // ── Category options flat list for current type ────────────────────────────
 
@@ -71,11 +88,36 @@ const amountNum = computed(() => {
 })
 
 const amountFormatted = computed(() => {
-  if (!form.amountStr) return '$0.00'
-  const n = parseFloat(form.amountStr)
-  if (Number.isNaN(n)) return '$0.00'
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
+  const n = form.amountStr ? parseFloat(form.amountStr) : 0
+  return formatCurrency(Number.isNaN(n) ? 0 : n, form.currency)
 })
+
+// ── Exchange rate for foreign currencies ──────────────────────────────────
+const { getRate, computeHomeAmount } = useExchangeRates()
+const exchangeRate = ref<number | null>(null)
+const homeEquiv = ref<number | null>(null)
+const isForeignCurrency = computed(() => form.currency !== homeCurrency.value)
+
+watch(
+  [() => form.currency, amountNum, () => form.date],
+  async ([curr, amt, date]) => {
+    if (curr === homeCurrency.value || !amt) {
+      exchangeRate.value = null
+      homeEquiv.value = null
+      return
+    }
+    try {
+      const rate = await getRate(curr, homeCurrency.value, date)
+      exchangeRate.value = rate
+      const signed = form.type === 'expense' ? -amt : amt
+      homeEquiv.value = computeHomeAmount(signed, rate)
+    } catch {
+      exchangeRate.value = null
+      homeEquiv.value = null
+    }
+  },
+  { immediate: true },
+)
 
 // ── Number pad ────────────────────────────────────────────────────────────
 
@@ -110,7 +152,7 @@ async function submit() {
     const tx = await db.createTransaction({
       date: form.date,
       amount: form.type === 'expense' ? -amountNum.value : amountNum.value,
-      currency: 'USD',
+      currency: form.currency,
       account_id: form.accountId,
       user_id: currentUser?.id ?? users.value[0]?.id ?? '',
       type: form.type,
@@ -122,6 +164,8 @@ async function submit() {
       transfer_to_account_id: form.type === 'transfer' ? form.toAccountId : null,
       split_id: null,
       source: 'manual',
+      home_amount: isForeignCurrency.value ? homeEquiv.value : null,
+      exchange_rate: isForeignCurrency.value ? exchangeRate.value : null,
     })
 
     // Create IOU split if requested
@@ -282,6 +326,32 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
               {{ acct.name }}
             </option>
           </select>
+        </div>
+
+        <!-- Currency -->
+        <div class="flex items-center gap-3 py-2 px-3 rounded-xl bg-(--ui-bg-muted) min-h-[52px]">
+          <UIcon name="i-heroicons-currency-dollar" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
+          <label class="text-sm text-(--ui-text-muted) w-20 shrink-0" for="tx-currency">Currency</label>
+          <select
+            id="tx-currency"
+            v-model="form.currency"
+            class="flex-1 bg-transparent text-sm text-(--ui-text) focus:outline-none"
+            aria-label="Currency"
+          >
+            <option v-for="c in SUPPORTED_CURRENCIES" :key="c.code" :value="c.code">
+              {{ c.symbol }} {{ c.code }}
+            </option>
+          </select>
+        </div>
+
+        <!-- Exchange rate info (foreign currency) -->
+        <div
+          v-if="isForeignCurrency && amountNum && exchangeRate"
+          class="flex items-center gap-2 px-4 py-1.5 text-xs text-(--ui-text-muted) bg-(--ui-bg-muted) rounded-xl"
+        >
+          <UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+          <span>1 {{ form.currency }} = {{ exchangeRate.toFixed(4) }} {{ homeCurrency }}</span>
+          <span class="ml-auto font-mono">≈ {{ formatAmount(Math.abs(homeEquiv ?? 0), homeCurrency) }}</span>
         </div>
 
         <!-- To account (transfer only) -->

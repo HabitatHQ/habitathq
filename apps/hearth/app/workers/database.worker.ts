@@ -1,4 +1,5 @@
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm'
+import { MIGRATION_V7_SQL } from '~/lib/migrations/v7-multi-currency'
 import { detectRecurringPatterns } from '~/lib/recurring/detect'
 import type { DetectableTransaction, RecurringPattern } from '~/lib/recurring/types'
 import type { WorkerRequest, WorkerResponse } from '~/types/database'
@@ -231,6 +232,12 @@ await (async () => {
         )
       `)
       db.exec('PRAGMA user_version = 6')
+    }
+    if (version < 7) {
+      for (const sql of MIGRATION_V7_SQL) {
+        db.exec(sql)
+      }
+      db.exec('PRAGMA user_version = 7')
     }
 
     // ─── Seed data ────────────────────────────────────────────────────────
@@ -839,8 +846,8 @@ await (async () => {
             `INSERT INTO transactions
               (id, date, amount, currency, account_id, user_id, type, category_id,
                description, merchant, is_private, is_recurring, transfer_to_account_id,
-               split_id, created_at, updated_at, source)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+               split_id, created_at, updated_at, source, home_amount, exchange_rate)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
             B([
               id,
               p.date,
@@ -859,6 +866,8 @@ await (async () => {
               ts,
               ts,
               p.source ?? 'manual',
+              p.home_amount ?? null,
+              p.exchange_rate ?? null,
             ]),
           )
           return db.selectObject('SELECT * FROM transactions WHERE id = ?', B([id]))
@@ -919,7 +928,7 @@ await (async () => {
             const placeholders = catIds.map(() => '?').join(',')
             const spent =
               (db.selectValue(
-                `SELECT ABS(COALESCE(SUM(amount), 0)) FROM transactions
+                `SELECT ABS(COALESCE(SUM(COALESCE(home_amount, amount)), 0)) FROM transactions
                WHERE type = 'expense' AND category_id IN (${placeholders})
                AND date BETWEEN ? AND ?`,
                 B([...catIds.map(toBindVal), start, end]),
@@ -964,7 +973,7 @@ await (async () => {
             catIds.length === 0
               ? 0
               : ((db.selectValue(
-                  `SELECT ABS(COALESCE(SUM(amount), 0)) FROM transactions
+                  `SELECT ABS(COALESCE(SUM(COALESCE(home_amount, amount)), 0)) FROM transactions
              WHERE type = 'expense' AND category_id IN (${catIds.map(() => '?').join(',')})
              AND date BETWEEN ? AND ?`,
                   B([...catIds.map(toBindVal), start, end]),
@@ -1155,14 +1164,14 @@ await (async () => {
 
           const spent =
             (db.selectValue(
-              `SELECT ABS(COALESCE(SUM(amount), 0)) FROM transactions
+              `SELECT ABS(COALESCE(SUM(COALESCE(home_amount, amount)), 0)) FROM transactions
              WHERE type = 'expense' AND date BETWEEN ? AND ?`,
               B([start, end]),
             ) as number) ?? 0
 
           const income =
             (db.selectValue(
-              `SELECT COALESCE(SUM(amount), 0) FROM transactions
+              `SELECT COALESCE(SUM(COALESCE(home_amount, amount)), 0) FROM transactions
              WHERE type = 'income' AND date BETWEEN ? AND ?`,
               B([start, end]),
             ) as number) ?? 0
@@ -1197,7 +1206,7 @@ await (async () => {
               }
             const envSpent =
               (db.selectValue(
-                `SELECT ABS(COALESCE(SUM(amount), 0)) FROM transactions
+                `SELECT ABS(COALESCE(SUM(COALESCE(home_amount, amount)), 0)) FROM transactions
                WHERE type = 'expense' AND category_id IN (${catIds.map(() => '?').join(',')})
                AND date BETWEEN ? AND ?`,
                 B([...catIds.map(toBindVal), start, end]),
@@ -1641,8 +1650,8 @@ await (async () => {
                 `INSERT INTO transactions
                   (id, date, amount, currency, account_id, user_id, type, category_id,
                    description, merchant, is_private, is_recurring, transfer_to_account_id,
-                   split_id, created_at, updated_at, source)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                   split_id, created_at, updated_at, source, home_amount, exchange_rate)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
                 B([
                   id,
                   p.date,
@@ -1661,6 +1670,8 @@ await (async () => {
                   ts,
                   ts,
                   p.source ?? 'import',
+                  p.home_amount ?? null,
+                  p.exchange_rate ?? null,
                 ]),
               )
               imported++
@@ -1678,14 +1689,53 @@ await (async () => {
           return db.selectObjects(
             `SELECT
                strftime('%Y-%m', date) AS period,
-               SUM(CASE WHEN type = 'expense' THEN ABS(amount) ELSE 0 END) AS expenses,
-               SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) AS income
+               SUM(CASE WHEN type = 'expense' THEN ABS(COALESCE(home_amount, amount)) ELSE 0 END) AS expenses,
+               SUM(CASE WHEN type = 'income' THEN COALESCE(home_amount, amount) ELSE 0 END) AS income
              FROM transactions
              WHERE date >= date('now', '-' || ? || ' months', 'start of month')
                AND type != 'transfer'
              GROUP BY period
              ORDER BY period`,
             B([months]),
+          )
+        }
+
+        // ── Exchange Rates ───────────────────────────────────────────────
+        case 'GET_EXCHANGE_RATE': {
+          const { base, target, date } = req.payload
+          return (
+            db.selectObject(
+              'SELECT * FROM exchange_rates WHERE base = ? AND target = ? AND date = ?',
+              B([base, target, date]),
+            ) ?? null
+          )
+        }
+
+        case 'UPSERT_EXCHANGE_RATE': {
+          const { base, target, rate, date } = req.payload
+          db.exec(
+            `INSERT INTO exchange_rates (base, target, rate, date)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(base, target, date) DO UPDATE SET rate = excluded.rate`,
+            B([base, target, rate, date]),
+          )
+          return { base, target, rate, date }
+        }
+
+        case 'GET_CURRENCY_BREAKDOWN': {
+          const period = req.payload.period
+          const start = `${period}-01`
+          const end = `${period}-31`
+          return db.selectObjects(
+            `SELECT currency,
+                    SUM(CASE WHEN type = 'expense' THEN ABS(COALESCE(home_amount, amount)) ELSE 0 END) AS expenses,
+                    SUM(CASE WHEN type = 'income' THEN COALESCE(home_amount, amount) ELSE 0 END) AS income,
+                    COUNT(*) AS tx_count
+             FROM transactions
+             WHERE date BETWEEN ? AND ? AND type != 'transfer'
+             GROUP BY currency
+             ORDER BY expenses DESC`,
+            B([start, end]),
           )
         }
 

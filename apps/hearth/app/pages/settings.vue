@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { AppTheme, ColorMode, NlpTier } from '~/composables/useAppSettings'
+import { SUPPORTED_CURRENCIES } from '~/lib/currency/convert'
 import type { Account, HearthExport } from '~/types/database'
 
 const { settings, set, reset } = useAppSettings()
@@ -167,6 +168,30 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
           >
             <span class="inline-block h-4 w-4 rounded-full bg-white transition-transform" :class="settings.stickyNav ? 'translate-x-6' : 'translate-x-1'" />
           </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Currency ──────────────────────────────────────────────────────── -->
+    <section aria-label="Currency settings">
+      <h2 class="text-xs uppercase tracking-widest text-(--ui-text-muted) font-medium mb-3">Currency</h2>
+      <div class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) divide-y divide-(--ui-border) overflow-hidden">
+        <div class="flex items-center gap-3 p-4 min-h-[60px]">
+          <UIcon name="i-heroicons-currency-dollar" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
+          <div class="flex-1">
+            <p class="text-sm font-medium text-(--ui-text)">Home currency</p>
+            <p class="text-xs text-(--ui-text-muted)">All totals and budgets shown in this currency</p>
+          </div>
+          <select
+            class="text-sm bg-(--ui-bg-elevated) rounded-lg px-2 py-1.5 border border-(--ui-border) text-(--ui-text) min-h-[36px]"
+            :value="settings.currency"
+            aria-label="Home currency"
+            @change="set('currency', ($event.target as HTMLSelectElement).value)"
+          >
+            <option v-for="c in SUPPORTED_CURRENCIES" :key="c.code" :value="c.code">
+              {{ c.symbol }} {{ c.code }} — {{ c.name }}
+            </option>
+          </select>
         </div>
       </div>
     </section>

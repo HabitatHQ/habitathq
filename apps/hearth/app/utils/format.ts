@@ -38,16 +38,51 @@ export function splitCurrencyParts(
   }
 }
 
+/** Narrow currency symbol cache to avoid repeated Intl object creation */
+const symbolCache = new Map<string, string>()
+
+export function getCurrencySymbol(currency: string): string {
+  const cached = symbolCache.get(currency)
+  if (cached) return cached
+  try {
+    const parts = new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency,
+      currencyDisplay: 'narrowSymbol',
+    }).formatToParts(0)
+    const sym = parts.find((p) => p.type === 'currency')?.value ?? currency
+    symbolCache.set(currency, sym)
+    return sym
+  } catch {
+    symbolCache.set(currency, currency)
+    return currency
+  }
+}
+
 /**
- * Compact format for large amounts: "$12.4K", "$1.2M"
+ * Compact format for large amounts: "$12.4K", "€1.2M"
  */
 export function formatCompact(amount: number, currency = 'USD'): string {
   const abs = Math.abs(amount)
   const sign = amount < 0 ? '-' : ''
-  const symbol = currency === 'USD' ? '$' : currency
+  const symbol = getCurrencySymbol(currency)
   if (abs >= 1_000_000) return `${sign}${symbol}${(abs / 1_000_000).toFixed(1)}M`
   if (abs >= 1_000) return `${sign}${symbol}${(abs / 1_000).toFixed(1)}K`
   return `${sign}${symbol}${abs.toFixed(2)}`
+}
+
+/**
+ * Format an amount with optional home-currency annotation for foreign transactions.
+ */
+export function formatWithHomeEquiv(
+  amount: number,
+  currency: string,
+  homeAmount: number | null,
+  homeCurrency: string,
+): { primary: string; annotation: string | null } {
+  const primary = formatAmount(amount, currency)
+  if (currency === homeCurrency || homeAmount == null) return { primary, annotation: null }
+  return { primary, annotation: `≈ ${formatAmount(homeAmount, homeCurrency)}` }
 }
 
 // ── Date formatting ────────────────────────────────────────────────────────

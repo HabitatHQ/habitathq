@@ -52,3 +52,64 @@ describe('parseAmount', () => {
     expect(parseAmount('coffee at Blue Bottle')).toBeNull()
   })
 })
+
+describe('parseAmount — multi-currency', () => {
+  it('parses €50 as EUR', () => {
+    const r = parseAmount('€50')
+    expect(r?.amount).toBe(50)
+    expect(r?.confidence).toBe('high')
+    expect(r?.currency).toBe('EUR')
+  })
+
+  it('parses £12.50 as GBP', () => {
+    const r = parseAmount('coffee £12.50 yesterday')
+    expect(r?.amount).toBe(12.5)
+    expect(r?.currency).toBe('GBP')
+  })
+
+  it('parses ¥3000 as JPY', () => {
+    const r = parseAmount('¥3000')
+    expect(r?.amount).toBe(3000)
+    expect(r?.currency).toBe('JPY')
+  })
+
+  it('parses "50 euros" as EUR', () => {
+    const r = parseAmount('50 euros for dinner')
+    expect(r?.amount).toBe(50)
+    expect(r?.currency).toBe('EUR')
+  })
+
+  it('parses "12 EUR" as EUR', () => {
+    const r = parseAmount('12 EUR')
+    expect(r?.amount).toBe(12)
+    expect(r?.currency).toBe('EUR')
+  })
+
+  it('parses "50 GBP" as GBP', () => {
+    const r = parseAmount('50 GBP')
+    expect(r?.amount).toBe(50)
+    expect(r?.currency).toBe('GBP')
+  })
+
+  it('parses $5 as USD', () => {
+    const r = parseAmount('$5')
+    expect(r?.currency).toBe('USD')
+  })
+
+  it('bare number has no currency', () => {
+    const r = parseAmount('coffee 6')
+    expect(r?.amount).toBe(6)
+    expect(r?.currency).toBeUndefined()
+  })
+
+  it('parses "12 dollars" as USD', () => {
+    const r = parseAmount('12 dollars for lunch')
+    expect(r?.currency).toBe('USD')
+  })
+
+  it('parses €1,234.56 with comma thousands', () => {
+    const r = parseAmount('€1,234.56')
+    expect(r?.amount).toBe(1234.56)
+    expect(r?.currency).toBe('EUR')
+  })
+})

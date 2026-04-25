@@ -1,9 +1,13 @@
 <script setup lang="ts">
+import { SUPPORTED_CURRENCIES } from '~/lib/currency/convert'
 import type { Account, Category, User } from '~/types/database'
+import { formatAmount, formatCurrency } from '~/utils/format'
 
 const db = useDatabase()
 const router = useRouter()
 const route = useRoute()
+const { settings } = useAppSettings()
+const homeCurrency = computed(() => settings.value.currency)
 
 const id = route.params.id as string
 
@@ -12,6 +16,7 @@ type TxType = 'expense' | 'income' | 'transfer'
 const form = reactive({
   type: 'expense' as TxType,
   amountStr: '',
+  currency: 'USD',
   date: new Date().toISOString().slice(0, 10),
   accountId: '',
   toAccountId: '',
@@ -48,6 +53,7 @@ onMounted(async () => {
 
   form.type = tx.type
   form.amountStr = String(Math.abs(tx.amount))
+  form.currency = tx.currency || 'USD'
   form.date = tx.date
   form.accountId = tx.account_id
   form.toAccountId =
@@ -79,11 +85,35 @@ const amountNum = computed(() => {
 })
 
 const amountFormatted = computed(() => {
-  if (!form.amountStr) return '$0.00'
-  const n = parseFloat(form.amountStr)
-  if (Number.isNaN(n)) return '$0.00'
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
+  const n = form.amountStr ? parseFloat(form.amountStr) : 0
+  return formatCurrency(Number.isNaN(n) ? 0 : n, form.currency)
 })
+
+const { getRate, computeHomeAmount } = useExchangeRates()
+const exchangeRate = ref<number | null>(null)
+const homeEquiv = ref<number | null>(null)
+const isForeignCurrency = computed(() => form.currency !== homeCurrency.value)
+
+watch(
+  [() => form.currency, amountNum, () => form.date],
+  async ([curr, amt, date]) => {
+    if (curr === homeCurrency.value || !amt) {
+      exchangeRate.value = null
+      homeEquiv.value = null
+      return
+    }
+    try {
+      const rate = await getRate(curr, homeCurrency.value, date)
+      exchangeRate.value = rate
+      const signed = form.type === 'expense' ? -amt : amt
+      homeEquiv.value = computeHomeAmount(signed, rate)
+    } catch {
+      exchangeRate.value = null
+      homeEquiv.value = null
+    }
+  },
+  { immediate: true },
+)
 
 function pad(key: string) {
   if (key === 'backspace') {
@@ -114,6 +144,7 @@ async function submit() {
       id,
       date: form.date,
       amount: form.type === 'expense' ? -amountNum.value : amountNum.value,
+      currency: form.currency,
       account_id: form.accountId,
       type: form.type,
       category_id: form.categoryId || null,
@@ -121,6 +152,8 @@ async function submit() {
       merchant: form.merchant,
       is_private: form.isPrivate ? 1 : 0,
       transfer_to_account_id: form.type === 'transfer' ? form.toAccountId : null,
+      home_amount: isForeignCurrency.value ? homeEquiv.value : null,
+      exchange_rate: isForeignCurrency.value ? exchangeRate.value : null,
     })
     router.back()
   } catch (e) {
@@ -247,6 +280,32 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
               {{ acct.name }}
             </option>
           </select>
+        </div>
+
+        <!-- Currency -->
+        <div class="flex items-center gap-3 py-2 px-3 rounded-xl bg-(--ui-bg-muted) min-h-[52px]">
+          <UIcon name="i-heroicons-currency-dollar" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
+          <label class="text-sm text-(--ui-text-muted) w-20 shrink-0" for="tx-currency">Currency</label>
+          <select
+            id="tx-currency"
+            v-model="form.currency"
+            class="flex-1 bg-transparent text-sm text-(--ui-text) focus:outline-none"
+            aria-label="Currency"
+          >
+            <option v-for="c in SUPPORTED_CURRENCIES" :key="c.code" :value="c.code">
+              {{ c.symbol }} {{ c.code }}
+            </option>
+          </select>
+        </div>
+
+        <!-- Exchange rate info (foreign currency) -->
+        <div
+          v-if="isForeignCurrency && amountNum && exchangeRate"
+          class="flex items-center gap-2 px-4 py-1.5 text-xs text-(--ui-text-muted) bg-(--ui-bg-muted) rounded-xl"
+        >
+          <UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+          <span>1 {{ form.currency }} = {{ exchangeRate.toFixed(4) }} {{ homeCurrency }}</span>
+          <span class="ml-auto font-mono">≈ {{ formatAmount(Math.abs(homeEquiv ?? 0), homeCurrency) }}</span>
         </div>
 
         <!-- To account (transfer only) -->

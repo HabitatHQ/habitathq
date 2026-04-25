@@ -4,10 +4,12 @@ import type {
   Category,
   Chore,
   ChoreWithStatus,
+  CurrencyBreakdown,
   DashboardSummary,
   DbInfo,
   Envelope,
   EnvelopeWithSpending,
+  ExchangeRate,
   HearthExport,
   IouBalance,
   IouSplit,
@@ -186,5 +188,13 @@ export function useDatabase() {
       transactions: Array<Omit<Transaction, 'id' | 'created_at' | 'updated_at'>>,
     ): Promise<{ imported: number }> =>
       sendToWorker({ type: 'IMPORT_TRANSACTIONS', payload: { transactions } }),
+
+    // ── Exchange Rates ──────────────────────────────────────────────────
+    getExchangeRate: (base: string, target: string, date: string): Promise<ExchangeRate | null> =>
+      sendToWorker({ type: 'GET_EXCHANGE_RATE', payload: { base, target, date } }),
+    upsertExchangeRate: (er: ExchangeRate): Promise<ExchangeRate> =>
+      sendToWorker({ type: 'UPSERT_EXCHANGE_RATE', payload: er }),
+    getCurrencyBreakdown: (period: string): Promise<CurrencyBreakdown[]> =>
+      sendToWorker({ type: 'GET_CURRENCY_BREAKDOWN', payload: { period } }),
   }
 }

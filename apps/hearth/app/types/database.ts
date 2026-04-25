@@ -60,6 +60,8 @@ export interface Transaction {
   transfer_to_account_id: string | null
   split_id: string | null
   source: TransactionSource
+  home_amount: number | null
+  exchange_rate: number | null
   created_at: string
   updated_at: string
 }
@@ -158,6 +160,20 @@ export interface MonthlyTotal {
   period: string // YYYY-MM
   expenses: number
   income: number
+}
+
+export interface ExchangeRate {
+  base: string
+  target: string
+  rate: number
+  date: string // YYYY-MM-DD
+}
+
+export interface CurrencyBreakdown {
+  currency: string
+  expenses: number
+  income: number
+  tx_count: number
 }
 
 export type RecurringInterval = 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'annual'
@@ -310,6 +326,9 @@ export type WorkerRequestBody =
         transactions: Array<Omit<Transaction, 'id' | 'created_at' | 'updated_at'>>
       }
     }
+  | { type: 'GET_EXCHANGE_RATE'; payload: { base: string; target: string; date: string } }
+  | { type: 'UPSERT_EXCHANGE_RATE'; payload: ExchangeRate }
+  | { type: 'GET_CURRENCY_BREAKDOWN'; payload: { period: string } }
 
 export type WorkerRequest = WorkerRequestBody & { id: string }
 

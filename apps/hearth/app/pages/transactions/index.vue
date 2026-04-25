@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import type { TransactionWithDetails } from '~/types/database'
-import { formatDateRelative } from '~/utils/format'
+import { formatAmount, formatDateRelative } from '~/utils/format'
 
 const db = useDatabase()
+const { settings } = useAppSettings()
+const homeCurrency = computed(() => settings.value.currency)
 
 const transactions = ref<TransactionWithDetails[]>([])
 const loading = ref(true)
@@ -161,9 +163,15 @@ const FILTER_OPTIONS = [
                   class="text-sm font-semibold"
                   :class="transactionAmountClass(tx.type)"
                 >
-                  {{ transactionAmountPrefix(tx.type) }}{{ formatAmount(tx.amount) }}
+                  {{ transactionAmountPrefix(tx.type) }}{{ formatAmount(tx.amount, tx.currency) }}
                 </p>
-                <p class="text-xs text-(--ui-text-dimmed) mt-0.5">{{ tx.account_name }}</p>
+                <p
+                  v-if="tx.currency !== homeCurrency && tx.home_amount != null"
+                  class="text-[11px] text-(--ui-text-dimmed) mt-0.5"
+                >
+                  ≈ {{ formatAmount(tx.home_amount, homeCurrency) }}
+                </p>
+                <p v-else class="text-xs text-(--ui-text-dimmed) mt-0.5">{{ tx.account_name }}</p>
               </div>
 
               <!-- Delete (visible on hover) -->

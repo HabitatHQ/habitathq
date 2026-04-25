@@ -101,6 +101,7 @@ function parseSingleTransaction(segment: string, context: ParserContext): Parsed
     date: dateResult?.date ?? context.today,
     dateConfidence: dateResult?.confidence ?? 'low',
     description: '',
+    currency: amountResult?.currency,
   }
 }
 
