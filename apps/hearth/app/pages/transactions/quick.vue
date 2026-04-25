@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { toRaw } from 'vue'
 import type { ParsedTransaction, ParserContext } from '~/lib/nlp/types'
 import type { Account, Category, Transaction, User } from '~/types/database'
 import { formatAmount, transactionAmountPrefix } from '~/utils/format'
@@ -70,6 +71,7 @@ onMounted(async () => {
     db.getCategoryTree(),
     db.getCurrentUser(),
     db.getMerchantMappings(),
+    nlp.init(settings.value.nlpTier),
   ])
   accounts.value = accts
   categoryTree.value = cats
@@ -80,7 +82,6 @@ onMounted(async () => {
       account_id: m.account_id,
     })
   }
-  nlp.init(settings.value.nlpTier)
 })
 
 // ── Build parser context ─────────────────────────────────────────────────
@@ -89,7 +90,7 @@ function buildContext(): ParserContext {
   return {
     categories: allCategories,
     accounts: accounts.value,
-    merchantMappings: merchantMappings.value,
+    merchantMappings: toRaw(merchantMappings.value),
     defaultAccountByType: {
       expense: settings.value.defaultExpenseAccount ?? accounts.value[0]?.id ?? null,
       income: settings.value.defaultIncomeAccount ?? accounts.value[0]?.id ?? null,
@@ -139,10 +140,25 @@ async function autoSave(card: QuickAddCard) {
   if (card.amount == null) return // wait for user to fill in amount
 
   try {
+    const cardCurrency = card.currency || settings.value.currency
+    let homeAmount: number | null = null
+    let cardExchangeRate: number | null = null
+    if (cardCurrency !== settings.value.currency && card.amount != null) {
+      try {
+        const { getRate, computeHomeAmount } = useExchangeRates()
+        const rate = await getRate(cardCurrency, settings.value.currency, card.date)
+        cardExchangeRate = rate
+        const signed = card.type === 'expense' ? -card.amount : card.amount
+        homeAmount = computeHomeAmount(signed, rate)
+      } catch {
+        // Rate unavailable — store without conversion
+      }
+    }
+
     const tx = await db.createTransaction({
       date: card.date,
       amount: card.type === 'expense' ? -card.amount : card.amount,
-      currency: 'USD',
+      currency: cardCurrency,
       account_id: card.accountId ?? accounts.value[0]?.id ?? null,
       user_id: currentUser.value?.id ?? null,
       type: card.type,
@@ -154,6 +170,8 @@ async function autoSave(card: QuickAddCard) {
       transfer_to_account_id: card.transferToAccountId,
       split_id: null,
       source: card.source,
+      home_amount: homeAmount,
+      exchange_rate: cardExchangeRate,
     } as Omit<Transaction, 'id' | 'created_at' | 'updated_at'>)
 
     card.savedTxId = tx.id

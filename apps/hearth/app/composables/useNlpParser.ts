@@ -8,6 +8,7 @@ import type {
 } from '~/lib/nlp/worker-types'
 
 let worker: Worker | null = null
+let initPromise: Promise<void> | null = null
 const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>()
 
 function sendToNlp<T>(req: Record<string, unknown>): Promise<T> {
@@ -56,17 +57,31 @@ function handleMessage(e: MessageEvent) {
 }
 
 export function useNlpParser() {
-  function init(requestedTier: NlpTier = 'regex') {
-    if (worker) return
+  function init(requestedTier: NlpTier = 'regex'): Promise<void> {
+    if (initPromise) return initPromise
+
     worker = new Worker(new URL('../workers/nlp.worker.ts', import.meta.url), {
       type: 'module',
     })
     worker.addEventListener('message', handleMessage)
+
+    initPromise = new Promise<void>((resolve) => {
+      const onReady = (e: MessageEvent) => {
+        if (e.data?.type === 'READY') {
+          worker!.removeEventListener('message', onReady)
+          resolve()
+        }
+      }
+      worker!.addEventListener('message', onReady)
+    })
+
     sendToNlp({ type: 'INIT', payload: { tier: requestedTier } })
+
+    return initPromise
   }
 
   async function parse(input: string, context: ParserContext): Promise<ParseResult> {
-    if (!worker) init()
+    await (initPromise ?? init())
     return sendToNlp<ParseResult>({ type: 'PARSE', payload: { input, context } })
   }
 
@@ -77,6 +92,7 @@ export function useNlpParser() {
   function destroy() {
     worker?.terminate()
     worker = null
+    initPromise = null
     pending.clear()
     status.value = 'idle'
   }
