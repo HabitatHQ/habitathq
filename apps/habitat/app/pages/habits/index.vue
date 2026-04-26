@@ -15,8 +15,6 @@ const showPauseAllModal = ref(false)
 const pauseAllDate = ref('')
 const pausingAll = ref(false)
 
-const { impact } = useHaptics()
-
 const today = new Date().toISOString().slice(0, 10)
 const tomorrow = (() => {
   const d = new Date()
@@ -24,9 +22,7 @@ const tomorrow = (() => {
   return d.toISOString().slice(0, 10)
 })()
 
-// ── Quick-toggle today completions on habit list ──────────────────────────────
 const todayCompletionHabitIds = ref(new Set<string>())
-const quickToggling = reactive(new Set<string>())
 
 const anyPaused = computed(() =>
   habits.value.some((h) => h.paused_until && h.paused_until >= today),
@@ -151,21 +147,6 @@ async function loadHabits() {
   const [h, comps] = await Promise.all([db.getHabits(), db.getCompletionsForDate(today)])
   habits.value = h
   todayCompletionHabitIds.value = new Set(comps.map((c) => c.habit_id))
-}
-
-async function quickToggle(habit: HabitWithSchedule, e: Event) {
-  e.preventDefault()
-  e.stopPropagation()
-  if (quickToggling.has(habit.id)) return
-  quickToggling.add(habit.id)
-  try {
-    await db.toggleCompletion(habit.id, today)
-    const comps = await db.getCompletionsForDate(today)
-    todayCompletionHabitIds.value = new Set(comps.map((c) => c.habit_id))
-    await impact('light')
-  } finally {
-    quickToggling.delete(habit.id)
-  }
 }
 
 async function handleCreate() {
@@ -339,20 +320,7 @@ onMounted(loadHabits)
             >{{ key }}: {{ val }}</span>
           </div>
         </div>
-        <!-- Quick-toggle for BOOLEAN habits; chevron for NUMERIC/LIMIT -->
-        <button
-          v-if="habit.type === 'BOOLEAN'"
-          class="w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all duration-150 shrink-0 z-10"
-          :class="todayCompletionHabitIds.has(habit.id)
-            ? 'bg-primary-500 border-primary-500'
-            : 'border-(--ui-border-accented) hover:border-primary-400 bg-transparent'"
-          :disabled="quickToggling.has(habit.id)"
-          :aria-label="`Toggle ${habit.name} for today`"
-          @click.prevent="quickToggle(habit, $event)"
-        >
-          <AppIcon v-if="todayCompletionHabitIds.has(habit.id)" name="check" class="w-3.5 h-3.5 text-white" />
-        </button>
-        <AppIcon v-else name="chevron-right" class="w-4 h-4 text-(--ui-text-dimmed) flex-shrink-0" />
+        <AppIcon name="chevron-right" class="w-4 h-4 text-(--ui-text-dimmed) flex-shrink-0" />
       </AppCard>
     </ul>
 
