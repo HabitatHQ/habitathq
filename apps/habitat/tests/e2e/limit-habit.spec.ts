@@ -19,7 +19,7 @@
  *   6. The stats page renders without errors and shows the habit
  */
 
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -40,7 +40,7 @@ async function createLimitHabit(
   await page.getByPlaceholder('e.g. Morning run').fill(name)
 
   // Select LIMIT type
-  await page.getByRole('button', { name: '↓ Limit' }).click()
+  await page.getByRole('button', { name: 'Limit' }).click()
 
   // Set target/limit value — there is one number input for the limit field
   const targetInput = page.locator('input[type="number"]').first()
@@ -55,29 +55,34 @@ async function createLimitHabit(
 }
 
 /**
- * Log a value for a LIMIT/NUMERIC habit via the home-page inline log input.
- * Uses @keyup.enter to submit (matches the template binding).
+ * Log a value for a LIMIT/NUMERIC habit via the home-page LogSheet.
+ * Opens the sheet, switches to manual input mode, fills the value, and saves.
  */
 async function logHabitValue(page: import('@playwright/test').Page, value: number) {
   await page.getByRole('button', { name: 'Log' }).click()
 
-  const logInput = page.locator('input[type="number"]').last()
+  // Wait for the LogSheet to appear
+  const sheet = page.locator('.log-sheet')
+  await expect(sheet).toBeVisible({ timeout: 5000 })
+
+  // Switch to manual input mode
+  await page.getByRole('button', { name: 'Type' }).click()
+
+  const logInput = page.locator('#log-sheet-manual-input')
   await expect(logInput).toBeVisible({ timeout: 5000 })
 
   await logInput.fill(String(value))
-  await logInput.press('Enter')
 
-  // Wait for the log input to close
-  await expect(logInput).not.toBeVisible({ timeout: 5000 })
+  // Click Save to submit
+  await page.getByRole('button', { name: 'Save' }).click()
+
+  // Wait for the sheet to close
+  await expect(sheet).not.toBeVisible({ timeout: 5000 })
 }
 
-/** Locator for the amber check-circle icon shown on done LIMIT/NUMERIC habits. */
+/** Locator for the amber check-circle icon shown on done LIMIT habits. */
 function doneCheckCircle(page: import('@playwright/test').Page) {
-  // Nuxt UI / @nuxt/icon renders UIcon as:
-  //   <span class="iconify i-heroicons:check-circle w-5 h-5 text-amber-400">
-  // The .text-amber-400 class scopes this to the habit done indicator,
-  // excluding other check-circle icons (e.g. nav icons, NUMERIC primary icons).
-  return page.locator('.iconify.i-heroicons\\:check-circle.text-amber-400')
+  return page.locator('.i-lucide\\:circle-check.text-amber-400')
 }
 
 // ─── Home page completion ──────────────────────────────────────────────────────

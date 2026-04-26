@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures'
 
 test.describe('Query-param modal opening', () => {
   test('/jots picker sheet opens via New button', async ({ page }) => {

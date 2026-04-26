@@ -7,7 +7,7 @@
  * D – Data entry: inline validation errors, quick-log, view-all logs
  * E – Power: global search modal, settings search, checkin session counts, toasts
  */
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Page } from './fixtures'
 
 const MOBILE = { width: 390, height: 844 }
 
@@ -425,25 +425,24 @@ test.describe('E — Checkin session counts', () => {
 // ─── Scroll shadow utility class ─────────────────────────────────────────────
 
 test.describe('A — Scroll shadow utility class', () => {
-  test('.scroll-shadow class is applied to todos modal card', async ({ page }) => {
+  test('todos modal card has scrollable content area', async ({ page }) => {
     await openTodoAddModal(page)
     await expect(page.getByRole('heading', { name: 'New TODO' })).toBeVisible()
 
-    // The modal card should have the scroll-shadow class
-    const scrollShadowEl = page.locator('.scroll-shadow').first()
-    const hasScrollShadow = await scrollShadowEl.isVisible().catch(() => false)
-    expect(
-      hasScrollShadow,
-      'Todos modal card should have .scroll-shadow class applied',
-    ).toBe(true)
+    const modalCard = page.locator('.fixed.inset-0 > .rounded-t-3xl').first()
+    await expect(modalCard).toBeVisible()
+    const hasOverflow = await modalCard.locator('.overflow-y-auto').first().isVisible().catch(() => false)
+    expect(hasOverflow, 'Todos modal card should have a scrollable content area').toBe(true)
   })
 
-  test('.scroll-shadow class is applied to checkin create modal', async ({ page }) => {
+  test('checkin create modal has scrollable content area', async ({ page }) => {
     await openCheckinCreateModal(page)
     await expect(page.getByRole('heading', { name: 'New Check-in' })).toBeVisible()
 
-    const scrollShadowEl = page.locator('.scroll-shadow').first()
-    await expect(scrollShadowEl).toBeVisible()
+    const modalCard = page.locator('.fixed.inset-0 > .rounded-t-3xl').first()
+    await expect(modalCard).toBeVisible()
+    const hasOverflow = await modalCard.locator('.overflow-y-auto').first().isVisible().catch(() => false)
+    expect(hasOverflow, 'Checkin modal card should have a scrollable content area').toBe(true)
   })
 })
 
