@@ -10,7 +10,6 @@ const expanded = ref(false)
 
 const grouped = computed(() => {
   const all = iconsByCategory()
-  const pickerKeys = new Set(HABIT_PICKER_CATEGORIES.map((c) => c.key))
   const result: {
     key: string
     label: string
@@ -74,9 +73,15 @@ const grouped = computed(() => {
             @click="model = icon.name"
           >
             <AppIcon
+              v-if="model === icon.name"
               :name="icon.name"
               class="w-5 h-5"
-              :color="model === icon.name ? props.color : undefined"
+              :color="props.color"
+            />
+            <AppIcon
+              v-else
+              :name="icon.name"
+              class="w-5 h-5"
             />
           </button>
         </div>
