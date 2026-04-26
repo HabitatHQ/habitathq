@@ -579,7 +579,9 @@ export async function getCheckinSummaryForDate(
   const rows = await db.queryAll<Record<string, unknown>>(
     `SELECT 
        ct.id as template_id, 
-       ct.title, 
+       ct.title,
+       ct.schedule_type,
+       ct.days_active,
        (SELECT COUNT(*) 
         FROM checkin_responses cr 
         JOIN checkin_questions cq ON cq.id = cr.question_id 
@@ -590,12 +592,28 @@ export async function getCheckinSummaryForDate(
      ORDER BY ct.title`,
     [date, date],
   )
-  return rows.map((r) => ({
-    template_id: r['template_id'] as string,
-    title: r['title'] as string,
-    response_count: r['response_count'] as number,
-    is_completed: !!r['is_completed'],
-  }))
+
+  // Filter by schedule: skip templates not active on this day of week
+  const dow = new Date(`${date}T12:00:00`).getDay() // 0=Sun … 6=Sat
+  return rows
+    .filter((r) => {
+      const schedType = r['schedule_type'] as string
+      if (schedType === 'DAILY') return true
+      if (schedType === 'WEEKLY') {
+        const raw = r['days_active']
+        if (raw == null) return true // no days_active = every day of the week
+        const days: number[] = typeof raw === 'string' ? JSON.parse(raw) : (raw as number[])
+        return days.length === 0 || days.includes(dow)
+      }
+      // MONTHLY: always show (no day-of-week constraint)
+      return true
+    })
+    .map((r) => ({
+      template_id: r['template_id'] as string,
+      title: r['title'] as string,
+      response_count: r['response_count'] as number,
+      is_completed: !!r['is_completed'],
+    }))
 }
 
 export async function toggleCheckinCompletion(
