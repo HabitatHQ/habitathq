@@ -54,50 +54,112 @@ const scheduleLabel = computed(() => {
   return 'Daily'
 })
 
-// ─── Calendar (6 weeks ending this Saturday) ──────────────────────────────────
-
-const completionDates = computed(() => new Set(completions.value.map((c) => c.date)))
 const todayStr = new Date().toISOString().slice(0, 10)
 
+// ─── Daily Status (for Calendar and Stats) ────────────────────────────────────
+// Calculates status for every tracked day to standardize the 4-week calendar and stats.
+// 'done': Target met (or Yes/No checked).
+// 'partial': Some progress made, but target not met (NUMERIC only).
+// 'failed': Exceeded the limit (LIMIT only).
+// 'none': No activity.
+const dailyStatus = computed(() => {
+  const statusMap = new Map<string, 'done' | 'partial' | 'failed' | 'none'>()
+  if (!habit.value) return statusMap
+  
+  if (habit.value.type === 'BOOLEAN') {
+    completions.value.forEach(c => statusMap.set(c.date, 'done'))
+  } else {
+    const sums = new Map<string, number>()
+    habitLogs.value.forEach(log => {
+      sums.set(log.date, (sums.get(log.date) || 0) + log.value)
+    })
+    
+    sums.forEach((sum, date) => {
+      if (habit.value!.type === 'NUMERIC') {
+        if (sum >= habit.value!.target_value) {
+          statusMap.set(date, 'done')
+        } else if (sum > 0) {
+          statusMap.set(date, 'partial')
+        }
+      } else if (habit.value!.type === 'LIMIT') {
+        if (sum <= habit.value!.target_value && sum >= 0) { // Limit habits track staying under a limit
+          statusMap.set(date, 'done')
+        } else if (sum > habit.value!.target_value) {
+          statusMap.set(date, 'failed')
+        }
+      }
+    })
+  }
+  return statusMap
+})
+
+// Used by boolean toggle directly
+const completionDates = computed(() => new Set(completions.value.map((c) => c.date)))
+
+// ─── Calendar (4 weeks ending this Saturday) ──────────────────────────────────
+// Shows 28 days of history dynamically lit up based on the habit type rules above.
 const calendarCells = computed(() => {
   const today = new Date()
   const sunday = new Date(today)
   sunday.setDate(today.getDate() - today.getDay())
-  sunday.setDate(sunday.getDate() - 5 * 7)
+  sunday.setDate(sunday.getDate() - 3 * 7) // 4 weeks total
 
-  return Array.from({ length: 42 }, (_, i) => {
+  return Array.from({ length: 28 }, (_, i) => {
     const d = new Date(sunday)
     d.setDate(sunday.getDate() + i)
     const ds = d.toISOString().slice(0, 10)
+    const status = dailyStatus.value.get(ds) || 'none'
     return {
       dateStr: ds,
       day: d.getDate(),
-      done: completionDates.value.has(ds),
+      status, // 'done', 'partial', 'failed', 'none'
       isToday: ds === todayStr,
       future: ds > todayStr,
     }
   })
 })
 
-// ─── Streak (BOOLEAN only) ────────────────────────────────────────────────────
+// ─── Unified Stats ────────────────────────────────────────────────────────────
 
 const currentStreak = computed(() => {
   let streak = 0
   const d = new Date()
-  while (completionDates.value.has(d.toISOString().slice(0, 10))) {
+  let dStr = d.toISOString().slice(0, 10)
+  
+  // Strict streak: if today is not done yet, start counting from yesterday
+  if (dailyStatus.value.get(dStr) !== 'done') {
+    d.setDate(d.getDate() - 1)
+    dStr = d.toISOString().slice(0, 10)
+  }
+
+  while (dailyStatus.value.get(dStr) === 'done') {
     streak++
     d.setDate(d.getDate() - 1)
+    dStr = d.toISOString().slice(0, 10)
   }
   return streak
 })
 
-// ─── Numeric stats ────────────────────────────────────────────────────────────
+const totalLogged = computed(() => {
+  if (habit.value?.type === 'BOOLEAN') return completions.value.length
+  return habitLogs.value.reduce((s, l) => s + l.value, 0)
+})
 
-const totalLogged = computed(() => habitLogs.value.reduce((s, l) => s + l.value, 0))
-const avgDailyValue = computed(() => {
-  if (!habitLogs.value.length) return 0
-  const days = new Set(habitLogs.value.map((l) => l.date)).size
-  return Math.round((totalLogged.value / days) * 10) / 10
+const avgStat = computed(() => {
+  if (habit.value?.type === 'BOOLEAN') {
+    if (!completions.value.length) return { label: 'Avg / week', value: 0 }
+    // Calculate average days completed per week since tracking started
+    const firstLogStr = completions.value[0]?.date || habit.value.created_at.slice(0, 10)
+    const daysTracked = Math.max(1, (new Date(todayStr).getTime() - new Date(firstLogStr).getTime()) / (1000 * 60 * 60 * 24))
+    const weeksTracked = Math.max(1, daysTracked / 7)
+    const avg = Math.round((completions.value.length / weeksTracked) * 10) / 10
+    return { label: 'Avg / week', value: `${avg} days` }
+  } else {
+    if (!habitLogs.value.length) return { label: 'Avg / day', value: 0 }
+    const days = new Set(habitLogs.value.map((l) => l.date)).size
+    const avg = Math.round((totalLogged.value / days) * 10) / 10
+    return { label: 'Avg / day', value: avg }
+  }
 })
 
 // ─── Log history ──────────────────────────────────────────────────────────────
@@ -130,6 +192,25 @@ async function deleteLog(id: string) {
     toast.add({ title: 'Failed to delete log entry', color: 'error', duration: 4000 })
   } finally {
     deletingLog.delete(id)
+  }
+}
+
+// Enable deletion of BOOLEAN completions from the history view
+async function deleteCompletionRecord(date: string) {
+  if (deletingLog.has(date)) return
+  deletingLog.add(date)
+  try {
+    const fromDate = new Date()
+    fromDate.setDate(fromDate.getDate() - 89)
+    const from = fromDate.toISOString().slice(0, 10)
+    await db.toggleCompletion(habit.value!.id, date)
+    completions.value = await db.getCompletionsForHabit(habit.value!.id, from, todayStr)
+    void notification('warning')
+  } catch (err) {
+    logError('[deleteCompletionRecord]', err)
+    toast.add({ title: 'Failed to delete completion', color: 'error', duration: 4000 })
+  } finally {
+    deletingLog.delete(date)
   }
 }
 
@@ -493,25 +574,19 @@ onMounted(load)
       </div>
 
       <!-- ── Stats cards ─────────────────────────────────────────────────────── -->
-      <div class="flex gap-3">
-        <!-- BOOLEAN: streak -->
-        <template v-if="habit.type === 'BOOLEAN'">
-          <StatCard label="Current streak" :value="`${currentStreak} days`" />
-        </template>
-        <!-- NUMERIC / LIMIT: total + avg -->
-        <template v-else>
-          <StatCard label="Total logged" :value="totalLogged.toFixed(totalLogged % 1 === 0 ? 0 : 1)" />
-          <StatCard label="Avg / day" :value="avgDailyValue" />
-        </template>
+      <!-- Unified 4-stat grid for all habit types -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <StatCard label="Current streak" :value="`${currentStreak} days`" />
+        <StatCard :label="habit.type === 'BOOLEAN' ? 'Total completed' : 'Total logged'" :value="totalLogged.toFixed(totalLogged % 1 === 0 ? 0 : 1)" />
+        <StatCard :label="avgStat.label" :value="avgStat.value" />
         <StatCard label="Tracked since" :value="fmtArchived(habit.created_at)" />
       </div>
 
       <!-- ── Log today ──────────────────────────────────────────────────────── -->
       <template v-if="!isPaused">
-        <!-- BOOLEAN: toggle button -->
         <UButton
           v-if="habit.type === 'BOOLEAN'"
-          :variant="todayCompleted ? 'soft' : 'solid'"
+          :variant="todayCompleted ? 'soft' : 'soft'"
           :color="todayCompleted ? 'success' : 'primary'"
           :icon="resolveIcon(todayCompleted ? 'check-circle' : 'plus-circle')"
           :loading="togglingToday"
@@ -520,19 +595,16 @@ onMounted(load)
         >
           {{ todayCompleted ? 'Completed today' : 'Log today' }}
         </UButton>
-
-        <!-- NUMERIC / LIMIT: log today via bottom sheet -->
-        <template v-else>
-          <UButton
-            variant="soft"
-            color="primary"
-            :icon="resolveIcon('plus')"
-            class="w-full justify-center"
-            @click="openLogSheet"
-          >
-            Log today
-          </UButton>
-        </template>
+        <UButton
+          v-else
+          variant="soft"
+          :color="dailyStatus.get(todayStr) === 'done' ? 'success' : 'primary'"
+          :icon="resolveIcon(dailyStatus.get(todayStr) === 'done' ? 'check-circle' : 'plus-circle')"
+          class="w-full justify-center"
+          @click="openLogSheet"
+        >
+          Log today
+        </UButton>
       </template>
 
       <!-- ── Schedule card ───────────────────────────────────────────────────── -->
@@ -624,8 +696,8 @@ onMounted(load)
         </div>
       </UCard>
 
-      <!-- ── 6-week calendar (BOOLEAN only) ─────────────────────────────────── -->
-      <UCard v-if="habit.type === 'BOOLEAN'" :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-2' }">
+      <!-- ── 4-week calendar (All types) ─────────────────────────────────── -->
+      <UCard :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-2' }">
         <p class="text-xs font-semibold text-(--ui-text-muted) mb-3">Activity</p>
         <div class="grid grid-cols-7 gap-1 mb-1">
           <div
@@ -643,12 +715,17 @@ onMounted(load)
             <div
               class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-medium transition-colors"
               :class="{
-                'text-white': cell.done,
-                'ring-1 ring-inset ring-primary-500 text-primary-400': cell.isToday && !cell.done,
-                'text-slate-700': !cell.done && !cell.isToday && !cell.future,
-                'text-(--ui-border-accented)': cell.future,
+                'text-white': cell.status === 'done',
+                'ring-1 ring-inset ring-primary-500 text-primary-400': cell.status === 'none' && cell.isToday,
+                'text-slate-700': cell.status === 'none' && !cell.isToday && !cell.future,
+                'text-(--ui-border-accented)': cell.status === 'none' && cell.future,
               }"
-              :style="cell.done ? { backgroundColor: habit.color } : {}"
+              :style="
+                cell.status === 'done' ? { backgroundColor: habit.color } 
+                : cell.status === 'partial' ? { backgroundColor: habit.color + '40', color: habit.color }
+                : cell.status === 'failed' ? { backgroundColor: '#ef444440', color: '#ef4444' }
+                : {}
+              "
             >
               {{ cell.day }}
             </div>
@@ -671,66 +748,66 @@ onMounted(load)
 
       <!-- ── Log history ─────────────────────────────────────────────────────── -->
 
-      <!-- BOOLEAN completions -->
+      <!-- Unified Log History -->
       <UCard
-        v-if="habit.type === 'BOOLEAN' && recentLog.length"
+        v-if="habit.type === 'BOOLEAN' ? recentLog.length : recentHabitLogs.length"
         :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }"
       >
         <div class="px-4 pt-3 pb-2 flex items-center justify-between">
           <p class="text-xs font-semibold text-(--ui-text-muted)">Log History</p>
           <button
-            v-if="!showAllLogs && completions.length > 5"
+            v-if="!showAllLogs && (habit.type === 'BOOLEAN' ? completions.length > 5 : habitLogs.length > 10)"
             class="text-xs text-primary-400 hover:text-primary-300 transition-colors"
             @click="showAllLogs = true"
           >
-            View all ({{ completions.length }})
+            View all ({{ habit.type === 'BOOLEAN' ? completions.length : habitLogs.length }})
           </button>
         </div>
-        <div
-          v-for="entry in recentLog"
-          :key="entry.id"
-          class="flex items-center justify-between px-4 py-3"
-        >
-          <p class="text-sm text-(--ui-text-toned)">{{ fmtLogDate(entry.completed_at) }}</p>
-          <p class="text-xs text-slate-600">{{ fmtLogTime(entry.completed_at) }} — Completed</p>
-        </div>
-      </UCard>
 
-      <!-- NUMERIC / LIMIT log entries -->
-      <UCard
-        v-if="habit.type !== 'BOOLEAN' && recentHabitLogs.length"
-        :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }"
-      >
-        <div class="px-4 pt-3 pb-2 flex items-center justify-between">
-          <p class="text-xs font-semibold text-(--ui-text-muted)">Log History</p>
-          <button
-            v-if="!showAllLogs && habitLogs.length > 10"
-            class="text-xs text-primary-400 hover:text-primary-300 transition-colors"
-            @click="showAllLogs = true"
+        <!-- BOOLEAN completions -->
+        <template v-if="habit.type === 'BOOLEAN'">
+          <div
+            v-for="entry in recentLog"
+            :key="entry.id"
+            class="flex items-center justify-between px-4 py-3"
           >
-            View all ({{ habitLogs.length }})
-          </button>
-        </div>
-        <div
-          v-for="entry in recentHabitLogs"
-          :key="entry.id"
-          class="flex items-center justify-between px-4 py-3"
-        >
-          <div>
-            <p class="text-sm text-(--ui-text-toned)">{{ fmtLogDate(entry.logged_at) }}</p>
-            <p class="text-xs text-slate-600">{{ fmtLogTime(entry.logged_at) }}</p>
-          </div>
-          <div class="flex items-center gap-3">
-            <span class="text-sm font-medium text-(--ui-text)">{{ entry.value }}</span>
+            <div>
+              <p class="text-sm text-(--ui-text-toned)">{{ fmtLogDate(entry.completed_at) }}</p>
+              <p class="text-xs text-slate-600">{{ fmtLogTime(entry.completed_at) }} — Completed</p>
+            </div>
             <button
               class="p-2 -m-2 text-slate-700 hover:text-red-400 transition-colors"
-              :disabled="deletingLog.has(entry.id)"
-              @click="deleteLog(entry.id)"
+              :disabled="deletingLog.has(entry.date)"
+              @click="deleteCompletionRecord(entry.date)"
             >
               <AppIcon name="trash" class="w-4 h-4" />
             </button>
           </div>
-        </div>
+        </template>
+
+        <!-- NUMERIC / LIMIT log entries -->
+        <template v-else>
+          <div
+            v-for="entry in recentHabitLogs"
+            :key="entry.id"
+            class="flex items-center justify-between px-4 py-3"
+          >
+            <div>
+              <p class="text-sm text-(--ui-text-toned)">{{ fmtLogDate(entry.logged_at) }}</p>
+              <p class="text-xs text-slate-600">{{ fmtLogTime(entry.logged_at) }}</p>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="text-sm font-medium text-(--ui-text)">{{ entry.value }}</span>
+              <button
+                class="p-2 -m-2 text-slate-700 hover:text-red-400 transition-colors"
+                :disabled="deletingLog.has(entry.id)"
+                @click="deleteLog(entry.id)"
+              >
+                <AppIcon name="trash" class="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </template>
       </UCard>
 
       <!-- ── Actions ────────────────────────────────────────────────────────── -->
