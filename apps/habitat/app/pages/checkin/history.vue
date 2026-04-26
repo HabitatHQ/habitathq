@@ -1,8 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import AppIcon from '~/components/AppIcon.vue'
-import BackNav from '~/components/BackNav.vue'
-import EmptyState from '~/components/EmptyState.vue'
 import type { CheckinEntry, CheckinHistoryRow } from '~/types/database'
 import { toLocalDateKey } from '~/utils/format'
 
@@ -185,7 +182,8 @@ const reachedEnd = computed(() => timelineDays.value.length >= activeDates.value
 
 async function loadMoreTimeline() {
   if (timelineDays.value.length > 0) {
-    const oldestLoaded = timelineDays.value[timelineDays.value.length - 1]!
+    const oldestLoaded = timelineDays.value.at(-1)
+    if (!oldestLoaded) return
     const d = new Date(`${oldestLoaded}T12:00:00`)
     const endStr = localDateStr(new Date(d.getTime() - 86400000))
     d.setDate(d.getDate() - 90)

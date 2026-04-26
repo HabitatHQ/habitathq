@@ -57,39 +57,42 @@ const scheduleLabel = computed(() => {
 const todayStr = new Date().toISOString().slice(0, 10)
 
 // ─── Daily Status (for Calendar and Stats) ────────────────────────────────────
+type DayStatus = 'done' | 'partial' | 'failed' | 'none'
+
+function resolveNumericStatus(sum: number, target: number): DayStatus | null {
+  if (sum >= target) return 'done'
+  if (sum > 0) return 'partial'
+  return null
+}
+
+function resolveLimitStatus(sum: number, target: number): DayStatus | null {
+  if (sum <= target && sum >= 0) return 'done'
+  if (sum > target) return 'failed'
+  return null
+}
+
 // Calculates status for every tracked day to standardize the 4-week calendar and stats.
-// 'done': Target met (or Yes/No checked).
-// 'partial': Some progress made, but target not met (NUMERIC only).
-// 'failed': Exceeded the limit (LIMIT only).
-// 'none': No activity.
 const dailyStatus = computed(() => {
-  const statusMap = new Map<string, 'done' | 'partial' | 'failed' | 'none'>()
+  const statusMap = new Map<string, DayStatus>()
   if (!habit.value) return statusMap
 
-  if (habit.value.type === 'BOOLEAN') {
-    completions.value.forEach((c) => statusMap.set(c.date, 'done'))
-  } else {
-    const sums = new Map<string, number>()
-    habitLogs.value.forEach((log) => {
-      sums.set(log.date, (sums.get(log.date) || 0) + log.value)
+  const h = habit.value
+  if (h.type === 'BOOLEAN') {
+    completions.value.forEach((c) => {
+      statusMap.set(c.date, 'done')
     })
+    return statusMap
+  }
 
-    sums.forEach((sum, date) => {
-      if (habit.value!.type === 'NUMERIC') {
-        if (sum >= habit.value!.target_value) {
-          statusMap.set(date, 'done')
-        } else if (sum > 0) {
-          statusMap.set(date, 'partial')
-        }
-      } else if (habit.value!.type === 'LIMIT') {
-        if (sum <= habit.value!.target_value && sum >= 0) {
-          // Limit habits track staying under a limit
-          statusMap.set(date, 'done')
-        } else if (sum > habit.value!.target_value) {
-          statusMap.set(date, 'failed')
-        }
-      }
-    })
+  const sums = new Map<string, number>()
+  habitLogs.value.forEach((log) => {
+    sums.set(log.date, (sums.get(log.date) || 0) + log.value)
+  })
+
+  const resolve = h.type === 'NUMERIC' ? resolveNumericStatus : resolveLimitStatus
+  for (const [date, sum] of sums) {
+    const status = resolve(sum, h.target_value)
+    if (status) statusMap.set(date, status)
   }
   return statusMap
 })
@@ -201,14 +204,14 @@ async function deleteLog(id: string) {
 
 // Enable deletion of BOOLEAN completions from the history view
 async function deleteCompletionRecord(date: string) {
-  if (deletingLog.has(date)) return
+  if (!habit.value || deletingLog.has(date)) return
   deletingLog.add(date)
   try {
     const fromDate = new Date()
     fromDate.setDate(fromDate.getDate() - 89)
     const from = fromDate.toISOString().slice(0, 10)
-    await db.toggleCompletion(habit.value!.id, date)
-    completions.value = await db.getCompletionsForHabit(habit.value!.id, from, todayStr)
+    await db.toggleCompletion(habit.value.id, date)
+    completions.value = await db.getCompletionsForHabit(habit.value.id, from, todayStr)
     void notification('warning')
   } catch (err) {
     logError('[deleteCompletionRecord]', err)
