@@ -252,7 +252,7 @@ async function runMigrations(): Promise<void> {
   }
 
   // v15: Replace i-lucide-* class strings with registry keys
-  if (userVersion === 14) {
+  if (userVersion > 0 && userVersion <= 14) {
     const iconMap: [string, string][] = [
       ['star', 'i-lucide-star'],
       ['heart', 'i-lucide-heart'],
