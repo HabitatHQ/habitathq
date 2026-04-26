@@ -35,7 +35,7 @@ const slots = useSlots()
       <!-- Sticky footer -->
       <div
         v-if="slots['footer']"
-        class="sticky bottom-0 bg-(--ui-bg-muted) border-t border-(--ui-border) px-5 py-4"
+        class="sticky bottom-0 bg-(--ui-bg-muted) border-t border-(--ui-border) px-5 py-4 sm:rounded-b-2xl"
       >
         <slot name="footer" />
         <div class="safe-area-bottom" aria-hidden="true" />

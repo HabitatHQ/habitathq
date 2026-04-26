@@ -323,7 +323,7 @@ onMounted(() => {
                   <div class="min-w-0 pr-2 flex-1 text-left">
                     <div class="flex items-center gap-1.5">
                       <p class="text-sm font-medium truncate text-(--ui-text)">Read Book</p>
-                      <span class="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded bg-primary-500/15 text-primary-400"># Metric</span>
+                      <span class="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded bg-primary-500/15 text-primary-400"># Target</span>
                     </div>
                     <p class="text-xs text-(--ui-text-dimmed) mt-0.5">5 / 20</p>
                   </div>

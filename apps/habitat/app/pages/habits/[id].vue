@@ -172,12 +172,33 @@ function removeEditAnnotationEntry(i: number) {
   editAnnotationEntries.value.splice(i, 1)
 }
 
+const availableEditSchedules = computed(() => {
+  if (editForm.type === 'LIMIT') return ['DAILY'] as const
+  if (editForm.type === 'NUMERIC') return ['DAILY', 'WEEKLY_FLEX'] as const
+  return ['DAILY', 'WEEKLY_FLEX', 'SPECIFIC_DAYS'] as const
+})
+
+watch(() => editForm.type, (newType) => {
+  if (newType === 'LIMIT') {
+    editForm.schedule_type = 'DAILY'
+  } else if (newType === 'NUMERIC') {
+    if (editForm.schedule_type === 'SPECIFIC_DAYS') editForm.schedule_type = 'DAILY'
+    if (editForm.schedule_type === 'WEEKLY_FLEX') editForm.frequency_count = 1
+  }
+})
+
+watch(() => editForm.schedule_type, (newSched) => {
+  if (editForm.type === 'NUMERIC' && newSched === 'WEEKLY_FLEX') {
+    editForm.frequency_count = 1
+  }
+})
+
 function validateEditSchedule(): string | null {
   if (editForm.type === 'NUMERIC') {
     if (editForm.schedule_type === 'SPECIFIC_DAYS')
-      return 'Metric habits can only be daily or 1× per week.'
+      return 'Target habits can only be daily or 1× per week.'
     if (editForm.schedule_type === 'WEEKLY_FLEX' && editForm.frequency_count > 1)
-      return 'Metric habits can only be daily or 1× per week.'
+      return 'Target habits can only be daily or 1× per week.'
   }
   if (editForm.type === 'LIMIT' && editForm.schedule_type !== 'DAILY')
     return 'Limit habits must be daily.'
@@ -724,17 +745,14 @@ onMounted(load)
     </template>
 
     <!-- ── Edit modal ─────────────────────────────────────────────────────────── -->
-    <UModal v-model:open="isEditing">
-      <template #content>
-        <div class="p-4 space-y-4">
-          <h3 class="text-lg font-semibold">Edit Habit</h3>
+    <AppModal v-model="isEditing" title="Edit Habit">
 
           <UFormField label="Name" required>
-            <UInput v-model="editForm.name" autofocus />
+            <UInput v-model="editForm.name" class="w-full" autofocus />
           </UFormField>
 
           <UFormField label="Description">
-            <UInput v-model="editForm.description" placeholder="Optional description" />
+            <UTextarea v-model="editForm.description" placeholder="Optional description" class="w-full" />
           </UFormField>
 
           <!-- Tags -->
@@ -750,7 +768,7 @@ onMounted(load)
                   <button class="text-(--ui-text-dimmed) hover:text-white leading-none" @click="removeEditTag(tag)">×</button>
                 </span>
               </div>
-              <UInput v-model="editTagInput" placeholder="Add tag, press Enter" @keydown="onEditTagKeydown" />
+              <UInput v-model="editTagInput" placeholder="Add tag, press Enter" class="w-full" @keydown="onEditTagKeydown" />
             </div>
           </UFormField>
 
@@ -758,7 +776,7 @@ onMounted(load)
           <UFormField label="Type">
             <TypeSelector
               v-model="editForm.type"
-              :options="[{value:'BOOLEAN',label:'Yes/No'},{value:'NUMERIC',label:'Metric'},{value:'LIMIT',label:'Limit'}]"
+              :options="[{value:'BOOLEAN',label:'Yes/No'},{value:'NUMERIC',label:'Target'},{value:'LIMIT',label:'Limit'}]"
             />
           </UFormField>
 
@@ -770,29 +788,34 @@ onMounted(load)
                 type="number"
                 min="0.1"
                 step="any"
-                class="w-28"
+                class="w-28 sm:w-full"
               />
-              <span class="text-sm text-(--ui-text-dimmed)">per day</span>
+              <span class="text-sm text-(--ui-text-dimmed)">
+                {{ editForm.schedule_type === 'WEEKLY_FLEX' ? 'per week' : 'per day' }}
+              </span>
             </div>
           </UFormField>
 
           <!-- Schedule -->
           <UFormField label="Schedule">
-            <div class="flex gap-2 mb-2">
+            <div v-if="editForm.type === 'LIMIT'" class="py-1.5 px-3 rounded-lg text-sm bg-(--ui-bg-elevated) text-(--ui-text-toned) text-center font-medium">
+              Daily
+            </div>
+            <div v-else class="flex gap-2 mb-2">
               <button
-                v-for="s in (['DAILY', 'WEEKLY_FLEX', 'SPECIFIC_DAYS'] as const)"
+                v-for="s in availableEditSchedules"
                 :key="s"
-                class="flex-1 py-1.5 px-1 rounded-lg text-xs font-medium border transition-colors"
+                class="flex-1 py-1.5 rounded-lg text-sm font-medium transition-colors"
                 :class="editForm.schedule_type === s
-                  ? 'bg-(--ui-bg-accented) border-(--ui-border-accented) text-(--ui-text)'
-                  : 'border-(--ui-border-accented) text-(--ui-text-muted) hover:border-(--ui-border-accented)'"
+                  ? 'bg-primary-600 text-white'
+                  : 'bg-(--ui-bg-elevated) text-(--ui-text-toned)'"
                 @click="editForm.schedule_type = s"
               >
-                {{ s === 'DAILY' ? 'Daily' : s === 'WEEKLY_FLEX' ? 'N× week' : 'Specific days' }}
+                {{ s === 'DAILY' ? 'Daily' : s === 'WEEKLY_FLEX' ? 'Weekly' : 'Specific days' }}
               </button>
             </div>
 
-            <div v-if="editForm.schedule_type === 'WEEKLY_FLEX'" class="flex items-center gap-2">
+            <div v-if="editForm.schedule_type === 'WEEKLY_FLEX' && editForm.type !== 'NUMERIC'" class="flex items-center gap-2">
               <span class="text-sm text-(--ui-text-muted)">Times per week:</span>
               <div class="flex items-center gap-1">
                 <button
@@ -857,15 +880,15 @@ onMounted(load)
             {{ editScheduleError }}
           </p>
 
-          <div class="flex justify-end gap-2 pt-2">
-            <UButton variant="ghost" color="neutral" @click="isEditing = false">Cancel</UButton>
-            <UButton :disabled="!editForm.name.trim() || saving" :loading="saving" @click="saveEdit">
-              Save
-            </UButton>
-          </div>
+      <template #footer>
+        <div class="flex gap-2">
+          <UButton variant="soft" color="neutral" class="flex-1" @click="isEditing = false">Cancel</UButton>
+          <UButton class="flex-1" :disabled="!editForm.name.trim() || saving" :loading="saving" @click="saveEdit">
+            Save
+          </UButton>
         </div>
       </template>
-    </UModal>
+    </AppModal>
 
     <!-- ── Pause modal ────────────────────────────────────────────────────────── -->
     <UModal v-model:open="showPauseModal">

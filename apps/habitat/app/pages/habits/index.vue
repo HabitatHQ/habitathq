@@ -99,12 +99,33 @@ function addAnnotationEntry() {
 function removeAnnotationEntry(i: number) {
   annotationEntries.value.splice(i, 1)
 }
+const availableSchedules = computed(() => {
+  if (form.type === 'LIMIT') return ['DAILY'] as const
+  if (form.type === 'NUMERIC') return ['DAILY', 'WEEKLY_FLEX'] as const
+  return ['DAILY', 'WEEKLY_FLEX', 'SPECIFIC_DAYS'] as const
+})
+
+watch(() => form.type, (newType) => {
+  if (newType === 'LIMIT') {
+    form.schedule_type = 'DAILY'
+  } else if (newType === 'NUMERIC') {
+    if (form.schedule_type === 'SPECIFIC_DAYS') form.schedule_type = 'DAILY'
+    if (form.schedule_type === 'WEEKLY_FLEX') form.frequency_count = 1
+  }
+})
+
+watch(() => form.schedule_type, (newSched) => {
+  if (form.type === 'NUMERIC' && newSched === 'WEEKLY_FLEX') {
+    form.frequency_count = 1
+  }
+})
+
 function validateSchedule(): string | null {
   if (form.type === 'NUMERIC') {
     if (form.schedule_type === 'SPECIFIC_DAYS')
-      return 'Metric habits can only be daily or 1× per week.'
+      return 'Target habits can only be daily or 1× per week.'
     if (form.schedule_type === 'WEEKLY_FLEX' && form.frequency_count > 1)
-      return 'Metric habits must use WEEKLY_FLEX with frequency 1, or be daily.'
+      return 'Target habits must use WEEKLY_FLEX with frequency 1, or be daily.'
   }
   if (form.type === 'LIMIT' && form.schedule_type !== 'DAILY') return 'Limit habits must be daily.'
   return null
@@ -289,7 +310,7 @@ onMounted(loadHabits)
               :class="habit.type === 'NUMERIC'
                 ? 'bg-primary-500/15 text-primary-400'
                 : 'bg-amber-500/15 text-amber-400'"
-            >{{ habit.type === 'NUMERIC' ? '# Metric' : '↓ Limit' }}</span>
+            ># {{ habit.type === 'NUMERIC' ? 'Target' : 'Limit' }}</span>
           </div>
           <p class="text-xs text-slate-600">
             {{ habitScheduleLabel(habit) }}
@@ -356,23 +377,20 @@ onMounted(loadHabits)
     </AppModal>
 
     <!-- ── Create modal ──────────────────────────────────────────────────────── -->
-    <AppModal v-model="isOpen">
-      <div class="space-y-4">
-        <h3 class="text-lg font-semibold">New Habit</h3>
+    <AppModal v-model="isOpen" title="New Habit">
+      <!-- Name -->
+      <UFormField label="Name" required>
+        <UInput v-model="form.name" placeholder="e.g. Morning run" class="w-full" autofocus />
+      </UFormField>
+      <p v-if="nameError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
+        <AppIcon name="exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
+        {{ nameError }}
+      </p>
 
-        <!-- Name -->
-        <UFormField label="Name" required>
-          <UInput v-model="form.name" placeholder="e.g. Morning run" autofocus />
-        </UFormField>
-        <p v-if="nameError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
-          <AppIcon name="exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
-          {{ nameError }}
-        </p>
-
-        <!-- Description -->
-        <UFormField label="Description">
-          <UInput v-model="form.description" placeholder="Optional description" />
-        </UFormField>
+      <!-- Description -->
+      <UFormField label="Description">
+        <UTextarea v-model="form.description" placeholder="Optional description" class="w-full" />
+      </UFormField>
 
         <!-- Tags -->
         <UFormField label="Tags">
@@ -387,7 +405,7 @@ onMounted(loadHabits)
                 <button class="text-(--ui-text-dimmed) hover:text-white leading-none" @click="removeTag(tag)">×</button>
               </span>
             </div>
-            <UInput v-model="tagInput" placeholder="Add tag, press Enter" @keydown="onTagKeydown" />
+            <UInput v-model="tagInput" placeholder="Add tag, press Enter" class="w-full" @keydown="onTagKeydown" />
           </div>
         </UFormField>
 
@@ -395,7 +413,7 @@ onMounted(loadHabits)
         <UFormField label="Type">
           <TypeSelector
             v-model="form.type"
-            :options="[{value:'BOOLEAN',label:'Yes/No'},{value:'NUMERIC',label:'Metric'},{value:'LIMIT',label:'Limit'}]"
+            :options="[{value:'BOOLEAN',label:'Yes/No'},{value:'NUMERIC',label:'Target'},{value:'LIMIT',label:'Limit'}]"
           />
         </UFormField>
 
@@ -407,30 +425,35 @@ onMounted(loadHabits)
               type="number"
               min="0.1"
               step="any"
-              class="w-28"
+              class="w-28 sm:w-full"
             />
-            <span class="text-sm text-(--ui-text-dimmed)">per day</span>
+            <span class="text-sm text-(--ui-text-dimmed)">
+              {{ form.schedule_type === 'WEEKLY_FLEX' ? 'per week' : 'per day' }}
+            </span>
           </div>
         </UFormField>
 
         <!-- Schedule -->
         <UFormField label="Schedule">
-          <div class="flex gap-2 mb-2">
+          <div v-if="form.type === 'LIMIT'" class="py-1.5 px-3 rounded-lg text-sm bg-(--ui-bg-elevated) text-(--ui-text-toned) text-center font-medium">
+            Daily
+          </div>
+          <div v-else class="flex gap-2 mb-2">
             <button
-              v-for="s in (['DAILY', 'WEEKLY_FLEX', 'SPECIFIC_DAYS'] as const)"
+              v-for="s in availableSchedules"
               :key="s"
-              class="flex-1 py-1.5 px-1 rounded-lg text-xs font-medium border transition-colors"
+              class="flex-1 py-1.5 rounded-lg text-sm font-medium transition-colors"
               :class="form.schedule_type === s
-                ? 'bg-(--ui-bg-accented) border-(--ui-border-accented) text-(--ui-text)'
-                : 'border-(--ui-border-accented) text-(--ui-text-muted) hover:border-(--ui-border-accented)'"
+                ? 'bg-primary-600 text-white'
+                : 'bg-(--ui-bg-elevated) text-(--ui-text-toned)'"
               @click="form.schedule_type = s"
             >
-              {{ s === 'DAILY' ? 'Daily' : s === 'WEEKLY_FLEX' ? 'N× week' : 'Specific days' }}
+              {{ s === 'DAILY' ? 'Daily' : s === 'WEEKLY_FLEX' ? 'Weekly' : 'Specific days' }}
             </button>
           </div>
 
           <!-- WEEKLY_FLEX: frequency count -->
-          <div v-if="form.schedule_type === 'WEEKLY_FLEX'" class="flex items-center gap-2">
+          <div v-if="form.schedule_type === 'WEEKLY_FLEX' && form.type !== 'NUMERIC'" class="flex items-center gap-2">
             <span class="text-sm text-(--ui-text-muted)">Times per week:</span>
             <div class="flex items-center gap-1">
               <button
@@ -539,13 +562,14 @@ onMounted(loadHabits)
           {{ scheduleError }}
         </p>
 
-        <div class="flex justify-end gap-2 pt-2">
-          <UButton variant="ghost" color="neutral" @click="closeModal">Cancel</UButton>
-          <UButton :disabled="!form.name.trim() || saving" :loading="saving" @click="handleCreate">
+      <template #footer>
+        <div class="flex gap-2">
+          <UButton variant="soft" color="neutral" class="flex-1" @click="closeModal">Cancel</UButton>
+          <UButton class="flex-1" :disabled="!form.name.trim() || saving" :loading="saving" @click="handleCreate">
             Create
           </UButton>
         </div>
-      </div>
+      </template>
     </AppModal>
   </div>
 </template>
