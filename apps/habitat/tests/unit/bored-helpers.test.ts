@@ -20,7 +20,7 @@ const BASE_ACT: ActivityFormState = {
 
 const BASE_CAT: CategoryFormState = {
   name: 'Sports',
-  icon: 'i-heroicons-bolt',
+  icon: 'bolt',
   color: '#ff0000',
 }
 
@@ -97,7 +97,7 @@ describe('buildCategoryPayload', () => {
   })
 
   it('passes icon through unchanged', () => {
-    expect(buildCategoryPayload(BASE_CAT).icon).toBe('i-heroicons-bolt')
+    expect(buildCategoryPayload(BASE_CAT).icon).toBe('bolt')
   })
 
   it('passes color through unchanged', () => {

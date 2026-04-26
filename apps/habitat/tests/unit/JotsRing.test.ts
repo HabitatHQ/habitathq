@@ -4,7 +4,7 @@ import { ref } from 'vue'
 
 // Stub Nuxt auto-imports used by JotsRing
 vi.stubGlobal('useAppSettings', () => ({ settings: ref({ reduceMotion: false }) }))
-vi.stubGlobal('resolveIcon', (name: string) => `i-heroicons-${name}`)
+vi.stubGlobal('resolveIcon', (name: string) => `i-lucide-${name}`)
 
 import JotsRing from '~/components/JotsRing.vue'
 

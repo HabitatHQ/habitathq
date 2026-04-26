@@ -247,7 +247,7 @@ function addOneMinute() {
             aria-label="Play/Pause"
             @click="playPause"
           >
-            <AppIcon :name="timerComp.isRunning ? 'pause' : 'play'" variant="micro" class="w-8 h-8" />
+            <AppIcon :name="timerComp.isRunning ? 'pause' : 'play'" class="w-8 h-8" />
           </button>
         </div>
       </div>

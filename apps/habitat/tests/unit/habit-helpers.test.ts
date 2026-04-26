@@ -10,7 +10,7 @@ function makeHabit(overrides: Partial<Habit> = {}): Habit {
     name: 'Test',
     description: '',
     color: '#000',
-    icon: 'i-heroicons-star',
+    icon: 'star',
     frequency: 'daily',
     created_at: '2024-01-01T00:00:00Z',
     archived_at: null,

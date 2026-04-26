@@ -50,7 +50,7 @@ async function confirmHealthSetup() {
         type: 'NUMERIC',
         target_value: healthSetup.stepGoal,
         color: '#ef4444',
-        icon: resolveIcon('fire'),
+        icon: 'fire',
         tags: ['habitat-health', 'habitat-steps'],
       })
     }
@@ -63,7 +63,7 @@ async function confirmHealthSetup() {
           type: 'LIMIT',
           target_value: meal.calories,
           color: '#f59e0b',
-          icon: resolveIcon('sparkles'),
+          icon: 'sparkles',
           tags: ['habitat-health', 'habitat-meals'],
         })
       }
@@ -75,7 +75,7 @@ async function confirmHealthSetup() {
         type: 'NUMERIC',
         target_value: healthSetup.waterGoal,
         color: '#0ea5e9',
-        icon: resolveIcon('beaker'),
+        icon: 'beaker',
         tags: ['habitat-health', 'habitat-water'],
       })
     }
@@ -86,7 +86,7 @@ async function confirmHealthSetup() {
         type: 'NUMERIC',
         target_value: healthSetup.sleepGoal,
         color: '#6366f1',
-        icon: resolveIcon('moon'),
+        icon: 'moon',
         tags: ['habitat-health', 'habitat-sleep'],
       })
     }

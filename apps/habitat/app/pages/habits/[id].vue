@@ -231,6 +231,8 @@ watch(isEditing, (open) => {
 const editForm = reactive({
   name: '',
   description: '',
+  icon: 'star',
+  color: '#06b6d4',
   type: 'BOOLEAN' as 'BOOLEAN' | 'NUMERIC' | 'LIMIT',
   target_value: 1,
   schedule_type: 'DAILY' as 'DAILY' | 'WEEKLY_FLEX' | 'SPECIFIC_DAYS',
@@ -305,6 +307,8 @@ function openEdit() {
   const sched = habit.value.schedule
   editForm.name = habit.value.name
   editForm.description = habit.value.description
+  editForm.icon = habit.value.icon
+  editForm.color = habit.value.color
   editForm.type = habit.value.type
   editForm.target_value = habit.value.target_value
   editForm.schedule_type = sched?.schedule_type ?? 'DAILY'
@@ -340,6 +344,8 @@ async function saveEdit() {
       id: habit.value.id,
       name: editForm.name.trim(),
       description: editForm.description.trim(),
+      icon: editForm.icon,
+      color: editForm.color,
       type: editForm.type,
       target_value: editForm.target_value,
       tags: [...editForm.tags],
@@ -840,6 +846,14 @@ onMounted(load)
 
           <UFormField label="Description">
             <UTextarea v-model="editForm.description" placeholder="Optional description" class="w-full" />
+          </UFormField>
+
+          <!-- Icon & Color -->
+          <UFormField label="Color">
+            <HabitColorPicker v-model="editForm.color" />
+          </UFormField>
+          <UFormField label="Icon">
+            <HabitIconPicker v-model="editForm.icon" :color="editForm.color" />
           </UFormField>
 
           <!-- Tags -->

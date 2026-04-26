@@ -4,7 +4,7 @@ import { createRouter, createMemoryHistory } from 'vue-router'
 
 import BackNav from '~/components/BackNav.vue'
 
-const mockResolveIcon = (name: string) => `i-heroicons-${name}`
+const mockResolveIcon = (name: string) => `i-lucide-${name}`
 
 function makeRouter() {
   return createRouter({
@@ -53,6 +53,6 @@ describe('BackNav', () => {
         },
       },
     })
-    expect(wrapper.find('a').attributes('data-icon')).toBe('i-heroicons-arrow-left')
+    expect(wrapper.find('a').attributes('data-icon')).toBe('i-lucide-arrow-left')
   })
 })

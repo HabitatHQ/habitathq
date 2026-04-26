@@ -70,7 +70,7 @@ describe('sendTestNotification', () => {
       expect.objectContaining({
         title: 'Habitat',
         description: expect.stringMatching(/^Test at /),
-        icon: 'i-heroicons-bell',
+        icon: 'i-lucide-bell',
         color: 'primary',
       }),
     )
@@ -129,7 +129,7 @@ describe('scheduleAll — web toast path', () => {
       expect.objectContaining({
         title: 'Morning Run',
         description: 'Time for your habit!',
-        icon: 'i-heroicons-bell',
+        icon: 'i-lucide-bell',
         color: 'primary',
       }),
     )
@@ -154,7 +154,7 @@ describe('scheduleAll — web toast path', () => {
       expect.objectContaining({
         title: 'Morning Check-in',
         description: 'Time for your check-in!',
-        icon: 'i-heroicons-bell',
+        icon: 'i-lucide-bell',
         color: 'primary',
       }),
     )

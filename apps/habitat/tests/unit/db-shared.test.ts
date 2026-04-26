@@ -45,7 +45,7 @@ class MockDbAdapter implements DbAdapter {
 
 function habitRow(id = 'h1'): Record<string, unknown> {
   return {
-    id, name: 'Exercise', description: '', color: '#22d3ee', icon: 'i-heroicons-bolt',
+    id, name: 'Exercise', description: '', color: '#22d3ee', icon: 'bolt',
     frequency: 'daily', created_at: '2025-01-01T00:00:00Z', archived_at: null,
     tags: '[]', annotations: '{}', type: 'BOOLEAN', target_value: 1, paused_until: null,
     sched_id: 's1', schedule_type: 'DAILY', frequency_count: null,
@@ -98,7 +98,7 @@ function checkinReminderRow(id = 'crem1'): Record<string, unknown> {
 }
 
 function boredCategoryRow(id = 'bc1'): Record<string, unknown> {
-  return { id, name: 'Fun', icon: 'i-heroicons-star', color: '#22d3ee', is_system: 0, sort_order: 0, created_at: '2025-01-01T00:00:00Z' }
+  return { id, name: 'Fun', icon: 'star', color: '#22d3ee', is_system: 0, sort_order: 0, created_at: '2025-01-01T00:00:00Z' }
 }
 
 function boredActivityRow(id = 'ba1'): Record<string, unknown> {
@@ -356,10 +356,10 @@ describe('createCheckinTemplate', () => {
 })
 
 describe('deleteCheckinTemplate', () => {
-  it('deletes the template by id', async () => {
+  it('archives the template by id', async () => {
     const db = new MockDbAdapter()
     await shared.deleteCheckinTemplate(db, 'ct1')
-    expect(db.calls[0]!.sql).toContain('DELETE FROM checkin_templates')
+    expect(db.calls[0]!.sql).toContain('UPDATE checkin_templates SET archived_at')
   })
 })
 

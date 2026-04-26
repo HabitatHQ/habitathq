@@ -301,7 +301,7 @@ test.describe('Issue #13 — mobile scroll: dvh max-height, overscroll-contain, 
     await page.waitForLoadState('networkidle')
 
     // Click the first "+" icon button in the activities list
-    const iconBtns = page.locator('button').filter({ has: page.locator('.i-heroicons-plus') })
+    const iconBtns = page.locator('button').filter({ has: page.locator('.i-lucide-plus') })
     const count = await iconBtns.count()
     if (count === 0) { test.skip(); return }
 

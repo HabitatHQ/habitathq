@@ -28,7 +28,7 @@ const activityTitleError = ref<string | null>(null)
 const categoryNameError = ref<string | null>(null)
 
 // Category form
-const catForm = reactive({ name: '', icon: resolveIcon('sparkles'), color: '#6366f1' })
+const catForm = reactive({ name: '', icon: 'sparkles', color: '#6366f1' })
 
 // Activity form
 const actForm = reactive({
@@ -86,7 +86,7 @@ function openEditActivity(a: BoredActivity) {
 function openAddCategory() {
   editingCategory.value = null
   categoryNameError.value = null
-  Object.assign(catForm, { name: '', icon: resolveIcon('sparkles'), color: '#6366f1' })
+  Object.assign(catForm, { name: '', icon: 'sparkles', color: '#6366f1' })
   showCategoryModal.value = true
 }
 
@@ -296,8 +296,8 @@ async function archiveActivity(a: BoredActivity) {
             <AppIcon name="exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
             {{ categoryNameError }}
           </p>
-          <UFormField label="Icon (Heroicons class)">
-            <UInput v-model="catForm.icon" placeholder="i-heroicons-sparkles" class="w-full" />
+          <UFormField label="Icon">
+            <UInput v-model="catForm.icon" placeholder="sparkles" class="w-full" />
           </UFormField>
           <UFormField label="Color">
             <div class="flex items-center gap-2">

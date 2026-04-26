@@ -1,14 +1,7 @@
-/** Supported icon variants */
-export type IconVariant = 'outline' | 'solid' | 'micro'
-
 /** Definition of a single icon in the registry */
 export interface IconDef {
-  /** Outline (default) icon class */
+  /** Icon class (Lucide via Iconify) */
   outline: string
-  /** Solid variant icon class */
-  solid?: string
-  /** Micro (16px solid) variant — bolder, less detail */
-  micro?: string
   /** Human-readable label (for icon picker UI) */
   label: string
   /** Category for grouping (in icon picker) */
@@ -35,450 +28,252 @@ export const ICON_SIZES = {
 
 /**
  * Icon registry — single source of truth for all icons used in the app.
+ * All icons use Lucide via Iconify (`i-lucide-*`).
  *
- * To add a new icon:       add an entry here with outline (required) and solid/micro (optional).
- * To swap icon libraries:  update the outline/solid/micro strings (e.g., 'i-heroicons-*' → 'i-lucide-*').
+ * To add a new icon:       add an entry here with outline (required).
  * To add custom SVG icons: register with a custom prefix (e.g., 'i-custom-*') and configure the icon source.
  */
 export const iconRegistry: Record<string, IconDef> = {
   // ── Common / Symbols ────────────────────────────────────────
-  star: {
-    outline: 'i-heroicons-star',
-    solid: 'i-heroicons-star-solid',
-    label: 'Star',
-    category: 'common',
-  },
-  heart: {
-    outline: 'i-heroicons-heart',
-    solid: 'i-heroicons-heart-solid',
-    label: 'Heart',
-    category: 'common',
-  },
-  fire: {
-    outline: 'i-heroicons-fire',
-    solid: 'i-heroicons-fire-solid',
-    label: 'Fire',
-    category: 'common',
-  },
-  bolt: {
-    outline: 'i-heroicons-bolt',
-    solid: 'i-heroicons-bolt-solid',
-    label: 'Bolt',
-    category: 'common',
-  },
-  sparkles: {
-    outline: 'i-heroicons-sparkles',
-    solid: 'i-heroicons-sparkles-solid',
-    label: 'Sparkles',
-    category: 'common',
-  },
-  'light-bulb': {
-    outline: 'i-heroicons-light-bulb',
-    solid: 'i-heroicons-light-bulb-solid',
-    label: 'Light Bulb',
-    category: 'common',
-  },
-  beaker: {
-    outline: 'i-heroicons-beaker',
-    solid: 'i-heroicons-beaker-solid',
-    label: 'Beaker',
-    category: 'common',
-  },
-  'face-smile': {
-    outline: 'i-heroicons-face-smile',
-    solid: 'i-heroicons-face-smile-solid',
-    label: 'Smiley',
-    category: 'common',
-  },
-  scale: {
-    outline: 'i-heroicons-scale',
-    solid: 'i-heroicons-scale-solid',
-    label: 'Scale',
-    category: 'common',
-  },
+  star: { outline: 'i-lucide-star', label: 'Star', category: 'common' },
+  heart: { outline: 'i-lucide-heart', label: 'Heart', category: 'common' },
+  fire: { outline: 'i-lucide-flame', label: 'Fire', category: 'common' },
+  bolt: { outline: 'i-lucide-zap', label: 'Bolt', category: 'common' },
+  sparkles: { outline: 'i-lucide-sparkles', label: 'Sparkles', category: 'common' },
+  'light-bulb': { outline: 'i-lucide-lightbulb', label: 'Light Bulb', category: 'common' },
+  beaker: { outline: 'i-lucide-flask-conical', label: 'Beaker', category: 'common' },
+  'face-smile': { outline: 'i-lucide-laugh', label: 'Smiley', category: 'common' },
+  scale: { outline: 'i-lucide-scale', label: 'Scale', category: 'common' },
+  'thumbs-up': { outline: 'i-lucide-thumbs-up', label: 'Approval', category: 'common' },
+  'infinity-icon': { outline: 'i-lucide-infinity', label: 'Continuous', category: 'common' },
 
   // ── Navigation ──────────────────────────────────────────────
-  'arrow-left': {
-    outline: 'i-heroicons-arrow-left',
-    solid: 'i-heroicons-arrow-left-solid',
-    label: 'Arrow Left',
-    category: 'navigation',
-  },
-  'arrow-right': {
-    outline: 'i-heroicons-arrow-right',
-    solid: 'i-heroicons-arrow-right-solid',
-    label: 'Arrow Right',
-    category: 'navigation',
-  },
+  'arrow-left': { outline: 'i-lucide-arrow-left', label: 'Arrow Left', category: 'navigation' },
+  'arrow-right': { outline: 'i-lucide-arrow-right', label: 'Arrow Right', category: 'navigation' },
   'chevron-down': {
-    outline: 'i-heroicons-chevron-down',
-    solid: 'i-heroicons-chevron-down-solid',
+    outline: 'i-lucide-chevron-down',
     label: 'Chevron Down',
     category: 'navigation',
   },
   'chevron-left': {
-    outline: 'i-heroicons-chevron-left',
-    solid: 'i-heroicons-chevron-left-solid',
+    outline: 'i-lucide-chevron-left',
     label: 'Chevron Left',
     category: 'navigation',
   },
   'chevron-right': {
-    outline: 'i-heroicons-chevron-right',
-    solid: 'i-heroicons-chevron-right-solid',
+    outline: 'i-lucide-chevron-right',
     label: 'Chevron Right',
     category: 'navigation',
   },
-  'chevron-up': {
-    outline: 'i-heroicons-chevron-up',
-    solid: 'i-heroicons-chevron-up-solid',
-    label: 'Chevron Up',
-    category: 'navigation',
-  },
-  home: {
-    outline: 'i-heroicons-home',
-    solid: 'i-heroicons-home-solid',
-    label: 'Home',
-    category: 'navigation',
-  },
-  'bars-3': {
-    outline: 'i-heroicons-bars-3',
-    solid: 'i-heroicons-bars-3-solid',
-    label: 'Menu',
-    category: 'navigation',
-  },
+  'chevron-up': { outline: 'i-lucide-chevron-up', label: 'Chevron Up', category: 'navigation' },
+  home: { outline: 'i-lucide-house', label: 'Home', category: 'navigation' },
+  'bars-3': { outline: 'i-lucide-menu', label: 'Menu', category: 'navigation' },
 
   // ── Actions ─────────────────────────────────────────────────
-  plus: {
-    outline: 'i-heroicons-plus',
-    solid: 'i-heroicons-plus-solid',
-    label: 'Plus',
-    category: 'action',
-  },
-  minus: {
-    outline: 'i-heroicons-minus',
-    solid: 'i-heroicons-minus-solid',
-    label: 'Minus',
-    category: 'action',
-  },
-  check: {
-    outline: 'i-heroicons-check',
-    solid: 'i-heroicons-check-solid',
-    label: 'Check',
-    category: 'action',
-  },
-  'x-mark': {
-    outline: 'i-heroicons-x-mark',
-    solid: 'i-heroicons-x-mark-solid',
-    label: 'Close',
-    category: 'action',
-  },
-  trash: {
-    outline: 'i-heroicons-trash',
-    solid: 'i-heroicons-trash-solid',
-    label: 'Trash',
-    category: 'action',
-  },
-  pencil: {
-    outline: 'i-heroicons-pencil',
-    solid: 'i-heroicons-pencil-solid',
-    label: 'Pencil',
-    category: 'action',
-  },
-  'pencil-square': {
-    outline: 'i-heroicons-pencil-square',
-    solid: 'i-heroicons-pencil-square-solid',
-    label: 'Edit',
-    category: 'action',
-  },
-  'arrow-path': {
-    outline: 'i-heroicons-arrow-path',
-    solid: 'i-heroicons-arrow-path-solid',
-    label: 'Refresh',
-    category: 'action',
-  },
-  'magnifying-glass': {
-    outline: 'i-heroicons-magnifying-glass',
-    solid: 'i-heroicons-magnifying-glass-solid',
-    label: 'Search',
-    category: 'action',
-  },
-  'arrows-right-left': {
-    outline: 'i-heroicons-arrows-right-left',
-    solid: 'i-heroicons-arrows-right-left-solid',
-    label: 'Swap',
-    category: 'action',
-  },
+  plus: { outline: 'i-lucide-plus', label: 'Plus', category: 'action' },
+  minus: { outline: 'i-lucide-minus', label: 'Minus', category: 'action' },
+  check: { outline: 'i-lucide-check', label: 'Check', category: 'action' },
+  'x-mark': { outline: 'i-lucide-x', label: 'Close', category: 'action' },
+  trash: { outline: 'i-lucide-trash-2', label: 'Trash', category: 'action' },
+  pencil: { outline: 'i-lucide-pencil', label: 'Pencil', category: 'action' },
+  'pencil-square': { outline: 'i-lucide-square-pen', label: 'Edit', category: 'action' },
+  'arrow-path': { outline: 'i-lucide-refresh-cw', label: 'Refresh', category: 'action' },
+  'magnifying-glass': { outline: 'i-lucide-search', label: 'Search', category: 'action' },
+  'arrows-right-left': { outline: 'i-lucide-arrow-left-right', label: 'Swap', category: 'action' },
 
   // ── Media ───────────────────────────────────────────────────
-  play: {
-    outline: 'i-heroicons-play',
-    solid: 'i-heroicons-play-solid',
-    micro: 'i-heroicons-play-16-solid',
-    label: 'Play',
-    category: 'media',
-  },
-  pause: {
-    outline: 'i-heroicons-pause',
-    solid: 'i-heroicons-pause-solid',
-    micro: 'i-heroicons-pause-16-solid',
-    label: 'Pause',
-    category: 'media',
-  },
-  stop: {
-    outline: 'i-heroicons-stop',
-    solid: 'i-heroicons-stop-solid',
-    label: 'Stop',
-    category: 'media',
-  },
-  'stop-circle': {
-    outline: 'i-heroicons-stop-circle',
-    solid: 'i-heroicons-stop-circle-solid',
-    label: 'Stop Circle',
-    category: 'media',
-  },
-  microphone: {
-    outline: 'i-heroicons-microphone',
-    solid: 'i-heroicons-microphone-solid',
-    label: 'Microphone',
-    category: 'media',
-  },
-  photo: {
-    outline: 'i-heroicons-photo',
-    solid: 'i-heroicons-photo-solid',
-    label: 'Photo',
-    category: 'media',
-  },
-  camera: {
-    outline: 'i-heroicons-camera',
-    solid: 'i-heroicons-camera-solid',
-    label: 'Camera',
-    category: 'media',
-  },
+  play: { outline: 'i-lucide-play', label: 'Play', category: 'media' },
+  pause: { outline: 'i-lucide-pause', label: 'Pause', category: 'media' },
+  stop: { outline: 'i-lucide-square', label: 'Stop', category: 'media' },
+  'stop-circle': { outline: 'i-lucide-circle-stop', label: 'Stop Circle', category: 'media' },
+  microphone: { outline: 'i-lucide-mic', label: 'Microphone', category: 'media' },
+  photo: { outline: 'i-lucide-image', label: 'Photo', category: 'media' },
+  camera: { outline: 'i-lucide-camera', label: 'Camera', category: 'media' },
 
   // ── Status ──────────────────────────────────────────────────
-  'plus-circle': {
-    outline: 'i-heroicons-plus-circle',
-    solid: 'i-heroicons-plus-circle-solid',
-    label: 'Add',
-    category: 'status',
-  },
-  'check-circle': {
-    outline: 'i-heroicons-check-circle',
-    solid: 'i-heroicons-check-circle-solid',
-    label: 'Done',
-    category: 'status',
-  },
-  'exclamation-circle': {
-    outline: 'i-heroicons-exclamation-circle',
-    solid: 'i-heroicons-exclamation-circle-solid',
-    label: 'Warning',
-    category: 'status',
-  },
+  'plus-circle': { outline: 'i-lucide-circle-plus', label: 'Add', category: 'status' },
+  'check-circle': { outline: 'i-lucide-circle-check', label: 'Done', category: 'status' },
+  'exclamation-circle': { outline: 'i-lucide-circle-alert', label: 'Warning', category: 'status' },
   'exclamation-triangle': {
-    outline: 'i-heroicons-exclamation-triangle',
-    solid: 'i-heroicons-exclamation-triangle-solid',
+    outline: 'i-lucide-triangle-alert',
     label: 'Alert',
     category: 'status',
   },
-  'shield-check': {
-    outline: 'i-heroicons-shield-check',
-    solid: 'i-heroicons-shield-check-solid',
-    label: 'Shield',
-    category: 'status',
-  },
-  'lock-closed': {
-    outline: 'i-heroicons-lock-closed',
-    solid: 'i-heroicons-lock-closed-solid',
-    label: 'Locked',
-    category: 'status',
-  },
-  'lock-open': {
-    outline: 'i-heroicons-lock-open',
-    solid: 'i-heroicons-lock-open-solid',
-    label: 'Unlocked',
-    category: 'status',
-  },
+  'shield-check': { outline: 'i-lucide-shield-check', label: 'Shield', category: 'status' },
+  'lock-closed': { outline: 'i-lucide-lock', label: 'Locked', category: 'status' },
+  'lock-open': { outline: 'i-lucide-lock-open', label: 'Unlocked', category: 'status' },
 
   // ── Content ─────────────────────────────────────────────────
-  'document-text': {
-    outline: 'i-heroicons-document-text',
-    solid: 'i-heroicons-document-text-solid',
-    label: 'Document',
-    category: 'content',
-  },
-  'book-open': {
-    outline: 'i-heroicons-book-open',
-    solid: 'i-heroicons-book-open-solid',
-    label: 'Book',
-    category: 'content',
-  },
+  'document-text': { outline: 'i-lucide-file-text', label: 'Document', category: 'content' },
+  'book-open': { outline: 'i-lucide-book-open', label: 'Book', category: 'content' },
   'clipboard-document-list': {
-    outline: 'i-heroicons-clipboard-document-list',
-    solid: 'i-heroicons-clipboard-document-list-solid',
+    outline: 'i-lucide-clipboard-list',
     label: 'Clipboard',
     category: 'content',
   },
-  tag: {
-    outline: 'i-heroicons-tag',
-    solid: 'i-heroicons-tag-solid',
-    label: 'Tag',
-    category: 'content',
-  },
-  link: {
-    outline: 'i-heroicons-link',
-    solid: 'i-heroicons-link-solid',
-    label: 'Link',
-    category: 'content',
-  },
-  'paper-clip': {
-    outline: 'i-heroicons-paper-clip',
-    solid: 'i-heroicons-paper-clip-solid',
-    label: 'Attachment',
-    category: 'content',
-  },
+  tag: { outline: 'i-lucide-tag', label: 'Tag', category: 'content' },
+  link: { outline: 'i-lucide-link', label: 'Link', category: 'content' },
+  'paper-clip': { outline: 'i-lucide-paperclip', label: 'Attachment', category: 'content' },
 
   // ── Time ────────────────────────────────────────────────────
-  calendar: {
-    outline: 'i-heroicons-calendar',
-    solid: 'i-heroicons-calendar-solid',
-    label: 'Calendar',
-    category: 'time',
-  },
-  'calendar-days': {
-    outline: 'i-heroicons-calendar-days',
-    solid: 'i-heroicons-calendar-days-solid',
-    label: 'Date',
-    category: 'time',
-  },
-  clock: {
-    outline: 'i-heroicons-clock',
-    solid: 'i-heroicons-clock-solid',
-    label: 'Clock',
-    category: 'time',
-  },
-  bell: {
-    outline: 'i-heroicons-bell',
-    solid: 'i-heroicons-bell-solid',
-    label: 'Bell',
-    category: 'time',
-  },
+  calendar: { outline: 'i-lucide-calendar', label: 'Calendar', category: 'time' },
+  'calendar-days': { outline: 'i-lucide-calendar-days', label: 'Date', category: 'time' },
+  clock: { outline: 'i-lucide-clock', label: 'Clock', category: 'time' },
+  bell: { outline: 'i-lucide-bell', label: 'Bell', category: 'time' },
 
   // ── Data ────────────────────────────────────────────────────
-  'chart-bar': {
-    outline: 'i-heroicons-chart-bar',
-    solid: 'i-heroicons-chart-bar-solid',
-    label: 'Chart',
-    category: 'data',
-  },
-  'table-cells': {
-    outline: 'i-heroicons-table-cells',
-    solid: 'i-heroicons-table-cells-solid',
-    label: 'Table',
-    category: 'data',
-  },
-  'squares-2x2': {
-    outline: 'i-heroicons-squares-2x2',
-    solid: 'i-heroicons-squares-2x2-solid',
-    label: 'Grid',
-    category: 'data',
-  },
-  'list-bullet': {
-    outline: 'i-heroicons-list-bullet',
-    solid: 'i-heroicons-list-bullet-solid',
-    label: 'List',
-    category: 'data',
-  },
+  'chart-bar': { outline: 'i-lucide-chart-bar', label: 'Chart', category: 'data' },
+  'table-cells': { outline: 'i-lucide-table', label: 'Table', category: 'data' },
+  'squares-2x2': { outline: 'i-lucide-grid-2x2', label: 'Grid', category: 'data' },
+  'list-bullet': { outline: 'i-lucide-list', label: 'List', category: 'data' },
 
   // ── Nature ──────────────────────────────────────────────────
-  sun: {
-    outline: 'i-heroicons-sun',
-    solid: 'i-heroicons-sun-solid',
-    label: 'Sun',
-    category: 'nature',
-  },
-  moon: {
-    outline: 'i-heroicons-moon',
-    solid: 'i-heroicons-moon-solid',
-    label: 'Moon',
-    category: 'nature',
-  },
+  sun: { outline: 'i-lucide-sun', label: 'Sun', category: 'outdoors' },
+  moon: { outline: 'i-lucide-moon', label: 'Moon', category: 'outdoors' },
 
   // ── System ──────────────────────────────────────────────────
-  'cog-6-tooth': {
-    outline: 'i-heroicons-cog-6-tooth',
-    solid: 'i-heroicons-cog-6-tooth-solid',
-    label: 'Settings',
-    category: 'system',
-  },
-  'circle-stack': {
-    outline: 'i-heroicons-circle-stack',
-    solid: 'i-heroicons-circle-stack-solid',
-    label: 'Database',
-    category: 'system',
-  },
-  inbox: {
-    outline: 'i-heroicons-inbox',
-    solid: 'i-heroicons-inbox-solid',
-    label: 'Inbox',
-    category: 'system',
-  },
-  'archive-box': {
-    outline: 'i-heroicons-archive-box',
-    solid: 'i-heroicons-archive-box-solid',
-    label: 'Archive',
-    category: 'system',
-  },
-  swatch: {
-    outline: 'i-heroicons-swatch',
-    solid: 'i-heroicons-swatch-solid',
-    label: 'Theme',
-    category: 'system',
-  },
+  'cog-6-tooth': { outline: 'i-lucide-settings', label: 'Settings', category: 'system' },
+  'circle-stack': { outline: 'i-lucide-database', label: 'Database', category: 'system' },
+  inbox: { outline: 'i-lucide-inbox', label: 'Inbox', category: 'system' },
+  'archive-box': { outline: 'i-lucide-archive', label: 'Archive', category: 'system' },
+  swatch: { outline: 'i-lucide-palette', label: 'Theme', category: 'system' },
   'adjustments-horizontal': {
-    outline: 'i-heroicons-adjustments-horizontal',
-    solid: 'i-heroicons-adjustments-horizontal-solid',
+    outline: 'i-lucide-sliders-horizontal',
     label: 'Adjust',
     category: 'system',
   },
-  'ellipsis-horizontal-circle': {
-    outline: 'i-heroicons-ellipsis-horizontal-circle',
-    solid: 'i-heroicons-ellipsis-horizontal-circle-solid',
-    label: 'More',
-    category: 'system',
-  },
-  'battery-100': { outline: 'i-heroicons-battery-100', label: 'Battery', category: 'system' },
-  'user-circle': {
-    outline: 'i-heroicons-user-circle',
-    solid: 'i-heroicons-user-circle-solid',
-    label: 'User',
-    category: 'system',
-  },
+  'ellipsis-horizontal-circle': { outline: 'i-lucide-ellipsis', label: 'More', category: 'system' },
+  'battery-100': { outline: 'i-lucide-battery-full', label: 'Battery', category: 'system' },
+  'user-circle': { outline: 'i-lucide-circle-user', label: 'User', category: 'system' },
 
   // ── Transfer ────────────────────────────────────────────────
-  'arrow-down-tray': {
-    outline: 'i-heroicons-arrow-down-tray',
-    solid: 'i-heroicons-arrow-down-tray-solid',
-    label: 'Download',
-    category: 'transfer',
-  },
-  'arrow-up-tray': {
-    outline: 'i-heroicons-arrow-up-tray',
-    solid: 'i-heroicons-arrow-up-tray-solid',
-    label: 'Upload',
-    category: 'transfer',
-  },
-  'arrow-up-on-square': {
-    outline: 'i-heroicons-arrow-up-on-square',
-    solid: 'i-heroicons-arrow-up-on-square-solid',
-    label: 'Share',
-    category: 'transfer',
-  },
+  'arrow-down-tray': { outline: 'i-lucide-download', label: 'Download', category: 'transfer' },
+  'arrow-up-tray': { outline: 'i-lucide-upload', label: 'Upload', category: 'transfer' },
+  'arrow-up-on-square': { outline: 'i-lucide-share', label: 'Share', category: 'transfer' },
   'arrow-top-right-on-square': {
-    outline: 'i-heroicons-arrow-top-right-on-square',
-    solid: 'i-heroicons-arrow-top-right-on-square-solid',
+    outline: 'i-lucide-external-link',
     label: 'External',
     category: 'transfer',
   },
+
+  // ── Fitness & Health ────────────────────────────────────────
+  barbell: { outline: 'i-lucide-dumbbell', label: 'Barbell', category: 'fitness' },
+  running: { outline: 'i-lucide-person-standing', label: 'Running', category: 'fitness' },
+  cycling: { outline: 'i-lucide-bike', label: 'Cycling', category: 'fitness' },
+  heartbeat: { outline: 'i-lucide-heart-pulse', label: 'Heartbeat', category: 'fitness' },
+  sneaker: { outline: 'i-lucide-footprints', label: 'Walking', category: 'fitness' },
+  yoga: { outline: 'i-lucide-accessibility', label: 'Yoga', category: 'fitness' },
+  stretching: { outline: 'i-lucide-move', label: 'Stretching', category: 'fitness' },
+  trophy: { outline: 'i-lucide-trophy', label: 'Trophy', category: 'fitness' },
+  medal: { outline: 'i-lucide-medal', label: 'Medal', category: 'fitness' },
+  basketball: { outline: 'i-lucide-circle-dot', label: 'Basketball', category: 'fitness' },
+  activity: { outline: 'i-lucide-activity', label: 'Cardio', category: 'fitness' },
+  waves: { outline: 'i-lucide-waves', label: 'Swimming', category: 'fitness' },
+  weight: { outline: 'i-lucide-weight', label: 'Lifting', category: 'fitness' },
+
+  // ── Food & Drink ────────────────────────────────────────────
+  'cooking-pot': { outline: 'i-lucide-cooking-pot', label: 'Cooking', category: 'food' },
+  coffee: { outline: 'i-lucide-coffee', label: 'Coffee', category: 'food' },
+  wine: { outline: 'i-lucide-wine', label: 'Wine', category: 'food' },
+  apple: { outline: 'i-lucide-apple', label: 'Apple', category: 'food' },
+  'water-drop': { outline: 'i-lucide-droplets', label: 'Water', category: 'food' },
+  'bowl-food': { outline: 'i-lucide-soup', label: 'Bowl', category: 'food' },
+  beer: { outline: 'i-lucide-beer', label: 'Beer', category: 'food' },
+  leaf: { outline: 'i-lucide-leaf', label: 'Leaf', category: 'food' },
+  utensils: { outline: 'i-lucide-utensils', label: 'Meals', category: 'food' },
+  salad: { outline: 'i-lucide-salad', label: 'Healthy Eating', category: 'food' },
+  egg: { outline: 'i-lucide-egg-fried', label: 'Breakfast', category: 'food' },
+
+  // ── Mind & Learning ─────────────────────────────────────────
+  reading: { outline: 'i-lucide-book-open-text', label: 'Reading', category: 'learning' },
+  brain: { outline: 'i-lucide-brain', label: 'Brain', category: 'learning' },
+  graduation: { outline: 'i-lucide-graduation-cap', label: 'Study', category: 'learning' },
+  puzzle: { outline: 'i-lucide-puzzle', label: 'Puzzle', category: 'learning' },
+  lightbulb: { outline: 'i-lucide-lamp', label: 'Ideas', category: 'learning' },
+  writing: { outline: 'i-lucide-pen-tool', label: 'Writing', category: 'learning' },
+  translate: { outline: 'i-lucide-languages', label: 'Language', category: 'learning' },
+  headphones: { outline: 'i-lucide-headphones', label: 'Listening', category: 'learning' },
+  notebook: { outline: 'i-lucide-notebook-pen', label: 'Journaling', category: 'learning' },
+  library: { outline: 'i-lucide-library', label: 'Library', category: 'learning' },
+  podcast: { outline: 'i-lucide-podcast', label: 'Podcasts', category: 'learning' },
+
+  // ── Wellness & Self-care ────────────────────────────────────
+  bed: { outline: 'i-lucide-bed', label: 'Sleep', category: 'wellness' },
+  bathtub: { outline: 'i-lucide-bath', label: 'Self-care', category: 'wellness' },
+  'flower-lotus': { outline: 'i-lucide-flower-2', label: 'Meditation', category: 'wellness' },
+  smiley: { outline: 'i-lucide-smile', label: 'Mood', category: 'wellness' },
+  sunrise: { outline: 'i-lucide-sunrise', label: 'Morning', category: 'wellness' },
+  'moon-stars': { outline: 'i-lucide-moon-star', label: 'Evening', category: 'wellness' },
+  tooth: { outline: 'i-lucide-cross', label: 'Dental', category: 'wellness' },
+  'eye-care': { outline: 'i-lucide-eye', label: 'Eye Care', category: 'wellness' },
+  pill: { outline: 'i-lucide-pill', label: 'Medication', category: 'wellness' },
+  shower: { outline: 'i-lucide-shower-head', label: 'Hygiene', category: 'wellness' },
+  'sofa-relax': { outline: 'i-lucide-sofa', label: 'Relaxation', category: 'wellness' },
+
+  // ── Productivity & Work ─────────────────────────────────────
+  briefcase: { outline: 'i-lucide-briefcase', label: 'Work', category: 'productivity' },
+  code: { outline: 'i-lucide-code', label: 'Code', category: 'productivity' },
+  rocket: { outline: 'i-lucide-rocket', label: 'Launch', category: 'productivity' },
+  target: { outline: 'i-lucide-target', label: 'Goal', category: 'productivity' },
+  timer: { outline: 'i-lucide-timer', label: 'Timer', category: 'productivity' },
+  'calendar-check': { outline: 'i-lucide-calendar-check', label: 'Plan', category: 'productivity' },
+  clipboard: { outline: 'i-lucide-clipboard', label: 'Tasks', category: 'productivity' },
+  'chart-up': { outline: 'i-lucide-trending-up', label: 'Progress', category: 'productivity' },
+  'list-checks': { outline: 'i-lucide-list-checks', label: 'Checklists', category: 'productivity' },
+  hourglass: { outline: 'i-lucide-hourglass', label: 'Time Mgmt', category: 'productivity' },
+  alarm: { outline: 'i-lucide-alarm-clock', label: 'Wake Up', category: 'productivity' },
+
+  // ── Creative & Hobbies ──────────────────────────────────────
+  guitar: { outline: 'i-lucide-guitar', label: 'Guitar', category: 'creative' },
+  'music-notes': { outline: 'i-lucide-music', label: 'Music', category: 'creative' },
+  'paint-brush': { outline: 'i-lucide-paintbrush', label: 'Art', category: 'creative' },
+  'camera-ph': { outline: 'i-lucide-aperture', label: 'Photography', category: 'creative' },
+  'game-controller': { outline: 'i-lucide-gamepad-2', label: 'Gaming', category: 'creative' },
+  'potted-plant': { outline: 'i-lucide-sprout', label: 'Gardening', category: 'creative' },
+  scissors: { outline: 'i-lucide-scissors', label: 'Crafts', category: 'creative' },
+  palette: { outline: 'i-lucide-shapes', label: 'Design', category: 'creative' },
+  film: { outline: 'i-lucide-film', label: 'Film', category: 'creative' },
+  drama: { outline: 'i-lucide-drama', label: 'Theater', category: 'creative' },
+  'mic-vocal': { outline: 'i-lucide-mic-vocal', label: 'Singing', category: 'creative' },
+
+  // ── Social & Communication ──────────────────────────────────
+  users: { outline: 'i-lucide-users', label: 'Friends', category: 'social' },
+  'phone-call': { outline: 'i-lucide-phone', label: 'Calls', category: 'social' },
+  'chat-circle': { outline: 'i-lucide-message-circle', label: 'Chat', category: 'social' },
+  envelope: { outline: 'i-lucide-mail', label: 'Email', category: 'social' },
+  'hand-heart': { outline: 'i-lucide-heart-handshake', label: 'Volunteering', category: 'social' },
+  handshake: { outline: 'i-lucide-handshake', label: 'Networking', category: 'social' },
+  baby: { outline: 'i-lucide-baby', label: 'Parenting', category: 'social' },
+  gift: { outline: 'i-lucide-gift', label: 'Gifting', category: 'social' },
+  party: { outline: 'i-lucide-party-popper', label: 'Celebrations', category: 'social' },
+
+  // ── Finance ─────────────────────────────────────────────────
+  'piggy-bank': { outline: 'i-lucide-piggy-bank', label: 'Savings', category: 'finance' },
+  wallet: { outline: 'i-lucide-wallet', label: 'Budget', category: 'finance' },
+  coin: { outline: 'i-lucide-coins', label: 'Investment', category: 'finance' },
+  receipt: { outline: 'i-lucide-receipt', label: 'Expenses', category: 'finance' },
+  banknote: { outline: 'i-lucide-banknote', label: 'Cash', category: 'finance' },
+  'hand-coins': { outline: 'i-lucide-hand-coins', label: 'Donations', category: 'finance' },
+
+  // ── Nature & Outdoors ───────────────────────────────────────
+  tree: { outline: 'i-lucide-tree-pine', label: 'Nature', category: 'outdoors' },
+  mountains: { outline: 'i-lucide-mountain', label: 'Hiking', category: 'outdoors' },
+  tent: { outline: 'i-lucide-tent', label: 'Camping', category: 'outdoors' },
+  dog: { outline: 'i-lucide-dog', label: 'Pet Care', category: 'outdoors' },
+  'paw-print': { outline: 'i-lucide-paw-print', label: 'Animals', category: 'outdoors' },
+  compass: { outline: 'i-lucide-compass', label: 'Exploration', category: 'outdoors' },
+  fish: { outline: 'i-lucide-fish', label: 'Fishing', category: 'outdoors' },
+  umbrella: { outline: 'i-lucide-umbrella', label: 'Weather', category: 'outdoors' },
+
+  // ── Travel ────────────────────────────────────────────────────
+  plane: { outline: 'i-lucide-plane', label: 'Flying', category: 'travel' },
+  backpack: { outline: 'i-lucide-backpack', label: 'Travel', category: 'travel' },
+  'map-pin': { outline: 'i-lucide-map-pin', label: 'Places', category: 'travel' },
+
+  // ── Health & Medical ──────────────────────────────────────────
+  stethoscope: { outline: 'i-lucide-stethoscope', label: 'Doctor', category: 'health' },
+  thermometer: { outline: 'i-lucide-thermometer', label: 'Temperature', category: 'health' },
+  syringe: { outline: 'i-lucide-syringe', label: 'Injections', category: 'health' },
 }
 
 /**
@@ -486,19 +281,14 @@ export const iconRegistry: Record<string, IconDef> = {
  *
  * Accepts either:
  *  - A registry key (e.g., 'star') → looks up in iconRegistry
- *  - A raw icon class (e.g., 'i-heroicons-star') → returned as-is
- *
- * Falls back to outline when the requested variant is unavailable.
+ *  - A raw icon class (e.g., 'i-lucide-star') → returned as-is
  */
-export function resolveIcon(name: string, variant: IconVariant = 'outline'): string {
-  // Pass through raw icon classes (from DB or other icon libraries)
+export function resolveIcon(name: string): string {
   if (name.startsWith('i-')) return name
 
   const entry = iconRegistry[name]
   if (!entry) return name
 
-  if (variant === 'solid' && entry.solid) return entry.solid
-  if (variant === 'micro' && entry.micro) return entry.micro
   return entry.outline
 }
 
@@ -515,3 +305,39 @@ export function iconsByCategory(): Record<string, Array<{ name: string } & IconD
   }
   return grouped
 }
+
+/**
+ * Categories shown in the habit icon picker, in display order.
+ * Excludes UI-internal categories (navigation, action, system, etc.).
+ */
+export const HABIT_PICKER_CATEGORIES: { key: string; label: string }[] = [
+  { key: 'common', label: 'General' },
+  { key: 'fitness', label: 'Fitness & Health' },
+  { key: 'food', label: 'Food & Drink' },
+  { key: 'learning', label: 'Mind & Learning' },
+  { key: 'wellness', label: 'Wellness' },
+  { key: 'productivity', label: 'Productivity' },
+  { key: 'creative', label: 'Creative' },
+  { key: 'social', label: 'Social' },
+  { key: 'finance', label: 'Finance' },
+  { key: 'outdoors', label: 'Nature & Outdoors' },
+  { key: 'travel', label: 'Travel' },
+  { key: 'health', label: 'Health & Medical' },
+  { key: 'time', label: 'Time' },
+]
+
+/** Curated color palette for habit icons. */
+export const HABIT_COLORS = [
+  { value: '#ef4444', label: 'Red' },
+  { value: '#f97316', label: 'Orange' },
+  { value: '#f59e0b', label: 'Amber' },
+  { value: '#eab308', label: 'Yellow' },
+  { value: '#22c55e', label: 'Green' },
+  { value: '#14b8a6', label: 'Teal' },
+  { value: '#06b6d4', label: 'Cyan' },
+  { value: '#3b82f6', label: 'Blue' },
+  { value: '#6366f1', label: 'Indigo' },
+  { value: '#8b5cf6', label: 'Violet' },
+  { value: '#ec4899', label: 'Pink' },
+  { value: '#78716c', label: 'Stone' },
+] as const
