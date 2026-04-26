@@ -110,6 +110,18 @@ body:has(.modal-backdrop) {
   }
 }
 
+/* ── iOS Modal Input Zoom Fix ────────────────────────────────────────────────
+   Prevents iOS Safari from auto-zooming when focusing inputs inside modals
+   by enforcing a minimum font-size of 16px.
+   ─────────────────────────────────────────────────────────────────────────── */
+@media (pointer: coarse) {
+  .modal-backdrop ~ div input,
+  .modal-backdrop ~ div textarea,
+  .modal-backdrop ~ div select {
+    font-size: 16px !important;
+  }
+}
+
 /* ── Slide-up page transition (Jots sub-pages) ──────────────────────────────
    Used by the jots parent route to slide creation pages up from the bottom.
    ─────────────────────────────────────────────────────────────────────────── */

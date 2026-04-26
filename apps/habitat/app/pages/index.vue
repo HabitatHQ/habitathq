@@ -555,7 +555,7 @@ onMounted(async () => {
                 :class="habit.type === 'NUMERIC'
                   ? 'bg-primary-500/15 text-primary-400'
                   : 'bg-amber-500/15 text-amber-400'"
-              >{{ habit.type === 'NUMERIC' ? '# Metric' : '↓ Limit' }}</span>
+              >{{ habit.type === 'NUMERIC' ? '# Target' : '↓ Limit' }}</span>
             </div>
             <!-- NUMERIC: logged / target -->
             <p v-if="habit.type === 'NUMERIC'" class="text-xs text-(--ui-text-dimmed)">
