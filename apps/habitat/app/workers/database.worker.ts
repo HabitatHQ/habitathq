@@ -387,12 +387,20 @@ await (async () => {
         {
           key: 'checkin_template:morning_dream_update',
           apply: () => {
-            const rows = queryRaw("SELECT id FROM checkin_templates WHERE title = 'Morning Check-in' AND archived_at IS NULL")
+            const rows = queryRaw(
+              "SELECT id FROM checkin_templates WHERE title = 'Morning Check-in' AND archived_at IS NULL",
+            )
             for (const t of rows) {
-              const qs = queryRaw('SELECT id, prompt FROM checkin_questions WHERE template_id = ?', [t['id']])
+              const qs = queryRaw(
+                'SELECT id, prompt FROM checkin_questions WHERE template_id = ?',
+                [t['id']],
+              )
               if (!qs.some((q) => q['prompt'] === 'What did you dream about?')) {
                 // Shift existing orders
-                exec('UPDATE checkin_questions SET display_order = display_order + 1 WHERE template_id = ? AND display_order >= 1', [t['id']])
+                exec(
+                  'UPDATE checkin_questions SET display_order = display_order + 1 WHERE template_id = ? AND display_order >= 1',
+                  [t['id']],
+                )
                 // Insert new question
                 exec(
                   'INSERT INTO checkin_questions (id, template_id, prompt, response_type, display_order) VALUES (?,?,?,?,?)',
@@ -897,7 +905,11 @@ await (async () => {
             result = await shared.deleteCheckinResponse(adapter, req.payload.id)
             break
           case 'TOGGLE_CHECKIN_COMPLETION':
-            result = await shared.toggleCheckinCompletion(adapter, req.payload.template_id, req.payload.date)
+            result = await shared.toggleCheckinCompletion(
+              adapter,
+              req.payload.template_id,
+              req.payload.date,
+            )
             break
           case 'GET_CHECKIN_COMPLETIONS_FOR_DATE':
             result = await shared.getCheckinCompletionsForDate(adapter, req.payload.date)
@@ -1040,7 +1052,7 @@ await (async () => {
             break
           case 'NUKE_OPFS': {
             const root = await navigator.storage.getDirectory()
-            // @ts-ignore - Conflict between lib.dom and lib.esnext.disposable across tools
+            // @ts-expect-error - Conflict between lib.dom and lib.esnext.disposable across tools
             for await (const [name] of root) {
               await root.removeEntry(name, { recursive: true }).catch(() => {})
             }

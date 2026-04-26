@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
-import { toLocalDateKey } from '~/utils/format'
-import BackNav from '~/components/BackNav.vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import AppIcon from '~/components/AppIcon.vue'
+import BackNav from '~/components/BackNav.vue'
 import EmptyState from '~/components/EmptyState.vue'
-import type { CheckinHistoryRow, CheckinEntry } from '~/types/database'
-
+import type { CheckinEntry, CheckinHistoryRow } from '~/types/database'
+import { toLocalDateKey } from '~/utils/format'
 
 const { getCheckinHistory, getCheckinEntries, getCheckinResponseDates } = useDatabase()
 const { impact } = useHaptics()
@@ -31,7 +30,7 @@ type DayData = {
 
 const dataByDate = computed(() => {
   const map = new Map<string, DayData>()
-  
+
   for (const row of loadedHistory.value) {
     let day = map.get(row.logged_date)
     if (!day) {
@@ -45,7 +44,7 @@ const dataByDate = computed(() => {
     }
     tpl.rows.push(row)
   }
-  
+
   for (const entry of loadedEntries.value) {
     let day = map.get(entry.entry_date)
     if (!day) {
@@ -54,7 +53,7 @@ const dataByDate = computed(() => {
     }
     day.entries.push(entry)
   }
-  
+
   return map
 })
 
@@ -64,10 +63,10 @@ onMounted(async () => {
   // First get dates to know where dots go
   const dates = await getCheckinResponseDates()
   // also need to get checkin_entries dates? The current getCheckinResponseDates only checks responses.
-  // We'll rely on it for dots. If someone only has a free-form entry, it might not show a dot, 
+  // We'll rely on it for dots. If someone only has a free-form entry, it might not show a dot,
   // but template responses are primary anyway.
-  activeDates.value = new Set(dates.map(d => d.date))
-  
+  activeDates.value = new Set(dates.map((d) => d.date))
+
   // Start by loading the current month's range for calendar view
   await loadRange(calendarRange.value.start, calendarRange.value.end)
   loading.value = false
@@ -77,20 +76,17 @@ onMounted(async () => {
 
 async function loadRange(start: string, end: string) {
   loading.value = true
-  const [h, e] = await Promise.all([
-    getCheckinHistory(start, end),
-    getCheckinEntries(start, end)
-  ])
-  
+  const [h, e] = await Promise.all([getCheckinHistory(start, end), getCheckinEntries(start, end)])
+
   // Merge into our loaded sets avoiding duplicates
-  const hSet = new Set(loadedHistory.value.map(r => `${r.question_id}_${r.logged_date}`))
+  const hSet = new Set(loadedHistory.value.map((r) => `${r.question_id}_${r.logged_date}`))
   for (const r of h) {
     if (!hSet.has(`${r.question_id}_${r.logged_date}`)) {
       loadedHistory.value.push(r)
     }
   }
-  
-  const eSet = new Set(loadedEntries.value.map(x => x.id))
+
+  const eSet = new Set(loadedEntries.value.map((x) => x.id))
   for (const x of e) {
     if (!eSet.has(x.id)) {
       loadedEntries.value.push(x)
@@ -150,10 +146,10 @@ const calendarCells = computed(() => {
   const d = new Date(year, month, 1 - startDow)
   for (let i = 0; i < totalCells; i++) {
     const ds = localDateStr(d)
-    cells.push({ 
-      date: ds, 
+    cells.push({
+      date: ds,
       inMonth: d.getMonth() === month,
-      hasData: activeDates.value.has(ds) || dataByDate.value.has(ds)
+      hasData: activeDates.value.has(ds) || dataByDate.value.has(ds),
     })
     d.setDate(d.getDate() + 1)
   }

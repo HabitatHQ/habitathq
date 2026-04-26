@@ -105,20 +105,26 @@ const availableSchedules = computed(() => {
   return ['DAILY', 'WEEKLY_FLEX', 'SPECIFIC_DAYS'] as const
 })
 
-watch(() => form.type, (newType) => {
-  if (newType === 'LIMIT') {
-    form.schedule_type = 'DAILY'
-  } else if (newType === 'NUMERIC') {
-    if (form.schedule_type === 'SPECIFIC_DAYS') form.schedule_type = 'DAILY'
-    if (form.schedule_type === 'WEEKLY_FLEX') form.frequency_count = 1
-  }
-})
+watch(
+  () => form.type,
+  (newType) => {
+    if (newType === 'LIMIT') {
+      form.schedule_type = 'DAILY'
+    } else if (newType === 'NUMERIC') {
+      if (form.schedule_type === 'SPECIFIC_DAYS') form.schedule_type = 'DAILY'
+      if (form.schedule_type === 'WEEKLY_FLEX') form.frequency_count = 1
+    }
+  },
+)
 
-watch(() => form.schedule_type, (newSched) => {
-  if (form.type === 'NUMERIC' && newSched === 'WEEKLY_FLEX') {
-    form.frequency_count = 1
-  }
-})
+watch(
+  () => form.schedule_type,
+  (newSched) => {
+    if (form.type === 'NUMERIC' && newSched === 'WEEKLY_FLEX') {
+      form.frequency_count = 1
+    }
+  },
+)
 
 function validateSchedule(): string | null {
   if (form.type === 'NUMERIC') {
@@ -288,22 +294,18 @@ onMounted(loadHabits)
     />
 
     <ul v-else class="space-y-2">
-      <NuxtLink
+      <AppCard
         v-for="habit in habits"
         :key="habit.id"
+        tag="li"
         :to="`/habits/${habit.id}`"
-        class="flex items-center gap-3 p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border) active:opacity-70 transition-opacity"
-        :class="{ 'opacity-40': anyActive && !matchesContext(habit.tags) }"
+        :completed="todayCompletionHabitIds.has(habit.id)"
+        :dimmed="anyActive && !matchesContext(habit.tags)"
       >
-        <div
-          class="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
-          :style="{ backgroundColor: habit.color + '33' }"
-        >
-          <AppIcon :name="habit.icon" :color="habit.color" class="w-5 h-5" />
-        </div>
+        <AppCardIcon :icon="habit.icon" :icon-color="habit.color" :bg-color="habit.color + '33'" />
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-1.5 min-w-0">
-            <p class="font-medium text-sm truncate text-(--ui-text)">{{ habit.name }}</p>
+            <p class="text-sm font-medium truncate text-(--ui-text)">{{ habit.name }}</p>
             <span
               v-if="habit.type !== 'BOOLEAN'"
               class="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded"
@@ -312,7 +314,7 @@ onMounted(loadHabits)
                 : 'bg-amber-500/15 text-amber-400'"
             ># {{ habit.type === 'NUMERIC' ? 'Target' : 'Limit' }}</span>
           </div>
-          <p class="text-xs text-slate-600">
+          <p class="text-xs text-(--ui-text-dimmed)">
             {{ habitScheduleLabel(habit) }}
             <span v-if="habit.type !== 'BOOLEAN'" class="ml-1">
               · {{ habit.type === 'NUMERIC' ? `target ${habit.target_value}` : `limit ${habit.target_value}` }}
@@ -333,7 +335,7 @@ onMounted(loadHabits)
             <span
               v-for="(val, key) in habit.annotations"
               :key="key"
-              class="text-[9px] text-slate-600"
+              class="text-[9px] text-(--ui-text-dimmed)"
             >{{ key }}: {{ val }}</span>
           </div>
         </div>
@@ -350,8 +352,8 @@ onMounted(loadHabits)
         >
           <AppIcon v-if="todayCompletionHabitIds.has(habit.id)" name="check" class="w-3.5 h-3.5 text-white" />
         </button>
-        <AppIcon v-else name="chevron-right" class="w-4 h-4 text-slate-700 flex-shrink-0" />
-      </NuxtLink>
+        <AppIcon v-else name="chevron-right" class="w-4 h-4 text-(--ui-text-dimmed) flex-shrink-0" />
+      </AppCard>
     </ul>
 
     <!-- ── Pause all modal ───────────────────────────────────────────────────── -->

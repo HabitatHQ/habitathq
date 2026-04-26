@@ -139,7 +139,9 @@ async function exportSqlite() {
   exportingDb.value = true
   try {
     const bytes = await db.exportDb()
-    const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'application/x-sqlite3' }))
+    const url = URL.createObjectURL(
+      new Blob([new Uint8Array(bytes)], { type: 'application/x-sqlite3' }),
+    )
     try {
       const a = document.createElement('a')
       a.href = url

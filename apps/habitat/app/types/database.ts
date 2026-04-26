@@ -238,7 +238,11 @@ export type WorkerRequest =
   | { id: string; type: 'DELETE_CHECKIN_ENTRY'; payload: { id: string } }
   | { id: string; type: 'GET_CHECKIN_ENTRIES'; payload: { from: string; to: string } }
   | { id: string; type: 'GET_CHECKIN_TEMPLATES' }
-  | { id: string; type: 'CREATE_CHECKIN_TEMPLATE'; payload: Omit<CheckinTemplate, 'id' | 'archived_at' | 'response_day_count' | 'question_count'> }
+  | {
+      id: string
+      type: 'CREATE_CHECKIN_TEMPLATE'
+      payload: Omit<CheckinTemplate, 'id' | 'archived_at' | 'response_day_count' | 'question_count'>
+    }
   | {
       id: string
       type: 'UPDATE_CHECKIN_TEMPLATE'
@@ -246,7 +250,11 @@ export type WorkerRequest =
     }
   | { id: string; type: 'DELETE_CHECKIN_TEMPLATE'; payload: { id: string } }
   | { id: string; type: 'GET_CHECKIN_QUESTIONS'; payload: { template_id: string } }
-  | { id: string; type: 'CREATE_CHECKIN_QUESTION'; payload: Omit<CheckinQuestion, 'id' | 'archived_at'> }
+  | {
+      id: string
+      type: 'CREATE_CHECKIN_QUESTION'
+      payload: Omit<CheckinQuestion, 'id' | 'archived_at'>
+    }
   | {
       id: string
       type: 'UPDATE_CHECKIN_QUESTION'
