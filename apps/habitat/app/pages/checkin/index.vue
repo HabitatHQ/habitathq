@@ -38,6 +38,17 @@ function checkinScheduleLabel(t: CheckinTemplate): string {
   return `Weekly · ${t.days_active.map((d) => DAY_NAMES[d]).join(', ')}`
 }
 
+const todayDow = new Date().getDay() // 0=Sun … 6=Sat
+
+function isActiveToday(t: CheckinTemplate): boolean {
+  if (t.schedule_type === 'DAILY') return true
+  if (t.schedule_type === 'WEEKLY') {
+    if (!t.days_active || t.days_active.length === 0) return true
+    return t.days_active.includes(todayDow)
+  }
+  return true // MONTHLY — always show
+}
+
 // ─── Create template ─────────────────────────────────────────────────────────
 
 const showCreate = useBoolModalQuery('create')
@@ -123,7 +134,10 @@ async function createTemplate() {
         <li v-for="t in templates" :key="t.id">
           <div
             class="flex items-center justify-between p-4 rounded-2xl bg-(--ui-bg-muted) border transition-colors group cursor-pointer"
-            :class="isCompleted(t) ? 'border-primary-500/50 bg-primary-500/5' : 'border-(--ui-border) hover:border-(--ui-border-accented)'"
+            :class="[
+              isCompleted(t) ? 'border-primary-500/50 bg-primary-500/5' : 'border-(--ui-border) hover:border-(--ui-border-accented)',
+              !isActiveToday(t) && 'opacity-40',
+            ]"
             @click="$router.push(`/checkin/entry-${t.id}`)"
           >
             <div class="flex items-center gap-3">

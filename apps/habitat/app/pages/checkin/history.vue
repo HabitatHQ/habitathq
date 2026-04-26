@@ -185,14 +185,16 @@ watch(viewMode, async (newMode) => {
   }
 })
 
-function loadMoreTimeline() {
+const reachedEnd = computed(() => timelineDays.value.length >= activeDates.value.size)
+
+async function loadMoreTimeline() {
   if (timelineDays.value.length > 0) {
     const oldestLoaded = timelineDays.value[timelineDays.value.length - 1]!
     const d = new Date(`${oldestLoaded}T12:00:00`)
     const endStr = localDateStr(new Date(d.getTime() - 86400000))
     d.setDate(d.getDate() - 90)
     const startStr = localDateStr(d)
-    loadRange(startStr, endStr)
+    await loadRange(startStr, endStr)
   }
 }
 
@@ -290,11 +292,10 @@ function toggleText(id: string) {
         </div>
         <div v-else class="space-y-4">
           <!-- Template Cards -->
-          <NuxtLink
+          <div
             v-for="[tplId, tpl] in selectedDayData.templates.entries()"
             :key="tplId"
-            :to="`/checkin/entry-${tplId}?date=${selectedDate}`"
-            class="block bg-(--ui-bg-elevated) border border-(--ui-border) rounded-xl p-4 active:scale-[0.99] transition-transform"
+            class="block bg-(--ui-bg-elevated) border border-(--ui-border) rounded-xl p-4"
           >
             <div class="flex items-center justify-between mb-3">
               <h4 class="font-semibold text-primary-500">{{ tpl.title }}</h4>
@@ -332,7 +333,7 @@ function toggleText(id: string) {
                     <button 
                       v-if="q.value_text.split('\\n').length > 3 || q.value_text.length > 150"
                       class="text-xs text-primary-500 mt-1 font-medium hover:underline"
-                      @click.prevent="toggleText(q.question_id + q.logged_date)"
+                      @click="toggleText(q.question_id + q.logged_date)"
                     >
                       {{ expandedTexts.has(q.question_id + q.logged_date) ? 'Show less' : 'Show more' }}
                     </button>
@@ -341,7 +342,7 @@ function toggleText(id: string) {
                 </div>
               </div>
             </div>
-          </NuxtLink>
+          </div>
 
           <!-- Free-form Entries -->
           <div
@@ -388,11 +389,10 @@ function toggleText(id: string) {
           
           <div class="space-y-4 pl-2">
             <!-- Reuse card logic here -->
-            <NuxtLink
+            <div
               v-for="[tplId, tpl] in dataByDate.get(date)?.templates.entries()"
               :key="tplId"
-              :to="`/checkin/entry-${tplId}?date=${date}`"
-              class="block bg-(--ui-bg-elevated) border border-(--ui-border) rounded-xl p-4 active:scale-[0.99] transition-transform"
+              class="block bg-(--ui-bg-elevated) border border-(--ui-border) rounded-xl p-4"
             >
               <div class="flex items-center justify-between mb-3">
                 <h4 class="font-semibold text-primary-500">{{ tpl.title }}</h4>
@@ -427,7 +427,7 @@ function toggleText(id: string) {
                       <button 
                         v-if="q.value_text.split('\\n').length > 3 || q.value_text.length > 150"
                         class="text-xs text-primary-500 mt-1 font-medium hover:underline"
-                        @click.prevent="toggleText(q.question_id + q.logged_date)"
+                        @click="toggleText(q.question_id + q.logged_date)"
                       >
                         {{ expandedTexts.has(q.question_id + q.logged_date) ? 'Show less' : 'Show more' }}
                       </button>
@@ -436,7 +436,7 @@ function toggleText(id: string) {
                   </div>
                 </div>
               </div>
-            </NuxtLink>
+            </div>
 
             <div
               v-for="entry in dataByDate.get(date)?.entries"
@@ -458,8 +458,11 @@ function toggleText(id: string) {
         
         <!-- Load More -->
         <div class="pt-4 pl-8">
+          <p v-if="reachedEnd" class="text-center text-xs text-(--ui-text-dimmed) py-3">
+            No older check-ins
+          </p>
           <UButton
-            v-if="timelineDays.length > 0"
+            v-else-if="timelineDays.length > 0"
             variant="soft"
             color="neutral"
             class="w-full justify-center"

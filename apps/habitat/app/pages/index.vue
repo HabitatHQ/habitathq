@@ -248,7 +248,7 @@ async function load() {
   logs.value = l
   weekCompletions.value = wc
   weekLogs.value = wl
-  todayCheckins.value = ci
+  todayCheckins.value = ci.filter((s) => s.response_count > 0 || s.is_completed)
   todayScribbles.value = sc
   todos.value = td
   loading.value = false
@@ -824,7 +824,7 @@ onMounted(async () => {
           <NuxtLink
             v-for="ci in todayCheckins"
             :key="ci.template_id"
-            :to="`/checkin/${ci.template_id}`"
+            :to="`/checkin/entry-${ci.template_id}`"
             class="flex items-center gap-3 p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border) hover:border-(--ui-border-accented) transition-colors"
           >
             <div class="w-8 h-8 rounded-full bg-primary-500/10 flex-shrink-0 flex items-center justify-center">
