@@ -12,7 +12,7 @@ const UModalStub = {
 describe('ConfirmDialog', () => {
   const baseProps = {
     open: true,
-    icon: 'i-heroicons-trash',
+    icon: 'i-lucide-trash-2',
     title: 'Delete item?',
     message: 'This cannot be undone.',
   }

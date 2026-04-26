@@ -5,7 +5,7 @@ import EmptyState from '~/components/EmptyState.vue'
 describe('EmptyState', () => {
   it('renders the title', () => {
     const wrapper = mount(EmptyState, {
-      props: { icon: 'i-heroicons-star', title: 'Nothing here' },
+      props: { icon: 'i-lucide-star', title: 'Nothing here' },
       global: { stubs: { AppIcon: true } },
     })
     expect(wrapper.text()).toContain('Nothing here')
@@ -13,7 +13,7 @@ describe('EmptyState', () => {
 
   it('renders description when provided', () => {
     const wrapper = mount(EmptyState, {
-      props: { icon: 'i-heroicons-star', title: 'Nothing here', description: 'Add one to get started.' },
+      props: { icon: 'i-lucide-star', title: 'Nothing here', description: 'Add one to get started.' },
       global: { stubs: { AppIcon: true } },
     })
     expect(wrapper.text()).toContain('Add one to get started.')
@@ -21,7 +21,7 @@ describe('EmptyState', () => {
 
   it('does not render description element when omitted', () => {
     const wrapper = mount(EmptyState, {
-      props: { icon: 'i-heroicons-star', title: 'Nothing here' },
+      props: { icon: 'i-lucide-star', title: 'Nothing here' },
       global: { stubs: { AppIcon: true } },
     })
     // The description paragraph is uniquely identified by text-sm; the title
@@ -32,10 +32,10 @@ describe('EmptyState', () => {
 
   it('passes the icon name to AppIcon', () => {
     const wrapper = mount(EmptyState, {
-      props: { icon: 'i-heroicons-fire', title: 'x' },
+      props: { icon: 'i-lucide-flame', title: 'x' },
       global: { stubs: { AppIcon: true } },
     })
     const icon = wrapper.findComponent({ name: 'AppIcon' })
-    expect(icon.attributes('name')).toBe('i-heroicons-fire')
+    expect(icon.attributes('name')).toBe('i-lucide-flame')
   })
 })

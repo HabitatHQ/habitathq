@@ -59,6 +59,8 @@ function openPauseAll() {
 const form = reactive({
   name: '',
   description: '',
+  icon: 'star',
+  color: '#06b6d4',
   type: 'BOOLEAN' as 'BOOLEAN' | 'NUMERIC' | 'LIMIT',
   target_value: 1,
   schedule_type: 'DAILY' as 'DAILY' | 'WEEKLY_FLEX' | 'SPECIFIC_DAYS',
@@ -166,8 +168,8 @@ async function handleCreate() {
     const newHabit = await db.createHabit({
       name: form.name.trim(),
       description: form.description.trim(),
-      color: '#06b6d4',
-      icon: resolveIcon('star'),
+      color: form.color,
+      icon: form.icon,
       frequency: 'daily',
       tags: [...form.tags],
       annotations: buildAnnotations(annotationEntries.value),
@@ -212,6 +214,8 @@ function closeModal() {
   nameError.value = null
   form.name = ''
   form.description = ''
+  form.icon = 'star'
+  form.color = '#06b6d4'
   form.type = 'BOOLEAN'
   form.target_value = 1
   form.schedule_type = 'DAILY'
@@ -360,6 +364,14 @@ onMounted(loadHabits)
       <!-- Description -->
       <UFormField label="Description">
         <UTextarea v-model="form.description" placeholder="Optional description" class="w-full" />
+      </UFormField>
+
+      <!-- Icon & Color -->
+      <UFormField label="Color">
+        <HabitColorPicker v-model="form.color" />
+      </UFormField>
+      <UFormField label="Icon">
+        <HabitIconPicker v-model="form.icon" :color="form.color" />
       </UFormField>
 
         <!-- Tags -->

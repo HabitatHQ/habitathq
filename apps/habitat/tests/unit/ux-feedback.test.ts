@@ -69,7 +69,7 @@ g['useTagInput'] = () => ({
   onTagKeydown: vi.fn(),
 })
 g['useLongPress'] = () => ({ start: vi.fn(), cancel: vi.fn(), activated: ref(false) })
-g['resolveIcon'] = (name: string) => `i-heroicons-${name}`
+g['resolveIcon'] = (name: string) => `i-lucide-${name}`
 
 // Stub localStorage for settings/data.vue which calls localStorage.removeItem
 vi.stubGlobal('localStorage', {
@@ -92,7 +92,7 @@ vi.stubGlobal('indexedDB', {
 })
 
 // Make resolveIcon available in Vue template context for all shallowMount calls
-config.global.mocks.resolveIcon = (name: string) => `i-heroicons-${name}`
+config.global.mocks.resolveIcon = (name: string) => `i-lucide-${name}`
 
 // ── Shared DB stub ────────────────────────────────────────────────────────────
 const mockDb = {
@@ -181,7 +181,7 @@ const sampleAct = {
 const sampleCat = {
   id: 'c1',
   name: 'Test Category',
-  icon: 'i-heroicons-sparkles',
+  icon: 'sparkles',
   color: '#6366f1',
   is_system: false,
   sort_order: 0,

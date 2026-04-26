@@ -68,7 +68,7 @@ await (async () => {
     name         TEXT NOT NULL,
     description  TEXT NOT NULL DEFAULT '',
     color        TEXT NOT NULL DEFAULT '#6366f1',
-    icon         TEXT NOT NULL DEFAULT 'i-heroicons-star',
+    icon         TEXT NOT NULL DEFAULT 'star',
     frequency    TEXT NOT NULL DEFAULT 'daily',
     created_at   TEXT NOT NULL,
     archived_at  TEXT,
@@ -132,7 +132,8 @@ await (async () => {
     id            TEXT PRIMARY KEY,
     title         TEXT NOT NULL,
     schedule_type TEXT NOT NULL DEFAULT 'DAILY',
-    days_active   TEXT
+    days_active   TEXT,
+    archived_at   TEXT
   );
 
   CREATE TABLE IF NOT EXISTS checkin_questions (
@@ -140,10 +141,21 @@ await (async () => {
     template_id   TEXT NOT NULL REFERENCES checkin_templates(id) ON DELETE CASCADE,
     prompt        TEXT NOT NULL,
     response_type TEXT NOT NULL DEFAULT 'TEXT',
-    display_order INTEGER NOT NULL DEFAULT 0
+    display_order INTEGER NOT NULL DEFAULT 0,
+    archived_at   TEXT
   );
 
   CREATE INDEX IF NOT EXISTS idx_checkin_questions_template ON checkin_questions(template_id);
+
+  CREATE TABLE IF NOT EXISTS checkin_completions (
+    id          TEXT PRIMARY KEY,
+    template_id TEXT NOT NULL REFERENCES checkin_templates(id) ON DELETE CASCADE,
+    date        TEXT NOT NULL,
+    completed_at TEXT NOT NULL,
+    UNIQUE(template_id, date)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_checkin_completions_date ON checkin_completions(date);
 
   CREATE TABLE IF NOT EXISTS checkin_responses (
     id            TEXT PRIMARY KEY,
@@ -195,7 +207,7 @@ await (async () => {
   CREATE TABLE IF NOT EXISTS bored_categories (
     id         TEXT PRIMARY KEY,
     name       TEXT NOT NULL,
-    icon       TEXT NOT NULL DEFAULT 'i-heroicons-sparkles',
+    icon       TEXT NOT NULL DEFAULT 'sparkles',
     color      TEXT NOT NULL DEFAULT '#6366f1',
     is_system  INTEGER NOT NULL DEFAULT 0,
     sort_order INTEGER NOT NULL DEFAULT 0,
@@ -270,7 +282,7 @@ await (async () => {
         11: [
           `CREATE TABLE IF NOT EXISTS bored_categories (
         id TEXT PRIMARY KEY, name TEXT NOT NULL,
-        icon TEXT NOT NULL DEFAULT 'i-heroicons-sparkles',
+        icon TEXT NOT NULL DEFAULT 'sparkles',
         color TEXT NOT NULL DEFAULT '#6366f1',
         is_system INTEGER NOT NULL DEFAULT 0,
         sort_order INTEGER NOT NULL DEFAULT 0,
@@ -317,6 +329,10 @@ await (async () => {
           )`,
           'CREATE INDEX IF NOT EXISTS idx_checkin_completions_date ON checkin_completions(date)',
         ],
+        14: [
+          `UPDATE habits SET icon = REPLACE(icon, 'i-heroicons-', 'i-lucide-') WHERE icon LIKE 'i-heroicons-%'`,
+          `UPDATE bored_categories SET icon = REPLACE(icon, 'i-heroicons-', 'i-lucide-') WHERE icon LIKE 'i-heroicons-%'`,
+        ],
       }
 
       for (let v = userVersion + 1; v in migrations; v++) {
@@ -327,8 +343,155 @@ await (async () => {
         userVersion = v
       }
 
+      // v15: Replace i-lucide-* class strings with registry keys
+      if (userVersion === 14) {
+        const iconMap: [string, string][] = [
+          ['star', 'i-lucide-star'],
+          ['heart', 'i-lucide-heart'],
+          ['fire', 'i-lucide-flame'],
+          ['bolt', 'i-lucide-zap'],
+          ['sparkles', 'i-lucide-sparkles'],
+          ['light-bulb', 'i-lucide-lightbulb'],
+          ['beaker', 'i-lucide-flask-conical'],
+          ['face-smile', 'i-lucide-laugh'],
+          ['scale', 'i-lucide-scale'],
+          ['thumbs-up', 'i-lucide-thumbs-up'],
+          ['infinity-icon', 'i-lucide-infinity'],
+          ['home', 'i-lucide-house'],
+          ['plus', 'i-lucide-plus'],
+          ['check', 'i-lucide-check'],
+          ['trash', 'i-lucide-trash-2'],
+          ['pencil', 'i-lucide-pencil'],
+          ['play', 'i-lucide-play'],
+          ['pause', 'i-lucide-pause'],
+          ['stop', 'i-lucide-square'],
+          ['microphone', 'i-lucide-mic'],
+          ['camera', 'i-lucide-camera'],
+          ['check-circle', 'i-lucide-circle-check'],
+          ['shield-check', 'i-lucide-shield-check'],
+          ['document-text', 'i-lucide-file-text'],
+          ['book-open', 'i-lucide-book-open'],
+          ['clipboard-document-list', 'i-lucide-clipboard-list'],
+          ['tag', 'i-lucide-tag'],
+          ['calendar', 'i-lucide-calendar'],
+          ['calendar-days', 'i-lucide-calendar-days'],
+          ['clock', 'i-lucide-clock'],
+          ['bell', 'i-lucide-bell'],
+          ['chart-bar', 'i-lucide-chart-bar'],
+          ['sun', 'i-lucide-sun'],
+          ['moon', 'i-lucide-moon'],
+          ['cog-6-tooth', 'i-lucide-settings'],
+          ['archive-box', 'i-lucide-archive'],
+          ['arrow-down-tray', 'i-lucide-download'],
+          ['arrow-up-tray', 'i-lucide-upload'],
+          ['barbell', 'i-lucide-dumbbell'],
+          ['running', 'i-lucide-person-standing'],
+          ['cycling', 'i-lucide-bike'],
+          ['heartbeat', 'i-lucide-heart-pulse'],
+          ['sneaker', 'i-lucide-footprints'],
+          ['yoga', 'i-lucide-accessibility'],
+          ['stretching', 'i-lucide-move'],
+          ['trophy', 'i-lucide-trophy'],
+          ['medal', 'i-lucide-medal'],
+          ['basketball', 'i-lucide-circle-dot'],
+          ['activity', 'i-lucide-activity'],
+          ['waves', 'i-lucide-waves'],
+          ['weight', 'i-lucide-weight'],
+          ['cooking-pot', 'i-lucide-cooking-pot'],
+          ['coffee', 'i-lucide-coffee'],
+          ['wine', 'i-lucide-wine'],
+          ['apple', 'i-lucide-apple'],
+          ['water-drop', 'i-lucide-droplets'],
+          ['bowl-food', 'i-lucide-soup'],
+          ['beer', 'i-lucide-beer'],
+          ['leaf', 'i-lucide-leaf'],
+          ['utensils', 'i-lucide-utensils'],
+          ['salad', 'i-lucide-salad'],
+          ['egg', 'i-lucide-egg-fried'],
+          ['reading', 'i-lucide-book-open-text'],
+          ['brain', 'i-lucide-brain'],
+          ['graduation', 'i-lucide-graduation-cap'],
+          ['puzzle', 'i-lucide-puzzle'],
+          ['lightbulb', 'i-lucide-lamp'],
+          ['writing', 'i-lucide-pen-tool'],
+          ['translate', 'i-lucide-languages'],
+          ['headphones', 'i-lucide-headphones'],
+          ['notebook', 'i-lucide-notebook-pen'],
+          ['library', 'i-lucide-library'],
+          ['podcast', 'i-lucide-podcast'],
+          ['bed', 'i-lucide-bed'],
+          ['bathtub', 'i-lucide-bath'],
+          ['flower-lotus', 'i-lucide-flower-2'],
+          ['smiley', 'i-lucide-smile'],
+          ['sunrise', 'i-lucide-sunrise'],
+          ['moon-stars', 'i-lucide-moon-star'],
+          ['tooth', 'i-lucide-cross'],
+          ['eye-care', 'i-lucide-eye'],
+          ['pill', 'i-lucide-pill'],
+          ['shower', 'i-lucide-shower-head'],
+          ['sofa-relax', 'i-lucide-sofa'],
+          ['briefcase', 'i-lucide-briefcase'],
+          ['code', 'i-lucide-code'],
+          ['rocket', 'i-lucide-rocket'],
+          ['target', 'i-lucide-target'],
+          ['timer', 'i-lucide-timer'],
+          ['calendar-check', 'i-lucide-calendar-check'],
+          ['clipboard', 'i-lucide-clipboard'],
+          ['chart-up', 'i-lucide-trending-up'],
+          ['list-checks', 'i-lucide-list-checks'],
+          ['hourglass', 'i-lucide-hourglass'],
+          ['alarm', 'i-lucide-alarm-clock'],
+          ['guitar', 'i-lucide-guitar'],
+          ['music-notes', 'i-lucide-music'],
+          ['paint-brush', 'i-lucide-paintbrush'],
+          ['camera-ph', 'i-lucide-aperture'],
+          ['game-controller', 'i-lucide-gamepad-2'],
+          ['potted-plant', 'i-lucide-sprout'],
+          ['scissors', 'i-lucide-scissors'],
+          ['palette', 'i-lucide-shapes'],
+          ['film', 'i-lucide-film'],
+          ['drama', 'i-lucide-drama'],
+          ['mic-vocal', 'i-lucide-mic-vocal'],
+          ['users', 'i-lucide-users'],
+          ['phone-call', 'i-lucide-phone'],
+          ['chat-circle', 'i-lucide-message-circle'],
+          ['envelope', 'i-lucide-mail'],
+          ['hand-heart', 'i-lucide-heart-handshake'],
+          ['handshake', 'i-lucide-handshake'],
+          ['baby', 'i-lucide-baby'],
+          ['gift', 'i-lucide-gift'],
+          ['party', 'i-lucide-party-popper'],
+          ['piggy-bank', 'i-lucide-piggy-bank'],
+          ['wallet', 'i-lucide-wallet'],
+          ['coin', 'i-lucide-coins'],
+          ['receipt', 'i-lucide-receipt'],
+          ['banknote', 'i-lucide-banknote'],
+          ['hand-coins', 'i-lucide-hand-coins'],
+          ['tree', 'i-lucide-tree-pine'],
+          ['mountains', 'i-lucide-mountain'],
+          ['tent', 'i-lucide-tent'],
+          ['dog', 'i-lucide-dog'],
+          ['paw-print', 'i-lucide-paw-print'],
+          ['compass', 'i-lucide-compass'],
+          ['fish', 'i-lucide-fish'],
+          ['umbrella', 'i-lucide-umbrella'],
+          ['plane', 'i-lucide-plane'],
+          ['backpack', 'i-lucide-backpack'],
+          ['map-pin', 'i-lucide-map-pin'],
+          ['stethoscope', 'i-lucide-stethoscope'],
+          ['thermometer', 'i-lucide-thermometer'],
+          ['syringe', 'i-lucide-syringe'],
+        ]
+        for (const [key, cls] of iconMap) {
+          db.exec(`UPDATE habits SET icon = '${key}' WHERE icon = '${cls}'`)
+          db.exec(`UPDATE bored_categories SET icon = '${key}' WHERE icon = '${cls}'`)
+        }
+        db.exec('PRAGMA user_version = 15')
+        userVersion = 15
+      }
+
       // Ensure fresh installs (user_version = 0) are stamped at the current baseline.
-      if (userVersion === 0) db.exec('PRAGMA user_version = 13')
+      if (userVersion === 0) db.exec('PRAGMA user_version = 15')
     }
 
     runMigrations()
@@ -458,7 +621,7 @@ await (async () => {
             const now2 = new Date().toISOString()
             exec(
               'INSERT OR IGNORE INTO bored_categories (id,name,icon,color,is_system,sort_order,created_at) VALUES (?,?,?,?,?,?,?)',
-              [id, 'Things to Read', 'i-heroicons-book-open', '#3b82f6', 1, 0, now2],
+              [id, 'Things to Read', 'book-open', '#3b82f6', 1, 0, now2],
             )
             const acts = [
               ['Read 10 pages of current book', 'Pick up wherever you left off.', 20],
@@ -492,7 +655,7 @@ await (async () => {
             const now2 = new Date().toISOString()
             exec(
               'INSERT OR IGNORE INTO bored_categories (id,name,icon,color,is_system,sort_order,created_at) VALUES (?,?,?,?,?,?,?)',
-              [id, 'Chores', 'i-heroicons-home', '#f59e0b', 1, 1, now2],
+              [id, 'Chores', 'home', '#f59e0b', 1, 1, now2],
             )
             const acts = [
               ['Clean one small area', 'A drawer, a shelf, a corner — pick one.', 15],
@@ -526,7 +689,7 @@ await (async () => {
             const now2 = new Date().toISOString()
             exec(
               'INSERT OR IGNORE INTO bored_categories (id,name,icon,color,is_system,sort_order,created_at) VALUES (?,?,?,?,?,?,?)',
-              [id, 'People to Contact', 'i-heroicons-chat-bubble-left', '#10b981', 1, 2, now2],
+              [id, 'People to Contact', 'chat-circle', '#10b981', 1, 2, now2],
             )
             const acts = [
               [
@@ -564,7 +727,7 @@ await (async () => {
             const now2 = new Date().toISOString()
             exec(
               'INSERT OR IGNORE INTO bored_categories (id,name,icon,color,is_system,sort_order,created_at) VALUES (?,?,?,?,?,?,?)',
-              [id, 'Things to Learn', 'i-heroicons-academic-cap', '#8b5cf6', 1, 3, now2],
+              [id, 'Things to Learn', 'graduation', '#8b5cf6', 1, 3, now2],
             )
             const acts = [
               ['Watch a YouTube tutorial', "Pick a skill you've been curious about.", 20],
@@ -602,7 +765,7 @@ await (async () => {
             const now2 = new Date().toISOString()
             exec(
               'INSERT OR IGNORE INTO bored_categories (id,name,icon,color,is_system,sort_order,created_at) VALUES (?,?,?,?,?,?,?)',
-              [id, 'Idle Quests', 'i-heroicons-sparkles', '#f97316', 1, 4, now2],
+              [id, 'Idle Quests', 'sparkles', '#f97316', 1, 4, now2],
             )
             const acts = [
               ['Take a 10-min walk', 'No destination needed. Just move.', 10],

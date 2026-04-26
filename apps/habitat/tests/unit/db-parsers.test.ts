@@ -18,7 +18,7 @@ function habitRow(overrides: Record<string, unknown> = {}): Record<string, unkno
     name: 'Exercise',
     description: 'Daily exercise',
     color: '#22d3ee',
-    icon: 'i-heroicons-bolt',
+    icon: 'bolt',
     frequency: 'daily',
     created_at: '2025-01-01T00:00:00Z',
     archived_at: null,
