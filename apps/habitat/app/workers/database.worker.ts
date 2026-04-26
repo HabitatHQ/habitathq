@@ -1215,7 +1215,8 @@ await (async () => {
             break
           case 'NUKE_OPFS': {
             const root = await navigator.storage.getDirectory()
-            // @ts-expect-error - Conflict between lib.dom and lib.esnext.disposable across tools
+            // biome-ignore lint/suspicious/noTsIgnore: tsgo and vue-tsc disagree on FileSystemDirectoryHandle iterability
+            // @ts-ignore — async-iterable at runtime but not in all lib.dom typings
             for await (const [name] of root) {
               await root.removeEntry(name, { recursive: true }).catch(() => {})
             }

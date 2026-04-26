@@ -8,7 +8,7 @@
  */
 
 import AxeBuilder from '@axe-core/playwright'
-import { test, expect } from '@playwright/test'
+import { test, expect } from '../../e2e/fixtures'
 import type { Result } from 'axe-core'
 
 // ── Helper: run axe and return only critical violations ───────────────────────

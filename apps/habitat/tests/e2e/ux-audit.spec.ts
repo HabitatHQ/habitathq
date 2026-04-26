@@ -3,7 +3,7 @@
  * These are investigative — they document current state and assert issues we found in source review.
  * Failing tests = confirmed bugs. Passing = either already fixed or not reproducible in browser.
  */
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Page } from './fixtures'
 
 // Helper: minimum touch target height per iOS HIG / WCAG 2.5.5
 const MIN_TOUCH_PX = 44

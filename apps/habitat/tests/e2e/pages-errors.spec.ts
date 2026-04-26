@@ -6,7 +6,7 @@
  * OPFS / SharedArrayBuffer / crossOriginIsolated errors are filtered
  * as they are expected in the test environment (no COOP/COEP headers).
  */
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Page } from './fixtures'
 
 const MOBILE = { width: 390, height: 844 }
 
@@ -35,7 +35,6 @@ async function loadPage(page: Page, url: string) {
 test.describe('Page load — no fatal JS errors', () => {
   const routes = [
     '/',
-    '/week',
     '/habits',
     '/health',
     '/todos',

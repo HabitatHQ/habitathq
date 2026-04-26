@@ -13,7 +13,7 @@
  *   #13 — Mobile native scroll: dvh height, overscroll-contain, body scroll lock, jots spacers
  */
 
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Page } from './fixtures'
 
 const MIN_TOUCH_PX = 44
 const MOBILE = { width: 390, height: 844 } // iPhone 14
@@ -380,14 +380,18 @@ test.describe('Issue #12 — modal card padding is p-5 (20px) on all pages', () 
     }
     if (!(await card.isVisible().catch(() => false))) { test.skip(); return }
 
-    const { top, right, left } = await card.evaluate((el) => {
+    // AppModal applies padding on inner children (title: px-5 pt-5, content: px-5 py-4),
+    // not on the card wrapper. Check the scrollable content area's horizontal padding.
+    const contentArea = card.locator('.overflow-y-auto').first()
+    if (!(await contentArea.isVisible().catch(() => false))) { test.skip(); return }
+
+    const { right, left } = await contentArea.evaluate((el) => {
       const s = getComputedStyle(el)
-      return { top: s.paddingTop, right: s.paddingRight, left: s.paddingLeft }
+      return { right: s.paddingRight, left: s.paddingLeft }
     })
 
-    expect(top, `${route} modal paddingTop should be ${EXPECTED_PADDING}`).toBe(EXPECTED_PADDING)
-    expect(right, `${route} modal paddingRight should be ${EXPECTED_PADDING}`).toBe(EXPECTED_PADDING)
-    expect(left, `${route} modal paddingLeft should be ${EXPECTED_PADDING}`).toBe(EXPECTED_PADDING)
+    expect(right, `${route} modal content paddingRight should be ${EXPECTED_PADDING}`).toBe(EXPECTED_PADDING)
+    expect(left, `${route} modal content paddingLeft should be ${EXPECTED_PADDING}`).toBe(EXPECTED_PADDING)
   }
 
   test('habits New modal has p-5 padding', async ({ page }) => {

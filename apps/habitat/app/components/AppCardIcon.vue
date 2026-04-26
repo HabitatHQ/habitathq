@@ -17,6 +17,7 @@ defineProps<{
     :class="bgClass"
     :style="bgColor ? { backgroundColor: bgColor } : undefined"
   >
-    <AppIcon :name="icon" :color="iconColor" class="w-5 h-5" />
+    <AppIcon v-if="iconColor" :name="icon" :color="iconColor" class="w-5 h-5" />
+    <AppIcon v-else :name="icon" class="w-5 h-5" />
   </div>
 </template>
