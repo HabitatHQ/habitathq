@@ -131,41 +131,28 @@ async function createTemplate() {
     <!-- Template list -->
     <div v-else class="space-y-2">
       <ul v-if="templates.length" class="space-y-2">
-        <li v-for="t in templates" :key="t.id">
-          <div
-            class="flex items-center justify-between p-4 rounded-2xl bg-(--ui-bg-muted) border transition-colors group cursor-pointer"
-            :class="[
-              isCompleted(t) ? 'border-primary-500/50 bg-primary-500/5' : 'border-(--ui-border) hover:border-(--ui-border-accented)',
-              !isActiveToday(t) && 'opacity-40',
-            ]"
-            @click="$router.push(`/checkin/entry-${t.id}`)"
-          >
-            <div class="flex items-center gap-3">
-              <div v-if="isCompleted(t)" class="w-8 h-8 rounded-full bg-primary-500/20 text-primary-500 flex items-center justify-center flex-shrink-0">
-                <AppIcon name="check" class="w-4 h-4" />
-              </div>
-              <div>
-                <p class="font-semibold text-(--ui-text)">{{ t.title }}</p>
-                <p class="text-xs text-(--ui-text-dimmed) mt-0.5">
-                  {{ checkinScheduleLabel(t) }}<span v-if="t.response_day_count"> · {{ t.response_day_count }} {{ t.response_day_count === 1 ? 'session' : 'sessions' }}</span>
-                </p>
-              </div>
-            </div>
-            <UButton
-              :icon="resolveIcon('cog-6-tooth')"
-              variant="ghost"
-              color="neutral"
-              size="sm"
-              class="opacity-0 group-hover:opacity-100 transition-opacity"
-              @click.stop="$router.push(`/checkin/${t.id}`)"
-            />
+        <AppCard
+          v-for="t in templates"
+          :key="t.id"
+          tag="li"
+          :to="`/checkin/entry-${t.id}`"
+          :completed="isCompleted(t)"
+          :dimmed="!isActiveToday(t)"
+        >
+          <AppCardIcon icon="pencil-square" bg-class="bg-primary-500/10" icon-color="#22d3ee" />
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium text-(--ui-text) truncate">{{ t.title }}</p>
+            <p class="text-xs text-(--ui-text-dimmed) mt-0.5">
+              {{ checkinScheduleLabel(t) }}<span v-if="t.response_day_count"> · {{ t.response_day_count }} {{ t.response_day_count === 1 ? 'session' : 'sessions' }}</span>
+            </p>
           </div>
-        </li>
+          <AppIcon name="chevron-right" class="w-4 h-4 text-(--ui-text-dimmed) flex-shrink-0" />
+        </AppCard>
       </ul>
 
       <EmptyState
         v-if="templates.length === 0"
-        :icon="resolveIcon('pencil-square')"
+        icon="pencil-square"
         title="No check-ins yet"
         description="Create one to get started."
       />

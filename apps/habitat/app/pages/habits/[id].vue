@@ -65,15 +65,15 @@ const todayStr = new Date().toISOString().slice(0, 10)
 const dailyStatus = computed(() => {
   const statusMap = new Map<string, 'done' | 'partial' | 'failed' | 'none'>()
   if (!habit.value) return statusMap
-  
+
   if (habit.value.type === 'BOOLEAN') {
-    completions.value.forEach(c => statusMap.set(c.date, 'done'))
+    completions.value.forEach((c) => statusMap.set(c.date, 'done'))
   } else {
     const sums = new Map<string, number>()
-    habitLogs.value.forEach(log => {
+    habitLogs.value.forEach((log) => {
       sums.set(log.date, (sums.get(log.date) || 0) + log.value)
     })
-    
+
     sums.forEach((sum, date) => {
       if (habit.value!.type === 'NUMERIC') {
         if (sum >= habit.value!.target_value) {
@@ -82,7 +82,8 @@ const dailyStatus = computed(() => {
           statusMap.set(date, 'partial')
         }
       } else if (habit.value!.type === 'LIMIT') {
-        if (sum <= habit.value!.target_value && sum >= 0) { // Limit habits track staying under a limit
+        if (sum <= habit.value!.target_value && sum >= 0) {
+          // Limit habits track staying under a limit
           statusMap.set(date, 'done')
         } else if (sum > habit.value!.target_value) {
           statusMap.set(date, 'failed')
@@ -125,7 +126,7 @@ const currentStreak = computed(() => {
   let streak = 0
   const d = new Date()
   let dStr = d.toISOString().slice(0, 10)
-  
+
   // Strict streak: if today is not done yet, start counting from yesterday
   if (dailyStatus.value.get(dStr) !== 'done') {
     d.setDate(d.getDate() - 1)
@@ -150,7 +151,10 @@ const avgStat = computed(() => {
     if (!completions.value.length) return { label: 'Avg / week', value: 0 }
     // Calculate average days completed per week since tracking started
     const firstLogStr = completions.value[0]?.date || habit.value.created_at.slice(0, 10)
-    const daysTracked = Math.max(1, (new Date(todayStr).getTime() - new Date(firstLogStr).getTime()) / (1000 * 60 * 60 * 24))
+    const daysTracked = Math.max(
+      1,
+      (new Date(todayStr).getTime() - new Date(firstLogStr).getTime()) / (1000 * 60 * 60 * 24),
+    )
     const weeksTracked = Math.max(1, daysTracked / 7)
     const avg = Math.round((completions.value.length / weeksTracked) * 10) / 10
     return { label: 'Avg / week', value: `${avg} days` }
@@ -259,20 +263,26 @@ const availableEditSchedules = computed(() => {
   return ['DAILY', 'WEEKLY_FLEX', 'SPECIFIC_DAYS'] as const
 })
 
-watch(() => editForm.type, (newType) => {
-  if (newType === 'LIMIT') {
-    editForm.schedule_type = 'DAILY'
-  } else if (newType === 'NUMERIC') {
-    if (editForm.schedule_type === 'SPECIFIC_DAYS') editForm.schedule_type = 'DAILY'
-    if (editForm.schedule_type === 'WEEKLY_FLEX') editForm.frequency_count = 1
-  }
-})
+watch(
+  () => editForm.type,
+  (newType) => {
+    if (newType === 'LIMIT') {
+      editForm.schedule_type = 'DAILY'
+    } else if (newType === 'NUMERIC') {
+      if (editForm.schedule_type === 'SPECIFIC_DAYS') editForm.schedule_type = 'DAILY'
+      if (editForm.schedule_type === 'WEEKLY_FLEX') editForm.frequency_count = 1
+    }
+  },
+)
 
-watch(() => editForm.schedule_type, (newSched) => {
-  if (editForm.type === 'NUMERIC' && newSched === 'WEEKLY_FLEX') {
-    editForm.frequency_count = 1
-  }
-})
+watch(
+  () => editForm.schedule_type,
+  (newSched) => {
+    if (editForm.type === 'NUMERIC' && newSched === 'WEEKLY_FLEX') {
+      editForm.frequency_count = 1
+    }
+  },
+)
 
 function validateEditSchedule(): string | null {
   if (editForm.type === 'NUMERIC') {

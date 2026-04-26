@@ -1,9 +1,5 @@
 <script setup lang="ts">
-import type {
-  CheckinQuestion,
-  CheckinReminder,
-  CheckinTemplate,
-} from '~/types/database'
+import type { CheckinQuestion, CheckinReminder, CheckinTemplate } from '~/types/database'
 
 const db = useDatabase()
 const toast = useToast()
@@ -89,8 +85,6 @@ function reminderDaysLabel(r: CheckinReminder): string {
   if (!r.days_active || r.days_active.length === 0) return 'Every day'
   return r.days_active.map((d) => CHECKIN_DAY_LABELS[d]).join(', ')
 }
-
-
 
 async function addReminder() {
   if (!newReminderTime.value || savingReminder.value) return

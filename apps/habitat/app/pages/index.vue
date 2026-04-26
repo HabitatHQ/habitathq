@@ -521,34 +521,18 @@ onMounted(async () => {
           <li v-if="anyActive && i === contextHabits.length && otherHabits.length > 0" class="list-none pt-1 pb-0.5" aria-hidden="true">
             <p class="text-xs font-semibold uppercase tracking-wider px-1" style="opacity: 0.4">Others</p>
           </li>
-          <li
-            class="flex items-center gap-3 p-3 rounded-xl border transition-all duration-200"
-            :class="[
-              anyActive && !matchesContext(habit.tags)
-                ? 'bg-(--ui-bg-muted)/30 border-(--ui-border)/30 opacity-40'
-                : isHabitDone(habit)
-                  ? 'bg-(--ui-bg-muted)/50 border-(--ui-border)/50 opacity-70'
-                  : 'bg-(--ui-bg-muted) border-(--ui-border)',
-              { 'habit-flash': flashing.has(habit.id) },
-            ]"
+          <AppCard
+            tag="li"
+            :completed="isHabitDone(habit)"
+            :dimmed="anyActive && !matchesContext(habit.tags)"
+            :class="{ 'habit-flash': flashing.has(habit.id) }"
           >
-          <!-- Icon -->
-          <div
-            class="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center"
-            :style="{ backgroundColor: habit.color + '22' }"
-          >
-            <AppIcon :name="habit.icon" :color="habit.color" class="w-5 h-5" />
-          </div>
+          <AppCardIcon :icon="habit.icon" :icon-color="habit.color" :bg-color="habit.color + '22'" />
 
           <!-- Name + subtitle -->
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-1.5 min-w-0">
-              <p
-                class="text-sm font-medium truncate transition-colors"
-                :class="isHabitDone(habit) && habit.type === 'BOOLEAN'
-                  ? 'line-through text-(--ui-text-dimmed)'
-                  : 'text-(--ui-text)'"
-              >{{ habit.name }}</p>
+              <p class="text-sm font-medium truncate text-(--ui-text)">{{ habit.name }}</p>
               <span
                 v-if="habit.type !== 'BOOLEAN'"
                 class="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded"
@@ -629,7 +613,7 @@ onMounted(async () => {
                 />
               </div>
           </template>
-          </li>
+          </AppCard>
         </template>
       </ul>
       <!-- ── On your plate (today TODOs) ─────────────────────────────────────── -->
@@ -654,10 +638,11 @@ onMounted(async () => {
         </div>
 
         <ul v-if="todayTodos.length > 0" class="space-y-1.5">
-          <li
+          <AppCard
             v-for="todo in todayTodos"
             :key="todo.id"
-            class="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border)"
+            tag="li"
+            :completed="todoToggledIds.has(todo.id)"
           >
             <!-- Priority stripe -->
             <div class="w-1 self-stretch rounded-full shrink-0" :class="priorityColor(todo.priority)" />
@@ -685,7 +670,7 @@ onMounted(async () => {
                 {{ todo.estimated_minutes }}m
               </p>
             </div>
-          </li>
+          </AppCard>
         </ul>
 
         <UButton to="/todos" variant="ghost" color="neutral" size="xs" :icon="resolveIcon('arrow-right')" trailing aria-label="See all todos">
@@ -818,60 +803,52 @@ onMounted(async () => {
       >
         <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Today's Activity</p>
 
-        <div class="space-y-1.5">
+        <div class="space-y-2">
 
           <!-- Check-in templates with responses today -->
-          <NuxtLink
+          <AppCard
             v-for="ci in todayCheckins"
             :key="ci.template_id"
             :to="`/checkin/entry-${ci.template_id}`"
-            class="flex items-center gap-3 p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border) hover:border-(--ui-border-accented) transition-colors"
+            :completed="ci.is_completed"
           >
-            <div class="w-8 h-8 rounded-full bg-primary-500/10 flex-shrink-0 flex items-center justify-center">
-              <AppIcon name="pencil-square" class="w-4 h-4 text-primary-400" />
-            </div>
+            <AppCardIcon icon="pencil-square" bg-class="bg-primary-500/10" icon-color="#22d3ee" />
             <div class="flex-1 min-w-0">
               <p class="text-sm font-medium text-(--ui-text) truncate">{{ ci.title }}</p>
               <p class="text-xs text-(--ui-text-dimmed)">{{ ci.response_count }} {{ ci.response_count === 1 ? 'response' : 'responses' }}</p>
             </div>
-            <AppIcon name="chevron-right" class="w-4 h-4 text-slate-600 flex-shrink-0" />
-          </NuxtLink>
+            <AppIcon name="chevron-right" class="w-4 h-4 text-(--ui-text-dimmed) flex-shrink-0" />
+          </AppCard>
 
           <!-- Scribbles updated today -->
-          <NuxtLink
+          <AppCard
             v-if="todayScribbles.length > 0"
             to="/jots"
-            class="flex items-center gap-3 p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border) hover:border-(--ui-border-accented) transition-colors"
           >
-            <div class="w-8 h-8 rounded-full bg-amber-500/10 flex-shrink-0 flex items-center justify-center">
-              <AppIcon name="pencil" class="w-4 h-4 text-amber-400" />
-            </div>
+            <AppCardIcon icon="pencil" bg-class="bg-amber-500/10" icon-color="#fbbf24" />
             <div class="flex-1 min-w-0">
               <p class="text-sm font-medium text-(--ui-text)">Scribbles</p>
               <p class="text-xs text-(--ui-text-dimmed)">
                 {{ todayScribbles.length }} {{ todayScribbles.length === 1 ? 'note' : 'notes' }} updated today
               </p>
             </div>
-            <AppIcon name="chevron-right" class="w-4 h-4 text-slate-600 flex-shrink-0" />
-          </NuxtLink>
+            <AppIcon name="chevron-right" class="w-4 h-4 text-(--ui-text-dimmed) flex-shrink-0" />
+          </AppCard>
 
           <!-- Voice notes recorded today -->
-          <NuxtLink
+          <AppCard
             v-if="todayVoiceCount > 0"
             to="/jots"
-            class="flex items-center gap-3 p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border) hover:border-(--ui-border-accented) transition-colors"
           >
-            <div class="w-8 h-8 rounded-full bg-rose-500/10 flex-shrink-0 flex items-center justify-center">
-              <AppIcon name="microphone" class="w-4 h-4 text-rose-400" />
-            </div>
+            <AppCardIcon icon="microphone" bg-class="bg-rose-500/10" icon-color="#fb7185" />
             <div class="flex-1 min-w-0">
               <p class="text-sm font-medium text-(--ui-text)">Voice Notes</p>
               <p class="text-xs text-(--ui-text-dimmed)">
                 {{ todayVoiceCount }} {{ todayVoiceCount === 1 ? 'recording' : 'recordings' }} today
               </p>
             </div>
-            <AppIcon name="chevron-right" class="w-4 h-4 text-slate-600 flex-shrink-0" />
-          </NuxtLink>
+            <AppIcon name="chevron-right" class="w-4 h-4 text-(--ui-text-dimmed) flex-shrink-0" />
+          </AppCard>
 
         </div>
       </section>
