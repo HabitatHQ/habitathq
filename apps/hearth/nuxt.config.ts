@@ -11,7 +11,19 @@ export default defineNuxtConfig({
   },
   compatibilityDate: '2025-01-01',
 
-  // COOP/COEP required for SQLite WASM (SharedArrayBuffer / OPFS)
+  // COOP/COEP required for SQLite WASM (SharedArrayBuffer / OPFS).
+  //
+  // Three layers set these headers:
+  //   1. routeRules      — Nitro production server
+  //   2. vite.server     — dev server
+  //   3. sw.ts           — service worker injects on navigation (for static hosts)
+  //
+  // KNOWN ISSUE: On static hosts (GitHub Pages) the first-ever visit has no SW
+  // installed yet, so COOP/COEP headers are missing and OPFS fails. The SW
+  // installs in the background during that first load. A single page reload
+  // activates it and all subsequent visits work. If this becomes a UX problem,
+  // add coi-serviceworker (https://github.com/nicegoodthings/coi-serviceworker)
+  // as a <script> in app.head to auto-bootstrap + reload on first visit.
   routeRules: {
     '/**': {
       headers: {
