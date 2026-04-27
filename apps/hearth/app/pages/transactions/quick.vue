@@ -17,9 +17,9 @@ const ocr = useOcr()
 const accounts = shallowRef<Account[]>([])
 const categoryTree = shallowRef<Array<Category & { children: Category[] }>>([])
 const currentUser = shallowRef<User | null>(null)
-const merchantMappings = shallowRef<Map<string, { category_id: string; account_id: string | null }>>(
-  new Map(),
-)
+const merchantMappings = shallowRef<
+  Map<string, { category_id: string; account_id: string | null }>
+>(new Map())
 
 // Flat category list for dropdowns
 const flatCategories = computed(() => {

@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import type { EnvelopeWithSpending } from '~/types/database'
-import { currentPeriod } from '~/utils/format'
 
 const db = useDatabase()
 const { settings } = useAppSettings()
 const homeCurrency = computed(() => settings.value.currency)
+const { period, isCurrentPeriod, prevPeriod, nextPeriod } = usePeriod()
 
-const period = ref(currentPeriod())
 const envelopes = ref<EnvelopeWithSpending[]>([])
 const loading = ref(true)
 
@@ -21,8 +20,6 @@ async function load() {
 
 watch(period, load)
 onMounted(load)
-
-const isCurrentPeriod = computed(() => period.value === currentPeriod())
 
 const totalBudget = computed(() => envelopes.value.reduce((s, e) => s + e.budget_amount, 0))
 const totalSpent = computed(() => envelopes.value.reduce((s, e) => s + e.spent, 0))
@@ -104,27 +101,12 @@ async function deleteEnvelope(id: string) {
   <div class="p-4 space-y-5 max-w-2xl mx-auto">
 
     <!-- ── Period navigator ────────────────────────────────────────────────── -->
-    <div class="flex items-center justify-between">
-      <button
-        class="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-(--ui-text-muted) hover:text-(--ui-text) hover:bg-(--ui-bg-elevated) transition-colors"
-        aria-label="Previous month"
-        @click="period = offsetPeriod(period, -1)"
-      >
-        <UIcon name="i-heroicons-chevron-left" class="w-5 h-5" />
-      </button>
-      <h1 class="text-xs font-semibold text-(--ui-text-muted) tracking-wide uppercase">
-        {{ formatPeriod(period) }}
-      </h1>
-      <button
-        class="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg transition-colors"
-        :class="isCurrentPeriod ? 'text-(--ui-text-dimmed) cursor-default' : 'text-(--ui-text-muted) hover:text-(--ui-text) hover:bg-(--ui-bg-elevated)'"
-        :disabled="isCurrentPeriod"
-        aria-label="Next month"
-        @click="period = offsetPeriod(period, 1)"
-      >
-        <UIcon name="i-heroicons-chevron-right" class="w-5 h-5" />
-      </button>
-    </div>
+    <PeriodNavigator
+      :period="period"
+      :is-current-period="isCurrentPeriod"
+      @prev="prevPeriod"
+      @next="nextPeriod"
+    />
 
     <!-- ── Envelope help ─────────────────────────────────────────────────── -->
     <HelpTip id="envelope-budgeting">

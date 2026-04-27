@@ -1,18 +1,12 @@
 <script setup lang="ts">
 import type { DashboardSummary, RecurringPatternRow } from '~/types/database'
-import {
-  currentPeriod,
-  formatAmount,
-  formatDateRelative,
-  offsetPeriod,
-  splitCurrencyParts,
-} from '~/utils/format'
+import { formatAmount, formatDateRelative, splitCurrencyParts } from '~/utils/format'
 
 const db = useDatabase()
 const { settings } = useAppSettings()
 const homeCurrency = computed(() => settings.value.currency)
+const { period, isCurrentPeriod, prevPeriod, nextPeriod } = usePeriod()
 
-const period = ref(currentPeriod())
 const summary = ref<DashboardSummary | null>(null)
 const loading = ref(true)
 const error = ref<string | null>(null)
@@ -42,15 +36,6 @@ onMounted(async () => {
     // Recurring table might not exist yet on first load
   }
 })
-
-function prevPeriod() {
-  period.value = offsetPeriod(period.value, -1)
-}
-function nextPeriod() {
-  period.value = offsetPeriod(period.value, 1)
-}
-
-const isCurrentPeriod = computed(() => period.value === currentPeriod())
 
 const budgetBarPercent = computed(() => {
   if (!summary.value || summary.value.budget_total === 0) return 0
@@ -87,29 +72,12 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
   <div class="p-4 space-y-5 max-w-2xl mx-auto">
 
     <!-- ── Period navigator ────────────────────────────────────────────────── -->
-    <div class="flex items-center justify-between">
-      <button
-        class="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-(--ui-text-muted) hover:text-(--ui-text) hover:bg-(--ui-bg-elevated) transition-colors"
-        aria-label="Previous month"
-        @click="prevPeriod"
-      >
-        <UIcon name="i-heroicons-chevron-left" class="w-5 h-5" />
-      </button>
-      <h1 class="text-base font-semibold text-(--ui-text-muted) tracking-wide uppercase text-xs">
-        {{ formatPeriod(period) }}
-      </h1>
-      <button
-        class="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg transition-colors"
-        :class="isCurrentPeriod
-          ? 'text-(--ui-text-dimmed) cursor-default'
-          : 'text-(--ui-text-muted) hover:text-(--ui-text) hover:bg-(--ui-bg-elevated)'"
-        :disabled="isCurrentPeriod"
-        aria-label="Next month"
-        @click="nextPeriod"
-      >
-        <UIcon name="i-heroicons-chevron-right" class="w-5 h-5" />
-      </button>
-    </div>
+    <PeriodNavigator
+      :period="period"
+      :is-current-period="isCurrentPeriod"
+      @prev="prevPeriod"
+      @next="nextPeriod"
+    />
 
     <!-- ── Hero: Spending summary ──────────────────────────────────────────── -->
     <section

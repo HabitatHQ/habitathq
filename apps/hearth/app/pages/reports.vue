@@ -2,15 +2,15 @@
 import VChart from 'vue-echarts'
 import { getHearthTheme } from '~/lib/echarts-theme'
 import type { EnvelopeWithSpending, MonthlyTotal, TransactionWithDetails } from '~/types/database'
-import { currentPeriod, formatCompact } from '~/utils/format'
+import { formatCompact } from '~/utils/format'
 
 const db = useDatabase()
 const router = useRouter()
 const { settings } = useAppSettings()
 const homeCurrency = computed(() => settings.value.currency)
 const { ensureLoaded, loaded: chartsLoaded } = useCharts()
+const { period, isCurrentPeriod, prevPeriod, nextPeriod } = usePeriod()
 
-const period = ref(currentPeriod())
 const transactions = ref<TransactionWithDetails[]>([])
 const monthlyTotals = ref<MonthlyTotal[]>([])
 const envelopes = ref<EnvelopeWithSpending[]>([])
@@ -54,8 +54,6 @@ watch(
   () => settings.value.colorMode,
   () => nextTick(refreshTheme),
 )
-
-const isCurrentPeriod = computed(() => period.value === currentPeriod())
 
 // ── Aggregations ──────────────────────────────────────────────────────────
 const expenseTxns = computed(() => transactions.value.filter((t) => t.type === 'expense'))
@@ -447,27 +445,12 @@ function onTrendClick(params: any) {
 <template>
   <div class="p-4 space-y-5 max-w-2xl mx-auto">
     <!-- ── Period navigator ────────────────────────────────────────────────── -->
-    <div class="flex items-center justify-between">
-      <button
-        class="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-(--ui-text-muted) hover:text-(--ui-text) hover:bg-(--ui-bg-elevated) transition-colors"
-        aria-label="Previous month"
-        @click="period = offsetPeriod(period, -1)"
-      >
-        <UIcon name="i-heroicons-chevron-left" class="w-5 h-5" />
-      </button>
-      <h1 class="text-xs font-semibold text-(--ui-text-muted) tracking-wide uppercase">
-        {{ formatPeriod(period) }}
-      </h1>
-      <button
-        class="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg transition-colors"
-        :class="isCurrentPeriod ? 'text-(--ui-text-dimmed) cursor-default' : 'text-(--ui-text-muted) hover:text-(--ui-text) hover:bg-(--ui-bg-elevated)'"
-        :disabled="isCurrentPeriod"
-        aria-label="Next month"
-        @click="period = offsetPeriod(period, 1)"
-      >
-        <UIcon name="i-heroicons-chevron-right" class="w-5 h-5" />
-      </button>
-    </div>
+    <PeriodNavigator
+      :period="period"
+      :is-current-period="isCurrentPeriod"
+      @prev="prevPeriod"
+      @next="nextPeriod"
+    />
 
     <HelpTip id="reports-overview">
       <template #label>About these reports</template>

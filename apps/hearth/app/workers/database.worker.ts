@@ -681,6 +681,137 @@ await (async () => {
         orig(sql, b && typeof b === 'object' && !Array.isArray(b) ? b.bind : b, ...rest)
     }
 
+    // ─── Shared SQL fragments ──────────────────────────────────────────
+    const TRANSACTION_SELECT = `
+      SELECT t.*, c.name as category_name, c.icon as category_icon, c.color as category_color,
+             u.name as user_name, u.avatar_emoji as user_avatar, a.name as account_name
+      FROM transactions t
+      LEFT JOIN categories c ON t.category_id = c.id
+      LEFT JOIN users u ON t.user_id = u.id
+      LEFT JOIN accounts a ON t.account_id = a.id`
+
+    // ─── Reusable helpers ────────────────────────────────────────────────
+    function genericUpdate(
+      table: string,
+      payload: { id: string; [key: string]: unknown },
+    ): unknown {
+      const { id, ...fields } = payload
+      const sets = Object.keys(fields)
+        .map((k) => `${k} = ?`)
+        .join(', ')
+      db.exec(
+        `UPDATE ${table} SET ${sets} WHERE id = ?`,
+        B([...Object.values(fields).map(toBindVal), id]),
+      )
+      return db.selectObject(`SELECT * FROM ${table} WHERE id = ?`, B([id]))
+    }
+
+    function computeEnvelopeSpending(
+      env: { id: string; budget_amount: number; category_ids: string; rollover: number },
+      start: string,
+      end: string,
+      period: string,
+      useRollover: boolean,
+    ): {
+      spent: number
+      rolled_over: number
+      remaining: number
+      percent_used: number
+      is_overspent: boolean
+    } {
+      const catIds = JSON.parse(env.category_ids) as string[]
+      if (catIds.length === 0) {
+        return {
+          spent: 0,
+          rolled_over: 0,
+          remaining: env.budget_amount,
+          percent_used: 0,
+          is_overspent: false,
+        }
+      }
+      const placeholders = catIds.map(() => '?').join(',')
+      const spent =
+        (db.selectValue(
+          `SELECT ABS(COALESCE(SUM(COALESCE(home_amount, amount)), 0)) FROM transactions
+           WHERE type = 'expense' AND category_id IN (${placeholders})
+           AND date BETWEEN ? AND ?`,
+          B([...catIds.map(toBindVal), start, end]),
+        ) as number) ?? 0
+
+      let rolledOver = 0
+      if (useRollover && env.rollover) {
+        const prevPeriod = db.selectObject(
+          'SELECT rolled_over FROM envelope_periods WHERE envelope_id = ? AND period = ?',
+          B([env.id, period]),
+        ) as { rolled_over: number } | undefined
+        rolledOver = prevPeriod?.rolled_over ?? 0
+      }
+
+      const effectiveBudget = env.budget_amount + rolledOver
+      const remaining = effectiveBudget - spent
+      const percentUsed = effectiveBudget > 0 ? Math.min((spent / effectiveBudget) * 100, 200) : 0
+
+      return {
+        spent,
+        rolled_over: rolledOver,
+        remaining,
+        percent_used: percentUsed,
+        is_overspent: remaining < 0,
+      }
+    }
+
+    function aggregateIouBalances(
+      splits: Array<{
+        from_user_id: string
+        to_user_id: string
+        amount: number
+        from_name: string
+        from_avatar: string
+        to_name: string
+        to_avatar: string
+      }>,
+    ) {
+      const balanceMap = new Map<string, number>()
+      const metaMap = new Map<
+        string,
+        { from_name: string; from_avatar: string; to_name: string; to_avatar: string }
+      >()
+
+      for (const s of splits) {
+        const key = [s.from_user_id, s.to_user_id].sort().join('|')
+        const isForward = s.from_user_id < s.to_user_id
+        balanceMap.set(key, (balanceMap.get(key) ?? 0) + (isForward ? s.amount : -s.amount))
+        metaMap.set(key, {
+          from_name: s.from_name,
+          from_avatar: s.from_avatar,
+          to_name: s.to_name,
+          to_avatar: s.to_avatar,
+        })
+      }
+
+      return Array.from(balanceMap.entries())
+        .filter(([, amt]) => Math.abs(amt) > 0.01)
+        .map(([key, netAmount]) => {
+          const [uid1, uid2] = key.split('|')
+          const meta = metaMap.get(key)!
+          return {
+            from_user_id: uid1,
+            to_user_id: uid2,
+            from_user_name: meta.from_name,
+            to_user_name: meta.to_name,
+            from_user_avatar: meta.from_avatar,
+            to_user_avatar: meta.to_avatar,
+            net_amount: netAmount,
+          }
+        })
+    }
+
+    function markTransactionsRecurring(txIds: string[]): void {
+      for (const txId of txIds) {
+        db.exec('UPDATE transactions SET is_recurring = 1 WHERE id = ?', B([txId]))
+      }
+    }
+
     function chorePeriodKey(frequency: string, date: string): string {
       const d = new Date(date)
       if (frequency === 'daily') return date.slice(0, 10)
@@ -715,17 +846,8 @@ await (async () => {
           return db.selectObject('SELECT * FROM users WHERE id = ?', B([id]))
         }
 
-        case 'UPDATE_USER': {
-          const { id, ...fields } = req.payload
-          const sets = Object.keys(fields)
-            .map((k) => `${k} = ?`)
-            .join(', ')
-          db.exec(
-            `UPDATE users SET ${sets} WHERE id = ?`,
-            B([...Object.values(fields).map(toBindVal), id]),
-          )
-          return db.selectObject('SELECT * FROM users WHERE id = ?', B([id]))
-        }
+        case 'UPDATE_USER':
+          return genericUpdate('users', req.payload)
 
         case 'DELETE_USER':
           db.exec('DELETE FROM users WHERE id = ?', B([req.payload.id]))
@@ -751,17 +873,8 @@ await (async () => {
           return db.selectObject('SELECT * FROM accounts WHERE id = ?', B([id]))
         }
 
-        case 'UPDATE_ACCOUNT': {
-          const { id, ...fields } = req.payload
-          const sets = Object.keys(fields)
-            .map((k) => `${k} = ?`)
-            .join(', ')
-          db.exec(
-            `UPDATE accounts SET ${sets} WHERE id = ?`,
-            B([...Object.values(fields).map(toBindVal), id]),
-          )
-          return db.selectObject('SELECT * FROM accounts WHERE id = ?', B([id]))
-        }
+        case 'UPDATE_ACCOUNT':
+          return genericUpdate('accounts', req.payload)
 
         case 'DELETE_ACCOUNT':
           db.exec('UPDATE accounts SET is_active = 0 WHERE id = ?', B([req.payload.id]))
@@ -794,16 +907,9 @@ await (async () => {
           const limit = req.payload.limit ?? 50
           const offset = req.payload.offset ?? 0
           return db.selectObjects(
-            `
-            SELECT t.*, c.name as category_name, c.icon as category_icon, c.color as category_color,
-                   u.name as user_name, u.avatar_emoji as user_avatar, a.name as account_name
-            FROM transactions t
-            LEFT JOIN categories c ON t.category_id = c.id
-            LEFT JOIN users u ON t.user_id = u.id
-            LEFT JOIN accounts a ON t.account_id = a.id
+            `${TRANSACTION_SELECT}
             ORDER BY t.date DESC, t.created_at DESC
-            LIMIT ? OFFSET ?
-          `,
+            LIMIT ? OFFSET ?`,
             B([limit, offset]),
           )
         }
@@ -812,40 +918,25 @@ await (async () => {
           const { period, user_id } = req.payload
           const start = `${period}-01`
           const end = `${period}-31`
-          const query = user_id
-            ? `SELECT t.*, c.name as category_name, c.icon as category_icon, c.color as category_color,
-                      u.name as user_name, u.avatar_emoji as user_avatar, a.name as account_name
-               FROM transactions t
-               LEFT JOIN categories c ON t.category_id = c.id
-               LEFT JOIN users u ON t.user_id = u.id
-               LEFT JOIN accounts a ON t.account_id = a.id
-               WHERE t.date BETWEEN '${start}' AND '${end}' AND t.user_id = '${user_id}'
-               ORDER BY t.date DESC, t.created_at DESC`
-            : `SELECT t.*, c.name as category_name, c.icon as category_icon, c.color as category_color,
-                      u.name as user_name, u.avatar_emoji as user_avatar, a.name as account_name
-               FROM transactions t
-               LEFT JOIN categories c ON t.category_id = c.id
-               LEFT JOIN users u ON t.user_id = u.id
-               LEFT JOIN accounts a ON t.account_id = a.id
-               WHERE t.date BETWEEN '${start}' AND '${end}'
-               ORDER BY t.date DESC, t.created_at DESC`
-          return db.selectObjects(query)
+          if (user_id) {
+            return db.selectObjects(
+              `${TRANSACTION_SELECT}
+               WHERE t.date BETWEEN ? AND ? AND t.user_id = ?
+               ORDER BY t.date DESC, t.created_at DESC`,
+              B([start, end, user_id]),
+            )
+          }
+          return db.selectObjects(
+            `${TRANSACTION_SELECT}
+             WHERE t.date BETWEEN ? AND ?
+             ORDER BY t.date DESC, t.created_at DESC`,
+            B([start, end]),
+          )
         }
 
         case 'GET_TRANSACTION':
           return (
-            db.selectObject(
-              `
-            SELECT t.*, c.name as category_name, c.icon as category_icon, c.color as category_color,
-                   u.name as user_name, u.avatar_emoji as user_avatar, a.name as account_name
-            FROM transactions t
-            LEFT JOIN categories c ON t.category_id = c.id
-            LEFT JOIN users u ON t.user_id = u.id
-            LEFT JOIN accounts a ON t.account_id = a.id
-            WHERE t.id = ?
-          `,
-              B([req.payload.id]),
-            ) ?? null
+            db.selectObject(`${TRANSACTION_SELECT} WHERE t.id = ?`, B([req.payload.id])) ?? null
           )
 
         case 'CREATE_TRANSACTION': {
@@ -883,18 +974,8 @@ await (async () => {
           return db.selectObject('SELECT * FROM transactions WHERE id = ?', B([id]))
         }
 
-        case 'UPDATE_TRANSACTION': {
-          const { id, ...fields } = req.payload
-          fields.updated_at = now()
-          const sets = Object.keys(fields)
-            .map((k) => `${k} = ?`)
-            .join(', ')
-          db.exec(
-            `UPDATE transactions SET ${sets} WHERE id = ?`,
-            B([...Object.values(fields).map(toBindVal), id]),
-          )
-          return db.selectObject('SELECT * FROM transactions WHERE id = ?', B([id]))
-        }
+        case 'UPDATE_TRANSACTION':
+          return genericUpdate('transactions', { ...req.payload, updated_at: now() })
 
         case 'DELETE_TRANSACTION':
           db.exec('DELETE FROM transactions WHERE id = ?', B([req.payload.id]))
@@ -923,53 +1004,17 @@ await (async () => {
             created_at: string
           }>
 
-          return envelopes.map((env) => {
-            const catIds = JSON.parse(env.category_ids) as string[]
-            if (catIds.length === 0) {
-              return {
-                ...env,
-                spent: 0,
-                rolled_over: 0,
-                remaining: env.budget_amount,
-                percent_used: 0,
-                is_overspent: false,
-              }
-            }
-            const placeholders = catIds.map(() => '?').join(',')
-            const spent =
-              (db.selectValue(
-                `SELECT ABS(COALESCE(SUM(COALESCE(home_amount, amount)), 0)) FROM transactions
-               WHERE type = 'expense' AND category_id IN (${placeholders})
-               AND date BETWEEN ? AND ?`,
-                B([...catIds.map(toBindVal), start, end]),
-              ) as number) ?? 0
-
-            const prevPeriod = db.selectObject(
-              'SELECT rolled_over FROM envelope_periods WHERE envelope_id = ? AND period = ?',
-              B([env.id, period]),
-            ) as { rolled_over: number } | undefined
-
-            const rolledOver = prevPeriod?.rolled_over ?? 0
-            const effectiveBudget = env.budget_amount + (env.rollover ? rolledOver : 0)
-            const remaining = effectiveBudget - spent
-            const percentUsed =
-              effectiveBudget > 0 ? Math.min((spent / effectiveBudget) * 100, 200) : 0
-
-            return {
-              ...env,
-              spent,
-              rolled_over: rolledOver,
-              remaining,
-              percent_used: percentUsed,
-              is_overspent: remaining < 0,
-            }
-          })
+          return envelopes.map((env) => ({
+            ...env,
+            ...computeEnvelopeSpending(env, start, end, period, true),
+          }))
         }
 
         case 'GET_ENVELOPE_WITH_SPENDING': {
           const { id, period } = req.payload
           const env = db.selectObject('SELECT * FROM envelopes WHERE id = ?', B([id])) as
             | {
+                id: string
                 budget_amount: number
                 category_ids: string
                 rollover: number
@@ -978,23 +1023,9 @@ await (async () => {
           if (!env) return null
           const start = `${period}-01`
           const end = `${period}-31`
-          const catIds = JSON.parse(env.category_ids) as string[]
-          const spent =
-            catIds.length === 0
-              ? 0
-              : ((db.selectValue(
-                  `SELECT ABS(COALESCE(SUM(COALESCE(home_amount, amount)), 0)) FROM transactions
-             WHERE type = 'expense' AND category_id IN (${catIds.map(() => '?').join(',')})
-             AND date BETWEEN ? AND ?`,
-                  B([...catIds.map(toBindVal), start, end]),
-                ) as number) ?? 0)
-          const remaining = env.budget_amount - spent
           return {
             ...env,
-            spent,
-            remaining,
-            percent_used: env.budget_amount > 0 ? (spent / env.budget_amount) * 100 : 0,
-            is_overspent: remaining < 0,
+            ...computeEnvelopeSpending(env, start, end, period, true),
           }
         }
 
@@ -1019,17 +1050,8 @@ await (async () => {
           return db.selectObject('SELECT * FROM envelopes WHERE id = ?', B([id]))
         }
 
-        case 'UPDATE_ENVELOPE': {
-          const { id, ...fields } = req.payload
-          const sets = Object.keys(fields)
-            .map((k) => `${k} = ?`)
-            .join(', ')
-          db.exec(
-            `UPDATE envelopes SET ${sets} WHERE id = ?`,
-            B([...Object.values(fields).map(toBindVal), id]),
-          )
-          return db.selectObject('SELECT * FROM envelopes WHERE id = ?', B([id]))
-        }
+        case 'UPDATE_ENVELOPE':
+          return genericUpdate('envelopes', req.payload)
 
         case 'DELETE_ENVELOPE':
           db.exec('DELETE FROM envelopes WHERE id = ?', B([req.payload.id]))
@@ -1059,17 +1081,8 @@ await (async () => {
           return db.selectObject('SELECT * FROM savings_goals WHERE id = ?', B([id]))
         }
 
-        case 'UPDATE_SAVINGS_GOAL': {
-          const { id, ...fields } = req.payload
-          const sets = Object.keys(fields)
-            .map((k) => `${k} = ?`)
-            .join(', ')
-          db.exec(
-            `UPDATE savings_goals SET ${sets} WHERE id = ?`,
-            B([...Object.values(fields).map(toBindVal), id]),
-          )
-          return db.selectObject('SELECT * FROM savings_goals WHERE id = ?', B([id]))
-        }
+        case 'UPDATE_SAVINGS_GOAL':
+          return genericUpdate('savings_goals', req.payload)
 
         case 'DELETE_SAVINGS_GOAL':
           db.exec('DELETE FROM savings_goals WHERE id = ?', B([req.payload.id]))
@@ -1097,41 +1110,7 @@ await (async () => {
             to_avatar: string
           }>
 
-          // Aggregate net balances per user pair
-          const balanceMap = new Map<string, number>()
-          const metaMap = new Map<
-            string,
-            { from_name: string; from_avatar: string; to_name: string; to_avatar: string }
-          >()
-
-          for (const s of splits) {
-            const key = [s.from_user_id, s.to_user_id].sort().join('|')
-            const isForward = s.from_user_id < s.to_user_id
-            const current = balanceMap.get(key) ?? 0
-            balanceMap.set(key, current + (isForward ? s.amount : -s.amount))
-            metaMap.set(key, {
-              from_name: s.from_name,
-              from_avatar: s.from_avatar,
-              to_name: s.to_name,
-              to_avatar: s.to_avatar,
-            })
-          }
-
-          return Array.from(balanceMap.entries())
-            .filter(([, amt]) => Math.abs(amt) > 0.01)
-            .map(([key, netAmount]) => {
-              const [uid1, uid2] = key.split('|')
-              const meta = metaMap.get(key)!
-              return {
-                from_user_id: uid1,
-                to_user_id: uid2,
-                from_user_name: meta.from_name,
-                to_user_name: meta.to_name,
-                from_user_avatar: meta.from_avatar,
-                to_user_avatar: meta.to_avatar,
-                net_amount: netAmount,
-              }
-            })
+          return aggregateIouBalances(splits)
         }
 
         case 'CREATE_IOU_SPLIT': {
@@ -1203,52 +1182,22 @@ await (async () => {
 
           const budgetTotal = envelopes.reduce((sum, e) => sum + e.budget_amount, 0)
 
-          const envelopesWithSpending = envelopes.map((env) => {
-            const catIds = JSON.parse(env.category_ids) as string[]
-            if (catIds.length === 0)
-              return {
-                ...env,
-                spent: 0,
-                rolled_over: 0,
-                remaining: env.budget_amount,
-                percent_used: 0,
-                is_overspent: false,
-              }
-            const envSpent =
-              (db.selectValue(
-                `SELECT ABS(COALESCE(SUM(COALESCE(home_amount, amount)), 0)) FROM transactions
-               WHERE type = 'expense' AND category_id IN (${catIds.map(() => '?').join(',')})
-               AND date BETWEEN ? AND ?`,
-                B([...catIds.map(toBindVal), start, end]),
-              ) as number) ?? 0
-            const remaining = env.budget_amount - envSpent
-            return {
-              ...env,
-              spent: envSpent,
-              rolled_over: 0,
-              remaining,
-              percent_used: env.budget_amount > 0 ? (envSpent / env.budget_amount) * 100 : 0,
-              is_overspent: remaining < 0,
-            }
-          })
+          const envelopesWithSpending = envelopes.map((env) => ({
+            ...env,
+            ...computeEnvelopeSpending(env, start, end, period, true),
+          }))
 
           const budgetRemaining = budgetTotal - spent
 
-          const recentTxns = db.selectObjects(`
-            SELECT t.*, c.name as category_name, c.icon as category_icon, c.color as category_color,
-                   u.name as user_name, u.avatar_emoji as user_avatar, a.name as account_name
-            FROM transactions t
-            LEFT JOIN categories c ON t.category_id = c.id
-            LEFT JOIN users u ON t.user_id = u.id
-            LEFT JOIN accounts a ON t.account_id = a.id
+          const recentTxns = db.selectObjects(
+            `${TRANSACTION_SELECT}
             WHERE t.is_private = 0
             ORDER BY t.date DESC, t.created_at DESC
-            LIMIT 8
-          `)
+            LIMIT 8`,
+          )
 
           const goals = db.selectObjects('SELECT * FROM savings_goals ORDER BY created_at')
 
-          // IOU balances (reuse logic from GET_IOU_BALANCES)
           const splits = db.selectObjects(`
             SELECT s.*, uf.name as from_name, uf.avatar_emoji as from_avatar,
                    ut.name as to_name, ut.avatar_emoji as to_avatar
@@ -1266,38 +1215,6 @@ await (async () => {
             to_avatar: string
           }>
 
-          const balanceMap = new Map<string, number>()
-          const metaMap = new Map<
-            string,
-            { from_name: string; from_avatar: string; to_name: string; to_avatar: string }
-          >()
-          for (const s of splits) {
-            const key = [s.from_user_id, s.to_user_id].sort().join('|')
-            const isForward = s.from_user_id < s.to_user_id
-            balanceMap.set(key, (balanceMap.get(key) ?? 0) + (isForward ? s.amount : -s.amount))
-            metaMap.set(key, {
-              from_name: s.from_name,
-              from_avatar: s.from_avatar,
-              to_name: s.to_name,
-              to_avatar: s.to_avatar,
-            })
-          }
-          const iouBalances = Array.from(balanceMap.entries())
-            .filter(([, amt]) => Math.abs(amt) > 0.01)
-            .map(([key, netAmount]) => {
-              const [uid1, uid2] = key.split('|')
-              const meta = metaMap.get(key)!
-              return {
-                from_user_id: uid1,
-                to_user_id: uid2,
-                from_user_name: meta.from_name,
-                to_user_name: meta.to_name,
-                from_user_avatar: meta.from_avatar,
-                to_user_avatar: meta.to_avatar,
-                net_amount: netAmount,
-              }
-            })
-
           return {
             spent_this_month: spent,
             income_this_month: income,
@@ -1306,7 +1223,7 @@ await (async () => {
             envelopes: envelopesWithSpending,
             recent_transactions: recentTxns,
             savings_goals: goals,
-            iou_balances: iouBalances,
+            iou_balances: aggregateIouBalances(splits),
           }
         }
 
@@ -1404,17 +1321,8 @@ await (async () => {
           return db.selectObject('SELECT * FROM chores WHERE id = ?', B([id]))
         }
 
-        case 'UPDATE_CHORE': {
-          const { id, ...fields } = req.payload
-          const sets = Object.keys(fields)
-            .map((k) => `${k} = ?`)
-            .join(', ')
-          db.exec(
-            `UPDATE chores SET ${sets} WHERE id = ?`,
-            B([...Object.values(fields).map(toBindVal), id]),
-          )
-          return db.selectObject('SELECT * FROM chores WHERE id = ?', B([id]))
-        }
+        case 'UPDATE_CHORE':
+          return genericUpdate('chores', req.payload)
 
         case 'DELETE_CHORE':
           db.exec('DELETE FROM chores WHERE id = ?', B([req.payload.id]))
@@ -1586,18 +1494,12 @@ await (async () => {
             `UPDATE recurring_patterns SET status = ?, updated_at = ? WHERE id = ?`,
             B([status, now(), id]),
           )
-          // If confirming, mark matched transactions as recurring
           if (status === 'confirmed') {
             const row = db.selectObject(
               'SELECT transaction_ids FROM recurring_patterns WHERE id = ?',
               B([id]),
             ) as { transaction_ids: string } | undefined
-            if (row) {
-              const txIds = JSON.parse(row.transaction_ids) as string[]
-              for (const txId of txIds) {
-                db.exec('UPDATE transactions SET is_recurring = 1 WHERE id = ?', B([txId]))
-              }
-            }
+            if (row) markTransactionsRecurring(JSON.parse(row.transaction_ids) as string[])
           }
           return db.selectObject('SELECT * FROM recurring_patterns WHERE id = ?', B([id]))
         }
@@ -1614,10 +1516,7 @@ await (async () => {
               `UPDATE recurring_patterns SET status = 'confirmed', updated_at = ? WHERE id = ?`,
               B([ts, row.id]),
             )
-            const txIds = JSON.parse(row.transaction_ids) as string[]
-            for (const txId of txIds) {
-              db.exec('UPDATE transactions SET is_recurring = 1 WHERE id = ?', B([txId]))
-            }
+            markTransactionsRecurring(JSON.parse(row.transaction_ids) as string[])
           }
           return { updated: rows.length }
         }
