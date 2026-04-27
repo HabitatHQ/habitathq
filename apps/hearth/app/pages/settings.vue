@@ -206,7 +206,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
             <p class="text-xs text-(--ui-text-muted)">All totals and budgets shown in this currency</p>
           </div>
           <select
-            class="text-sm bg-(--ui-bg-elevated) rounded-lg px-2 py-1.5 border border-(--ui-border) text-(--ui-text) min-h-[36px]"
+            class="text-sm bg-(--ui-bg-elevated) rounded-lg px-2 py-1.5 border border-(--ui-border) text-(--ui-text) min-h-[44px]"
             :value="settings.currency"
             aria-label="Home currency"
             @change="set('currency', ($event.target as HTMLSelectElement).value)"
@@ -284,8 +284,9 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
             <p class="text-xs text-(--ui-text-muted)">Used when no account is specified</p>
           </div>
           <select
-            class="text-sm bg-(--ui-bg-elevated) rounded-lg px-2 py-1.5 border border-(--ui-border) text-(--ui-text) min-h-[36px]"
+            class="text-sm bg-(--ui-bg-elevated) rounded-lg px-2 py-1.5 border border-(--ui-border) text-(--ui-text) min-h-[44px]"
             :value="settings.defaultExpenseAccount ?? ''"
+            aria-label="Default expense account"
             @change="set('defaultExpenseAccount', ($event.target as HTMLSelectElement).value || null)"
           >
             <option value="">Auto</option>
@@ -301,8 +302,9 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
             <p class="text-xs text-(--ui-text-muted)">Used for salary, payments, etc.</p>
           </div>
           <select
-            class="text-sm bg-(--ui-bg-elevated) rounded-lg px-2 py-1.5 border border-(--ui-border) text-(--ui-text) min-h-[36px]"
+            class="text-sm bg-(--ui-bg-elevated) rounded-lg px-2 py-1.5 border border-(--ui-border) text-(--ui-text) min-h-[44px]"
             :value="settings.defaultIncomeAccount ?? ''"
+            aria-label="Default income account"
             @change="set('defaultIncomeAccount', ($event.target as HTMLSelectElement).value || null)"
           >
             <option value="">Auto</option>

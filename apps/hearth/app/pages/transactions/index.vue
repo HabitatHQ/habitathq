@@ -60,9 +60,23 @@ const grouped = computed(() => {
   return Array.from(groups.entries())
 })
 
-async function deleteTransaction(id: string) {
-  await db.deleteTransaction(id)
-  transactions.value = transactions.value.filter((t) => t.id !== id)
+const pendingDeleteId = ref<string | null>(null)
+const pendingDeleteLabel = ref('')
+
+function requestDelete(tx: TransactionWithDetails) {
+  pendingDeleteId.value = tx.id
+  pendingDeleteLabel.value = tx.merchant || tx.description || 'this transaction'
+}
+
+async function confirmDelete() {
+  if (!pendingDeleteId.value) return
+  await db.deleteTransaction(pendingDeleteId.value)
+  transactions.value = transactions.value.filter((t) => t.id !== pendingDeleteId.value)
+  pendingDeleteId.value = null
+}
+
+function cancelDelete() {
+  pendingDeleteId.value = null
 }
 
 const FILTER_OPTIONS = [
@@ -93,7 +107,7 @@ const FILTER_OPTIONS = [
         <button
           v-for="opt in FILTER_OPTIONS"
           :key="opt.value"
-          class="shrink-0 text-xs px-3 py-1.5 rounded-full border transition-colors min-h-[32px]"
+          class="shrink-0 text-xs px-3 py-1.5 rounded-full border transition-colors min-h-[44px]"
           :class="filterType === opt.value
             ? 'bg-primary-500/15 border-primary-500 text-primary-400 font-medium'
             : 'border-(--ui-border) text-(--ui-text-muted) hover:border-(--ui-border-accented) hover:text-(--ui-text)'"
@@ -174,11 +188,11 @@ const FILTER_OPTIONS = [
                 <p v-else class="text-xs text-(--ui-text-dimmed) mt-0.5">{{ tx.account_name }}</p>
               </div>
 
-              <!-- Delete (visible on hover) -->
+              <!-- Delete -->
               <button
-                class="opacity-0 group-hover:opacity-100 transition-opacity ml-1 p-1 rounded-lg text-(--ui-text-dimmed) hover:text-rose-400 hover:bg-rose-500/10 min-h-[32px] min-w-[32px] flex items-center justify-center"
+                class="sm:opacity-0 sm:group-hover:opacity-100 transition-opacity ml-1 p-2 rounded-lg text-(--ui-text-dimmed) hover:text-rose-400 hover:bg-rose-500/10 min-h-[44px] min-w-[44px] flex items-center justify-center"
                 :aria-label="`Delete transaction: ${tx.merchant || tx.description}`"
-                @click.prevent.stop="deleteTransaction(tx.id)"
+                @click.prevent.stop="requestDelete(tx)"
               >
                 <UIcon name="i-heroicons-trash" class="w-4 h-4" />
               </button>
@@ -214,6 +228,45 @@ const FILTER_OPTIONS = [
         <UIcon name="i-heroicons-plus" class="w-6 h-6" />
       </NuxtLink>
     </div>
+
+    <!-- ── Delete confirmation dialog ──────────────────────────────────── -->
+    <Teleport to="body">
+      <div
+        v-if="pendingDeleteId"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+        role="alertdialog"
+        aria-modal="true"
+        aria-label="Confirm deletion"
+      >
+        <div class="mx-4 w-full max-w-sm bg-(--ui-bg) rounded-2xl border border-(--ui-border) p-5 space-y-4 shadow-xl">
+          <div class="flex items-start gap-3">
+            <div class="shrink-0 w-10 h-10 rounded-full bg-rose-500/10 flex items-center justify-center">
+              <UIcon name="i-heroicons-trash" class="w-5 h-5 text-rose-400" />
+            </div>
+            <div>
+              <h2 class="text-sm font-semibold text-(--ui-text)">Delete transaction?</h2>
+              <p class="text-xs text-(--ui-text-muted) mt-1">
+                "{{ pendingDeleteLabel }}" will be permanently removed. This cannot be undone.
+              </p>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <button
+              class="flex-1 py-2.5 rounded-xl text-sm font-medium bg-(--ui-bg-muted) text-(--ui-text-muted) hover:bg-(--ui-bg-elevated) transition-colors min-h-[44px]"
+              @click="cancelDelete"
+            >
+              Cancel
+            </button>
+            <button
+              class="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-rose-500 hover:bg-rose-600 text-white transition-colors min-h-[44px]"
+              @click="confirmDelete"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
   </div>
 </template>

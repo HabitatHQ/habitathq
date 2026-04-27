@@ -145,7 +145,7 @@ function toggleColorMode() {
             aria-label="Change theme"
             @click="showThemePicker = !showThemePicker"
           />
-          <div v-if="showThemePicker" class="fixed inset-0 z-40" @click="showThemePicker = false" />
+          <div v-if="showThemePicker" class="fixed inset-0 z-40" role="button" aria-label="Close theme picker" tabindex="-1" @click="showThemePicker = false" />
           <div
             v-if="showThemePicker"
             class="absolute right-0 top-full mt-1 bg-(--ui-bg-muted) border border-(--ui-border) rounded-xl p-2.5 flex gap-2 z-50 shadow-lg"
@@ -178,7 +178,7 @@ function toggleColorMode() {
           >
             <UIcon name="i-heroicons-user-circle" class="w-5 h-5" />
           </button>
-          <div v-if="showAvatarMenu" class="fixed inset-0 z-40" @click="showAvatarMenu = false" />
+          <div v-if="showAvatarMenu" class="fixed inset-0 z-40" role="button" aria-label="Close menu" tabindex="-1" @click="showAvatarMenu = false" />
           <ul
             v-if="showAvatarMenu"
             class="absolute right-0 top-full mt-1 w-44 bg-(--ui-bg-muted) border border-(--ui-border) rounded-xl p-1.5 z-50 shadow-lg space-y-0.5"

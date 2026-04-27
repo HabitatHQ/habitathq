@@ -24,6 +24,14 @@ async function load() {
 onMounted(load)
 
 async function settle(balance: IouBalance) {
+  const debtor = balance.net_amount > 0 ? balance.to_user_name : balance.from_user_name
+  const creditor = balance.net_amount > 0 ? balance.from_user_name : balance.to_user_name
+  if (
+    !confirm(
+      `Settle up between ${debtor} and ${creditor}? This clears the ${formatAmount(Math.abs(balance.net_amount))} balance.`,
+    )
+  )
+    return
   const key = `${balance.from_user_id}-${balance.to_user_id}`
   settling.value = key
   try {

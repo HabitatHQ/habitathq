@@ -227,16 +227,16 @@ async function deleteEnvelope(id: string) {
                 <p class="text-xs text-(--ui-text-muted) mt-0.5">{{ env.scope === 'household' ? 'Household' : 'Personal' }}</p>
               </div>
             </div>
-            <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div class="flex items-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
               <button
-                class="p-2 rounded-lg text-(--ui-text-dimmed) hover:text-primary-400 hover:bg-primary-500/10 transition-colors min-h-[36px] min-w-[36px]"
+                class="p-2 rounded-lg text-(--ui-text-dimmed) hover:text-primary-400 hover:bg-primary-500/10 transition-colors min-h-[44px] min-w-[44px]"
                 :aria-label="`Edit ${env.name} envelope`"
                 @click="openEditModal(env)"
               >
                 <UIcon name="i-heroicons-pencil" class="w-4 h-4" />
               </button>
               <button
-                class="p-2 rounded-lg text-(--ui-text-dimmed) hover:text-rose-400 hover:bg-rose-500/10 transition-colors min-h-[36px] min-w-[36px]"
+                class="p-2 rounded-lg text-(--ui-text-dimmed) hover:text-rose-400 hover:bg-rose-500/10 transition-colors min-h-[44px] min-w-[44px]"
                 :aria-label="`Delete ${env.name} envelope`"
                 @click="deleteEnvelope(env.id)"
               >
@@ -288,14 +288,20 @@ async function deleteEnvelope(id: string) {
       >
         <div
           v-if="showAddModal"
-          class="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm"
-          @click.self="showAddModal = false"
+          class="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+          :aria-label="isEditing ? 'Edit envelope' : 'Add envelope'"
         >
           <div
-            class="w-full max-w-lg bg-(--ui-bg) rounded-t-3xl border-t border-(--ui-border) p-6 space-y-4"
-            role="dialog"
-            aria-modal="true"
-            :aria-label="isEditing ? 'Edit envelope' : 'Add envelope'"
+            class="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            aria-label="Close dialog"
+            role="button"
+            tabindex="-1"
+            @click="showAddModal = false"
+          />
+          <div
+            class="relative w-full max-w-lg bg-(--ui-bg) rounded-t-2xl sm:rounded-2xl border-t sm:border border-(--ui-border) p-6 space-y-4 shadow-xl"
           >
             <div class="flex items-center justify-between">
               <h2 class="text-lg font-semibold">{{ isEditing ? 'Edit Envelope' : 'New Envelope' }}</h2>

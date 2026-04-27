@@ -354,6 +354,34 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
       </ul>
     </section>
 
+    <!-- ── Empty state (first-time / no data) ─────────────────────────────── -->
+    <section
+      v-if="!loading && summary && !summary.recent_transactions?.length && !summary.envelopes?.length"
+      class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) p-6 text-center space-y-3"
+    >
+      <div class="text-4xl">🔥</div>
+      <h2 class="text-lg font-semibold text-(--ui-text)">Welcome to Hearth</h2>
+      <p class="text-sm text-(--ui-text-muted) max-w-xs mx-auto">
+        Start by adding your first transaction, or create envelopes to set up your budget.
+      </p>
+      <div class="flex flex-col sm:flex-row items-center justify-center gap-2 pt-1">
+        <NuxtLink
+          to="/transactions/add"
+          class="inline-flex items-center gap-1.5 px-4 py-2.5 bg-primary-500 hover:bg-primary-400 text-white text-sm font-semibold rounded-xl transition-colors min-h-[44px]"
+        >
+          <UIcon name="i-heroicons-plus" class="w-4 h-4" />
+          Add transaction
+        </NuxtLink>
+        <NuxtLink
+          to="/envelopes"
+          class="inline-flex items-center gap-1.5 px-4 py-2.5 bg-(--ui-bg-elevated) hover:bg-(--ui-bg-accented) text-(--ui-text) text-sm font-medium rounded-xl border border-(--ui-border) transition-colors min-h-[44px]"
+        >
+          <UIcon name="i-heroicons-archive-box" class="w-4 h-4" />
+          Set up envelopes
+        </NuxtLink>
+      </div>
+    </section>
+
     <!-- ── Error state ─────────────────────────────────────────────────────── -->
     <UAlert
       v-if="error"

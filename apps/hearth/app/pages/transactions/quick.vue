@@ -482,7 +482,7 @@ function categoryLabel(id: string | null): string {
         </p>
         <div class="flex items-center gap-2">
           <button
-            class="flex items-center gap-1 px-3 min-h-[36px] rounded-lg text-xs font-medium text-(--ui-text-muted) hover:text-(--ui-text) bg-(--ui-bg-muted) hover:bg-(--ui-bg-elevated) transition-colors"
+            class="flex items-center gap-1 px-3 min-h-[44px] rounded-lg text-xs font-medium text-(--ui-text-muted) hover:text-(--ui-text) bg-(--ui-bg-muted) hover:bg-(--ui-bg-elevated) transition-colors"
             :class="isLowConfidence ? 'ring-1 ring-amber-500/50' : ''"
             @click="reRecord"
           >
@@ -490,7 +490,7 @@ function categoryLabel(id: string | null): string {
             Re-record
           </button>
           <button
-            class="flex items-center gap-1 px-3 min-h-[36px] rounded-lg text-xs font-medium text-white bg-primary-500 hover:bg-primary-600 transition-colors"
+            class="flex items-center gap-1 px-3 min-h-[44px] rounded-lg text-xs font-medium text-white bg-primary-500 hover:bg-primary-600 transition-colors"
             @click="confirmSend"
           >
             <UIcon name="i-heroicons-paper-airplane" class="w-3.5 h-3.5" />
@@ -587,6 +587,7 @@ function categoryLabel(id: string | null): string {
           <div class="flex items-center gap-2 mt-2">
             <input
               :value="card.merchant"
+              aria-label="Merchant name"
               class="flex-1 text-sm bg-transparent border-b border-dashed outline-none text-(--ui-text) placeholder:text-(--ui-text-dimmed) py-0.5"
               :class="
                 card.merchantConfidence === 'low'
@@ -601,7 +602,8 @@ function categoryLabel(id: string | null): string {
             />
             <select
               :value="card.categoryId ?? ''"
-              class="text-xs bg-(--ui-bg-muted) rounded-lg px-2 py-1.5 border text-(--ui-text) outline-none min-h-[32px] max-w-[140px]"
+              :aria-label="`Category for ${card.merchant || 'transaction'}`"
+              class="text-xs bg-(--ui-bg-muted) rounded-lg px-2 py-1.5 border text-(--ui-text) outline-none min-h-[44px] max-w-[140px]"
               :class="
                 card.categoryConfidence === 'low'
                   ? 'border-amber-500/50'
@@ -627,6 +629,7 @@ function categoryLabel(id: string | null): string {
           <div class="flex items-center gap-2 mt-1.5 text-xs text-(--ui-text-muted)">
             <select
               :value="card.accountId ?? ''"
+              :aria-label="`Account for ${card.merchant || 'transaction'}`"
               class="bg-transparent outline-none py-0.5"
               :class="card.accountConfidence === 'low' ? 'text-amber-400' : ''"
               @change="
@@ -648,6 +651,7 @@ function categoryLabel(id: string | null): string {
               <span class="text-(--ui-text-dimmed)">→</span>
               <select
                 :value="card.transferToAccountId ?? ''"
+                aria-label="Transfer destination account"
                 class="bg-transparent outline-none py-0.5"
                 @change="
                   (e: Event) =>

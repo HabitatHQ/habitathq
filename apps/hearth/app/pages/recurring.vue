@@ -138,6 +138,13 @@ function intervalLabel(interval: string): string {
       </button>
     </div>
 
+    <HelpTip id="recurring-patterns">
+      <template #label>How do recurring patterns work?</template>
+      <p><strong class="text-(--ui-text)">Detected</strong> — Hearth noticed a repeating transaction (e.g. same merchant, similar amount). Review it to confirm or dismiss.</p>
+      <p><strong class="text-(--ui-text)">Confirmed</strong> — You verified this is recurring. It will appear in your upcoming view and monthly projection.</p>
+      <p><strong class="text-(--ui-text)">Dismissed</strong> — You decided this is not recurring. It won't show up unless you choose to see dismissed patterns.</p>
+    </HelpTip>
+
     <!-- ── Batch review (detected patterns) ────────────────────────────────── -->
     <section v-if="detectedPatterns.length" aria-label="Review detected patterns">
       <div class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) p-4 space-y-3">
@@ -148,7 +155,7 @@ function intervalLabel(interval: string): string {
           </div>
           <button
             v-if="detectedPatterns.some((p) => p.confidence >= 0.8)"
-            class="text-xs px-3 min-h-[36px] rounded-lg font-medium text-white bg-primary-500 hover:bg-primary-600 transition-colors"
+            class="text-xs px-3 min-h-[44px] rounded-lg font-medium text-white bg-primary-500 hover:bg-primary-600 transition-colors"
             @click="confirmAll"
           >
             Confirm All
@@ -178,13 +185,13 @@ function intervalLabel(interval: string): string {
 
           <div class="flex items-center gap-2">
             <button
-              class="flex-1 min-h-[36px] rounded-lg text-xs font-medium text-white bg-green-600 hover:bg-green-700 transition-colors"
+              class="flex-1 min-h-[44px] rounded-lg text-xs font-medium text-white bg-green-600 hover:bg-green-700 transition-colors"
               @click="updateStatus(p.id, 'confirmed')"
             >
               Confirm
             </button>
             <button
-              class="flex-1 min-h-[36px] rounded-lg text-xs font-medium text-(--ui-text-muted) bg-(--ui-bg-muted) hover:bg-(--ui-bg-elevated) transition-colors"
+              class="flex-1 min-h-[44px] rounded-lg text-xs font-medium text-(--ui-text-muted) bg-(--ui-bg-muted) hover:bg-(--ui-bg-elevated) transition-colors"
               @click="updateStatus(p.id, 'dismissed')"
             >
               Dismiss
@@ -235,7 +242,7 @@ function intervalLabel(interval: string): string {
       <div class="flex items-center justify-between mb-2">
         <h2 class="text-xs uppercase tracking-widest text-(--ui-text-muted) font-medium">All Recurring</h2>
         <button
-          class="text-xs text-(--ui-text-muted) hover:text-(--ui-text) min-h-[36px] px-2"
+          class="text-xs text-(--ui-text-muted) hover:text-(--ui-text) min-h-[44px] px-2"
           @click="showDismissed = !showDismissed"
         >
           {{ showDismissed ? 'Hide dismissed' : 'Show dismissed' }}
@@ -271,7 +278,7 @@ function intervalLabel(interval: string): string {
           <p class="font-mono text-sm font-semibold text-(--ui-text) shrink-0">{{ formatAmount(p.average_amount) }}</p>
           <button
             v-if="p.status === 'confirmed'"
-            class="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-(--ui-text-dimmed) hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+            class="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-(--ui-text-dimmed) hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
             aria-label="Delete pattern"
             @click="updateStatus(p.id, 'dismissed')"
           >
@@ -279,7 +286,7 @@ function intervalLabel(interval: string): string {
           </button>
           <button
             v-if="p.status === 'dismissed'"
-            class="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-(--ui-text-dimmed) hover:text-green-400 hover:bg-green-500/10 transition-colors"
+            class="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-(--ui-text-dimmed) hover:text-green-400 hover:bg-green-500/10 transition-colors"
             aria-label="Restore pattern"
             @click="updateStatus(p.id, 'confirmed')"
           >

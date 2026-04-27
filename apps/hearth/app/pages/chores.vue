@@ -106,6 +106,7 @@ async function saveChore() {
 }
 
 async function deleteChore(id: string) {
+  if (!confirm('Delete this chore?')) return
   await db.deleteChore(id)
   await load()
 }
@@ -159,7 +160,7 @@ const COLORS = [
       <button
         v-for="f in (['all', 'daily', 'weekly', 'monthly'] as const)"
         :key="f"
-        class="px-3 py-1.5 rounded-full text-xs font-medium transition-colors min-h-[36px]"
+        class="px-3 py-1.5 rounded-full text-xs font-medium transition-colors min-h-[44px]"
         :class="filterFreq === f
           ? 'bg-primary-500 text-white'
           : 'bg-(--ui-bg-muted) text-(--ui-text-muted) hover:bg-(--ui-bg-elevated)'"
@@ -292,7 +293,7 @@ const COLORS = [
           aria-modal="true"
         >
           <!-- Backdrop -->
-          <div class="absolute inset-0 bg-black/50" @click="showModal = false" />
+          <div class="absolute inset-0 bg-black/50" role="button" aria-label="Close dialog" tabindex="-1" @click="showModal = false" />
 
           <!-- Sheet -->
           <div class="relative w-full sm:max-w-md bg-(--ui-bg) rounded-t-2xl sm:rounded-2xl p-5 space-y-4 shadow-xl"
