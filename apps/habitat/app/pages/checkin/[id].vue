@@ -270,7 +270,7 @@ onMounted(async () => {
         </div>
 
         <div v-if="showAddQuestion" class="px-4 py-3 space-y-3">
-          <UInput
+          <AppTextField
             v-model="newPrompt"
             placeholder="Question prompt…"
             autofocus
@@ -344,7 +344,7 @@ onMounted(async () => {
 
         <div v-if="showAddReminder" class="px-4 py-3 space-y-3">
           <div class="flex items-center gap-3">
-            <UInput v-model="newReminderTime" type="time" class="w-32" />
+            <AppTextField v-model="newReminderTime" type="time" class="w-32" />
             <span class="text-xs text-(--ui-text-dimmed)">Remind me at this time</span>
           </div>
           <div class="space-y-1">
@@ -388,7 +388,7 @@ onMounted(async () => {
           <UButton :icon="resolveIcon('x-mark')" variant="ghost" color="neutral" size="sm" @click="showEdit = false" />
         </div>
 
-        <UInput v-model="editTitle" placeholder="Name" @keydown.enter="saveEdit" />
+        <AppTextField v-model="editTitle" placeholder="Name" @keydown.enter="saveEdit" />
 
         <div class="space-y-1.5">
           <p class="text-xs text-(--ui-text-dimmed)">Schedule</p>

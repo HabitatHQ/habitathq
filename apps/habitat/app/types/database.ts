@@ -357,7 +357,16 @@ export type WorkerRequest =
   | { id: string; type: 'TOGGLE_TODO'; payload: { id: string } }
   | { id: string; type: 'DELETE_ALL_TODOS' }
   | { id: string; type: 'GET_CONTEXT_TAGS' }
+  | { id: string; type: 'GET_ALL_TAGS' }
   | { id: string; type: 'SEARCH_GLOBAL'; payload: { query: string } }
+
+export type TagSource = 'habit' | 'todo' | 'bored' | 'scribble'
+
+export interface TagRow {
+  tag: string
+  source: TagSource
+  count: number
+}
 
 export type SearchResult =
   | { kind: 'habit'; id: string; name: string; icon: string; color: string; archived: boolean }

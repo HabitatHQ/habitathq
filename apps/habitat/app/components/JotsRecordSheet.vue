@@ -261,7 +261,7 @@ onUnmounted(() => {
         <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[70dvh] overflow-y-auto overscroll-contain">
           <h3 class="text-base font-semibold">Save Transcript?</h3>
           <p class="text-xs text-(--ui-text-dimmed)">Voice note saved. Save the transcript as a text jot?</p>
-          <UTextarea v-model="transcriptText" autoresize :rows="4" class="w-full" />
+          <AppTextArea v-model="transcriptText" autoresize :rows="4" class="w-full" />
           <div class="flex gap-2 pt-1">
             <UButton variant="soft" color="neutral" class="flex-1" @click="discardTranscript">Skip</UButton>
             <UButton class="flex-1" :loading="savingTranscript" :disabled="!transcriptText.trim()" @click="saveTranscript">Save as Jot</UButton>

@@ -247,11 +247,7 @@ const editForm = reactive({
 })
 const saving = ref(false)
 
-const {
-  tagInput: editTagInput,
-  removeTag: removeEditTag,
-  onTagKeydown: onEditTagKeydown,
-} = useTagInput(editForm.tags)
+const { loadTags, suggest: suggestHabitTags } = useTagSuggestions('habit')
 const editAnnotationEntries = ref<{ key: string; value: string }[]>([])
 const editShowAnnotations = ref(false)
 
@@ -320,7 +316,6 @@ function openEdit() {
   editForm.tags = [...habit.value.tags]
   editForm.show_due_time = !!sched?.due_time
   editForm.due_time = sched?.due_time ?? ''
-  editTagInput.value = ''
   editAnnotationEntries.value = Object.entries(habit.value.annotations).map(([key, value]) => ({
     key,
     value,
@@ -549,7 +544,10 @@ async function submitLogSheet(value: number) {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  void load()
+  void loadTags()
+})
 </script>
 
 <template>
@@ -679,7 +677,7 @@ onMounted(load)
         <!-- Add reminder form -->
         <div v-if="showAddReminder" class="px-4 py-3 space-y-3">
           <div class="flex items-center gap-3">
-            <UInput v-model="newReminderTime" type="time" class="w-32" />
+            <AppTextField v-model="newReminderTime" type="time" class="w-32" />
             <span class="text-xs text-(--ui-text-dimmed)">Remind me at this time</span>
           </div>
 
@@ -844,11 +842,11 @@ onMounted(load)
     <AppModal v-model="isEditing" title="Edit Habit">
 
           <UFormField label="Name" required>
-            <UInput v-model="editForm.name" class="w-full" autofocus />
+            <AppTextField v-model="editForm.name" class="w-full" autofocus />
           </UFormField>
 
           <UFormField label="Description">
-            <UTextarea v-model="editForm.description" placeholder="Optional description" class="w-full" />
+            <AppTextArea v-model="editForm.description" placeholder="Optional description" class="w-full" />
           </UFormField>
 
           <!-- Icon & Color -->
@@ -861,19 +859,7 @@ onMounted(load)
 
           <!-- Tags -->
           <UFormField label="Tags">
-            <div class="space-y-2">
-              <div v-if="editForm.tags.length" class="flex flex-wrap gap-1">
-                <span
-                  v-for="tag in editForm.tags"
-                  :key="tag"
-                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-(--ui-bg-elevated) border border-(--ui-border-accented) text-xs text-(--ui-text-toned)"
-                >
-                  {{ tag }}
-                  <button class="text-(--ui-text-dimmed) hover:text-white leading-none" @click="removeEditTag(tag)">×</button>
-                </span>
-              </div>
-              <UInput v-model="editTagInput" placeholder="Add tag, press Enter" class="w-full" @keydown="onEditTagKeydown" />
-            </div>
+            <TagInput v-model="editForm.tags" :suggest="suggestHabitTags" />
           </UFormField>
 
           <!-- Type selector -->
@@ -887,12 +873,12 @@ onMounted(load)
           <!-- Target (NUMERIC / LIMIT only) -->
           <UFormField v-if="editForm.type !== 'BOOLEAN'" :label="editForm.type === 'NUMERIC' ? 'Target' : 'Limit'">
             <div class="flex items-center gap-2">
-              <UInput
-                v-model.number="editForm.target_value"
+              <AppTextField
+                :model-value="editForm.target_value"
                 type="number"
                 min="0.1"
-                step="any"
                 class="w-28 sm:w-full"
+                @update:model-value="editForm.target_value = Number($event)"
               />
               <span class="text-sm text-(--ui-text-dimmed)">
                 {{ editForm.schedule_type === 'WEEKLY_FLEX' ? 'per week' : 'per day' }}
@@ -951,7 +937,7 @@ onMounted(load)
               {{ editForm.show_due_time ? 'Remove due time' : 'Add due time' }}
             </button>
             <div v-if="editForm.show_due_time" class="mt-2">
-              <UInput v-model="editForm.due_time" type="time" class="w-32" />
+              <AppTextField v-model="editForm.due_time" type="time" class="w-32" />
             </div>
           </div>
 
@@ -966,9 +952,9 @@ onMounted(load)
             </button>
             <div v-if="editShowAnnotations" class="mt-2 space-y-1.5">
               <div v-for="(entry, i) in editAnnotationEntries" :key="i" class="flex items-center gap-1.5">
-                <UInput v-model="entry.key" placeholder="key" class="w-24 shrink-0" />
+                <AppTextField v-model="entry.key" placeholder="key" class="w-24 shrink-0" />
                 <span class="text-slate-600 text-xs">:</span>
-                <UInput v-model="entry.value" placeholder="value" class="flex-1" />
+                <AppTextField v-model="entry.value" placeholder="value" class="flex-1" />
                 <button class="text-slate-700 hover:text-red-400 transition-colors" @click="removeEditAnnotationEntry(i)">
                   <AppIcon name="x-mark" class="w-3.5 h-3.5" />
                 </button>
@@ -1008,7 +994,7 @@ onMounted(load)
             </div>
           </div>
           <UFormField label="Resume on">
-            <UInput
+            <AppTextField
               v-model="pauseDate"
               type="date"
               :min="tomorrowStr"

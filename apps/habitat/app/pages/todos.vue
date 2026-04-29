@@ -2,12 +2,13 @@
 import type { TimerMode } from '~/composables/useTimer'
 import type { BoredCategory, Todo } from '~/types/database'
 import { toLocalDateKey } from '~/utils/format'
-import { buildTodoPayload, validateTodoForm } from '~/utils/todos-helpers'
+import { buildTodoPayload, sortByPriority, validateTodoForm } from '~/utils/todos-helpers'
 
 const db = useDatabase()
 const { settings, set: setAppSetting } = useAppSettings()
 const { anyActive, matchesContext } = useContextFilter()
 const { impact, selectionChanged, notification } = useHaptics()
+const { loadTags, suggest: suggestTags, allUserTags } = useTagSuggestions('todo')
 
 // ── Timer ─────────────────────────────────────────────────────────────────────
 
@@ -103,7 +104,77 @@ const form = reactive({
   recurrence_rule: 'daily' as 'daily' | 'weekly' | 'monthly',
   show_in_bored: false,
   bored_category_id: '' as string,
-  tags: '',
+  tags: [] as string[],
+})
+
+// ── Search, sort & filter ─────────────────────────────────────────────────────
+const searchQuery = ref('')
+const searchExpanded = ref(false)
+const sortBy = ref<'priority' | 'due_date' | 'created' | 'title'>('priority')
+const sortDir = ref<'asc' | 'desc'>('asc')
+const filterTags = ref<string[]>([])
+const showSortFilter = ref(false)
+
+const todoTags = computed(() => {
+  const seen = new Set<string>()
+  for (const t of todos.value) {
+    if (t.archived_at) continue
+    for (const tag of t.tags) seen.add(tag)
+  }
+  return [...seen].sort()
+})
+
+function toggleFilterTag(tag: string) {
+  const idx = filterTags.value.indexOf(tag)
+  if (idx === -1) filterTags.value.push(tag)
+  else filterTags.value.splice(idx, 1)
+  void selectionChanged()
+}
+
+const activeFilterCount = computed(() => {
+  let count = filterTags.value.length
+  if (filter.value !== 'all') count++
+  if (sortBy.value !== 'priority') count++
+  return count
+})
+
+const processedTodos = computed(() => {
+  let list = todos.value.filter((t) => !t.archived_at)
+
+  if (searchQuery.value.trim()) {
+    const q = searchQuery.value.toLowerCase()
+    list = list.filter(
+      (t) => t.title.toLowerCase().includes(q) || t.description.toLowerCase().includes(q),
+    )
+  }
+
+  if (filterTags.value.length > 0) {
+    list = list.filter((t) => filterTags.value.some((ft) => t.tags.includes(ft)))
+  }
+
+  const dir = sortDir.value === 'asc' ? 1 : -1
+  switch (sortBy.value) {
+    case 'priority':
+      list = sortByPriority(list)
+      if (dir === -1) list.reverse()
+      break
+    case 'due_date':
+      list = [...list].sort((a, b) => {
+        if (!a.due_date && !b.due_date) return 0
+        if (!a.due_date) return 1
+        if (!b.due_date) return -1
+        return a.due_date.localeCompare(b.due_date) * dir
+      })
+      break
+    case 'created':
+      list = [...list].sort((a, b) => a.created_at.localeCompare(b.created_at) * dir)
+      break
+    case 'title':
+      list = [...list].sort((a, b) => a.title.localeCompare(b.title) * dir)
+      break
+  }
+
+  return list
 })
 
 // ── Inline validation ─────────────────────────────────────────────────────────
@@ -120,6 +191,7 @@ async function load() {
     db.getTodos(),
     db.getBoredCategories(),
   ])
+  void loadTags()
 }
 
 onMounted(async () => {
@@ -140,37 +212,39 @@ onMounted(async () => {
 const today = toLocalDateKey()
 
 const overdue = computed(() =>
-  todos.value.filter((t) => !t.is_done && !t.archived_at && t.due_date && t.due_date < today),
+  sortByPriority(
+    processedTodos.value.filter((t) => !t.is_done && t.due_date !== null && t.due_date < today),
+  ),
 )
 
 const dueToday = computed(() =>
-  todos.value.filter((t) => !t.is_done && !t.archived_at && t.due_date === today),
+  sortByPriority(processedTodos.value.filter((t) => !t.is_done && t.due_date === today)),
 )
 
 const upcoming = computed(() => {
   const in30 = new Date()
   in30.setDate(in30.getDate() + 30)
   const limit = toLocalDateKey(in30)
-  return todos.value.filter(
-    (t) => !t.is_done && !t.archived_at && t.due_date && t.due_date > today && t.due_date <= limit,
+  return sortByPriority(
+    processedTodos.value.filter(
+      (t) => !t.is_done && t.due_date !== null && t.due_date > today && t.due_date <= limit,
+    ),
   )
 })
 
 const noDate = computed(() =>
-  todos.value.filter((t) => !t.is_done && !t.archived_at && !t.due_date),
+  sortByPriority(processedTodos.value.filter((t) => !t.is_done && !t.due_date)),
 )
 
 const done = computed(() =>
-  todos.value
-    .filter((t) => t.is_done && !t.archived_at)
+  processedTodos.value
+    .filter((t) => t.is_done)
     .sort((a, b) => (b.done_at ?? b.updated_at).localeCompare(a.done_at ?? a.updated_at))
     .slice(0, 20),
 )
 
-// Todos passed to the calendar — respects the active filter
 const filteredTodosForCalendar = computed(() =>
-  todos.value.filter((t) => {
-    if (t.archived_at) return false
+  processedTodos.value.filter((t) => {
     if (filter.value === 'active') return !t.is_done
     if (filter.value === 'done') return t.is_done
     return true
@@ -245,7 +319,7 @@ function openAddWithDate(date: string) {
     recurrence_rule: 'daily',
     show_in_bored: false,
     bored_category_id: '',
-    tags: '',
+    tags: [],
   })
   showModal.value = true
 }
@@ -264,7 +338,7 @@ function openEdit(t: Todo) {
     recurrence_rule: t.recurrence_rule ?? 'daily',
     show_in_bored: t.show_in_bored,
     bored_category_id: t.bored_category_id ?? '',
-    tags: t.tags.join(', '),
+    tags: [...t.tags],
   })
   showModal.value = true
 }
@@ -477,15 +551,127 @@ function jotKindIcon(kind: string | undefined): string {
       </div>
     </div>
 
-    <!-- Filter chips (shared between list and calendar) -->
-    <div class="flex gap-2" :class="calendarView ? 'max-w-xs' : ''">
+    <!-- Toolbar: search + filter -->
+    <div class="flex items-center gap-2">
+      <!-- Search -->
       <button
-        v-for="f in [['all', 'All'], ['active', 'Active'], ['done', 'Done']] as const"
-        :key="f[0]"
-        class="px-3 py-2.5 min-h-[44px] rounded-full text-sm font-medium transition-colors"
-        :class="filter === f[0] ? 'bg-primary-600 text-white' : 'bg-(--ui-bg-elevated) text-(--ui-text-toned) hover:bg-(--ui-bg-accented)'"
-        @click="filter = f[0]; selectionChanged()"
-      >{{ f[1] }}</button>
+        v-if="!searchExpanded"
+        class="w-10 h-10 rounded-full flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) hover:bg-(--ui-bg-elevated) transition-colors"
+        aria-label="Search todos"
+        @click="searchExpanded = true"
+      >
+        <AppIcon name="magnifying-glass" class="w-4.5 h-4.5" />
+      </button>
+      <div
+        v-else
+        class="flex items-center gap-2 flex-1 min-w-0 px-3 h-10 rounded-full
+               bg-(--ui-bg-elevated) border border-(--ui-border-accented)
+               focus-within:ring-2 focus-within:ring-primary-500/40 transition-shadow"
+      >
+        <AppIcon name="magnifying-glass" class="w-4 h-4 text-(--ui-text-dimmed) shrink-0" />
+        <input
+          v-model="searchQuery"
+          autofocus
+          placeholder="Search todos…"
+          class="flex-1 min-w-0 bg-transparent text-(--ui-text) placeholder:text-(--ui-text-dimmed) outline-none border-0 type-input"
+          @blur="searchQuery || (searchExpanded = false)"
+          @keydown.escape="searchQuery = ''; searchExpanded = false"
+        />
+        <button
+          class="w-5 h-5 rounded-full flex items-center justify-center text-(--ui-text-dimmed) hover:text-(--ui-text)"
+          @click="searchQuery = ''; searchExpanded = false"
+        >
+          <AppIcon name="x-mark" class="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      <div class="flex-1" />
+
+      <!-- Filter -->
+      <div class="relative">
+        <button
+          class="w-10 h-10 rounded-full flex items-center justify-center transition-colors relative"
+          :class="showSortFilter || activeFilterCount > 0
+            ? 'bg-(--ui-bg-elevated) text-(--ui-text)'
+            : 'text-(--ui-text-muted) hover:text-(--ui-text) hover:bg-(--ui-bg-elevated)'"
+          aria-label="Sort and filter"
+          @click="showSortFilter = !showSortFilter"
+        >
+          <AppIcon name="adjustments-horizontal" class="w-4.5 h-4.5" />
+          <span
+            v-if="activeFilterCount > 0"
+            class="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-primary-600 text-[10px] text-white flex items-center justify-center font-bold"
+          >{{ activeFilterCount }}</span>
+        </button>
+
+        <!-- Filter popover -->
+        <div v-if="showSortFilter" class="fixed inset-0 z-40" @click="showSortFilter = false" />
+        <div
+          v-if="showSortFilter"
+          class="absolute right-0 top-full mt-1 z-50 w-72 bg-(--ui-bg) border border-(--ui-border) rounded-xl shadow-xl p-3 space-y-3.5"
+        >
+          <!-- Status -->
+          <div>
+            <p class="text-[10px] font-semibold uppercase tracking-wider text-(--ui-text-dimmed) mb-1.5">Status</p>
+            <div class="flex gap-1.5">
+              <button
+                v-for="f in [['all', 'All'], ['active', 'Active'], ['done', 'Done']] as const"
+                :key="f[0]"
+                class="flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors text-center"
+                :class="filter === f[0] ? 'bg-primary-600 text-white' : 'bg-(--ui-bg-elevated) text-(--ui-text-muted) hover:text-(--ui-text-toned)'"
+                @click="filter = f[0]; selectionChanged()"
+              >{{ f[1] }}</button>
+            </div>
+          </div>
+
+          <!-- Sort by -->
+          <div>
+            <p class="text-[10px] font-semibold uppercase tracking-wider text-(--ui-text-dimmed) mb-1.5">Sort by</p>
+            <div class="grid grid-cols-2 gap-1">
+              <button
+                v-for="opt in [
+                  ['priority', 'Priority'],
+                  ['due_date', 'Due date'],
+                  ['created', 'Created'],
+                  ['title', 'Title'],
+                ] as const"
+                :key="opt[0]"
+                class="px-2 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                :class="sortBy === opt[0] ? 'bg-primary-600/20 text-primary-400' : 'text-(--ui-text-muted) hover:bg-(--ui-bg-elevated)'"
+                @click="sortBy = opt[0]; selectionChanged()"
+              >{{ opt[1] }}</button>
+            </div>
+            <button
+              class="mt-1 text-[10px] text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1"
+              @click="sortDir = sortDir === 'asc' ? 'desc' : 'asc'; selectionChanged()"
+            >
+              <AppIcon :name="sortDir === 'asc' ? 'bars-arrow-up' : 'bars-arrow-down'" class="w-3 h-3" />
+              {{ sortDir === 'asc' ? 'Ascending' : 'Descending' }}
+            </button>
+          </div>
+
+          <!-- Filter by tags -->
+          <div v-if="todoTags.length > 0">
+            <p class="text-[10px] font-semibold uppercase tracking-wider text-(--ui-text-dimmed) mb-1.5">Tags</p>
+            <div class="flex flex-wrap gap-1">
+              <button
+                v-for="tag in todoTags"
+                :key="tag"
+                class="px-2 py-1 rounded-full text-xs font-medium transition-colors"
+                :class="filterTags.includes(tag) ? 'bg-primary-600/20 text-primary-400 ring-1 ring-primary-500/40' : 'bg-(--ui-bg-elevated) text-(--ui-text-muted) hover:text-(--ui-text-toned)'"
+                @click="toggleFilterTag(tag)"
+              >{{ tag }}</button>
+            </div>
+          </div>
+
+          <!-- Reset -->
+          <button
+            v-if="activeFilterCount > 0"
+            class="w-full text-[11px] text-(--ui-text-dimmed) hover:text-(--ui-text-muted) pt-1 border-t border-(--ui-border)/50"
+            @click="filter = 'all'; sortBy = 'priority'; sortDir = 'asc'; filterTags = []; selectionChanged()"
+          >Reset all filters</button>
+        </div>
+      </div>
     </div>
 
     <!-- Calendar view -->
@@ -699,7 +885,7 @@ function jotKindIcon(kind: string | undefined): string {
 
         <div class="space-y-3">
           <UFormField label="Title" required>
-            <UInput v-model="form.title" placeholder="What needs doing?" class="w-full" autofocus />
+            <AppTextField v-model="form.title" placeholder="What needs doing?" class="w-full" autofocus />
           </UFormField>
           <p v-if="titleError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
             <AppIcon name="exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
@@ -707,11 +893,11 @@ function jotKindIcon(kind: string | undefined): string {
           </p>
 
           <UFormField label="Description">
-            <UTextarea v-model="form.description" placeholder="Optional details" class="w-full" />
+            <AppTextArea v-model="form.description" placeholder="Optional details" class="w-full" />
           </UFormField>
 
           <UFormField label="Due date">
-            <UInput v-model="form.due_date" type="date" class="w-full" />
+            <AppTextField v-model="form.due_date" type="date" class="w-full" />
           </UFormField>
 
           <UFormField label="Priority">
@@ -729,7 +915,7 @@ function jotKindIcon(kind: string | undefined): string {
           </UFormField>
 
           <UFormField label="Estimated minutes">
-            <UInput v-model="form.estimated_minutes" type="number" min="1" placeholder="e.g. 30" class="w-full" />
+            <AppTextField v-model="form.estimated_minutes" type="number" min="1" placeholder="e.g. 30" class="w-full" />
           </UFormField>
 
           <div class="flex items-center justify-between">
@@ -752,8 +938,8 @@ function jotKindIcon(kind: string | undefined): string {
             </UFormField>
           </div>
 
-          <UFormField label="Tags (comma-separated)">
-            <UInput v-model="form.tags" placeholder="tag1, tag2" class="w-full" />
+          <UFormField label="Tags">
+            <TagInput v-model="form.tags" :suggest="suggestTags" />
           </UFormField>
 
           <div class="flex items-center justify-between">

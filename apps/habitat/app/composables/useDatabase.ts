@@ -22,6 +22,7 @@ import type {
   Reminder,
   Scribble,
   SearchResult,
+  TagRow,
   Todo,
 } from '~/types/database'
 
@@ -238,6 +239,7 @@ export function useDatabase() {
       sendToWorker({ type: 'TOGGLE_TODO', payload: { id } }),
     deleteAllTodos: (): Promise<null> => sendToWorker({ type: 'DELETE_ALL_TODOS' }),
     getContextTags: (): Promise<string[]> => sendToWorker({ type: 'GET_CONTEXT_TAGS' }),
+    getAllTags: (): Promise<TagRow[]> => sendToWorker({ type: 'GET_ALL_TAGS' }),
     searchGlobal: (query: string): Promise<SearchResult[]> =>
       sendToWorker({ type: 'SEARCH_GLOBAL', payload: { query } }),
   }

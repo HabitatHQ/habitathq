@@ -956,6 +956,8 @@ export async function dispatchNative(req: WorkerRequestBody): Promise<unknown> {
       return shared.deleteAllTodos(adapter)
     case 'GET_CONTEXT_TAGS':
       return shared.getContextTags(adapter)
+    case 'GET_ALL_TAGS':
+      return shared.getAllTags(adapter)
     case 'SEARCH_GLOBAL':
       return shared.searchGlobal(adapter, req.payload.query)
     case 'NUKE_OPFS':

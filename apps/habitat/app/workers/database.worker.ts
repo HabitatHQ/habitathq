@@ -1210,6 +1210,9 @@ await (async () => {
           case 'GET_CONTEXT_TAGS':
             result = await shared.getContextTags(adapter)
             break
+          case 'GET_ALL_TAGS':
+            result = await shared.getAllTags(adapter)
+            break
           case 'SEARCH_GLOBAL':
             result = await shared.searchGlobal(adapter, req.payload.query)
             break

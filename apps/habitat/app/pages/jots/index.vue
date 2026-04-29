@@ -444,10 +444,10 @@ onUnmounted(() => {
       <p class="text-xs text-(--ui-text-dimmed) -mt-2">A TODO will be created and linked to this jot.</p>
       <div class="space-y-3">
         <UFormField label="Title" required>
-          <UInput v-model="createTodoTitle" placeholder="Revisit: …" class="w-full" />
+          <AppTextField v-model="createTodoTitle" placeholder="Revisit: …" class="w-full" />
         </UFormField>
         <UFormField label="Due date">
-          <UInput v-model="createTodoDate" type="date" class="w-full" />
+          <AppTextField v-model="createTodoDate" type="date" class="w-full" />
         </UFormField>
       </div>
       <template #footer>

@@ -696,6 +696,27 @@ describe('getContextTags', () => {
   })
 })
 
+describe('getAllTags', () => {
+  it('returns tag rows with tag, source, and count', async () => {
+    const db = new MockDbAdapter()
+    db.setRows('SELECT tag, src, cnt', [
+      { tag: 'work', src: 'todo', cnt: 5 },
+      { tag: 'exercise', src: 'habit', cnt: 3 },
+    ])
+    const result = await shared.getAllTags(db)
+    expect(result).toEqual([
+      { tag: 'work', source: 'todo', count: 5 },
+      { tag: 'exercise', source: 'habit', count: 3 },
+    ])
+  })
+
+  it('returns empty array when no tags exist', async () => {
+    const db = new MockDbAdapter()
+    const result = await shared.getAllTags(db)
+    expect(result).toEqual([])
+  })
+})
+
 describe('searchGlobal', () => {
   it('returns results from habits, todos, scribbles, checkins', async () => {
     const db = new MockDbAdapter()

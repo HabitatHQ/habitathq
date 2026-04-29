@@ -69,6 +69,12 @@ g['useTagInput'] = () => ({
   onTagKeydown: vi.fn(),
 })
 g['useLongPress'] = () => ({ start: vi.fn(), cancel: vi.fn(), activated: ref(false) })
+g['useTagSuggestions'] = () => ({
+  loadTags: vi.fn(),
+  suggest: () => [],
+  allUserTags: ref([]),
+  tagRows: ref([]),
+})
 g['resolveIcon'] = (name: string) => `i-lucide-${name}`
 
 // Stub localStorage for settings/data.vue which calls localStorage.removeItem

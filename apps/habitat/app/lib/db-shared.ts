@@ -47,6 +47,8 @@ import type {
   Reminder,
   Scribble,
   SearchResult,
+  TagRow,
+  TagSource,
   Todo,
 } from '~/types/database'
 
@@ -1420,6 +1422,25 @@ export async function getContextTags(db: DbAdapter): Promise<string[]> {
     SELECT tag FROM (SELECT tag, COUNT(DISTINCT src) AS cnt, MAX(latest) AS recent FROM all_tags GROUP BY tag HAVING cnt >= 2 AND tag NOT LIKE 'habitat-%') ORDER BY recent DESC LIMIT 6
   `)
   return rows.map((r) => String(r['tag']))
+}
+
+export async function getAllTags(db: DbAdapter): Promise<TagRow[]> {
+  const rows = await db.queryAll<Record<string, unknown>>(`
+    WITH
+      ht AS (SELECT t.value AS tag, 'habit' AS src, COUNT(*) AS cnt FROM habits h, json_each(h.tags) t WHERE h.archived_at IS NULL GROUP BY t.value),
+      tt AS (SELECT t.value AS tag, 'todo' AS src, COUNT(*) AS cnt FROM todos td, json_each(td.tags) t WHERE td.archived_at IS NULL GROUP BY t.value),
+      bt AS (SELECT t.value AS tag, 'bored' AS src, COUNT(*) AS cnt FROM bored_activities b, json_each(b.tags) t WHERE b.archived_at IS NULL GROUP BY t.value),
+      st AS (SELECT t.value AS tag, 'scribble' AS src, COUNT(*) AS cnt FROM scribbles s, json_each(s.tags) t WHERE s.archived_at IS NULL GROUP BY t.value)
+    SELECT tag, src, cnt FROM ht
+    UNION ALL SELECT tag, src, cnt FROM tt
+    UNION ALL SELECT tag, src, cnt FROM bt
+    UNION ALL SELECT tag, src, cnt FROM st
+  `)
+  return rows.map((r) => ({
+    tag: String(r['tag']),
+    source: String(r['src']) as TagSource,
+    count: Number(r['cnt']),
+  }))
 }
 
 export async function searchGlobal(db: DbAdapter, query: string): Promise<SearchResult[]> {

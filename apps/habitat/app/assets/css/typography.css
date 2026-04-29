@@ -45,4 +45,38 @@
   .type-numeric {
     font-variant-numeric: tabular-nums;
   }
+
+  /* ── Input field text ────────────────────────────────────────────────────
+     Standard text size for form inputs. Uses 16px to prevent iOS zoom.
+     Used on: AppTextField, AppTextArea, TagInput
+     ──────────────────────────────────────────────────────────────────────── */
+  .type-input {
+    font-size: 1rem;
+    line-height: 1.5;
+  }
+
+  /* ── Heading text ────────────────────────────────────────────────────────
+     Page and section headings.
+     ──────────────────────────────────────────────────────────────────────── */
+  .type-heading {
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+  }
+
+  /* ── Body / content text ─────────────────────────────────────────────────
+     Default content paragraphs and descriptions.
+     ──────────────────────────────────────────────────────────────────────── */
+  .type-body {
+    font-size: 0.875rem;
+    line-height: 1.625;
+  }
+
+  /* ── Small / caption text ────────────────────────────────────────────────
+     Labels, metadata lines, timestamps.
+     ──────────────────────────────────────────────────────────────────────── */
+  .type-caption {
+    font-size: 0.75rem;
+    line-height: 1.5;
+  }
 }

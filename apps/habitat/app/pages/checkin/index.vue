@@ -166,7 +166,7 @@ async function createTemplate() {
         </div>
 
         <!-- Title -->
-        <UInput
+        <AppTextField
           v-model="newTitle"
           placeholder="Name (e.g. Morning Check-in)"
           autofocus
