@@ -159,6 +159,7 @@ export function parseCheckinQuestion(row: Record<string, unknown>): CheckinQuest
     prompt: row['prompt'] as string,
     response_type: ((row['response_type'] as string) ?? 'TEXT') as 'SCALE' | 'TEXT' | 'BOOLEAN',
     display_order: (row['display_order'] as number) ?? 0,
+    desired_answer: (row['desired_answer'] as number) ?? 1,
     archived_at: (row['archived_at'] as string | null) ?? null,
   }
 }

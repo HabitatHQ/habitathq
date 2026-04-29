@@ -250,7 +250,7 @@ beforeEach(() => {
   mockDb.updateTodo.mockResolvedValue({ id: 't1' })
   mockDb.toggleTodo.mockResolvedValue(undefined)
   mockDb.deleteHabitLog.mockResolvedValue(undefined)
-  mockDb.createCheckinQuestion.mockResolvedValue({ id: 'q1', prompt: 'Test?', response_type: 'TEXT', display_order: 0, template_id: 'tmpl1' })
+  mockDb.createCheckinQuestion.mockResolvedValue({ id: 'q1', prompt: 'Test?', response_type: 'TEXT', display_order: 0, desired_answer: 1, template_id: 'tmpl1' })
   mockDb.deleteCheckinQuestion.mockResolvedValue(undefined)
   mockDb.upsertCheckinResponse.mockResolvedValue({})
   mockDb.nukeOpfs.mockResolvedValue(undefined)

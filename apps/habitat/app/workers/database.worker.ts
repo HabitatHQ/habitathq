@@ -138,12 +138,13 @@ await (async () => {
   );
 
   CREATE TABLE IF NOT EXISTS checkin_questions (
-    id            TEXT PRIMARY KEY,
-    template_id   TEXT NOT NULL REFERENCES checkin_templates(id) ON DELETE CASCADE,
-    prompt        TEXT NOT NULL,
-    response_type TEXT NOT NULL DEFAULT 'TEXT',
-    display_order INTEGER NOT NULL DEFAULT 0,
-    archived_at   TEXT
+    id             TEXT PRIMARY KEY,
+    template_id    TEXT NOT NULL REFERENCES checkin_templates(id) ON DELETE CASCADE,
+    prompt         TEXT NOT NULL,
+    response_type  TEXT NOT NULL DEFAULT 'TEXT',
+    display_order  INTEGER NOT NULL DEFAULT 0,
+    desired_answer INTEGER DEFAULT 1,
+    archived_at    TEXT
   );
 
   CREATE INDEX IF NOT EXISTS idx_checkin_questions_template ON checkin_questions(template_id);
@@ -335,6 +336,7 @@ await (async () => {
           `UPDATE bored_categories SET icon = REPLACE(icon, 'i-heroicons-', 'i-lucide-') WHERE icon LIKE 'i-heroicons-%'`,
         ],
         16: [`ALTER TABLE habits ADD COLUMN why TEXT NOT NULL DEFAULT ''`],
+        17: ['ALTER TABLE checkin_questions ADD COLUMN desired_answer INTEGER DEFAULT 1'],
       }
 
       for (let v = userVersion + 1; v in migrations; v++) {
@@ -493,7 +495,7 @@ await (async () => {
       }
 
       // Ensure fresh installs (user_version = 0) are stamped at the current baseline.
-      if (userVersion === 0) db.exec('PRAGMA user_version = 16')
+      if (userVersion === 0) db.exec('PRAGMA user_version = 17')
     }
 
     runMigrations()
@@ -510,7 +512,7 @@ await (async () => {
         title: string,
         schedule_type: string,
         days_active: number[] | null,
-        qs: Omit<CheckinQuestion, 'id' | 'template_id' | 'archived_at'>[],
+        qs: (Omit<CheckinQuestion, 'id' | 'template_id' | 'archived_at' | 'desired_answer'> & { desired_answer?: number })[],
       ): void {
         const tid = crypto.randomUUID()
         exec(
@@ -519,8 +521,15 @@ await (async () => {
         )
         for (const q of qs) {
           exec(
-            'INSERT INTO checkin_questions (id,template_id,prompt,response_type,display_order) VALUES (?,?,?,?,?)',
-            [crypto.randomUUID(), tid, q.prompt, q.response_type, q.display_order],
+            'INSERT INTO checkin_questions (id,template_id,prompt,response_type,display_order,desired_answer) VALUES (?,?,?,?,?,?)',
+            [
+              crypto.randomUUID(),
+              tid,
+              q.prompt,
+              q.response_type,
+              q.display_order,
+              q.desired_answer ?? 1,
+            ],
           )
         }
       }
@@ -546,6 +555,7 @@ await (async () => {
                 prompt: 'Are you feeling anxious or stressed?',
                 response_type: 'BOOLEAN',
                 display_order: 4,
+                desired_answer: 0,
               },
             ]),
         },
@@ -615,6 +625,14 @@ await (async () => {
                 },
               ],
             ),
+        },
+        {
+          key: 'checkin_template:boolean_desired_answer',
+          apply: () => {
+            exec(
+              `UPDATE checkin_questions SET desired_answer = 0 WHERE prompt = 'Are you feeling anxious or stressed?' AND archived_at IS NULL`,
+            )
+          },
         },
         {
           key: 'bored:cat:reading',

@@ -86,7 +86,7 @@ function checkinTemplateRow(id = 'ct1'): Record<string, unknown> {
 }
 
 function checkinQuestionRow(id = 'cq1'): Record<string, unknown> {
-  return { id, template_id: 'ct1', prompt: 'How are you?', response_type: 'TEXT', display_order: 0 }
+  return { id, template_id: 'ct1', prompt: 'How are you?', response_type: 'TEXT', display_order: 0, desired_answer: 1 }
 }
 
 function checkinResponseRow(id = 'cr1'): Record<string, unknown> {
@@ -397,7 +397,7 @@ describe('createCheckinQuestion', () => {
   it('inserts a question', async () => {
     const db = new MockDbAdapter()
     db.setRows('WHERE id = ?', [checkinQuestionRow()])
-    await shared.createCheckinQuestion(db, { template_id: 'ct1', prompt: 'How?', response_type: 'TEXT', display_order: 0 })
+    await shared.createCheckinQuestion(db, { template_id: 'ct1', prompt: 'How?', response_type: 'TEXT', display_order: 0, desired_answer: 1 })
     const insert = db.calls.find(c => c.method === 'exec')!
     expect(insert.sql).toContain('INSERT INTO checkin_questions')
   })

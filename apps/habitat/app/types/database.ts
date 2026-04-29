@@ -77,6 +77,7 @@ export interface CheckinQuestion {
   prompt: string
   response_type: 'SCALE' | 'TEXT' | 'BOOLEAN'
   display_order: number
+  desired_answer: number
   archived_at: string | null
 }
 
@@ -103,6 +104,7 @@ export interface CheckinHistoryRow {
   prompt: string
   response_type: 'SCALE' | 'TEXT' | 'BOOLEAN'
   display_order: number
+  desired_answer: number
   logged_date: string
   value_numeric: number | null
   value_text: string | null

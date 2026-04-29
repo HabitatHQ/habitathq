@@ -8,7 +8,7 @@ const db = useDatabase()
 const { settings, set: setAppSetting } = useAppSettings()
 const { anyActive, matchesContext } = useContextFilter()
 const { impact, selectionChanged, notification } = useHaptics()
-const { loadTags, suggest: suggestTags, allUserTags } = useTagSuggestions('todo')
+const { loadTags, suggest: suggestTags } = useTagSuggestions('todo')
 
 // ── Timer ─────────────────────────────────────────────────────────────────────
 

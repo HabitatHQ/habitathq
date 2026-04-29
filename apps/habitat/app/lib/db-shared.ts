@@ -687,7 +687,7 @@ export async function getCheckinHistory(
   const rows = await db.queryAll<Record<string, unknown>>(
     `SELECT
        ct.id AS template_id, ct.title AS template_title, ct.schedule_type,
-       cq.id AS question_id, cq.prompt, cq.response_type, cq.display_order,
+       cq.id AS question_id, cq.prompt, cq.response_type, cq.display_order, cq.desired_answer,
        cr.logged_date, cr.value_numeric, cr.value_text
      FROM checkin_responses cr
      JOIN checkin_questions cq ON cq.id = cr.question_id
@@ -704,6 +704,7 @@ export async function getCheckinHistory(
     prompt: r['prompt'] as string,
     response_type: r['response_type'] as 'SCALE' | 'TEXT' | 'BOOLEAN',
     display_order: r['display_order'] as number,
+    desired_answer: (r['desired_answer'] as number) ?? 1,
     logged_date: r['logged_date'] as string,
     value_numeric: (r['value_numeric'] as number | null) ?? null,
     value_text: (r['value_text'] as string | null) ?? null,
@@ -729,13 +730,14 @@ export async function createCheckinQuestion(
 ): Promise<CheckinQuestion> {
   const id = crypto.randomUUID()
   await db.exec(
-    'INSERT INTO checkin_questions (id, template_id, prompt, response_type, display_order) VALUES (?,?,?,?,?)',
+    'INSERT INTO checkin_questions (id, template_id, prompt, response_type, display_order, desired_answer) VALUES (?,?,?,?,?,?)',
     [
       id,
       payload.template_id,
       payload.prompt,
       payload.response_type ?? 'TEXT',
       payload.display_order ?? 0,
+      payload.desired_answer ?? 1,
     ],
   )
   const row = await db.queryOne<Record<string, unknown>>(
@@ -754,6 +756,7 @@ export async function updateCheckinQuestion(
   if ('prompt' in fields) updates.push(['prompt', fields.prompt])
   if ('response_type' in fields) updates.push(['response_type', fields.response_type])
   if ('display_order' in fields) updates.push(['display_order', fields.display_order])
+  if ('desired_answer' in fields) updates.push(['desired_answer', fields.desired_answer])
   if (updates.length > 0) {
     const set = updates.map(([k]) => `${k} = ?`).join(', ')
     await db.exec(`UPDATE checkin_questions SET ${set} WHERE id = ?`, [
@@ -1674,8 +1677,15 @@ export async function importJson(db: DbAdapter, data: HabitatExport): Promise<nu
     }
     for (const q of data.checkin_questions ?? []) {
       await db.exec(
-        'INSERT OR IGNORE INTO checkin_questions (id,template_id,prompt,response_type,display_order) VALUES (?,?,?,?,?)',
-        [q.id, q.template_id, q.prompt, q.response_type ?? 'TEXT', q.display_order ?? 0],
+        'INSERT OR IGNORE INTO checkin_questions (id,template_id,prompt,response_type,display_order,desired_answer) VALUES (?,?,?,?,?,?)',
+        [
+          q.id,
+          q.template_id,
+          q.prompt,
+          q.response_type ?? 'TEXT',
+          q.display_order ?? 0,
+          q.desired_answer ?? 1,
+        ],
       )
     }
     for (const r of data.checkin_responses ?? []) {

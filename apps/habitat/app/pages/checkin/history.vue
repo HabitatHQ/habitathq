@@ -311,11 +311,23 @@ function toggleText(id: string) {
                 
                 <!-- BOOLEAN -->
                 <div v-else-if="q.response_type === 'BOOLEAN'" class="inline-flex">
-                  <span v-if="q.value_numeric === 1" class="px-2 py-0.5 bg-green-500/10 text-green-600 dark:text-green-400 font-medium rounded-md flex items-center gap-1">
-                    Yes <AppIcon name="check" class="w-3 h-3" />
+                  <span
+                    v-if="q.value_numeric === 1"
+                    class="px-2 py-0.5 font-medium rounded-md flex items-center gap-1"
+                    :class="q.desired_answer === 1
+                      ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                      : 'bg-red-500/10 text-red-600 dark:text-red-400'"
+                  >
+                    Yes <AppIcon :name="q.desired_answer === 1 ? 'check' : 'x-mark'" class="w-3 h-3" />
                   </span>
-                  <span v-else-if="q.value_numeric === 0" class="px-2 py-0.5 bg-red-500/10 text-red-600 dark:text-red-400 font-medium rounded-md flex items-center gap-1">
-                    No <AppIcon name="x-mark" class="w-3 h-3" />
+                  <span
+                    v-else-if="q.value_numeric === 0"
+                    class="px-2 py-0.5 font-medium rounded-md flex items-center gap-1"
+                    :class="q.desired_answer === 0
+                      ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                      : 'bg-red-500/10 text-red-600 dark:text-red-400'"
+                  >
+                    No <AppIcon :name="q.desired_answer === 0 ? 'check' : 'x-mark'" class="w-3 h-3" />
                   </span>
                   <span v-else class="text-(--ui-text-dimmed)">-</span>
                 </div>
@@ -406,11 +418,23 @@ function toggleText(id: string) {
                   </div>
                   
                   <div v-else-if="q.response_type === 'BOOLEAN'" class="inline-flex">
-                    <span v-if="q.value_numeric === 1" class="px-2 py-0.5 bg-green-500/10 text-green-600 dark:text-green-400 font-medium rounded-md flex items-center gap-1">
-                      Yes <AppIcon name="check" class="w-3 h-3" />
+                    <span
+                      v-if="q.value_numeric === 1"
+                      class="px-2 py-0.5 font-medium rounded-md flex items-center gap-1"
+                      :class="q.desired_answer === 1
+                        ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                        : 'bg-red-500/10 text-red-600 dark:text-red-400'"
+                    >
+                      Yes <AppIcon :name="q.desired_answer === 1 ? 'check' : 'x-mark'" class="w-3 h-3" />
                     </span>
-                    <span v-else-if="q.value_numeric === 0" class="px-2 py-0.5 bg-red-500/10 text-red-600 dark:text-red-400 font-medium rounded-md flex items-center gap-1">
-                      No <AppIcon name="x-mark" class="w-3 h-3" />
+                    <span
+                      v-else-if="q.value_numeric === 0"
+                      class="px-2 py-0.5 font-medium rounded-md flex items-center gap-1"
+                      :class="q.desired_answer === 0
+                        ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                        : 'bg-red-500/10 text-red-600 dark:text-red-400'"
+                    >
+                      No <AppIcon :name="q.desired_answer === 0 ? 'check' : 'x-mark'" class="w-3 h-3" />
                     </span>
                     <span v-else class="text-(--ui-text-dimmed)">-</span>
                   </div>
