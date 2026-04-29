@@ -237,13 +237,13 @@ onMounted(async () => {
 
           <!-- TEXT: textarea -->
           <template v-else-if="q.response_type === 'TEXT'">
-            <UTextarea
+            <AppTextArea
               :model-value="textValues[q.id] ?? ''"
               placeholder="Write something…"
               :rows="3"
               autoresize
               variant="outline"
-              class="w-full text-sm"
+              class="w-full"
               @update:model-value="onText(q.id, $event)"
             />
             <Transition

@@ -110,14 +110,24 @@ body:has(.modal-backdrop) {
   }
 }
 
-/* ── iOS Modal Input Zoom Fix ────────────────────────────────────────────────
-   Prevents iOS Safari from auto-zooming when focusing inputs inside modals
-   by enforcing a minimum font-size of 16px.
+/* ── iOS Input Zoom Prevention ───────────────────────────────────────────────
+   iOS Safari auto-zooms when a focused input has font-size < 16px.
+   On touch devices, enforce 16px on all interactive text fields globally.
+   This replaces the previous modal-only scoped rule.
    ─────────────────────────────────────────────────────────────────────────── */
 @media (pointer: coarse) {
-  .modal-backdrop ~ div input,
-  .modal-backdrop ~ div textarea,
-  .modal-backdrop ~ div select {
+  input[type="text"],
+  input[type="search"],
+  input[type="email"],
+  input[type="number"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="date"],
+  input[type="time"],
+  input[type="password"],
+  input:not([type]),
+  textarea,
+  select {
     font-size: 16px !important;
   }
 }

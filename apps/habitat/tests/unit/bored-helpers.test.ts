@@ -15,7 +15,7 @@ const BASE_ACT: ActivityFormState = {
   estimated_minutes: '',
   is_recurring: false,
   recurrence_rule: 'daily',
-  tags: '',
+  tags: [],
 }
 
 const BASE_CAT: CategoryFormState = {
@@ -61,8 +61,8 @@ describe('buildActivityPayload', () => {
     expect(buildActivityPayload({ ...BASE_ACT, estimated_minutes: '30' }, 'cat-1').estimated_minutes).toBe(30)
   })
 
-  it('splits and trims comma-separated tags, drops empty entries', () => {
-    const p = buildActivityPayload({ ...BASE_ACT, tags: 'health, outside , ' }, 'cat-1')
+  it('trims tags and drops empty entries', () => {
+    const p = buildActivityPayload({ ...BASE_ACT, tags: ['health', ' outside ', '', ' '] }, 'cat-1')
     expect(p.tags).toEqual(['health', 'outside'])
   })
 

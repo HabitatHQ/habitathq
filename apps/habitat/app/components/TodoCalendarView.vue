@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Todo } from '~/types/database'
+import { PRIORITY_ORDER } from '~/utils/todos-helpers'
 
 const props = defineProps<{
   todos: Todo[]
@@ -135,8 +136,6 @@ const visibleRange = computed(() => {
   const days = weekDayDates.value
   return { start: days[0] ?? props.today, end: days[6] ?? props.today }
 })
-
-const PRIORITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 }
 
 const todosByDate = computed(() => {
   const map = new Map<string, Todo[]>()

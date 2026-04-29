@@ -1,5 +1,19 @@
 import type { Todo } from '~/types/database'
 
+// ─── Priority ordering ──────────────────────────────────────────────────────
+
+export const PRIORITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 }
+
+/** Sort todos by priority (high > medium > low), then by created_at ASC as tiebreaker. */
+export function sortByPriority(todos: Todo[]): Todo[] {
+  return [...todos].sort((a, b) => {
+    const pa = PRIORITY_ORDER[a.priority] ?? 1
+    const pb = PRIORITY_ORDER[b.priority] ?? 1
+    if (pa !== pb) return pa - pb
+    return a.created_at.localeCompare(b.created_at)
+  })
+}
+
 // ─── Form types + payload builders ───────────────────────────────────────────
 
 export interface TodoFormState {
@@ -12,7 +26,7 @@ export interface TodoFormState {
   recurrence_rule: 'daily' | 'weekly' | 'monthly'
   show_in_bored: boolean
   bored_category_id: string
-  tags: string
+  tags: string[]
 }
 
 /** Returns null if valid, error message string if invalid. */
@@ -30,10 +44,7 @@ export function buildTodoPayload(
   existingAnnotations: Record<string, string> | null,
 ) {
   const mins = form.estimated_minutes !== '' ? Number(form.estimated_minutes) : null
-  const tags = form.tags
-    .split(',')
-    .map((t) => t.trim())
-    .filter(Boolean)
+  const tags = form.tags.map((t) => t.trim()).filter(Boolean)
   return {
     title: form.title.trim(),
     description: form.description.trim(),

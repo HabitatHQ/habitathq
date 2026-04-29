@@ -37,8 +37,11 @@ const actForm = reactive({
   estimated_minutes: '' as string | number,
   is_recurring: false,
   recurrence_rule: 'daily' as 'daily' | 'weekly' | 'monthly',
-  tags: '',
+  tags: [] as string[],
 })
+
+const boredCategoryNames = computed(() => categories.value.map((c) => c.name))
+const { loadTags, suggest: suggestBoredTags } = useTagSuggestions('bored', boredCategoryNames)
 
 async function load() {
   ;[categories.value, activities.value] = await Promise.all([
@@ -47,7 +50,10 @@ async function load() {
   ])
 }
 
-onMounted(load)
+onMounted(() => {
+  void load()
+  void loadTags()
+})
 
 function activitiesForCategory(catId: string) {
   return activities.value.filter((a) => a.category_id === catId)
@@ -63,7 +69,7 @@ function openAddActivity(catId: string) {
     estimated_minutes: '',
     is_recurring: false,
     recurrence_rule: 'daily',
-    tags: '',
+    tags: [],
   })
   showActivityModal.value = true
 }
@@ -78,7 +84,7 @@ function openEditActivity(a: BoredActivity) {
     estimated_minutes: a.estimated_minutes ?? '',
     is_recurring: a.is_recurring,
     recurrence_rule: a.recurrence_rule ?? 'daily',
-    tags: a.tags.join(', '),
+    tags: [...a.tags],
   })
   showActivityModal.value = true
 }
@@ -290,19 +296,19 @@ async function archiveActivity(a: BoredActivity) {
         <h2 class="text-lg font-semibold">{{ editingCategory ? 'Edit Category' : 'New Category' }}</h2>
         <div class="space-y-3">
           <UFormField label="Name" required>
-            <UInput v-model="catForm.name" placeholder="Category name" class="w-full" />
+            <AppTextField v-model="catForm.name" placeholder="Category name" class="w-full" />
           </UFormField>
           <p v-if="categoryNameError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
             <AppIcon name="exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
             {{ categoryNameError }}
           </p>
           <UFormField label="Icon">
-            <UInput v-model="catForm.icon" placeholder="sparkles" class="w-full" />
+            <AppTextField v-model="catForm.icon" placeholder="sparkles" class="w-full" />
           </UFormField>
           <UFormField label="Color">
             <div class="flex items-center gap-2">
               <input v-model="catForm.color" type="color" class="w-10 h-8 rounded border border-(--ui-border-accented) bg-transparent cursor-pointer" />
-              <UInput v-model="catForm.color" placeholder="#6366f1" class="flex-1" />
+              <AppTextField v-model="catForm.color" placeholder="#6366f1" class="flex-1" />
             </div>
           </UFormField>
         </div>
@@ -318,17 +324,17 @@ async function archiveActivity(a: BoredActivity) {
         <h2 class="text-lg font-semibold">{{ editingActivity ? 'Edit Activity' : 'New Activity' }}</h2>
         <div class="space-y-3">
           <UFormField label="Title" required>
-            <UInput v-model="actForm.title" placeholder="Activity title" class="w-full" />
+            <AppTextField v-model="actForm.title" placeholder="Activity title" class="w-full" />
           </UFormField>
           <p v-if="activityTitleError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
             <AppIcon name="exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
             {{ activityTitleError }}
           </p>
           <UFormField label="Description">
-            <UTextarea v-model="actForm.description" placeholder="Optional description" class="w-full" />
+            <AppTextArea v-model="actForm.description" placeholder="Optional description" class="w-full" />
           </UFormField>
           <UFormField label="Estimated minutes">
-            <UInput v-model="actForm.estimated_minutes" type="number" min="1" placeholder="e.g. 20" class="w-full" />
+            <AppTextField v-model="actForm.estimated_minutes" type="number" min="1" placeholder="e.g. 20" class="w-full" />
           </UFormField>
           <div class="flex items-center justify-between">
             <span class="text-sm">Recurring</span>
@@ -349,8 +355,8 @@ async function archiveActivity(a: BoredActivity) {
               </div>
             </UFormField>
           </div>
-          <UFormField label="Tags (comma-separated)">
-            <UInput v-model="actForm.tags" placeholder="tag1, tag2" class="w-full" />
+          <UFormField label="Tags">
+            <TagInput v-model="actForm.tags" :suggest="suggestBoredTags" />
           </UFormField>
         </div>
         <div class="flex gap-2 pt-1">

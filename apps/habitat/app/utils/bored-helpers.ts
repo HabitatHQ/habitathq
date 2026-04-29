@@ -6,7 +6,7 @@ export interface ActivityFormState {
   estimated_minutes: string | number
   is_recurring: boolean
   recurrence_rule: 'daily' | 'weekly' | 'monthly'
-  tags: string
+  tags: string[]
 }
 
 export interface CategoryFormState {
@@ -27,10 +27,7 @@ export function validateActivityTitle(title: string): string | null {
  */
 export function buildActivityPayload(form: ActivityFormState, categoryId: string) {
   const mins = form.estimated_minutes !== '' ? Number(form.estimated_minutes) : null
-  const tags = form.tags
-    .split(',')
-    .map((t) => t.trim())
-    .filter(Boolean)
+  const tags = form.tags.map((t) => t.trim()).filter(Boolean)
   return {
     title: form.title.trim(),
     description: form.description.trim(),

@@ -71,7 +71,7 @@ const form = reactive({
   due_time: '',
 })
 
-const { tagInput, removeTag, onTagKeydown } = useTagInput(form.tags)
+const { loadTags, suggest: suggestHabitTags } = useTagSuggestions('habit')
 const annotationEntries = ref<{ key: string; value: string }[]>([])
 const showAnnotations = ref(false)
 
@@ -222,7 +222,6 @@ function closeModal() {
   form.frequency_count = 3
   form.days_of_week = []
   form.tags = []
-  tagInput.value = ''
   annotationEntries.value = []
   showAnnotations.value = false
   form.show_due_time = false
@@ -233,7 +232,10 @@ function closeModal() {
   newReminderDays.value = []
 }
 
-onMounted(loadHabits)
+onMounted(() => {
+  void loadHabits()
+  void loadTags()
+})
 </script>
 
 <template>
@@ -335,7 +337,7 @@ onMounted(loadHabits)
         <p class="text-sm text-(--ui-text-muted) mt-0.5">All active habits will be hidden from Today until this date.</p>
       </div>
       <UFormField label="Pause until">
-        <UInput v-model="pauseAllDate" type="date" :min="tomorrow" class="w-full" />
+        <AppTextField v-model="pauseAllDate" type="date" :min="tomorrow" class="w-full" />
       </UFormField>
       <div class="flex justify-end gap-2 pt-1">
         <UButton variant="ghost" color="neutral" @click="showPauseAllModal = false">Cancel</UButton>
@@ -354,7 +356,7 @@ onMounted(loadHabits)
     <AppModal v-model="isOpen" title="New Habit">
       <!-- Name -->
       <UFormField label="Name" required>
-        <UInput v-model="form.name" placeholder="e.g. Morning run" class="w-full" autofocus />
+        <AppTextField v-model="form.name" placeholder="e.g. Morning run" class="w-full" autofocus />
       </UFormField>
       <p v-if="nameError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
         <AppIcon name="exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
@@ -363,7 +365,7 @@ onMounted(loadHabits)
 
       <!-- Description -->
       <UFormField label="Description">
-        <UTextarea v-model="form.description" placeholder="Optional description" class="w-full" />
+        <AppTextArea v-model="form.description" placeholder="Optional description" class="w-full" />
       </UFormField>
 
       <!-- Icon & Color -->
@@ -374,40 +376,28 @@ onMounted(loadHabits)
         <HabitIconPicker v-model="form.icon" :color="form.color" />
       </UFormField>
 
-        <!-- Tags -->
-        <UFormField label="Tags">
-          <div class="space-y-2">
-            <div v-if="form.tags.length" class="flex flex-wrap gap-1">
-              <span
-                v-for="tag in form.tags"
-                :key="tag"
-                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-(--ui-bg-elevated) border border-(--ui-border-accented) text-xs text-(--ui-text-toned)"
-              >
-                {{ tag }}
-                <button class="text-(--ui-text-dimmed) hover:text-white leading-none" @click="removeTag(tag)">×</button>
-              </span>
-            </div>
-            <UInput v-model="tagInput" placeholder="Add tag, press Enter" class="w-full" @keydown="onTagKeydown" />
-          </div>
-        </UFormField>
+      <!-- Tags -->
+      <UFormField label="Tags">
+        <TagInput v-model="form.tags" :suggest="suggestHabitTags" />
+      </UFormField>
 
-        <!-- Type selector -->
-        <UFormField label="Type">
-          <TypeSelector
-            v-model="form.type"
-            :options="[{value:'BOOLEAN',label:'Yes/No'},{value:'NUMERIC',label:'Target'},{value:'LIMIT',label:'Limit'}]"
-          />
-        </UFormField>
+      <!-- Type selector -->
+      <UFormField label="Type">
+        <TypeSelector
+          v-model="form.type"
+          :options="[{value:'BOOLEAN',label:'Yes/No'},{value:'NUMERIC',label:'Target'},{value:'LIMIT',label:'Limit'}]"
+        />
+      </UFormField>
 
         <!-- Target (NUMERIC / LIMIT only) -->
         <UFormField v-if="form.type !== 'BOOLEAN'" :label="form.type === 'NUMERIC' ? 'Target' : 'Limit'">
           <div class="flex items-center gap-2">
-            <UInput
-              v-model.number="form.target_value"
+            <AppTextField
+              :model-value="form.target_value"
               type="number"
               min="0.1"
-              step="any"
               class="w-28 sm:w-full"
+              @update:model-value="form.target_value = Number($event)"
             />
             <span class="text-sm text-(--ui-text-dimmed)">
               {{ form.schedule_type === 'WEEKLY_FLEX' ? 'per week' : 'per day' }}
@@ -464,7 +454,7 @@ onMounted(loadHabits)
             {{ form.show_due_time ? 'Remove due time' : 'Add due time' }}
           </button>
           <div v-if="form.show_due_time" class="mt-2">
-            <UInput v-model="form.due_time" type="time" class="w-32" />
+            <AppTextField v-model="form.due_time" type="time" class="w-32" />
           </div>
         </div>
 
@@ -479,9 +469,9 @@ onMounted(loadHabits)
           </button>
           <div v-if="showAnnotations" class="mt-2 space-y-1.5">
             <div v-for="(entry, i) in annotationEntries" :key="i" class="flex items-center gap-1.5">
-              <UInput v-model="entry.key" placeholder="key" class="w-24 shrink-0" />
+              <AppTextField v-model="entry.key" placeholder="key" class="w-24 shrink-0" />
               <span class="text-slate-600 text-xs">:</span>
-              <UInput v-model="entry.value" placeholder="value" class="flex-1" />
+              <AppTextField v-model="entry.value" placeholder="value" class="flex-1" />
               <button class="p-2 -m-1 text-slate-700 hover:text-red-400 transition-colors" @click="removeAnnotationEntry(i)">
                 <AppIcon name="x-mark" class="w-4 h-4" />
               </button>
@@ -521,7 +511,7 @@ onMounted(loadHabits)
             <!-- New reminder form -->
             <div class="space-y-1.5 pt-0.5">
               <div class="flex items-center gap-2">
-                <UInput v-model="newReminderTime" type="time" class="w-32" />
+                <AppTextField v-model="newReminderTime" type="time" class="w-32" />
                 <button
                   class="text-xs font-medium transition-colors"
                   :class="newReminderTime ? 'text-primary-400 hover:text-primary-300' : 'text-slate-600 cursor-not-allowed'"

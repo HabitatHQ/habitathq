@@ -9,7 +9,7 @@ const textForm = reactive({
   tags: [] as string[],
   annotations: {} as Record<string, string>,
 })
-const { tagInput, addTag: commitTag, removeTag, onTagKeydown } = useTagInput(textForm.tags)
+const { loadTags, suggest: suggestJotTags } = useTagSuggestions('scribble')
 const annotExpanded = ref(false)
 const newAnnotKey = ref('')
 const newAnnotVal = ref('')
@@ -46,6 +46,8 @@ async function save() {
     saving.value = false
   }
 }
+
+onMounted(() => void loadTags())
 </script>
 
 <template>
@@ -59,47 +61,25 @@ async function save() {
       <input
         v-model="textForm.title"
         placeholder="Title (optional)"
-        class="w-full bg-transparent text-base font-medium text-(--ui-text)
-               placeholder-slate-600 outline-none border-0"
+        class="w-full bg-transparent font-medium text-(--ui-text)
+               placeholder-slate-600 outline-none border-0 type-input"
       />
 
       <div class="border-t border-(--ui-border)/60" />
 
-      <UTextarea
+      <AppTextArea
         v-model="textForm.content"
         placeholder="Start writing…"
         autoresize
         :rows="8"
         variant="none"
         class="w-full"
-        :ui="{ base: 'resize-none bg-transparent text-(--ui-text) placeholder-slate-600 text-sm leading-relaxed' }"
       />
 
-      <div class="border-t border-(--ui-border) pt-3 space-y-2">
-        <p class="text-[10px] font-semibold text-slate-600 uppercase tracking-wider">Tags</p>
-        <div class="flex flex-wrap items-center gap-1.5 min-h-[20px]">
-          <span
-            v-for="tag in textForm.tags"
-            :key="tag"
-            class="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full text-[11px]
-                   bg-(--ui-bg-elevated) text-(--ui-text-toned) border border-(--ui-border-accented)"
-          >
-            {{ tag }}
-            <button
-              class="ml-0.5 w-5 h-5 flex items-center justify-center rounded-full
-                     text-(--ui-text-dimmed) hover:text-(--ui-text) hover:bg-(--ui-bg-accented) transition-colors"
-              @click.stop="removeTag(tag)"
-            >&times;</button>
-          </span>
-          <input
-            v-model="tagInput"
-            placeholder="+ add tag"
-            class="text-[11px] bg-transparent text-(--ui-text-muted) placeholder-slate-600
-                   outline-none border-0 min-w-0 w-20"
-            @keydown="onTagKeydown"
-            @blur="commitTag"
-          />
-        </div>
+      <div class="border-t border-(--ui-border) pt-3">
+        <UFormField label="Tags">
+          <TagInput v-model="textForm.tags" :suggest="suggestJotTags" />
+        </UFormField>
       </div>
 
       <div class="border-t border-(--ui-border) pt-3 pb-1">
@@ -121,8 +101,8 @@ async function save() {
             <UButton :icon="resolveIcon('x-mark')" color="neutral" variant="ghost" size="sm" class="text-slate-600 hover:text-red-400 shrink-0" @click="removeAnnot(String(key))" />
           </div>
           <div class="flex items-center gap-1.5">
-            <UInput v-model="newAnnotKey" placeholder="key" size="xs" variant="outline" class="flex-1" @keydown.enter="commitAnnot" />
-            <UInput v-model="newAnnotVal" placeholder="value" size="xs" variant="outline" class="flex-1" @keydown.enter="commitAnnot" />
+            <AppTextField v-model="newAnnotKey" placeholder="key" variant="outline" class="flex-1" @keydown="(e: KeyboardEvent) => e.key === 'Enter' && commitAnnot()" />
+            <AppTextField v-model="newAnnotVal" placeholder="value" variant="outline" class="flex-1" @keydown="(e: KeyboardEvent) => e.key === 'Enter' && commitAnnot()" />
             <UButton size="xs" variant="soft" color="neutral" @click="commitAnnot">Add</UButton>
           </div>
         </div>

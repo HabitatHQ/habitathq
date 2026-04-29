@@ -17,7 +17,7 @@ const BASE: TodoFormState = {
   recurrence_rule: 'daily',
   show_in_bored: false,
   bored_category_id: '',
-  tags: '',
+  tags: [],
 }
 
 // ─── validateTodoForm ────────────────────────────────────────────────────────
@@ -65,12 +65,12 @@ describe('buildTodoPayload', () => {
     expect(buildTodoPayload({ ...BASE, estimated_minutes: '30' }, null).estimated_minutes).toBe(30)
   })
 
-  it('splits and trims comma-separated tags, drops empty entries', () => {
-    const p = buildTodoPayload({ ...BASE, tags: 'work, health , ' }, null)
+  it('trims tags and drops empty entries', () => {
+    const p = buildTodoPayload({ ...BASE, tags: ['work', ' health ', '', ' '] }, null)
     expect(p.tags).toEqual(['work', 'health'])
   })
 
-  it('returns empty tags array when tags is empty string', () => {
+  it('returns empty tags array when tags is empty', () => {
     expect(buildTodoPayload(BASE, null).tags).toEqual([])
   })
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { Todo } from '~/types/database'
-import { priorityColor, formatDueDate, isOverdue } from '~/utils/todos-helpers'
+import { priorityColor, formatDueDate, isOverdue, sortByPriority, PRIORITY_ORDER } from '~/utils/todos-helpers'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -28,6 +28,52 @@ function makeTodo(overrides: Partial<Todo> = {}): Todo {
     ...overrides,
   }
 }
+
+// ─── PRIORITY_ORDER ──────────────────────────────────────────────────────────
+
+describe('PRIORITY_ORDER', () => {
+  it('ranks high < medium < low', () => {
+    expect(PRIORITY_ORDER['high']).toBeLessThan(PRIORITY_ORDER['medium']!)
+    expect(PRIORITY_ORDER['medium']).toBeLessThan(PRIORITY_ORDER['low']!)
+  })
+})
+
+// ─── sortByPriority ──────────────────────────────────────────────────────────
+
+describe('sortByPriority', () => {
+  it('sorts by priority high > medium > low', () => {
+    const todos = [
+      makeTodo({ id: 'low1', priority: 'low', created_at: '2024-01-01T00:00:00Z' }),
+      makeTodo({ id: 'high1', priority: 'high', created_at: '2024-01-01T00:00:00Z' }),
+      makeTodo({ id: 'med1', priority: 'medium', created_at: '2024-01-01T00:00:00Z' }),
+    ]
+    const sorted = sortByPriority(todos)
+    expect(sorted.map((t) => t.id)).toEqual(['high1', 'med1', 'low1'])
+  })
+
+  it('uses created_at as tiebreaker within same priority', () => {
+    const todos = [
+      makeTodo({ id: 'b', priority: 'high', created_at: '2024-02-01T00:00:00Z' }),
+      makeTodo({ id: 'a', priority: 'high', created_at: '2024-01-01T00:00:00Z' }),
+    ]
+    const sorted = sortByPriority(todos)
+    expect(sorted.map((t) => t.id)).toEqual(['a', 'b'])
+  })
+
+  it('does not mutate the original array', () => {
+    const todos = [
+      makeTodo({ id: 'low1', priority: 'low' }),
+      makeTodo({ id: 'high1', priority: 'high' }),
+    ]
+    const original = [...todos]
+    sortByPriority(todos)
+    expect(todos).toEqual(original)
+  })
+
+  it('returns empty array for empty input', () => {
+    expect(sortByPriority([])).toEqual([])
+  })
+})
 
 // ─── priorityColor ───────────────────────────────────────────────────────────
 
