@@ -234,6 +234,7 @@ watch(isEditing, (open) => {
 const editForm = reactive({
   name: '',
   description: '',
+  why: '',
   icon: 'star',
   color: '#06b6d4',
   type: 'BOOLEAN' as 'BOOLEAN' | 'NUMERIC' | 'LIMIT',
@@ -306,6 +307,7 @@ function openEdit() {
   const sched = habit.value.schedule
   editForm.name = habit.value.name
   editForm.description = habit.value.description
+  editForm.why = habit.value.why
   editForm.icon = habit.value.icon
   editForm.color = habit.value.color
   editForm.type = habit.value.type
@@ -342,6 +344,7 @@ async function saveEdit() {
       id: habit.value.id,
       name: editForm.name.trim(),
       description: editForm.description.trim(),
+      why: editForm.why.trim(),
       icon: editForm.icon,
       color: editForm.color,
       type: editForm.type,
@@ -573,6 +576,7 @@ onMounted(() => {
         <div class="flex-1 min-w-0">
           <h2 class="text-xl font-bold truncate">{{ habit.name }}</h2>
           <p v-if="habit.description" class="text-sm text-(--ui-text-dimmed) truncate">{{ habit.description }}</p>
+          <p v-if="habit.why" class="text-sm text-(--ui-text-dimmed) italic truncate">{{ habit.why }}</p>
         </div>
       </div>
 
@@ -847,6 +851,11 @@ onMounted(() => {
 
           <UFormField label="Description">
             <AppTextArea v-model="editForm.description" placeholder="Optional description" class="w-full" />
+          </UFormField>
+
+          <!-- Why -->
+          <UFormField label="Why is this important?">
+            <AppTextArea v-model="editForm.why" placeholder="What motivates you to build this habit?" class="w-full" />
           </UFormField>
 
           <!-- Icon & Color -->

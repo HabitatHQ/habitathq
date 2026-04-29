@@ -70,13 +70,14 @@ export async function createHabit(
   const created_at = new Date().toISOString()
   await db.exec(
     `INSERT INTO habits
-     (id, name, description, color, icon, frequency, created_at, tags, annotations,
+     (id, name, description, why, color, icon, frequency, created_at, tags, annotations,
       type, target_value, paused_until)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       id,
       payload.name,
       payload.description,
+      payload.why ?? '',
       payload.color,
       payload.icon,
       payload.frequency,
@@ -109,6 +110,7 @@ export async function updateHabit(
   const scalarFields = [
     'name',
     'description',
+    'why',
     'color',
     'icon',
     'frequency',

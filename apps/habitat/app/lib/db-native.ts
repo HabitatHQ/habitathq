@@ -63,7 +63,8 @@ async function runSchema(): Promise<void> {
       annotations  TEXT NOT NULL DEFAULT '{}',
       type         TEXT NOT NULL DEFAULT 'BOOLEAN',
       target_value REAL NOT NULL DEFAULT 1,
-      paused_until TEXT
+      paused_until TEXT,
+      why          TEXT NOT NULL DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS completions (
       id           TEXT PRIMARY KEY,
@@ -241,6 +242,7 @@ async function runMigrations(): Promise<void> {
       `UPDATE habits SET icon = REPLACE(icon, 'i-heroicons-', 'i-lucide-') WHERE icon LIKE 'i-heroicons-%'`,
       `UPDATE bored_categories SET icon = REPLACE(icon, 'i-heroicons-', 'i-lucide-') WHERE icon LIKE 'i-heroicons-%'`,
     ],
+    16: [`ALTER TABLE habits ADD COLUMN why TEXT NOT NULL DEFAULT ''`],
   }
 
   for (let v = userVersion + 1; v in migrations; v++) {
@@ -398,7 +400,7 @@ async function runMigrations(): Promise<void> {
     userVersion = 15
   }
 
-  if (userVersion === 0) await db().execute('PRAGMA user_version = 15', false)
+  if (userVersion === 0) await db().execute('PRAGMA user_version = 16', false)
 }
 
 // ─── Default seeds ────────────────────────────────────────────────────────────

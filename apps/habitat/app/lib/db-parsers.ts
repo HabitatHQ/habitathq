@@ -50,6 +50,7 @@ export function parseHabit(row: Record<string, unknown>): Habit {
     id: row['id'] as string,
     name: row['name'] as string,
     description: row['description'] as string,
+    why: (row['why'] as string) ?? '',
     color: row['color'] as string,
     icon: row['icon'] as string,
     frequency: row['frequency'] as string,
