@@ -4,6 +4,7 @@ import {
   computeElapsed,
   formatTimerDisplay,
   nextPomodoroPhase,
+  buildPomodoroConfig,
 } from '~/composables/useTimer'
 import type { ActiveTimer, PomodoroPhase, TimerMode } from '~/composables/useTimer'
 
@@ -215,6 +216,40 @@ describe('overtime detection (via formatTimerDisplay)', () => {
     const display = formatTimerDisplay(301, 'countdown', 300, 'work')
     expect(display).toMatch(/^\+/)
     expect(display).toBe('+00:01')
+  })
+})
+
+// ─── buildPomodoroConfig ────────────────────────────────────────────────────
+
+describe('buildPomodoroConfig', () => {
+  it('converts minutes to seconds', () => {
+    const config = buildPomodoroConfig({
+      pomodoroWorkMinutes: 25,
+      pomodoroShortBreakMinutes: 5,
+      pomodoroLongBreakMinutes: 15,
+      pomodoroCyclesBeforeLong: 4,
+    })
+    expect(config).toEqual({
+      workSeconds: 1500,
+      shortBreakSeconds: 300,
+      longBreakSeconds: 900,
+      cyclesBeforeLong: 4,
+    })
+  })
+
+  it('handles non-default values', () => {
+    const config = buildPomodoroConfig({
+      pomodoroWorkMinutes: 50,
+      pomodoroShortBreakMinutes: 10,
+      pomodoroLongBreakMinutes: 30,
+      pomodoroCyclesBeforeLong: 3,
+    })
+    expect(config).toEqual({
+      workSeconds: 3000,
+      shortBreakSeconds: 600,
+      longBreakSeconds: 1800,
+      cyclesBeforeLong: 3,
+    })
   })
 })
 

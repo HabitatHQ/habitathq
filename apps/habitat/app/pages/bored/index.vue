@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { TimerMode } from '~/composables/useTimer'
+import { buildPomodoroConfig, type TimerMode } from '~/composables/useTimer'
 import type { BoredCategory, BoredOracleResult } from '~/types/database'
 
 const db = useDatabase()
@@ -20,15 +20,6 @@ function startLongPress() {
     modeMenuMinutes.value = getBoredEstimate() ?? 25
     modeMenuOpen.value = true
   })
-}
-
-function pomodoroConfig() {
-  return {
-    workSeconds: settings.value.pomodoroWorkMinutes * 60,
-    shortBreakSeconds: settings.value.pomodoroShortBreakMinutes * 60,
-    longBreakSeconds: settings.value.pomodoroLongBreakMinutes * 60,
-    cyclesBeforeLong: settings.value.pomodoroCyclesBeforeLong,
-  }
 }
 
 function getBoredItemId(): string {
@@ -67,7 +58,7 @@ function handleBoredStart() {
       getBoredTitle(),
       'countdown',
       est * 60,
-      pomodoroConfig(),
+      buildPomodoroConfig(settings.value),
     )
     void impact('medium')
     modeMenuOpen.value = false
@@ -88,7 +79,7 @@ function startBoredMode(mode: TimerMode) {
     getBoredTitle(),
     mode,
     secs,
-    pomodoroConfig(),
+    buildPomodoroConfig(settings.value),
   )
   void impact('medium')
   modeMenuOpen.value = false

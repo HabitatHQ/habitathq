@@ -6,6 +6,73 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { DbAdapter } from '~/types/database'
 import * as shared from '~/lib/db-shared'
+import { buildUpdatePairs } from '~/lib/db-shared'
+
+// ─── buildUpdatePairs ────────────────────────────────────────────────────────
+
+describe('buildUpdatePairs', () => {
+  it('picks scalar fields present in the object', () => {
+    const pairs = buildUpdatePairs({ name: 'Alice', age: 30 }, [
+      { kind: 'scalar', name: 'name' },
+      { kind: 'scalar', name: 'age' },
+      { kind: 'scalar', name: 'missing' },
+    ])
+    expect(pairs).toEqual([['name', 'Alice'], ['age', 30]])
+  })
+
+  it('handles nullable fields with default null', () => {
+    const pairs = buildUpdatePairs({ paused_until: undefined }, [
+      { kind: 'nullable', name: 'paused_until' },
+    ])
+    expect(pairs).toEqual([['paused_until', null]])
+  })
+
+  it('handles nullable fields with custom fallback', () => {
+    const pairs = buildUpdatePairs({ title: undefined }, [
+      { kind: 'nullable', name: 'title', fallback: '' },
+    ])
+    expect(pairs).toEqual([['title', '']])
+  })
+
+  it('handles json fields with fallback', () => {
+    const pairs = buildUpdatePairs({ tags: ['a', 'b'] }, [
+      { kind: 'json', name: 'tags', fallback: [] },
+    ])
+    expect(pairs).toEqual([['tags', '["a","b"]']])
+  })
+
+  it('uses json fallback when value is nullish', () => {
+    const pairs = buildUpdatePairs({ tags: null }, [
+      { kind: 'json', name: 'tags', fallback: [] },
+    ])
+    expect(pairs).toEqual([['tags', '[]']])
+  })
+
+  it('handles json-nullable: stringify if non-null, null if null', () => {
+    const pairs = buildUpdatePairs({ days: [1, 3], other: null }, [
+      { kind: 'json-nullable', name: 'days' },
+      { kind: 'json-nullable', name: 'other' },
+    ])
+    expect(pairs).toEqual([['days', '[1,3]'], ['other', null]])
+  })
+
+  it('handles bool fields (value → 0|1)', () => {
+    const pairs = buildUpdatePairs({ is_recurring: true, show_in_bored: false }, [
+      { kind: 'bool', name: 'is_recurring' },
+      { kind: 'bool', name: 'show_in_bored' },
+    ])
+    expect(pairs).toEqual([['is_recurring', 1], ['show_in_bored', 0]])
+  })
+
+  it('skips fields not present in the object', () => {
+    const pairs = buildUpdatePairs({}, [
+      { kind: 'scalar', name: 'name' },
+      { kind: 'json', name: 'tags', fallback: [] },
+      { kind: 'bool', name: 'active' },
+    ])
+    expect(pairs).toEqual([])
+  })
+})
 
 // ─── MockDbAdapter ────────────────────────────────────────────────────────────
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { AppTheme } from '~/composables/useAppSettings'
 import { useDragReorder } from '~/composables/useTabReorder'
+import { buildPomodoroConfig } from '~/composables/useTimer'
 import type { SearchResult } from '~/types/database'
 
 const route = useRoute()
@@ -19,19 +20,17 @@ const { impact, selectionChanged } = useHaptics()
 const showQuickFocusPicker = ref(false)
 const quickFocusMinutes = ref(25)
 
-function pomodoroConfig() {
-  return {
-    workSeconds: settings.value.pomodoroWorkMinutes * 60,
-    shortBreakSeconds: settings.value.pomodoroShortBreakMinutes * 60,
-    longBreakSeconds: settings.value.pomodoroLongBreakMinutes * 60,
-    cyclesBeforeLong: settings.value.pomodoroCyclesBeforeLong,
-  }
-}
-
 function startQuickFocus(mode: 'stopwatch' | 'countdown' | 'pomodoro') {
   showQuickFocusPicker.value = false
   const secs = mode === 'countdown' ? quickFocusMinutes.value * 60 : 0
-  timerComp.startTimer('quick', 'todo', 'Quick Focus', mode, secs, pomodoroConfig())
+  timerComp.startTimer(
+    'quick',
+    'todo',
+    'Quick Focus',
+    mode,
+    secs,
+    buildPomodoroConfig(settings.value),
+  )
   navigateTo('/focus')
 }
 

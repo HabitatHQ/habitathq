@@ -414,7 +414,9 @@ async function seedDefaults(): Promise<void> {
     title: string,
     schedule_type: string,
     days_active: number[] | null,
-    qs: (Omit<CheckinQuestion, 'id' | 'template_id' | 'archived_at' | 'desired_answer'> & { desired_answer?: number })[],
+    qs: (Omit<CheckinQuestion, 'id' | 'template_id' | 'archived_at' | 'desired_answer'> & {
+      desired_answer?: number
+    })[],
   ): Promise<void> {
     const tid = crypto.randomUUID()
     await exec(

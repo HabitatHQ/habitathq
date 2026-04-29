@@ -52,6 +52,55 @@ import type {
   Todo,
 } from '~/types/database'
 
+// ─── Dynamic UPDATE helpers ──────────────────────────────────────────────────
+
+export type FieldSpec =
+  | { kind: 'scalar'; name: string }
+  | { kind: 'nullable'; name: string; fallback?: unknown }
+  | { kind: 'json'; name: string; fallback: unknown }
+  | { kind: 'json-nullable'; name: string }
+  | { kind: 'bool'; name: string }
+
+export function buildUpdatePairs(
+  fields: Record<string, unknown>,
+  specs: FieldSpec[],
+): [string, unknown][] {
+  const pairs: [string, unknown][] = []
+  for (const s of specs) {
+    if (!(s.name in fields)) continue
+    const v = fields[s.name]
+    switch (s.kind) {
+      case 'scalar':
+        pairs.push([s.name, v])
+        break
+      case 'nullable':
+        pairs.push([s.name, v ?? (s.fallback !== undefined ? s.fallback : null)])
+        break
+      case 'json':
+        pairs.push([s.name, JSON.stringify(v ?? s.fallback)])
+        break
+      case 'json-nullable':
+        pairs.push([s.name, v != null ? JSON.stringify(v) : null])
+        break
+      case 'bool':
+        pairs.push([s.name, v ? 1 : 0])
+        break
+    }
+  }
+  return pairs
+}
+
+async function execDynamicUpdate(
+  db: DbAdapter,
+  table: string,
+  id: string,
+  pairs: [string, unknown][],
+): Promise<void> {
+  if (pairs.length === 0) return
+  const set = pairs.map(([k]) => `${k} = ?`).join(', ')
+  await db.exec(`UPDATE ${table} SET ${set} WHERE id = ?`, [...pairs.map(([, v]) => v), id])
+}
+
 // ─── Habit operations ─────────────────────────────────────────────────────────
 
 export async function getHabits(db: DbAdapter): Promise<HabitWithSchedule[]> {
@@ -106,29 +155,20 @@ export async function updateHabit(
   payload: Partial<Habit> & { id: string },
 ): Promise<HabitWithSchedule> {
   const { id, ...fields } = payload
-  const updates: [string, unknown][] = []
-  const scalarFields = [
-    'name',
-    'description',
-    'why',
-    'color',
-    'icon',
-    'frequency',
-    'type',
-    'target_value',
-  ] as const
-  for (const k of scalarFields) {
-    if (k in fields) updates.push([k, fields[k]])
-  }
-  if ('paused_until' in fields) updates.push(['paused_until', fields.paused_until ?? null])
-  if ('tags' in fields) updates.push(['tags', JSON.stringify(fields.tags ?? [])])
-  if ('annotations' in fields)
-    updates.push(['annotations', JSON.stringify(fields.annotations ?? {})])
-
-  if (updates.length > 0) {
-    const set = updates.map(([k]) => `${k} = ?`).join(', ')
-    await db.exec(`UPDATE habits SET ${set} WHERE id = ?`, [...updates.map(([, v]) => v), id])
-  }
+  const pairs = buildUpdatePairs(fields as Record<string, unknown>, [
+    { kind: 'scalar', name: 'name' },
+    { kind: 'scalar', name: 'description' },
+    { kind: 'scalar', name: 'why' },
+    { kind: 'scalar', name: 'color' },
+    { kind: 'scalar', name: 'icon' },
+    { kind: 'scalar', name: 'frequency' },
+    { kind: 'scalar', name: 'type' },
+    { kind: 'scalar', name: 'target_value' },
+    { kind: 'nullable', name: 'paused_until' },
+    { kind: 'json', name: 'tags', fallback: [] },
+    { kind: 'json', name: 'annotations', fallback: {} },
+  ])
+  await execDynamicUpdate(db, 'habits', id, pairs)
   const row = await db.queryOne<Record<string, unknown>>(`${HABIT_WITH_SCHED_SQL} WHERE h.id = ?`, [
     id,
   ])
@@ -373,30 +413,15 @@ export async function updateHabitSchedule(
   payload: Partial<HabitSchedule> & { id: string },
 ): Promise<HabitSchedule> {
   const { id, ...fields } = payload
-  const updates: [string, unknown][] = []
-  const scalarFields = [
-    'schedule_type',
-    'frequency_count',
-    'due_time',
-    'start_date',
-    'end_date',
-  ] as const
-  for (const k of scalarFields) {
-    if (k in fields) updates.push([k, (fields as Record<string, unknown>)[k] ?? null])
-  }
-  if ('days_of_week' in fields) {
-    updates.push([
-      'days_of_week',
-      fields.days_of_week != null ? JSON.stringify(fields.days_of_week) : null,
-    ])
-  }
-  if (updates.length > 0) {
-    const set = updates.map(([k]) => `${k} = ?`).join(', ')
-    await db.exec(`UPDATE habit_schedules SET ${set} WHERE id = ?`, [
-      ...updates.map(([, v]) => v),
-      id,
-    ])
-  }
+  const pairs = buildUpdatePairs(fields as Record<string, unknown>, [
+    { kind: 'nullable', name: 'schedule_type' },
+    { kind: 'nullable', name: 'frequency_count' },
+    { kind: 'nullable', name: 'due_time' },
+    { kind: 'nullable', name: 'start_date' },
+    { kind: 'nullable', name: 'end_date' },
+    { kind: 'json-nullable', name: 'days_of_week' },
+  ])
+  await execDynamicUpdate(db, 'habit_schedules', id, pairs)
   const row = await db.queryOne<Record<string, unknown>>(
     'SELECT * FROM habit_schedules WHERE id = ?',
     [id],
@@ -542,22 +567,12 @@ export async function updateCheckinTemplate(
   payload: Partial<CheckinTemplate> & { id: string },
 ): Promise<CheckinTemplate> {
   const { id, ...fields } = payload
-  const updates: [string, unknown][] = []
-  if ('title' in fields) updates.push(['title', fields.title])
-  if ('schedule_type' in fields) updates.push(['schedule_type', fields.schedule_type])
-  if ('days_active' in fields) {
-    updates.push([
-      'days_active',
-      fields.days_active != null ? JSON.stringify(fields.days_active) : null,
-    ])
-  }
-  if (updates.length > 0) {
-    const set = updates.map(([k]) => `${k} = ?`).join(', ')
-    await db.exec(`UPDATE checkin_templates SET ${set} WHERE id = ?`, [
-      ...updates.map(([, v]) => v),
-      id,
-    ])
-  }
+  const pairs = buildUpdatePairs(fields as Record<string, unknown>, [
+    { kind: 'scalar', name: 'title' },
+    { kind: 'scalar', name: 'schedule_type' },
+    { kind: 'json-nullable', name: 'days_active' },
+  ])
+  await execDynamicUpdate(db, 'checkin_templates', id, pairs)
   const row = await db.queryOne<Record<string, unknown>>(
     'SELECT * FROM checkin_templates WHERE id = ?',
     [id],
@@ -752,18 +767,13 @@ export async function updateCheckinQuestion(
   payload: Partial<CheckinQuestion> & { id: string },
 ): Promise<CheckinQuestion> {
   const { id, ...fields } = payload
-  const updates: [string, unknown][] = []
-  if ('prompt' in fields) updates.push(['prompt', fields.prompt])
-  if ('response_type' in fields) updates.push(['response_type', fields.response_type])
-  if ('display_order' in fields) updates.push(['display_order', fields.display_order])
-  if ('desired_answer' in fields) updates.push(['desired_answer', fields.desired_answer])
-  if (updates.length > 0) {
-    const set = updates.map(([k]) => `${k} = ?`).join(', ')
-    await db.exec(`UPDATE checkin_questions SET ${set} WHERE id = ?`, [
-      ...updates.map(([, v]) => v),
-      id,
-    ])
-  }
+  const pairs = buildUpdatePairs(fields as Record<string, unknown>, [
+    { kind: 'scalar', name: 'prompt' },
+    { kind: 'scalar', name: 'response_type' },
+    { kind: 'scalar', name: 'display_order' },
+    { kind: 'scalar', name: 'desired_answer' },
+  ])
+  await execDynamicUpdate(db, 'checkin_questions', id, pairs)
   const row = await db.queryOne<Record<string, unknown>>(
     'SELECT * FROM checkin_questions WHERE id = ?',
     [id],
@@ -925,15 +935,16 @@ export async function updateScribble(
   payload: Partial<Scribble> & { id: string },
 ): Promise<Scribble> {
   const { id, ...fields } = payload
-  const now = new Date().toISOString()
-  const updates: [string, unknown][] = [['updated_at', now]]
-  if ('title' in fields) updates.push(['title', fields.title ?? ''])
-  if ('content' in fields) updates.push(['content', fields.content ?? ''])
-  if ('tags' in fields) updates.push(['tags', JSON.stringify(fields.tags ?? [])])
-  if ('annotations' in fields)
-    updates.push(['annotations', JSON.stringify(fields.annotations ?? {})])
-  const set = updates.map(([k]) => `${k} = ?`).join(', ')
-  await db.exec(`UPDATE scribbles SET ${set} WHERE id = ?`, [...updates.map(([, v]) => v), id])
+  const pairs: [string, unknown][] = [['updated_at', new Date().toISOString()]]
+  pairs.push(
+    ...buildUpdatePairs(fields as Record<string, unknown>, [
+      { kind: 'nullable', name: 'title', fallback: '' },
+      { kind: 'nullable', name: 'content', fallback: '' },
+      { kind: 'json', name: 'tags', fallback: [] },
+      { kind: 'json', name: 'annotations', fallback: {} },
+    ]),
+  )
+  await execDynamicUpdate(db, 'scribbles', id, pairs)
   const row = await db.queryOne<Record<string, unknown>>('SELECT * FROM scribbles WHERE id = ?', [
     id,
   ])
@@ -1028,17 +1039,13 @@ export async function updateBoredCategory(
   payload: Partial<BoredCategory> & { id: string },
 ): Promise<BoredCategory> {
   const { id, ...fields } = payload
-  const updates: [string, unknown][] = []
-  for (const k of ['name', 'icon', 'color', 'sort_order'] as const) {
-    if (k in fields) updates.push([k, fields[k]])
-  }
-  if (updates.length > 0) {
-    const set = updates.map(([k]) => `${k} = ?`).join(', ')
-    await db.exec(`UPDATE bored_categories SET ${set} WHERE id = ?`, [
-      ...updates.map(([, v]) => v),
-      id,
-    ])
-  }
+  const pairs = buildUpdatePairs(fields as Record<string, unknown>, [
+    { kind: 'scalar', name: 'name' },
+    { kind: 'scalar', name: 'icon' },
+    { kind: 'scalar', name: 'color' },
+    { kind: 'scalar', name: 'sort_order' },
+  ])
+  await execDynamicUpdate(db, 'bored_categories', id, pairs)
   const row = await db.queryOne<Record<string, unknown>>(
     'SELECT * FROM bored_categories WHERE id = ?',
     [id],
@@ -1109,30 +1116,17 @@ export async function updateBoredActivity(
   payload: Partial<BoredActivity> & { id: string },
 ): Promise<BoredActivity> {
   const { id, ...fields } = payload
-  const updates: [string, unknown][] = []
-  for (const k of [
-    'title',
-    'description',
-    'category_id',
-    'estimated_minutes',
-    'is_recurring',
-    'recurrence_rule',
-  ] as const) {
-    if (k in fields) {
-      if (k === 'is_recurring') updates.push([k, fields[k] ? 1 : 0])
-      else updates.push([k, (fields[k] as unknown) ?? null])
-    }
-  }
-  if ('tags' in fields) updates.push(['tags', JSON.stringify(fields.tags ?? [])])
-  if ('annotations' in fields)
-    updates.push(['annotations', JSON.stringify(fields.annotations ?? {})])
-  if (updates.length > 0) {
-    const set = updates.map(([k]) => `${k} = ?`).join(', ')
-    await db.exec(`UPDATE bored_activities SET ${set} WHERE id = ?`, [
-      ...updates.map(([, v]) => v),
-      id,
-    ])
-  }
+  const pairs = buildUpdatePairs(fields as Record<string, unknown>, [
+    { kind: 'nullable', name: 'title' },
+    { kind: 'nullable', name: 'description' },
+    { kind: 'nullable', name: 'category_id' },
+    { kind: 'nullable', name: 'estimated_minutes' },
+    { kind: 'nullable', name: 'recurrence_rule' },
+    { kind: 'bool', name: 'is_recurring' },
+    { kind: 'json', name: 'tags', fallback: [] },
+    { kind: 'json', name: 'annotations', fallback: {} },
+  ])
+  await execDynamicUpdate(db, 'bored_activities', id, pairs)
   const row = await db.queryOne<Record<string, unknown>>(
     'SELECT * FROM bored_activities WHERE id = ?',
     [id],
@@ -1287,30 +1281,23 @@ export async function updateTodo(
   payload: Partial<Todo> & { id: string },
 ): Promise<Todo> {
   const { id, ...fields } = payload
-  const updates: [string, unknown][] = []
-  const scalars = [
-    'title',
-    'description',
-    'due_date',
-    'priority',
-    'estimated_minutes',
-    'recurrence_rule',
-    'bored_category_id',
-  ] as const
-  for (const k of scalars) {
-    if (k in fields) updates.push([k, (fields[k] as unknown) ?? null])
+  const pairs = buildUpdatePairs(fields as Record<string, unknown>, [
+    { kind: 'nullable', name: 'title' },
+    { kind: 'nullable', name: 'description' },
+    { kind: 'nullable', name: 'due_date' },
+    { kind: 'nullable', name: 'priority' },
+    { kind: 'nullable', name: 'estimated_minutes' },
+    { kind: 'nullable', name: 'recurrence_rule' },
+    { kind: 'nullable', name: 'bored_category_id' },
+    { kind: 'bool', name: 'is_recurring' },
+    { kind: 'bool', name: 'show_in_bored' },
+    { kind: 'json', name: 'tags', fallback: [] },
+    { kind: 'json', name: 'annotations', fallback: {} },
+  ])
+  if (pairs.length > 0) {
+    pairs.push(['updated_at', new Date().toISOString()])
   }
-  for (const k of ['is_recurring', 'show_in_bored'] as const) {
-    if (k in fields) updates.push([k, fields[k] ? 1 : 0])
-  }
-  if ('tags' in fields) updates.push(['tags', JSON.stringify(fields.tags ?? [])])
-  if ('annotations' in fields)
-    updates.push(['annotations', JSON.stringify(fields.annotations ?? {})])
-  if (updates.length > 0) {
-    updates.push(['updated_at', new Date().toISOString()])
-    const set = updates.map(([k]) => `${k} = ?`).join(', ')
-    await db.exec(`UPDATE todos SET ${set} WHERE id = ?`, [...updates.map(([, v]) => v), id])
-  }
+  await execDynamicUpdate(db, 'todos', id, pairs)
   const row = await db.queryOne<Record<string, unknown>>('SELECT * FROM todos WHERE id = ?', [id])
   return parseTodo(row!)
 }

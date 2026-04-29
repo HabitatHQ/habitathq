@@ -24,6 +24,20 @@ export interface PomodoroConfig {
   cyclesBeforeLong: number
 }
 
+export function buildPomodoroConfig(settings: {
+  pomodoroWorkMinutes: number
+  pomodoroShortBreakMinutes: number
+  pomodoroLongBreakMinutes: number
+  pomodoroCyclesBeforeLong: number
+}): PomodoroConfig {
+  return {
+    workSeconds: settings.pomodoroWorkMinutes * 60,
+    shortBreakSeconds: settings.pomodoroShortBreakMinutes * 60,
+    longBreakSeconds: settings.pomodoroLongBreakMinutes * 60,
+    cyclesBeforeLong: settings.pomodoroCyclesBeforeLong,
+  }
+}
+
 // ── Pure helper functions (exported for unit tests) ───────────────────────────
 
 export function formatMmSs(totalSeconds: number): string {

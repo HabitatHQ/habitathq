@@ -42,7 +42,13 @@ async function onHealthToggle(value: boolean) {
 async function confirmHealthSetup() {
   creatingHealth.value = true
   try {
-    const base = { description: '', frequency: 'daily', annotations: {}, paused_until: null, why: '' }
+    const base = {
+      description: '',
+      frequency: 'daily',
+      annotations: {},
+      paused_until: null,
+      why: '',
+    }
     if (healthSetup.enableSteps) {
       await db.createHabit({
         ...base,

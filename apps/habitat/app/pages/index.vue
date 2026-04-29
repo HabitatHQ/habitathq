@@ -521,99 +521,20 @@ onMounted(async () => {
           <li v-if="anyActive && i === contextHabits.length && otherHabits.length > 0" class="list-none pt-1 pb-0.5" aria-hidden="true">
             <p class="text-xs font-semibold uppercase tracking-wider px-1" style="opacity: 0.4">Others</p>
           </li>
-          <AppCard
-            tag="li"
-            :completed="isHabitDone(habit)"
+          <HabitListItem
+            :habit="habit"
+            :done="isHabitDone(habit)"
+            :over-limit="isOverLimit(habit)"
+            :today-log-sum="getTodayLogSum(habit.id)"
+            :weekly-info="weeklyInfo(habit)"
+            :toggling="toggling.has(habit.id)"
             :dimmed="anyActive && !matchesContext(habit.tags)"
-            :class="{ 'habit-flash': flashing.has(habit.id) }"
-          >
-          <AppCardIcon :icon="habit.icon" :icon-color="habit.color" :bg-color="habit.color + '22'" />
-
-          <!-- Name + subtitle -->
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-1.5 min-w-0">
-              <p class="text-sm font-medium truncate text-(--ui-text)">{{ habit.name }}</p>
-              <span
-                v-if="habit.type !== 'BOOLEAN'"
-                class="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded"
-                :class="habit.type === 'NUMERIC'
-                  ? 'bg-primary-500/15 text-primary-400'
-                  : 'bg-amber-500/15 text-amber-400'"
-              >{{ habit.type === 'NUMERIC' ? '# Target' : '↓ Limit' }}</span>
-            </div>
-            <!-- NUMERIC: logged / target -->
-            <p v-if="habit.type === 'NUMERIC'" class="text-xs text-(--ui-text-dimmed)">
-              {{ getTodayLogSum(habit.id) }} / {{ habit.target_value }}
-              <span v-if="weeklyInfo(habit)" class="ml-2 text-slate-600">
-                · {{ weeklyInfo(habit)!.done }}/{{ weeklyInfo(habit)!.target }} this week
-              </span>
-            </p>
-            <!-- LIMIT: count / limit -->
-            <p
-              v-else-if="habit.type === 'LIMIT'"
-              class="text-xs"
-              :class="isOverLimit(habit) ? 'text-red-400' : 'text-(--ui-text-dimmed)'"
-            >
-              {{ getTodayLogSum(habit.id) }} / {{ habit.target_value }} limit
-              <span v-if="weeklyInfo(habit)" class="ml-2 text-slate-600">
-                · {{ weeklyInfo(habit)!.done }}/{{ weeklyInfo(habit)!.target }} this week
-              </span>
-            </p>
-            <!-- BOOLEAN weekly flex badge -->
-            <p v-else-if="weeklyInfo(habit)" class="text-xs text-(--ui-text-dimmed)">
-              {{ weeklyInfo(habit)!.done }}/{{ weeklyInfo(habit)!.target }} this week
-            </p>
-            <div v-if="settings.showTagsOnToday && habit.tags.length" class="flex flex-wrap gap-1 mt-1">
-              <span
-                v-for="tag in habit.tags"
-                :key="tag"
-                class="px-1.5 py-0.5 rounded text-[9px]"
-                :class="tag.startsWith('habitat-') ? 'bg-cyan-900/40 text-cyan-600' : 'bg-(--ui-bg-elevated) text-(--ui-text-dimmed)'"
-              >#{{ tag.startsWith('habitat-') ? tag.slice(8) : tag }}</span>
-            </div>
-            <div v-if="settings.showAnnotationsOnToday && Object.keys(habit.annotations).length" class="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
-              <span
-                v-for="(val, key) in habit.annotations"
-                :key="key"
-                class="text-[9px] text-slate-600"
-              >{{ key }}: {{ val }}</span>
-            </div>
-          </div>
-
-          <!-- ── BOOLEAN: toggle button ── -->
-          <template v-if="habit.type === 'BOOLEAN'">
-            <button
-              class="w-7 h-7 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all duration-200"
-              :class="isHabitDone(habit)
-                ? 'bg-primary-500 border-primary-500'
-                : 'border-(--ui-border-accented) hover:border-(--ui-border-accented) bg-transparent'"
-              :disabled="toggling.has(habit.id)"
-              @click="toggle(habit)"
-            >
-              <AppIcon v-if="isHabitDone(habit)" name="check" class="w-3.5 h-3.5 text-white" />
-            </button>
-          </template>
-
-          <!-- ── NUMERIC / LIMIT: log button → bottom sheet ── -->
-          <template v-else>
-              <UButton
-                size="xs"
-                variant="soft"
-                :color="habit.type === 'LIMIT' && isOverLimit(habit) ? 'error' : habit.type === 'NUMERIC' ? 'primary' : 'warning'"
-                :disabled="logging.has(habit.id)"
-                @click="openLogSheet(habit)"
-              >
-                Log
-              </UButton>
-              <div v-if="isHabitDone(habit)" class="w-5 flex-shrink-0 flex items-center justify-center">
-                <AppIcon
-                  name="check-circle"
-                  class="w-5 h-5"
-                  :class="habit.type === 'NUMERIC' ? 'text-primary-400' : 'text-amber-400'"
-                />
-              </div>
-          </template>
-          </AppCard>
+            :flashing="flashing.has(habit.id)"
+            :show-tags="settings.showTagsOnToday"
+            :show-annotations="settings.showAnnotationsOnToday"
+            @toggle="toggle(habit)"
+            @log="openLogSheet(habit)"
+          />
         </template>
       </ul>
       <!-- ── On your plate (today TODOs) ─────────────────────────────────────── -->
@@ -638,39 +559,14 @@ onMounted(async () => {
         </div>
 
         <ul v-if="todayTodos.length > 0" class="space-y-1.5">
-          <AppCard
+          <TodoListItem
             v-for="todo in todayTodos"
             :key="todo.id"
-            tag="li"
-            :completed="todoToggledIds.has(todo.id)"
-          >
-            <!-- Priority stripe -->
-            <div class="w-1 self-stretch rounded-full shrink-0" :class="priorityColor(todo.priority)" />
-
-            <!-- Checkbox -->
-            <button
-              class="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors"
-              :class="todoToggledIds.has(todo.id) ? 'border-green-500 bg-green-500' : 'border-(--ui-border-accented)'"
-              :disabled="todoToggling.has(todo.id)"
-              :aria-label="todoToggledIds.has(todo.id) ? `Mark '${todo.title}' not done` : `Mark '${todo.title}' done`"
-              @click="toggleTodoLocal(todo)"
-            >
-              <AppIcon v-if="todoToggledIds.has(todo.id)" name="check" class="w-3 h-3 text-white" aria-hidden="true" />
-              <AppIcon v-else-if="todo.is_recurring" name="arrow-path" class="w-2.5 h-2.5 text-(--ui-text-dimmed)" aria-hidden="true" />
-            </button>
-
-            <!-- Title + estimate -->
-            <div class="flex-1 min-w-0">
-              <p
-                class="text-sm font-medium truncate transition-colors"
-                :class="todoToggledIds.has(todo.id) ? 'line-through text-(--ui-text-dimmed)' : 'text-(--ui-text)'"
-              >{{ todo.title }}</p>
-              <p v-if="todo.estimated_minutes" class="text-xs text-(--ui-text-dimmed) flex items-center gap-0.5 mt-0.5">
-                <AppIcon name="clock" class="w-3 h-3" />
-                {{ todo.estimated_minutes }}m
-              </p>
-            </div>
-          </AppCard>
+            :todo="todo"
+            :done="todoToggledIds.has(todo.id)"
+            :toggling="todoToggling.has(todo.id)"
+            @toggle="toggleTodoLocal(todo)"
+          />
         </ul>
 
         <UButton to="/todos" variant="ghost" color="neutral" size="xs" :icon="resolveIcon('arrow-right')" trailing aria-label="See all todos">
