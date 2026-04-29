@@ -59,6 +59,7 @@ function openPauseAll() {
 const form = reactive({
   name: '',
   description: '',
+  why: '',
   icon: 'star',
   color: '#06b6d4',
   type: 'BOOLEAN' as 'BOOLEAN' | 'NUMERIC' | 'LIMIT',
@@ -168,6 +169,7 @@ async function handleCreate() {
     const newHabit = await db.createHabit({
       name: form.name.trim(),
       description: form.description.trim(),
+      why: form.why.trim(),
       color: form.color,
       icon: form.icon,
       frequency: 'daily',
@@ -214,6 +216,7 @@ function closeModal() {
   nameError.value = null
   form.name = ''
   form.description = ''
+  form.why = ''
   form.icon = 'star'
   form.color = '#06b6d4'
   form.type = 'BOOLEAN'
@@ -366,6 +369,11 @@ onMounted(() => {
       <!-- Description -->
       <UFormField label="Description">
         <AppTextArea v-model="form.description" placeholder="Optional description" class="w-full" />
+      </UFormField>
+
+      <!-- Why -->
+      <UFormField label="Why is this important?">
+        <AppTextArea v-model="form.why" placeholder="What motivates you to build this habit?" class="w-full" />
       </UFormField>
 
       <!-- Icon & Color -->

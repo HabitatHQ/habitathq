@@ -76,7 +76,8 @@ await (async () => {
     annotations  TEXT NOT NULL DEFAULT '{}',
     type         TEXT NOT NULL DEFAULT 'BOOLEAN',
     target_value REAL NOT NULL DEFAULT 1,
-    paused_until TEXT
+    paused_until TEXT,
+    why          TEXT NOT NULL DEFAULT ''
   );
 
   CREATE TABLE IF NOT EXISTS completions (
@@ -333,6 +334,7 @@ await (async () => {
           `UPDATE habits SET icon = REPLACE(icon, 'i-heroicons-', 'i-lucide-') WHERE icon LIKE 'i-heroicons-%'`,
           `UPDATE bored_categories SET icon = REPLACE(icon, 'i-heroicons-', 'i-lucide-') WHERE icon LIKE 'i-heroicons-%'`,
         ],
+        16: [`ALTER TABLE habits ADD COLUMN why TEXT NOT NULL DEFAULT ''`],
       }
 
       for (let v = userVersion + 1; v in migrations; v++) {
@@ -491,7 +493,7 @@ await (async () => {
       }
 
       // Ensure fresh installs (user_version = 0) are stamped at the current baseline.
-      if (userVersion === 0) db.exec('PRAGMA user_version = 15')
+      if (userVersion === 0) db.exec('PRAGMA user_version = 16')
     }
 
     runMigrations()

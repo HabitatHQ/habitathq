@@ -2,6 +2,8 @@ export interface Habit {
   id: string
   name: string
   description: string
+  /** Free-text motivation for building this habit. */
+  why: string
   color: string
   icon: string
   frequency: string

@@ -133,11 +133,20 @@ describe('createHabit', () => {
   it('inserts habit + schedule and returns parsed result', async () => {
     const db = new MockDbAdapter()
     db.setRows('WHERE h.id', [habitRow()])
-    await shared.createHabit(db, { name: 'Run', description: '', color: '#fff', icon: 'i-x', frequency: 'daily', tags: [], annotations: {}, type: 'BOOLEAN', target_value: 1, paused_until: null })
+    await shared.createHabit(db, { name: 'Run', description: '', color: '#fff', icon: 'i-x', frequency: 'daily', tags: [], annotations: {}, type: 'BOOLEAN', target_value: 1, paused_until: null, why: '' })
     const execCalls = db.calls.filter(c => c.method === 'exec')
     expect(execCalls.length).toBeGreaterThanOrEqual(2) // habits + habit_schedules
     expect(execCalls[0]!.sql).toContain('INSERT INTO habits')
     expect(execCalls[1]!.sql).toContain('INSERT INTO habit_schedules')
+  })
+
+  it('passes why field to INSERT statement', async () => {
+    const db = new MockDbAdapter()
+    db.setRows('WHERE h.id', [habitRow()])
+    await shared.createHabit(db, { name: 'Run', description: '', color: '#fff', icon: 'i-x', frequency: 'daily', tags: [], annotations: {}, type: 'BOOLEAN', target_value: 1, paused_until: null, why: 'Stay fit' })
+    const insert = db.calls.find(c => c.method === 'exec' && c.sql.includes('INSERT INTO habits'))!
+    expect(insert.sql).toContain('why')
+    expect(insert.bind).toContain('Stay fit')
   })
 })
 
@@ -157,6 +166,15 @@ describe('updateHabit', () => {
     await shared.updateHabit(db, { id: 'h1' })
     const execCalls = db.calls.filter(c => c.method === 'exec')
     expect(execCalls).toHaveLength(0)
+  })
+
+  it('updates why field', async () => {
+    const db = new MockDbAdapter()
+    db.setRows('WHERE h.id', [habitRow()])
+    await shared.updateHabit(db, { id: 'h1', why: 'Because health matters' })
+    const execCalls = db.calls.filter(c => c.method === 'exec')
+    expect(execCalls[0]!.sql).toContain('why = ?')
+    expect(execCalls[0]!.bind).toContain('Because health matters')
   })
 })
 

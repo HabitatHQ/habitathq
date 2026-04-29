@@ -65,6 +65,16 @@ describe('parseHabit', () => {
     const h = parseHabit(habitRow({ paused_until: '2025-06-01T00:00:00Z' }))
     expect(h.paused_until).toBe('2025-06-01T00:00:00Z')
   })
+
+  it('parses why field when present', () => {
+    const h = parseHabit(habitRow({ why: 'Keeps me healthy' }))
+    expect(h.why).toBe('Keeps me healthy')
+  })
+
+  it('defaults why to empty string when column is missing', () => {
+    const h = parseHabit(habitRow())
+    expect(h.why).toBe('')
+  })
 })
 
 // ─── parseHabitWithSchedule ───────────────────────────────────────────────────
