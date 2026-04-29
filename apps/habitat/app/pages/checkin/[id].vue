@@ -27,6 +27,7 @@ async function loadTemplate() {
 const showAddQuestion = ref(false)
 const newPrompt = ref('')
 const newResponseType = ref<'SCALE' | 'TEXT' | 'BOOLEAN'>('TEXT')
+const newDesiredAnswer = ref(1)
 const addingQuestion = ref(false)
 const deletingQuestion = reactive(new Set<string>())
 
@@ -39,10 +40,12 @@ async function addQuestion() {
       prompt: newPrompt.value.trim(),
       response_type: newResponseType.value,
       display_order: questions.value.length,
+      desired_answer: newResponseType.value === 'BOOLEAN' ? newDesiredAnswer.value : 1,
     })
     questions.value.push(q)
     newPrompt.value = ''
     newResponseType.value = 'TEXT'
+    newDesiredAnswer.value = 1
     showAddQuestion.value = false
   } catch (err) {
     logError('[addQuestion]', err)
@@ -251,7 +254,7 @@ onMounted(async () => {
             </button>
           </div>
           <p class="text-xs text-(--ui-text-dimmed) font-mono">
-            {{ q.response_type === 'TEXT' ? 'Text Input' : q.response_type === 'SCALE' ? '1-10 Scale' : 'Yes/No' }}
+            {{ q.response_type === 'TEXT' ? 'Text Input' : q.response_type === 'SCALE' ? '1-10 Scale' : `Yes/No · desired: ${q.desired_answer === 0 ? 'No' : 'Yes'}` }}
           </p>
         </UCard>
       </div>
@@ -290,6 +293,22 @@ onMounted(async () => {
                 @click="newResponseType = rt"
               >
                 {{ rt === 'TEXT' ? 'Text' : rt === 'SCALE' ? '1–10' : 'Yes/No' }}
+              </button>
+            </div>
+          </div>
+          <div v-if="newResponseType === 'BOOLEAN'" class="space-y-1">
+            <p class="text-[11px] text-(--ui-text-dimmed)">Desired answer</p>
+            <div class="flex gap-1.5">
+              <button
+                v-for="opt in ([{ value: 1, label: 'Yes' }, { value: 0, label: 'No' }] as const)"
+                :key="opt.value"
+                class="flex-1 py-1 text-xs font-medium rounded-lg border transition-colors"
+                :class="newDesiredAnswer === opt.value
+                  ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                  : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented)'"
+                @click="newDesiredAnswer = opt.value"
+              >
+                {{ opt.label }}
               </button>
             </div>
           </div>

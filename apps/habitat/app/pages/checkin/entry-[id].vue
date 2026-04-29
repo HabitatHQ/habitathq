@@ -268,7 +268,9 @@ onMounted(async () => {
             <button
               class="flex-1 py-1.5 text-sm font-medium rounded-xl border transition-colors"
               :class="responses.get(q.id)?.value_numeric === 1
-                ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                ? (q.desired_answer === 1
+                    ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                    : 'bg-red-500/20 border-red-500 text-red-300')
                 : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented) hover:text-(--ui-text-muted)'"
               @click="onBoolean(q.id, 1)"
             >
@@ -277,7 +279,9 @@ onMounted(async () => {
             <button
               class="flex-1 py-1.5 text-sm font-medium rounded-xl border transition-colors"
               :class="responses.get(q.id)?.value_numeric === 0
-                ? 'bg-red-500/20 border-red-500 text-red-300'
+                ? (q.desired_answer === 0
+                    ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                    : 'bg-red-500/20 border-red-500 text-red-300')
                 : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented) hover:text-(--ui-text-muted)'"
               @click="onBoolean(q.id, 0)"
             >
