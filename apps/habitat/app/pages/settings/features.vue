@@ -99,12 +99,7 @@ async function confirmHealthSetup() {
 
 <template>
   <div class="space-y-6">
-    <header class="flex items-center gap-2 mb-4">
-      <NuxtLink to="/settings" class="sm:hidden p-1 -ml-1 rounded-lg text-(--ui-text-muted) hover:text-(--ui-text) hover:bg-(--ui-bg-elevated) transition-colors">
-        <AppIcon name="chevron-left" class="w-5 h-5" />
-      </NuxtLink>
-      <h2 class="text-xl font-bold">Features</h2>
-    </header>
+    <BackNav to="/settings" label="Features" title class="mb-4" />
 
     <section class="space-y-2">
       <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Feature flags</p>
