@@ -204,10 +204,7 @@ async function archiveActivity(a: BoredActivity) {
 
 <template>
   <div class="max-w-lg mx-auto space-y-6">
-    <div class="flex items-center gap-3">
-      <UButton to="/bored" variant="ghost" color="neutral" size="sm" :icon="resolveIcon('arrow-left')" />
-      <h1 class="text-xl font-bold">Manage Activities</h1>
-    </div>
+    <BackNav to="/bored" label="Manage Activities" title />
 
     <!-- Category sections -->
     <div v-for="cat in categories" :key="cat.id" class="space-y-2">

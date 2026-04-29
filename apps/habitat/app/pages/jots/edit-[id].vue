@@ -95,8 +95,7 @@ onMounted(() => {
 
 <template>
   <div class="space-y-5">
-    <div class="flex items-center justify-between">
-      <BackNav to="/jots" label="Jot" />
+    <BackNav to="/jots" label="Jot" title>
       <div class="flex items-center gap-2">
         <UButton
           :icon="resolveIcon('trash')"
@@ -107,7 +106,7 @@ onMounted(() => {
         />
         <UButton :loading="saving" :disabled="saving || !canSave" size="sm" @click="save">Save</UButton>
       </div>
-    </div>
+    </BackNav>
 
     <div v-if="notFound" class="text-center py-12 text-(--ui-text-dimmed) text-sm">
       Jot not found.

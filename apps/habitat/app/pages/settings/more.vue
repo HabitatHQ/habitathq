@@ -220,12 +220,7 @@ async function forceReload() {
 
 <template>
   <div class="space-y-6">
-    <header class="flex items-center gap-2 mb-4">
-      <NuxtLink to="/settings" class="sm:hidden p-1 -ml-1 rounded-lg text-(--ui-text-muted) hover:text-(--ui-text) hover:bg-(--ui-bg-elevated) transition-colors">
-        <AppIcon name="chevron-left" class="w-5 h-5" />
-      </NuxtLink>
-      <h2 class="text-xl font-bold">More</h2>
-    </header>
+    <BackNav to="/settings" label="More" title class="mb-4" />
 
     <!-- About -->
     <section class="space-y-2">

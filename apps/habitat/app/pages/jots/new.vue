@@ -52,10 +52,9 @@ onMounted(() => void loadTags())
 
 <template>
   <div class="space-y-5">
-    <div class="flex items-center justify-between">
-      <BackNav to="/jots" label="New Jot" />
+    <BackNav to="/jots" label="New Jot" title>
       <UButton :loading="saving" :disabled="saving || !canSave" size="sm" @click="save">Create</UButton>
-    </div>
+    </BackNav>
 
     <div class="space-y-3">
       <input
