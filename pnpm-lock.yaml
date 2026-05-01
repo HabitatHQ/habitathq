@@ -8,12 +8,33 @@ importers:
 
   .:
     devDependencies:
+      '@axe-core/playwright':
+        specifier: ^4.11.1
+        version: 4.11.3(playwright-core@1.59.1)
       '@biomejs/biome':
         specifier: ^2.4.6
         version: 2.4.13
+      '@playwright/test':
+        specifier: ^1.58.2
+        version: 1.59.1
+      '@typescript/native-preview':
+        specifier: 7.0.0-dev.20260501.1
+        version: 7.0.0-dev.20260501.1
+      axe-core:
+        specifier: ^4.11.1
+        version: 4.11.4
       lefthook:
-        specifier: ^1.11.13
+        specifier: ^1.13.6
         version: 1.13.6
+      playwright-core:
+        specifier: ^1.58.2
+        version: 1.59.1
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vue-tsc:
+        specifier: ^3.2.5
+        version: 3.2.7(typescript@5.9.3)
 
   apps/habitat:
     dependencies:
@@ -45,9 +66,6 @@ importers:
         specifier: latest
         version: 5.0.6(@vue/compiler-sfc@3.5.33)(vue@3.5.33(typescript@5.9.3))
     devDependencies:
-      '@axe-core/playwright':
-        specifier: ^4.11.1
-        version: 4.11.3(playwright-core@1.59.1)
       '@capacitor/android':
         specifier: ^8.1.0
         version: 8.3.1(@capacitor/core@8.3.1)
@@ -69,12 +87,6 @@ importers:
       '@capacitor/status-bar':
         specifier: ^8.0.1
         version: 8.0.2(@capacitor/core@8.3.1)
-      '@playwright/test':
-        specifier: ^1.58.2
-        version: 1.59.1
-      '@typescript/native-preview':
-        specifier: 7.0.0-dev.20260302.1
-        version: 7.0.0-dev.20260302.1
       '@vite-pwa/nuxt':
         specifier: ^1.1.1
         version: 1.1.1(magicast@0.5.2)(vite@7.3.2(@types/node@25.6.0)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.2)(yaml@2.8.3))(workbox-build@7.4.0)(workbox-window@7.4.0)
@@ -84,36 +96,24 @@ importers:
       '@vue/test-utils':
         specifier: ^2.4.6
         version: 2.4.10(@vue/compiler-dom@3.5.33)(@vue/server-renderer@3.5.33(vue@3.5.33(typescript@5.9.3)))(vue@3.5.33(typescript@5.9.3))
-      axe-core:
-        specifier: ^4.11.1
-        version: 4.11.4
       coi-serviceworker:
         specifier: ^0.1.7
         version: 0.1.7
       happy-dom:
         specifier: ^20.7.0
         version: 20.9.0
-      playwright-core:
-        specifier: ^1.58.2
-        version: 1.59.1
       rollup-plugin-license:
         specifier: ^3.7.0
         version: 3.7.1(picomatch@4.0.4)(rollup@4.60.2)
       tailwindcss:
         specifier: ^4.2.0
         version: 4.2.4
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
       unplugin-auto-import:
         specifier: ^21.0.0
         version: 21.0.0(@nuxt/kit@4.4.4(magicast@0.5.2))(@vueuse/core@14.3.0(vue@3.5.33(typescript@5.9.3)))
       vitest:
         specifier: ^4.0.18
         version: 4.1.5(@types/node@25.6.0)(happy-dom@20.9.0)(vite@7.3.2(@types/node@25.6.0)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.2)(yaml@2.8.3))
-      vue-tsc:
-        specifier: ^3.2.5
-        version: 3.2.7(typescript@5.9.3)
       workbox-precaching:
         specifier: ^7.4.0
         version: 7.4.0
@@ -166,12 +166,6 @@ importers:
       '@capacitor/status-bar':
         specifier: ^8.0.1
         version: 8.0.2(@capacitor/core@8.3.1)
-      '@playwright/test':
-        specifier: ^1.58.2
-        version: 1.59.1
-      '@typescript/native-preview':
-        specifier: 7.0.0-dev.20260302.1
-        version: 7.0.0-dev.20260302.1
       '@vite-pwa/nuxt':
         specifier: ^1.1.1
         version: 1.1.1(magicast@0.5.2)(vite@7.3.2(@types/node@25.6.0)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.2)(yaml@2.8.3))(workbox-build@7.4.0)(workbox-window@7.4.0)
@@ -181,24 +175,15 @@ importers:
       happy-dom:
         specifier: ^20.7.0
         version: 20.9.0
-      playwright-core:
-        specifier: ^1.58.2
-        version: 1.59.1
       rollup-plugin-license:
         specifier: ^3.7.0
         version: 3.7.1(picomatch@4.0.4)(rollup@4.60.2)
       tailwindcss:
         specifier: ^4.2.0
         version: 4.2.4
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
       vitest:
         specifier: ^4.0.18
         version: 4.1.5(@types/node@25.6.0)(happy-dom@20.9.0)(vite@7.3.2(@types/node@25.6.0)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.2)(yaml@2.8.3))
-      vue-tsc:
-        specifier: ^3.2.5
-        version: 3.2.7(typescript@5.9.3)
       workbox-precaching:
         specifier: ^7.4.0
         version: 7.4.0
@@ -248,9 +233,6 @@ importers:
         specifier: latest
         version: 5.0.6(@vue/compiler-sfc@3.5.33)(vue@3.5.33(typescript@5.9.3))
     devDependencies:
-      '@axe-core/playwright':
-        specifier: ^4.11.1
-        version: 4.11.3(playwright-core@1.59.1)
       '@capacitor/android':
         specifier: ^8.1.0
         version: 8.3.1(@capacitor/core@8.3.1)
@@ -272,39 +254,24 @@ importers:
       '@capacitor/status-bar':
         specifier: ^8.0.1
         version: 8.0.2(@capacitor/core@8.3.1)
-      '@playwright/test':
-        specifier: ^1.58.2
-        version: 1.59.1
       '@vite-pwa/nuxt':
         specifier: ^1.1.1
         version: 1.1.1(magicast@0.5.2)(vite@7.3.2(@types/node@25.6.0)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.2)(yaml@2.8.3))(workbox-build@7.4.0)(workbox-window@7.4.0)
       '@vue/test-utils':
         specifier: ^2.4.6
         version: 2.4.10(@vue/compiler-dom@3.5.33)(@vue/server-renderer@3.5.33(vue@3.5.33(typescript@5.9.3)))(vue@3.5.33(typescript@5.9.3))
-      axe-core:
-        specifier: ^4.11.1
-        version: 4.11.4
       happy-dom:
         specifier: ^20.7.0
         version: 20.9.0
-      playwright-core:
-        specifier: ^1.58.2
-        version: 1.59.1
       rollup-plugin-license:
         specifier: ^3.7.0
         version: 3.7.1(picomatch@4.0.4)(rollup@4.60.2)
       tailwindcss:
         specifier: ^4.2.0
         version: 4.2.4
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
       vitest:
         specifier: ^4.0.18
         version: 4.1.5(@types/node@25.6.0)(happy-dom@20.9.0)(vite@7.3.2(@types/node@25.6.0)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.2)(yaml@2.8.3))
-      vue-tsc:
-        specifier: ^3.2.5
-        version: 3.2.7(typescript@5.9.3)
       workbox-precaching:
         specifier: ^7.4.0
         version: 7.4.0
@@ -333,9 +300,6 @@ importers:
         specifier: latest
         version: 5.0.6(@vue/compiler-sfc@3.5.33)(vue@3.5.33(typescript@5.9.3))
     devDependencies:
-      '@axe-core/playwright':
-        specifier: ^4.11.1
-        version: 4.11.3(playwright-core@1.59.1)
       '@capacitor/android':
         specifier: ^8.1.0
         version: 8.3.1(@capacitor/core@8.3.1)
@@ -360,12 +324,6 @@ importers:
       '@iconify-json/ph':
         specifier: ^1.2.2
         version: 1.2.2
-      '@playwright/test':
-        specifier: ^1.58.2
-        version: 1.59.1
-      '@typescript/native-preview':
-        specifier: 7.0.0-dev.20260302.1
-        version: 7.0.0-dev.20260302.1
       '@vite-pwa/nuxt':
         specifier: ^1.1.1
         version: 1.1.1(magicast@0.5.2)(vite@7.3.2(@types/node@25.6.0)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.2)(yaml@2.8.3))(workbox-build@7.4.0)(workbox-window@7.4.0)
@@ -375,24 +333,15 @@ importers:
       happy-dom:
         specifier: ^20.7.0
         version: 20.9.0
-      playwright-core:
-        specifier: ^1.58.2
-        version: 1.59.1
       sql.js:
         specifier: ^1.14.1
         version: 1.14.1
       tailwindcss:
         specifier: ^4.2.0
         version: 4.2.4
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
       vitest:
         specifier: ^4.0.18
         version: 4.1.5(@types/node@25.6.0)(happy-dom@20.9.0)(vite@7.3.2(@types/node@25.6.0)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.2)(yaml@2.8.3))
-      vue-tsc:
-        specifier: ^3.2.5
-        version: 3.2.7(typescript@5.9.3)
       workbox-precaching:
         specifier: ^7.4.0
         version: 7.4.0
@@ -3013,43 +2962,51 @@ packages:
   '@types/ws@8.18.1':
     resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
-  '@typescript/native-preview-darwin-arm64@7.0.0-dev.20260302.1':
-    resolution: {integrity: sha512-bSSHf2/3/pUa1FHdHkoD2SbACh4G8GQElQmkHksf42L30rgED+thloZPyQEvaIXE44IsfFDEvsa6reF/pob5Aw==}
+  '@typescript/native-preview-darwin-arm64@7.0.0-dev.20260501.1':
+    resolution: {integrity: sha512-OIYsqKouI2U7W5Q6VgUz7+t9FpIXNFk30xSUG7gGlN1bdDniWfW7t5n6mzEtiHUVTxRgJQBjXGAlhVa6A9h+pg==}
+    engines: {node: '>=16.20.0'}
     cpu: [arm64]
     os: [darwin]
 
-  '@typescript/native-preview-darwin-x64@7.0.0-dev.20260302.1':
-    resolution: {integrity: sha512-CfBxf/qEFgoe1zZ8U/DfgP2izrDEnERXj2uuX5Mi2m6NIdS6yo9fv+TiQS7UDINIOcRaN17NMUmIRrj8RLz3TA==}
+  '@typescript/native-preview-darwin-x64@7.0.0-dev.20260501.1':
+    resolution: {integrity: sha512-hQ5UsEyOz3ErQE3sKKHMCfJJGQenD0DSCi2ob+ywElXirG2NyFNA8cmx1g+MIm1lpQeEQslWZhe9EGwo9DJAbg==}
+    engines: {node: '>=16.20.0'}
     cpu: [x64]
     os: [darwin]
 
-  '@typescript/native-preview-linux-arm64@7.0.0-dev.20260302.1':
-    resolution: {integrity: sha512-Ojecn2PD9Pgs3UUkxzKNwesFmKiCrRHHc6DFlE7Tpsf53tLEOkVTS8SdYOxoPvbM+ee9lQ+WDWyHsOHfbUXFuQ==}
+  '@typescript/native-preview-linux-arm64@7.0.0-dev.20260501.1':
+    resolution: {integrity: sha512-fbaFKE1UvtsQ6i1eJjBiNbglR9ywXrW/CH1sqYPEtr0WgTUpixbE6inQOXjB0jlEA9RzQq+QMzDyaCDmU82Dkw==}
+    engines: {node: '>=16.20.0'}
     cpu: [arm64]
     os: [linux]
 
-  '@typescript/native-preview-linux-arm@7.0.0-dev.20260302.1':
-    resolution: {integrity: sha512-TWdwsqactujpdAuu/pepoXg7DK2TQ6Q3kYeqLlTic+0d61jece12yqk4hlmXXzQrc5D2ht9Qr3ny4BHyBvKlZw==}
+  '@typescript/native-preview-linux-arm@7.0.0-dev.20260501.1':
+    resolution: {integrity: sha512-agkTW/t85XSJKWGcXdUV9ZmSi3Akh3POK+HhWehigEJR3W/jebiO9njifETfoUF6cpoYkFn+CZvfAJ00IWGZfA==}
+    engines: {node: '>=16.20.0'}
     cpu: [arm]
     os: [linux]
 
-  '@typescript/native-preview-linux-x64@7.0.0-dev.20260302.1':
-    resolution: {integrity: sha512-f+8wzy/4xcDMgAdkJy722BL0pau8O0S4+HUR2CyFJy7HbDIGbbl/Zm5ZAq2xjMGEdq83+klp+7y/JuDIb0herA==}
+  '@typescript/native-preview-linux-x64@7.0.0-dev.20260501.1':
+    resolution: {integrity: sha512-Sd8D+S88P7K0IH1U+a8pK20ZD+GM54t48/GLw9ebSklfCdt0iKdHgprjKIcl54C3SocGCcvEBPr1thwtTO9Vtg==}
+    engines: {node: '>=16.20.0'}
     cpu: [x64]
     os: [linux]
 
-  '@typescript/native-preview-win32-arm64@7.0.0-dev.20260302.1':
-    resolution: {integrity: sha512-yN+UMH41G2UgXn5ER0FzgVQPQ6YLfpSoSaWV38l+hIkgKQSv7TsF778Svgh0dd5OpFKoeQ1aPOMalugxI3FnWw==}
+  '@typescript/native-preview-win32-arm64@7.0.0-dev.20260501.1':
+    resolution: {integrity: sha512-07sJNDnU7KHfo/trv/cBXpgFBELDYJAsTx5kNvBckSQUxbX+p/b9oQ3eFbtK3zDP4EEKdeiD9EelIy22atBnzA==}
+    engines: {node: '>=16.20.0'}
     cpu: [arm64]
     os: [win32]
 
-  '@typescript/native-preview-win32-x64@7.0.0-dev.20260302.1':
-    resolution: {integrity: sha512-Ni9nVkZRt3MofSUSilF51w1tkxlPegz3+zJLDPZZdc0IIaENTP37gfVkngio4tdsjIjsPFieJOkogej/wYT1AA==}
+  '@typescript/native-preview-win32-x64@7.0.0-dev.20260501.1':
+    resolution: {integrity: sha512-8rzd/eQZyBuR+IRiPnIQrCwSuXIGBFiL8LsUMFqQt2WAUlQ0gGWBlLJHUVU4YNlju9QROjNHUGpJ52XGZbFv0Q==}
+    engines: {node: '>=16.20.0'}
     cpu: [x64]
     os: [win32]
 
-  '@typescript/native-preview@7.0.0-dev.20260302.1':
-    resolution: {integrity: sha512-KR2mM+hGSF9CcYRFLe/8jAFuRr0Ao3vJDnfGtEoSSpgfw0kCZTMv8fyBc5Vicrg/ByZSwGhZf7Q8HDc5lPYLGg==}
+  '@typescript/native-preview@7.0.0-dev.20260501.1':
+    resolution: {integrity: sha512-skD0ig8IzPwSY1L8VmNgfaxkfT8ImBwKeIypfZyJA+zHzWvroRKbRbT2GryOSREl22ZqLOuDfcq+7BdA0rjF2Q==}
+    engines: {node: '>=16.20.0'}
     hasBin: true
 
   '@unhead/vue@2.1.13':
@@ -9618,36 +9575,36 @@ snapshots:
     dependencies:
       '@types/node': 25.6.0
 
-  '@typescript/native-preview-darwin-arm64@7.0.0-dev.20260302.1':
+  '@typescript/native-preview-darwin-arm64@7.0.0-dev.20260501.1':
     optional: true
 
-  '@typescript/native-preview-darwin-x64@7.0.0-dev.20260302.1':
+  '@typescript/native-preview-darwin-x64@7.0.0-dev.20260501.1':
     optional: true
 
-  '@typescript/native-preview-linux-arm64@7.0.0-dev.20260302.1':
+  '@typescript/native-preview-linux-arm64@7.0.0-dev.20260501.1':
     optional: true
 
-  '@typescript/native-preview-linux-arm@7.0.0-dev.20260302.1':
+  '@typescript/native-preview-linux-arm@7.0.0-dev.20260501.1':
     optional: true
 
-  '@typescript/native-preview-linux-x64@7.0.0-dev.20260302.1':
+  '@typescript/native-preview-linux-x64@7.0.0-dev.20260501.1':
     optional: true
 
-  '@typescript/native-preview-win32-arm64@7.0.0-dev.20260302.1':
+  '@typescript/native-preview-win32-arm64@7.0.0-dev.20260501.1':
     optional: true
 
-  '@typescript/native-preview-win32-x64@7.0.0-dev.20260302.1':
+  '@typescript/native-preview-win32-x64@7.0.0-dev.20260501.1':
     optional: true
 
-  '@typescript/native-preview@7.0.0-dev.20260302.1':
+  '@typescript/native-preview@7.0.0-dev.20260501.1':
     optionalDependencies:
-      '@typescript/native-preview-darwin-arm64': 7.0.0-dev.20260302.1
-      '@typescript/native-preview-darwin-x64': 7.0.0-dev.20260302.1
-      '@typescript/native-preview-linux-arm': 7.0.0-dev.20260302.1
-      '@typescript/native-preview-linux-arm64': 7.0.0-dev.20260302.1
-      '@typescript/native-preview-linux-x64': 7.0.0-dev.20260302.1
-      '@typescript/native-preview-win32-arm64': 7.0.0-dev.20260302.1
-      '@typescript/native-preview-win32-x64': 7.0.0-dev.20260302.1
+      '@typescript/native-preview-darwin-arm64': 7.0.0-dev.20260501.1
+      '@typescript/native-preview-darwin-x64': 7.0.0-dev.20260501.1
+      '@typescript/native-preview-linux-arm': 7.0.0-dev.20260501.1
+      '@typescript/native-preview-linux-arm64': 7.0.0-dev.20260501.1
+      '@typescript/native-preview-linux-x64': 7.0.0-dev.20260501.1
+      '@typescript/native-preview-win32-arm64': 7.0.0-dev.20260501.1
+      '@typescript/native-preview-win32-x64': 7.0.0-dev.20260501.1
 
   '@unhead/vue@2.1.13(vue@3.5.33(typescript@5.9.3))':
     dependencies:

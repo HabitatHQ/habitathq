@@ -19,8 +19,15 @@
     "clean": "pnpm -r clean"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.1",
     "@biomejs/biome": "^2.4.6",
-    "lefthook": "^1.11.13"
+    "@playwright/test": "^1.58.2",
+    "@typescript/native-preview": "7.0.0-dev.20260501.1",
+    "axe-core": "^4.11.1",
+    "lefthook": "^1.13.6",
+    "playwright-core": "^1.58.2",
+    "typescript": "^5.9.3",
+    "vue-tsc": "^3.2.5"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
