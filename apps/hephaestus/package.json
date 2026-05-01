@@ -49,6 +49,7 @@
     ]
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.1",
     "@biomejs/biome": "^2.4.4",
     "@capacitor/android": "^8.1.0",
     "@capacitor/cli": "^8.1.0",
@@ -57,6 +58,7 @@
     "@capacitor/ios": "^8.1.0",
     "@capacitor/preferences": "^8.0.1",
     "@capacitor/status-bar": "^8.0.1",
+    "@iconify-json/ph": "^1.2.2",
     "@playwright/test": "^1.58.2",
     "@typescript/native-preview": "7.0.0-dev.20260302.1",
     "@vite-pwa/nuxt": "^1.1.1",
@@ -64,6 +66,7 @@
     "happy-dom": "^20.7.0",
     "lefthook": "^1.11.13",
     "playwright-core": "^1.58.2",
+    "sql.js": "^1.14.1",
     "tailwindcss": "^4.2.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18",

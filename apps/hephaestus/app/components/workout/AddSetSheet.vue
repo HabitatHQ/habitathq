@@ -1,17 +1,21 @@
 <script setup lang="ts">
-import type { SetRow } from '~/types/database'
+import type { FailureType, MovementPattern, SetRow } from '~/types/database'
 
 const props = defineProps<{
   open: boolean
   exerciseName: string
+  exerciseMovement?: MovementPattern
+  exerciseIcon?: string | null
   setNum: number
   lastSet: SetRow | null
   unit?: 'kg' | 'lbs'
+  showWarmupSuggestions?: boolean
 }>()
 
 const emit = defineEmits<{
   close: []
   confirm: [partial: Partial<SetRow>]
+  suggestWarmups: []
 }>()
 
 const unit = computed(() => props.unit ?? 'kg')
@@ -22,6 +26,20 @@ const rpe = ref<number | null>(props.lastSet?.rpe ?? null)
 const rir = ref<number | null>(null)
 const isWarmup = ref(false)
 const notes = ref('')
+const isFailure = ref(false)
+const failureType = ref<FailureType | null>(null)
+const partialReps = ref<number | null>(null)
+
+const failureOptions: { value: FailureType; label: string }[] = [
+  { value: 'muscular', label: 'Muscular' },
+  { value: 'technical', label: 'Technical' },
+  { value: 'near_failure', label: 'Near failure' },
+]
+
+// Auto-set RIR to 0 on failure
+watch(isFailure, (val) => {
+  if (val) rir.value = 0
+})
 
 // Reset when sheet opens
 watch(
@@ -34,6 +52,9 @@ watch(
       rir.value = null
       isWarmup.value = false
       notes.value = ''
+      isFailure.value = false
+      failureType.value = null
+      partialReps.value = null
     }
   },
 )
@@ -55,16 +76,21 @@ function handleConfirm() {
     rir: rir.value,
     is_warmup: isWarmup.value ? 1 : 0,
     notes: notes.value || null,
+    failure_flag: isFailure.value ? 1 : 0,
+    failure_type: isFailure.value ? failureType.value : null,
+    partial_reps: isFailure.value ? partialReps.value || null : null,
   })
 }
 </script>
 
 <template>
+  <!-- Single root prevents Vue fragment-anchor issues with transitions -->
+  <div>
   <!-- Backdrop -->
   <Transition name="fade">
     <div
       v-if="open"
-      class="fixed inset-0 bg-black/50 z-50"
+      class="fixed inset-0 bg-black/50 z-[100]"
       role="presentation"
       @click="emit('close')"
     />
@@ -74,15 +100,22 @@ function handleConfirm() {
   <Transition name="slide-up">
     <div
       v-if="open"
-      class="fixed bottom-0 left-0 right-0 z-50 rounded-t-2xl bg-(--color-surface) safe-area-bottom p-6 space-y-5"
+      class="fixed bottom-0 left-0 right-0 z-[100] rounded-t-2xl bg-(--color-surface) safe-area-bottom p-6 space-y-5"
       role="dialog"
       :aria-label="`Log Set ${setNum} · ${exerciseName}`"
       aria-modal="true"
     >
       <header class="flex items-center justify-between">
-        <h2 class="font-semibold">
-          Set {{ setNum }} · <span class="text-(--ui-text-muted)">{{ exerciseName }}</span>
-        </h2>
+        <div class="flex items-center gap-2.5 min-w-0">
+          <ExerciseAvatar
+            v-if="exerciseMovement"
+            :icon="exerciseIcon ?? null"
+            :movement="exerciseMovement"
+          />
+          <h2 class="font-semibold">
+            Set {{ setNum }} · <span class="text-(--ui-text-muted)">{{ exerciseName }}</span>
+          </h2>
+        </div>
         <button
           class="text-(--ui-text-muted) hover:text-(--ui-text)"
           aria-label="Close"
@@ -91,6 +124,43 @@ function handleConfirm() {
           <UIcon name="i-heroicons-x-mark" class="w-5 h-5" aria-hidden="true" />
         </button>
       </header>
+
+      <!-- Set type: Warmup | Working -->
+      <div class="flex rounded-xl bg-(--color-surface-2) p-0.5" role="group" aria-label="Set type">
+        <button
+          class="flex-1 py-1.5 text-sm font-medium rounded-[10px] transition-colors"
+          :class="isWarmup
+            ? 'bg-(--color-surface) text-(--color-accent) shadow-sm'
+            : 'text-(--ui-text-muted)'"
+          :aria-pressed="isWarmup"
+          @click="isWarmup = true"
+        >
+          Warmup
+        </button>
+        <button
+          class="flex-1 py-1.5 text-sm font-medium rounded-[10px] transition-colors"
+          :class="!isWarmup
+            ? 'bg-(--color-surface) text-(--ui-text) shadow-sm'
+            : 'text-(--ui-text-muted)'"
+          :aria-pressed="!isWarmup"
+          @click="isWarmup = false"
+        >
+          Working
+        </button>
+      </div>
+
+      <!-- Suggest warm-ups (warmup mode, not first set) -->
+      <UButton
+        v-if="isWarmup && setNum > 1 && props.showWarmupSuggestions !== false"
+        size="xs"
+        variant="ghost"
+        color="neutral"
+        class="w-full"
+        @click="emit('suggestWarmups')"
+      >
+        <UIcon name="i-heroicons-fire" class="w-4 h-4" aria-hidden="true" />
+        Suggest warm-ups
+      </UButton>
 
       <!-- Weight + Reps -->
       <div class="grid grid-cols-2 gap-4">
@@ -207,27 +277,65 @@ function handleConfirm() {
         </div>
       </div>
 
-      <!-- Warmup toggle + Notes -->
-      <div class="flex items-center gap-3">
+      <!-- Notes -->
+      <input
+        v-model="notes"
+        type="text"
+        placeholder="Note (optional)"
+        class="w-full text-sm bg-transparent border-b border-(--ui-border) py-1"
+        aria-label="Note"
+      />
+
+      <!-- Failure section — working sets only -->
+      <div v-if="!isWarmup" class="space-y-3">
         <button
-          class="px-3 py-1.5 text-sm rounded-full border transition-colors"
-          :class="
-            isWarmup
-              ? 'border-(--color-accent) text-(--color-accent) bg-(--color-accent-dim)/20'
-              : 'border-(--ui-border) text-(--ui-text-muted)'
-          "
-          :aria-pressed="isWarmup"
-          @click="isWarmup = !isWarmup"
+          class="flex items-center gap-2 text-sm font-medium"
+          :class="isFailure ? 'text-red-400' : 'text-(--ui-text-muted)'"
+          :aria-pressed="isFailure"
+          aria-label="Toggle failure set"
+          @click="isFailure = !isFailure"
         >
-          Warmup
+          <UIcon
+            :name="isFailure ? 'i-heroicons-x-circle' : 'i-heroicons-x-circle'"
+            class="w-4 h-4"
+            aria-hidden="true"
+          />
+          Failure set
         </button>
-        <input
-          v-model="notes"
-          type="text"
-          placeholder="Note (optional)"
-          class="flex-1 text-sm bg-transparent border-b border-(--ui-border) py-1"
-          aria-label="Note"
-        />
+
+        <div v-if="isFailure" class="space-y-3 pl-1">
+          <!-- Failure type -->
+          <div class="flex rounded-xl bg-(--color-surface-2) p-0.5" role="group" aria-label="Failure type">
+            <button
+              v-for="opt in failureOptions"
+              :key="opt.value"
+              class="flex-1 py-1.5 text-xs font-medium rounded-[10px] transition-colors"
+              :class="failureType === opt.value
+                ? 'bg-(--color-surface) text-red-400 shadow-sm'
+                : 'text-(--ui-text-muted)'"
+              :aria-pressed="failureType === opt.value"
+              @click="failureType = opt.value"
+            >
+              {{ opt.label }}
+            </button>
+          </div>
+
+          <!-- Partial reps -->
+          <div class="space-y-1">
+            <label class="text-xs font-medium text-(--ui-text-muted) uppercase tracking-wider">
+              Partial reps (optional)
+            </label>
+            <input
+              v-model.number="partialReps"
+              type="number"
+              step="1"
+              min="0"
+              placeholder="—"
+              class="w-full text-center text-lg font-bold bg-transparent border-b border-(--ui-border) py-1"
+              aria-label="Partial reps"
+            />
+          </div>
+        </div>
       </div>
 
       <!-- Submit -->
@@ -243,6 +351,7 @@ function handleConfirm() {
       </UButton>
     </div>
   </Transition>
+  </div>
 </template>
 
 <style scoped>
@@ -253,5 +362,14 @@ function handleConfirm() {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: transform 0.25s ease;
+}
+.slide-up-enter-from,
+.slide-up-leave-to {
+  transform: translateY(100%);
 }
 </style>

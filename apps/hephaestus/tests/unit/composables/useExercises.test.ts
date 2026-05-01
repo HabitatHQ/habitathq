@@ -12,7 +12,9 @@ function makeExercise(overrides: Partial<ExerciseRow> = {}): ExerciseRow {
     muscles: '["quads","glutes"]',
     muscles_sec: '["hamstrings","core"]',
     cues: null,
+    icon: null,
     is_custom: 0,
+    logging_mode: 'strength',
     created_at: '2025-01-01T00:00:00Z',
     ...overrides,
   }

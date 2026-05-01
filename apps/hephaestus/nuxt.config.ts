@@ -10,6 +10,7 @@ export default defineNuxtConfig({
     host: '127.0.0.1',
     port: 3210,
   },
+  devtools: { enabled: process.env['NUXT_DEVTOOLS_ENABLED'] !== 'false' },
   compatibilityDate: '2025-01-01',
 
   // Required for SharedArrayBuffer (SQLite WASM OPFS persistence).
@@ -25,8 +26,6 @@ export default defineNuxtConfig({
 
   // SPA mode — works for both PWA and Capacitor
   ssr: false,
-
-  devtools: { enabled: true },
 
   modules: ['@nuxt/ui', ...(isPWA ? ['@vite-pwa/nuxt'] : [])],
 

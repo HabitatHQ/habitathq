@@ -1,6 +1,13 @@
+import { isoWeek, localDateString } from '~/lib/format'
 import { detectPRs } from '~/lib/pr'
 import { buildPendingSet, calculateWorkoutVolume } from '~/lib/workout-helpers'
-import type { PersonalRecordRow, SetRow, WorkoutExerciseRow, WorkoutRow } from '~/types/database'
+import type {
+  PersonalRecordRow,
+  SetRow,
+  TemplateGroupRow,
+  WorkoutExerciseRow,
+  WorkoutRow,
+} from '~/types/database'
 
 export interface WorkoutSummary {
   totalSets: number
@@ -12,10 +19,17 @@ export interface WorkoutSummary {
 const activeWorkout = ref<WorkoutRow | null>(null)
 const workoutExercises = ref<WorkoutExerciseRow[]>([])
 const sets = ref<Map<string, SetRow[]>>(new Map())
+const templateGroups = ref<Map<string, TemplateGroupRow>>(new Map())
 const elapsedSeconds = ref(0)
-const restTimer = ref<{ active: boolean; remaining: number; exerciseId: string | null }>({
+const restTimer = ref<{
+  active: boolean
+  remaining: number
+  total: number
+  exerciseId: string | null
+}>({
   active: false,
   remaining: 0,
+  total: 0,
   exerciseId: null,
 })
 
@@ -28,7 +42,7 @@ export function useWorkout() {
   async function startWorkout(templateId?: string): Promise<void> {
     const id = crypto.randomUUID()
     const now = new Date().toISOString()
-    const today = now.slice(0, 10)
+    const today = localDateString(new Date())
 
     await db.exec(
       `INSERT INTO workouts (id,date,started_at,session_type,template_id,created_at)
@@ -47,11 +61,13 @@ export function useWorkout() {
       mood_rating: null,
       energy_rating: null,
       notes: null,
+      environment: null,
       created_at: now,
     }
 
     workoutExercises.value = []
     sets.value = new Map()
+    templateGroups.value = new Map()
     elapsedSeconds.value = 0
 
     elapsedInterval = setInterval(() => {
@@ -65,15 +81,26 @@ export function useWorkout() {
   }
 
   async function loadTemplateExercises(templateId: string): Promise<void> {
-    const templateExercises = await db.query<{
-      exercise_id: string
-      order_num: number
-      superset_group: string | null
-      sets_planned: number | null
-      rest_seconds: number
-    }>('SELECT * FROM template_exercises WHERE template_id = ? ORDER BY order_num ASC', [
-      templateId,
+    const [templateExercises, groupRows] = await Promise.all([
+      db.query<{
+        exercise_id: string
+        order_num: number
+        superset_group: string | null
+        sets_planned: number | null
+        rest_seconds: number
+      }>('SELECT * FROM template_exercises WHERE template_id = ? ORDER BY order_num ASC', [
+        templateId,
+      ]),
+      db.query<TemplateGroupRow>('SELECT * FROM template_groups WHERE template_id = ?', [
+        templateId,
+      ]),
     ])
+
+    const groupMap = new Map<string, TemplateGroupRow>()
+    for (const g of groupRows) {
+      groupMap.set(g.label, g)
+    }
+    templateGroups.value = groupMap
 
     for (const te of templateExercises) {
       await addExercise(te.exercise_id, {
@@ -127,6 +154,7 @@ export function useWorkout() {
     return we
   }
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: set logging handles many field combinations
   async function logSet(workoutExerciseId: string, partial: Partial<SetRow>): Promise<SetRow> {
     const existingSets = sets.value.get(workoutExerciseId) ?? []
     const pendingIdx = existingSets.findIndex((s) => s.completed === 0)
@@ -148,12 +176,23 @@ export function useWorkout() {
       notes: null,
       completed: 1,
       logged_at: new Date().toISOString(),
+      distance_m: null,
+      duration_sec: null,
+      speed_kmh: null,
+      level: null,
+      technique_flag: null,
+      body_feel: null,
+      failure_flag: 0,
+      failure_type: null,
+      partial_reps: null,
       ...partial,
     }
 
     await db.exec(
-      `INSERT OR REPLACE INTO sets (id,workout_exercise_id,set_num,is_warmup,weight_kg,reps,rpe,rir,notes,completed,logged_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO sets
+       (id,workout_exercise_id,set_num,is_warmup,weight_kg,reps,rpe,rir,notes,completed,logged_at,
+        distance_m,duration_sec,speed_kmh,level,technique_flag,body_feel,failure_flag,failure_type,partial_reps)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         set.id,
         set.workout_exercise_id,
@@ -166,6 +205,15 @@ export function useWorkout() {
         set.notes,
         set.completed,
         set.logged_at,
+        set.distance_m,
+        set.duration_sec,
+        set.speed_kmh,
+        set.level,
+        set.technique_flag,
+        set.body_feel,
+        set.failure_flag,
+        set.failure_type,
+        set.partial_reps,
       ],
     )
 
@@ -181,10 +229,24 @@ export function useWorkout() {
     updated.push(buildPendingSet(workoutExerciseId, set, nextNum))
     sets.value = new Map(sets.value).set(workoutExerciseId, updated)
 
-    // Start rest timer for this exercise's rest_seconds
+    // Start rest timer — superset groups use transition/round rest; solo exercises use rest_seconds
     const we = workoutExercises.value.find((e) => e.id === workoutExerciseId)
     if (we && !set.is_warmup) {
-      startRestTimer(we.rest_seconds, workoutExerciseId)
+      const group = we.superset_group ? templateGroups.value.get(we.superset_group) : null
+      if (group) {
+        const groupExercises = workoutExercises.value.filter(
+          (e) => e.superset_group === we.superset_group,
+        )
+        const completedCounts = groupExercises.map(
+          (e) => (sets.value.get(e.id) ?? []).filter((s) => s.completed === 1).length,
+        )
+        const minCount = Math.min(...completedCounts)
+        const roundComplete = minCount > 0 && completedCounts.every((c) => c === minCount)
+        const restSecs = roundComplete ? group.rest_after_round_sec : group.transition_rest_sec
+        if (restSecs > 0) startRestTimer(restSecs, workoutExerciseId)
+      } else {
+        startRestTimer(we.rest_seconds, workoutExerciseId)
+      }
     }
 
     return set
@@ -192,7 +254,7 @@ export function useWorkout() {
 
   function startRestTimer(seconds: number, exerciseId: string) {
     if (restInterval) clearInterval(restInterval)
-    restTimer.value = { active: true, remaining: seconds, exerciseId }
+    restTimer.value = { active: true, remaining: seconds, total: seconds, exerciseId }
     restInterval = setInterval(() => {
       restTimer.value.remaining--
       if (restTimer.value.remaining <= 0) {
@@ -206,7 +268,21 @@ export function useWorkout() {
       clearInterval(restInterval)
       restInterval = null
     }
-    restTimer.value = { active: false, remaining: 0, exerciseId: null }
+    restTimer.value = { active: false, remaining: 0, total: 0, exerciseId: null }
+  }
+
+  function addRestTime(seconds: number) {
+    if (restTimer.value.active) {
+      restTimer.value = {
+        ...restTimer.value,
+        remaining: restTimer.value.remaining + seconds,
+        total: restTimer.value.total + seconds,
+      }
+    } else {
+      // Start a new timer for the last logged exercise
+      const lastWe = workoutExercises.value[workoutExercises.value.length - 1]
+      if (lastWe) startRestTimer(seconds, lastWe.id)
+    }
   }
 
   async function finishWorkout(
@@ -263,16 +339,30 @@ export function useWorkout() {
 
     const started = new Date(activeWorkout.value.started_at).getTime()
     const ended = new Date(endedAt).getTime()
+    const totalVolume = calculateWorkoutVolume(allSets)
+    const totalSets = allSets.filter((s) => s.is_warmup === 0).length
     const summary: WorkoutSummary = {
-      totalSets: allSets.filter((s) => s.is_warmup === 0).length,
-      totalVolume: calculateWorkoutVolume(allSets),
+      totalSets,
+      totalVolume,
       newPRs,
       durationSec: Math.round((ended - started) / 1000),
     }
 
+    // Update weekly_training_load for this workout's week
+    const week = isoWeek(new Date(endedAt))
+    await db.exec(
+      `INSERT INTO weekly_training_load (week, gym_volume, gym_sets)
+       VALUES (?, ?, ?)
+       ON CONFLICT(week) DO UPDATE SET
+         gym_volume = COALESCE(gym_volume, 0) + excluded.gym_volume,
+         gym_sets   = COALESCE(gym_sets, 0)   + excluded.gym_sets`,
+      [week, totalVolume, totalSets],
+    )
+
     activeWorkout.value = null
     workoutExercises.value = []
     sets.value = new Map()
+    templateGroups.value = new Map()
 
     return summary
   }
@@ -281,6 +371,7 @@ export function useWorkout() {
     activeWorkout: readonly(activeWorkout),
     workoutExercises: readonly(workoutExercises),
     sets: readonly(sets),
+    templateGroups: readonly(templateGroups),
     elapsedSeconds: readonly(elapsedSeconds),
     restTimer: readonly(restTimer),
     startWorkout,
@@ -288,5 +379,6 @@ export function useWorkout() {
     logSet,
     finishWorkout,
     stopRestTimer,
+    addRestTime,
   }
 }

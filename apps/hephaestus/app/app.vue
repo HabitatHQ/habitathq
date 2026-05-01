@@ -2,6 +2,7 @@
 const { settings } = useAppSettings()
 const db = useDatabase()
 const { ensureSeeded } = useSeed()
+const { load: loadExercises } = useExercises()
 
 onMounted(() => {
   // Theme + motion preference
@@ -10,11 +11,19 @@ onMounted(() => {
     document.documentElement.classList.toggle('reduce-motion', settings.value.reduceMotion ?? false)
   })
 
-  // Seed exercises once DB is ready
+  // Seed exercises once DB is ready, then load them into shared state.
+  // Using watch here means any rpc calls already awaiting readyPromise will
+  // resolve first, so seeding always runs before page-level queries return.
   watch(
     db.status,
     async (s) => {
-      if (s === 'ready') await ensureSeeded()
+      if (s !== 'ready') return
+      try {
+        await ensureSeeded()
+      } catch (e) {
+        console.error('[app] seeding failed:', e)
+      }
+      await loadExercises()
     },
     { immediate: true },
   )

@@ -1,24 +1,30 @@
 <script setup lang="ts">
+import type { MuscleFrequency, WeekDot } from '~/lib/analytics'
 import { formatVolume } from '~/lib/format'
+import type { ReadinessResult } from '~/lib/readiness'
 import { calculateAcuteLoad, calculateChronicLoad, getLoadRatio } from '~/lib/training-load'
 import type { PersonalRecordRow, WeeklyTrainingLoadRow } from '~/types/database'
 
 const { settings } = useAppSettings()
 const db = useDatabase()
+const progress = useProgress()
 
 const prs = ref<PersonalRecordRow[]>([])
 const weeklyLoad = ref<WeeklyTrainingLoadRow[]>([])
 const loading = ref(true)
 
-onMounted(async () => {
-  if (db.status.value === 'ready') {
-    await load()
-  } else {
-    watch(db.status, async (s) => {
-      if (s === 'ready') await load()
-    })
-  }
-})
+const dotGrid = ref<WeekDot[][]>([])
+const muscleFreq = ref<MuscleFrequency[]>([])
+const weeklyVol = ref<{ week: string; volume: number; sets: number }[]>([])
+const readiness = ref<ReadinessResult | null>(null)
+
+watch(
+  db.status,
+  async (s) => {
+    if (s === 'ready') await load()
+  },
+  { immediate: true },
+)
 
 async function load() {
   loading.value = true
@@ -30,6 +36,17 @@ async function load() {
     weeklyLoad.value = await db.query<WeeklyTrainingLoadRow>(
       'SELECT * FROM weekly_training_load ORDER BY week DESC LIMIT 8',
     )
+
+    const [grid, muscles, vol, ready] = await Promise.all([
+      progress.dotGrid(12),
+      progress.muscleFrequency(28),
+      progress.weeklyVolume(8),
+      progress.readinessData(),
+    ])
+    dotGrid.value = grid
+    muscleFreq.value = muscles
+    weeklyVol.value = vol
+    readiness.value = ready
   } finally {
     loading.value = false
   }
@@ -145,6 +162,44 @@ const recentPRs = computed(() => prs.value.slice(0, 5))
 
         <div v-else class="rounded-xl bg-(--color-surface) p-6 text-center text-(--ui-text-muted)">
           <p>Complete workouts to track PRs.</p>
+        </div>
+      </section>
+
+      <!-- Readiness -->
+      <section v-if="readiness" aria-labelledby="readiness-heading">
+        <h2 id="readiness-heading" class="text-sm font-semibold uppercase tracking-wider text-(--ui-text-muted) mb-3">
+          Today's Readiness
+        </h2>
+        <ProgressReadinessCard :readiness="readiness" />
+      </section>
+
+      <!-- Volume Chart -->
+      <section aria-labelledby="volume-chart-heading">
+        <h2 id="volume-chart-heading" class="text-sm font-semibold uppercase tracking-wider text-(--ui-text-muted) mb-3">
+          Weekly Volume
+        </h2>
+        <div class="rounded-xl bg-(--color-surface) p-4">
+          <ProgressTrainingLoadChart :data="weeklyVol" />
+        </div>
+      </section>
+
+      <!-- Dot Grid -->
+      <section aria-labelledby="grid-heading">
+        <h2 id="grid-heading" class="text-sm font-semibold uppercase tracking-wider text-(--ui-text-muted) mb-3">
+          Training Calendar
+        </h2>
+        <div class="rounded-xl bg-(--color-surface) p-4">
+          <ProgressDotGrid :grid="dotGrid" />
+        </div>
+      </section>
+
+      <!-- Muscle Heatmap -->
+      <section aria-labelledby="muscle-heading">
+        <h2 id="muscle-heading" class="text-sm font-semibold uppercase tracking-wider text-(--ui-text-muted) mb-3">
+          Muscle Frequency (28 days)
+        </h2>
+        <div class="rounded-xl bg-(--color-surface) p-4">
+          <ProgressMuscleHeatmap :muscles="muscleFreq" />
         </div>
       </section>
     </template>

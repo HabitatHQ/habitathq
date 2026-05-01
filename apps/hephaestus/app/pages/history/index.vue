@@ -9,15 +9,13 @@ const loading = ref(true)
 const filter = ref<'all' | 'gym' | 'run'>('all')
 const searchQuery = ref('')
 
-onMounted(async () => {
-  if (db.status.value === 'ready') {
-    await load()
-  } else {
-    watch(db.status, async (s) => {
-      if (s === 'ready') await load()
-    })
-  }
-})
+watch(
+  db.status,
+  async (s) => {
+    if (s === 'ready') await load()
+  },
+  { immediate: true },
+)
 
 async function load() {
   loading.value = true
@@ -125,19 +123,35 @@ function duration(w: WorkoutRow): string {
           <li
             v-for="w in group.items"
             :key="w.id"
-            class="rounded-xl bg-(--color-surface) px-4 py-3 flex items-center justify-between"
           >
-            <div class="min-w-0">
-              <p class="text-sm font-medium">{{ sessionLabel(w) }}</p>
-              <p class="text-xs text-(--ui-text-muted)">
-                {{ new Date(w.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) }}
-                · {{ duration(w) }}
-              </p>
-              <p v-if="w.notes" class="text-xs text-(--ui-text-muted) truncate mt-0.5">
-                {{ w.notes }}
-              </p>
-            </div>
-            <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
+            <NuxtLink
+              :to="`/history/${w.id}`"
+              class="rounded-xl bg-(--color-surface) px-4 py-3 flex items-center gap-3"
+            >
+              <!-- Session type avatar -->
+              <div
+                class="shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
+                :class="w.session_type === 'run' ? 'bg-green-500/20' : 'bg-orange-500/20'"
+                aria-hidden="true"
+              >
+                <UIcon
+                  :name="w.session_type === 'run' ? 'i-ph-person-simple-run' : 'i-ph-barbell'"
+                  class="w-4 h-4"
+                  :class="w.session_type === 'run' ? 'text-green-400' : 'text-orange-400'"
+                />
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class="text-sm font-medium">{{ sessionLabel(w) }}</p>
+                <p class="text-xs text-(--ui-text-muted)">
+                  {{ new Date(w.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) }}
+                  · {{ duration(w) }}
+                </p>
+                <p v-if="w.notes" class="text-xs text-(--ui-text-muted) truncate mt-0.5">
+                  {{ w.notes }}
+                </p>
+              </div>
+              <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
+            </NuxtLink>
           </li>
         </ul>
       </section>

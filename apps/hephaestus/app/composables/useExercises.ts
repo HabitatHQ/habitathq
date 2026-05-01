@@ -1,5 +1,13 @@
 import { filterExercises, searchExercises, sortExercises } from '~/lib/exercise-helpers'
-import type { Equipment, ExerciseRow, MovementPattern } from '~/types/database'
+import { movementIcon } from '~/lib/exercise-icons'
+import type {
+  Equipment,
+  EquipmentSub,
+  ExerciseRow,
+  LoggingMode,
+  MovementPattern,
+} from '~/types/database'
+import { equipmentCategory } from '~/types/database'
 
 export function useExercises() {
   const db = useDatabase()
@@ -7,7 +15,7 @@ export function useExercises() {
   const loading = ref(false)
 
   async function load() {
-    if (exercises.value.length > 0) return
+    if (loading.value) return // already in-flight, skip duplicate call
     loading.value = true
     try {
       const rows = await db.query<ExerciseRow>('SELECT * FROM exercises ORDER BY name ASC')
@@ -35,10 +43,11 @@ export function useExercises() {
 
   async function addCustom(
     name: string,
-    equipment: Equipment,
+    equipmentSub: EquipmentSub,
     movement: MovementPattern,
     muscles: string[],
     musclesSec: string[] = [],
+    loggingMode: LoggingMode = 'strength',
   ): Promise<ExerciseRow> {
     const id = crypto.randomUUID()
     const slug = name
@@ -46,22 +55,41 @@ export function useExercises() {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '')
     const now = new Date().toISOString()
+    const icon = movementIcon[movement] ?? 'i-ph-barbell'
+    const equipment: Equipment = equipmentCategory(equipmentSub)
     const row: ExerciseRow = {
       id,
       name,
       slug,
       equipment,
+      equipment_sub: equipmentSub,
       movement,
       muscles: JSON.stringify(muscles),
       muscles_sec: JSON.stringify(musclesSec),
       cues: null,
+      icon,
       is_custom: 1,
+      logging_mode: loggingMode,
       created_at: now,
     }
     await db.exec(
-      `INSERT INTO exercises (id,name,slug,equipment,movement,muscles,muscles_sec,cues,is_custom,created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
-      [id, name, slug, equipment, movement, row.muscles, row.muscles_sec, null, 1, now],
+      `INSERT INTO exercises (id,name,slug,equipment,equipment_sub,movement,muscles,muscles_sec,cues,icon,is_custom,logging_mode,created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        id,
+        name,
+        slug,
+        equipment,
+        equipmentSub,
+        movement,
+        row.muscles,
+        row.muscles_sec,
+        null,
+        icon,
+        1,
+        loggingMode,
+        now,
+      ],
     )
     exercises.value = [...exercises.value, row]
     return row

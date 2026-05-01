@@ -12,6 +12,16 @@ const pending = new Map<string, PendingEntry>()
 const status = ref<DbStatus>('initializing')
 const error = ref<string | null>(null)
 
+// Resolved when the worker posts READY. rpc() awaits this before sending any
+// message, so calls made before the worker finishes initialising are queued
+// naturally by Promise chaining instead of being silently dropped.
+let _readyResolve: (() => void) | null = null
+let _readyReject: ((err: Error) => void) | null = null
+const readyPromise = new Promise<void>((resolve, reject) => {
+  _readyResolve = resolve
+  _readyReject = reject
+})
+
 function getWorker(): Worker {
   if (worker) return worker
 
@@ -22,16 +32,19 @@ function getWorker(): Worker {
 
     if (type === 'READY') {
       status.value = 'ready'
+      _readyResolve?.()
       return
     }
     if (type === 'LOCK_UNAVAILABLE') {
       status.value = 'lock_unavailable'
       error.value = 'Database is in use by another tab.'
+      _readyReject?.(new Error(error.value))
       return
     }
     if (type === 'INIT_ERROR') {
       status.value = 'error'
       error.value = workerError ?? 'Unknown init error'
+      _readyReject?.(new Error(error.value))
       return
     }
 
@@ -50,7 +63,8 @@ function getWorker(): Worker {
   return worker
 }
 
-function rpc<T>(type: string, payload?: unknown): Promise<T> {
+async function rpc<T>(type: string, payload?: unknown): Promise<T> {
+  await readyPromise
   return new Promise((resolve, reject) => {
     const id = crypto.randomUUID()
     pending.set(id, {

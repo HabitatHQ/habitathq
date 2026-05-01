@@ -10,6 +10,9 @@ export default defineConfig({
   },
   test: {
     environment: 'happy-dom',
-    include: ['tests/unit/**/*.test.ts'],
+    include: ['tests/unit/**/*.test.ts', 'tests/integration/**/*.test.ts'],
+    environmentMatchGlobs: [
+      ['tests/integration/**', 'node'],
+    ],
   },
 })

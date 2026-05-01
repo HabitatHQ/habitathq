@@ -1,11 +1,30 @@
-outsiders/
+# Dependencies
 node_modules/
+
+# Nuxt / Nitro build
 .nuxt/
 .output/
+.nitro/
 dist/
+
+# Native
 android/
 ios/
-.env
-.DS_Store
+
+# Test artifacts
 test-results/
 playwright-report/
+coverage/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# OS / Editor
+.DS_Store
+*.sw?
+*.tsbuildinfo
+
+# Project
+outsiders/

@@ -14,7 +14,6 @@ const emit = defineEmits<{
 }>()
 
 const unit = computed(() => props.unit ?? 'kg')
-const completedCount = computed(() => props.sets.filter((s) => s.completed === 1).length)
 const workingCount = computed(
   () => props.sets.filter((s) => s.completed === 1 && s.is_warmup === 0).length,
 )
@@ -45,7 +44,13 @@ const workingCount = computed(
           {{ exercise.equipment }} · {{ workingCount }} working set{{ workingCount !== 1 ? 's' : '' }}
         </p>
       </div>
-      <UButton size="xs" variant="ghost" color="primary" @click="emit('addSet', workoutExercise.id)">
+      <UButton
+        size="xs"
+        variant="ghost"
+        color="primary"
+        aria-label="+ Set"
+        @click="emit('addSet', workoutExercise.id)"
+      >
         <UIcon name="i-heroicons-plus" class="w-4 h-4" aria-hidden="true" />
         Set
       </UButton>

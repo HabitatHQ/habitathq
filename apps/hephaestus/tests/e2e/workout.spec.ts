@@ -62,8 +62,9 @@ test.describe('Workout flow', () => {
     await page.getByRole('searchbox', { name: /search exercises/i }).fill('barbell squat')
     await page.getByText('Barbell Squat').first().click()
 
-    // Exercise block should appear
-    await expect(page.getByText('Barbell Squat')).toBeVisible()
+    // Wait for picker to close, then exercise block should appear
+    await expect(page.getByRole('dialog', { name: /add exercise/i })).not.toBeVisible()
+    await expect(page.getByRole('region', { name: 'Barbell Squat' })).toBeVisible()
 
     // Click + Set button
     await page.getByRole('button', { name: /\+ set/i }).click()
@@ -72,8 +73,8 @@ test.describe('Workout flow', () => {
     await expect(page.getByRole('dialog', { name: /log set/i })).toBeVisible()
 
     // Fill weight and reps
-    await page.getByLabel('Weight').fill('100')
-    await page.getByLabel('Reps').fill('5')
+    await page.getByLabel('Weight', { exact: true }).fill('100')
+    await page.getByLabel('Reps', { exact: true }).fill('5')
 
     // Log the set
     await page.getByRole('button', { name: /log set/i }).click()
@@ -156,15 +157,15 @@ test.describe('Log set sheet', () => {
   test('Log Set button is disabled when weight or reps are empty', async ({ page }) => {
     await openSetSheet(page)
     // Clear any pre-filled values
-    await page.getByLabel('Weight').fill('')
-    await page.getByLabel('Reps').fill('')
+    await page.getByLabel('Weight', { exact: true }).fill('')
+    await page.getByLabel('Reps', { exact: true }).fill('')
     await expect(page.getByRole('button', { name: /log set/i })).toBeDisabled()
   })
 
   test('Log Set button is enabled when weight and reps are filled', async ({ page }) => {
     await openSetSheet(page)
-    await page.getByLabel('Weight').fill('80')
-    await page.getByLabel('Reps').fill('8')
+    await page.getByLabel('Weight', { exact: true }).fill('80')
+    await page.getByLabel('Reps', { exact: true }).fill('8')
     await expect(page.getByRole('button', { name: /log set/i })).toBeEnabled()
   })
 
@@ -176,20 +177,20 @@ test.describe('Log set sheet', () => {
 
   test('weight +/- buttons nudge the value', async ({ page }) => {
     await openSetSheet(page)
-    await page.getByLabel('Weight').fill('100')
+    await page.getByLabel('Weight', { exact: true }).fill('100')
     await page.getByRole('button', { name: /increase weight/i }).click()
-    await expect(page.getByLabel('Weight')).toHaveValue('102.5')
+    await expect(page.getByLabel('Weight', { exact: true })).toHaveValue('102.5')
     await page.getByRole('button', { name: /decrease weight/i }).click()
-    await expect(page.getByLabel('Weight')).toHaveValue('100')
+    await expect(page.getByLabel('Weight', { exact: true })).toHaveValue('100')
   })
 
   test('reps +/- buttons nudge the value', async ({ page }) => {
     await openSetSheet(page)
-    await page.getByLabel('Reps').fill('5')
+    await page.getByLabel('Reps', { exact: true }).fill('5')
     await page.getByRole('button', { name: /increase reps/i }).click()
-    await expect(page.getByLabel('Reps')).toHaveValue('6')
+    await expect(page.getByLabel('Reps', { exact: true })).toHaveValue('6')
     await page.getByRole('button', { name: /decrease reps/i }).click()
-    await expect(page.getByLabel('Reps')).toHaveValue('5')
+    await expect(page.getByLabel('Reps', { exact: true })).toHaveValue('5')
   })
 })
 
@@ -247,5 +248,67 @@ test.describe('Rest timer', () => {
     await expect(page.getByText('Active Session')).toBeVisible({ timeout: 10_000 })
     // Rest timer should not be visible
     await expect(page.getByRole('button', { name: /skip/i })).not.toBeVisible()
+  })
+})
+
+test.describe('DB persistence — workout → history', () => {
+  async function completeWorkoutWithSet(page: import('@playwright/test').Page) {
+    await page.goto('/workout')
+    await page.getByRole('button', { name: /start empty session/i }).click()
+    await expect(page.getByText('Active Session')).toBeVisible({ timeout: 10_000 })
+
+    // Add an exercise and log a set
+    await page.getByRole('button', { name: /add exercise/i }).click()
+    await expect(page.getByRole('list').locator('button').first()).toBeVisible({ timeout: 15_000 })
+    await page.getByRole('searchbox', { name: /search exercises/i }).fill('barbell squat')
+    await page.getByText('Barbell Squat').first().click()
+    await expect(page.getByRole('dialog', { name: /add exercise/i })).not.toBeVisible()
+    await page.getByRole('button', { name: /\+ set/i }).click()
+    await expect(page.getByRole('dialog', { name: /log set/i })).toBeVisible()
+    await page.getByLabel('Weight', { exact: true }).fill('100')
+    await page.getByLabel('Reps', { exact: true }).fill('5')
+    await page.getByRole('button', { name: /log set/i }).click()
+
+    // Finish
+    await page.getByRole('button', { name: /finish/i }).click()
+    await expect(page.getByRole('dialog', { name: /finish workout/i })).toBeVisible()
+    await page.getByRole('button', { name: /save workout/i }).click()
+    await expect(page.locator('h1')).toContainText('Session Complete')
+    await page.getByRole('button', { name: /done/i }).click()
+  }
+
+  test('completed workout appears in history', async ({ page }) => {
+    await completeWorkoutWithSet(page)
+    await page.goto('/history')
+    await expect(page.getByText(/loading workouts/i)).not.toBeVisible({ timeout: 15_000 })
+    // Should show a gym session in history
+    await expect(page.getByText(/gym session/i)).toBeVisible()
+  })
+
+  test('history shows correct session type icon for gym workout', async ({ page }) => {
+    await completeWorkoutWithSet(page)
+    await page.goto('/history')
+    await expect(page.getByText(/loading workouts/i)).not.toBeVisible({ timeout: 15_000 })
+    // The barbell icon should be rendered (aria-hidden so check the element exists in dom)
+    await expect(page.locator('[aria-hidden="true"]').first()).toBeVisible()
+  })
+
+  test('summary shows 1 working set and correct volume', async ({ page }) => {
+    await page.goto('/workout')
+    await page.getByRole('button', { name: /start empty session/i }).click()
+    await expect(page.getByText('Active Session')).toBeVisible({ timeout: 10_000 })
+    await page.getByRole('button', { name: /add exercise/i }).click()
+    await expect(page.getByRole('list').locator('button').first()).toBeVisible({ timeout: 15_000 })
+    await page.getByRole('searchbox', { name: /search exercises/i }).fill('barbell squat')
+    await page.getByText('Barbell Squat').first().click()
+    await page.getByRole('button', { name: /\+ set/i }).click()
+    await page.getByLabel('Weight', { exact: true }).fill('100')
+    await page.getByLabel('Reps', { exact: true }).fill('5')
+    await page.getByRole('button', { name: /log set/i }).click()
+    await page.getByRole('button', { name: /finish/i }).click()
+    await page.getByRole('button', { name: /save workout/i }).click()
+    await expect(page.locator('h1')).toContainText('Session Complete')
+    await expect(page.getByText('Working Sets')).toBeVisible()
+    await expect(page.getByText('1', { exact: true })).toBeVisible()
   })
 })

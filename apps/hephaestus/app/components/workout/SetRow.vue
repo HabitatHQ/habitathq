@@ -59,6 +59,10 @@ const weightStr = computed(() =>
       <span v-if="set.rir !== null" class="text-xs text-(--ui-text-muted)">
         RIR {{ set.rir }}
       </span>
+      <span v-if="set.failure_flag === 1" class="text-xs font-bold text-red-400 shrink-0">F</span>
+      <span v-if="set.failure_flag === 1 && set.partial_reps" class="text-xs text-(--ui-text-muted)">
+        +{{ set.partial_reps }}p
+      </span>
     </button>
 
     <!-- Notes indicator -->

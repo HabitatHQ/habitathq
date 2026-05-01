@@ -50,8 +50,8 @@ test.describe('Navigation', () => {
   test('nav tab labels are correct', async ({ page }) => {
     await page.goto('/')
     const nav = page.getByRole('navigation', { name: 'Primary navigation' })
-    for (const label of ['Today', 'Workout', 'History', 'Progress', 'Profile']) {
-      await expect(nav.getByText(label)).toBeVisible()
+    for (const label of ['Today', 'Workout', 'Exercises', 'History', 'Profile']) {
+      await expect(nav.getByRole('link', { name: label })).toBeVisible()
     }
   })
 
@@ -67,10 +67,10 @@ test.describe('Navigation', () => {
     await expect(page.locator('h1')).toContainText('History')
   })
 
-  test('navigates to progress page', async ({ page }) => {
+  test('navigates to exercises page', async ({ page }) => {
     await page.goto('/')
-    await page.getByRole('link', { name: 'Progress' }).click()
-    await expect(page.locator('h1')).toContainText('Progress')
+    await page.getByRole('link', { name: 'Exercises' }).click()
+    await expect(page.locator('h1')).toContainText('Exercises')
   })
 
   test('navigates to profile page', async ({ page }) => {
@@ -94,9 +94,9 @@ test.describe('Navigation', () => {
   })
 
   test('direct URL navigation renders correct page', async ({ page }) => {
-    await page.goto('/progress')
-    await expect(page.locator('h1')).toContainText('Progress')
-    await expect(page.url()).toContain('/progress')
+    await page.goto('/exercises')
+    await expect(page.locator('h1')).toContainText('Exercises')
+    await expect(page.url()).toContain('/exercises')
   })
 })
 

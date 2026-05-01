@@ -11,6 +11,20 @@ export interface AppSettings {
   defaultRestSeconds: number
   showRpe: boolean
   showRir: boolean
+  warmupRamps: number[]
+  // ── Feature toggles ──────────────────────────────────────────────────────
+  /** Show "Suggest warm-ups" button in the add-set sheet */
+  showWarmupSuggestions: boolean
+  /** Show "Take extra rest?" toast after logging a failure set */
+  showFailurePrompt: boolean
+  /** Show session notes textarea on the finish-workout sheet */
+  showSessionNotes: boolean
+  /** Enable set scheme wizard (pyramid, drop sets, rest-pause) in template builder */
+  showSetSchemes: boolean
+  /** Enable per-set rest overrides in template builder */
+  showVariableRest: boolean
+  /** Enable superset / circuit group creation in template builder */
+  showSupersets: boolean
 }
 
 const KEY = 'hephaestus-app-settings'
@@ -24,6 +38,14 @@ const DEFAULTS: AppSettings = {
   defaultRestSeconds: 120,
   showRpe: true,
   showRir: false,
+  warmupRamps: [40, 60, 80],
+  // Feature toggles — core features on, advanced off
+  showWarmupSuggestions: true,
+  showFailurePrompt: true,
+  showSessionNotes: true,
+  showSetSchemes: false,
+  showVariableRest: false,
+  showSupersets: false,
 }
 
 function readFromStorage(): AppSettings {

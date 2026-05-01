@@ -1,6 +1,24 @@
 import type { SetRow } from '~/types/database'
 import { calculateVolume } from './training-load'
 
+/** Shared null-defaults for optional SetRow fields added in schema v2/v4. */
+const SET_FIELD_DEFAULTS = {
+  rpe: null,
+  rir: null,
+  notes: null,
+  completed: 0 as const,
+  logged_at: null,
+  distance_m: null,
+  duration_sec: null,
+  speed_kmh: null,
+  level: null,
+  technique_flag: null,
+  body_feel: null,
+  failure_flag: 0 as const,
+  failure_type: null,
+  partial_reps: null,
+}
+
 /**
  * Filter to only completed working (non-warmup) sets.
  */
@@ -27,14 +45,10 @@ export function buildPendingSet(
     id: crypto.randomUUID(),
     workout_exercise_id: workoutExerciseId,
     set_num: setNum,
-    is_warmup: 0,
+    is_warmup: 0 as const,
     weight_kg: lastSet?.weight_kg ?? null,
     reps: lastSet?.reps ?? null,
-    rpe: null,
-    rir: null,
-    notes: null,
-    completed: 0,
-    logged_at: null,
+    ...SET_FIELD_DEFAULTS,
   }
 }
 
@@ -57,14 +71,10 @@ export function applySetDefaults(
     id: crypto.randomUUID(),
     workout_exercise_id: workoutExerciseId,
     set_num: setNum,
-    is_warmup: 0,
+    is_warmup: 0 as const,
     weight_kg: null,
     reps: null,
-    rpe: null,
-    rir: null,
-    notes: null,
-    completed: 0,
-    logged_at: null,
+    ...SET_FIELD_DEFAULTS,
     ...partial,
   }
 }

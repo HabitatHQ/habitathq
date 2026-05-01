@@ -17,7 +17,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'pnpm dev:pwa',
+    command: 'NUXT_DEVTOOLS_ENABLED=false pnpm dev:pwa',
     url: 'http://localhost:3210',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
