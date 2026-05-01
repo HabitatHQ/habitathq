@@ -1,0 +1,41 @@
+/* ── Hephaestus dark (default) — fire/forge aesthetic ──────────────────── */
+[data-theme='hephaestus'] {
+  --color-bg: #111111;
+  --color-surface: #1c1c1e;
+  --color-surface-2: #2c2c2e;
+  --color-accent: #f97316; /* orange */
+  --color-accent-dim: #7c2d12;
+  --color-text: #f2f2f7;
+  --color-text-muted: #8e8e93;
+  --color-success: #30d158;
+  --color-warning: #ffd60a;
+  --color-danger: #ff453a;
+}
+
+/* ── Forge dark — steel blue ─────────────────────────────────────────────── */
+[data-theme='forge'] {
+  --color-bg: #0f1117;
+  --color-surface: #161b22;
+  --color-surface-2: #21262d;
+  --color-accent: #60a5fa; /* steel blue */
+  --color-accent-dim: #1e3a5f;
+  --color-text: #e6edf3;
+  --color-text-muted: #8b949e;
+  --color-success: #3fb950;
+  --color-warning: #d29922;
+  --color-danger: #f85149;
+}
+
+/* ── Daylight — light mode ───────────────────────────────────────────────── */
+[data-theme='daylight'] {
+  --color-bg: #f8fafc;
+  --color-surface: #ffffff;
+  --color-surface-2: #f1f5f9;
+  --color-accent: #ea580c; /* orange-600 */
+  --color-accent-dim: #fed7aa;
+  --color-text: #0f172a;
+  --color-text-muted: #64748b;
+  --color-success: #16a34a;
+  --color-warning: #ca8a04;
+  --color-danger: #dc2626;
+}

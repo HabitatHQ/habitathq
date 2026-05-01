@@ -1,0 +1,16 @@
+pre-commit:
+  commands:
+    biome:
+      glob: '*.{ts,vue}'
+      run: pnpm biome check --write --no-errors-on-unmatched {staged_files}
+      stage_fixed: true
+    typecheck:
+      run: pnpm typecheck 2>/dev/null || true
+    unit-tests:
+      run: pnpm test:unit
+
+commit-msg:
+  commands:
+    conventional:
+      run: |
+        head -1 {1} | grep -qE '^(feat|fix|chore|docs|style|refactor|test|perf|ci|build|revert)(\(.+\))?: .{3,}'

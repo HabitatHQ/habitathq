@@ -1,0 +1,51 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+@import "./themes.css";
+
+.dark {
+  --ui-bg: var(--ui-color-neutral-950);
+  --ui-bg-muted: var(--ui-color-neutral-900);
+  --ui-text: var(--ui-color-neutral-100);
+}
+
+@layer utilities {
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .safe-area-x {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* ── Slide-up page transition ────────────────────────────────────────────── */
+.slide-up-enter-active {
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.28s ease;
+}
+
+.slide-up-leave-active {
+  transition: transform 0.22s cubic-bezier(0.55, 0, 1, 0.45), opacity 0.22s ease;
+}
+
+.slide-up-enter-from,
+.slide-up-leave-to {
+  transform: translateY(40%);
+  opacity: 0;
+}
+
+.reduce-motion .slide-up-enter-active,
+.reduce-motion .slide-up-leave-active {
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slide-up-enter-active,
+  .slide-up-leave-active {
+    transition: none !important;
+  }
+}

@@ -1,0 +1,18 @@
+import { resolve } from 'node:path'
+import { defineConfig } from 'vitest/config'
+
+export default defineConfig({
+  resolve: {
+    alias: {
+      '~': resolve(__dirname, 'app'),
+      '@': resolve(__dirname, 'app'),
+    },
+  },
+  test: {
+    environment: 'happy-dom',
+    include: ['tests/unit/**/*.test.ts', 'tests/integration/**/*.test.ts'],
+    environmentMatchGlobs: [
+      ['tests/integration/**', 'node'],
+    ],
+  },
+})

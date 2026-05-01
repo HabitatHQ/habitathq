@@ -1,0 +1,3292 @@
+[
+  {
+    "name": "Barbell Squat",
+    "slug": "barbell-squat",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "squat",
+    "muscles": [
+      "quads",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "hamstrings",
+      "core",
+      "adductors"
+    ],
+    "cues": "Brace core, sit back and down, drive knees out.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Goblet Squat",
+    "slug": "goblet-squat",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "squat",
+    "muscles": [
+      "quads",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "core"
+    ],
+    "cues": "Hold dumbbell at chest, elbows inside knees, sit deep.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Leg Press",
+    "slug": "leg-press",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "squat",
+    "muscles": [
+      "quads",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "hamstrings"
+    ],
+    "cues": "Feet hip-width, press through heels, don't lock knees at top.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Hack Squat",
+    "slug": "hack-squat",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "squat",
+    "muscles": [
+      "quads"
+    ],
+    "muscles_sec": [
+      "glutes",
+      "hamstrings"
+    ],
+    "cues": "Shoulder pads firm, feet mid-platform, full depth.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Bulgarian Split Squat",
+    "slug": "bulgarian-split-squat",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "squat",
+    "muscles": [
+      "quads",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "hamstrings",
+      "adductors"
+    ],
+    "cues": "Rear foot elevated, front shin vertical, knee tracks over toes.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Reverse Lunge",
+    "slug": "reverse-lunge",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "squat",
+    "muscles": [
+      "quads",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "hamstrings"
+    ],
+    "cues": "Step back, lower knee to floor, drive front heel to stand.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Walking Lunge",
+    "slug": "walking-lunge",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "squat",
+    "muscles": [
+      "quads",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "hamstrings",
+      "core"
+    ],
+    "cues": "Long stride, torso upright, knee just above floor, alternate legs.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Box Squat",
+    "slug": "box-squat",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "squat",
+    "muscles": [
+      "quads",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "hamstrings",
+      "core"
+    ],
+    "cues": "Sit back fully to box, pause, drive up through heels.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Step-up",
+    "slug": "step-up",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "squat",
+    "muscles": [
+      "quads",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "hamstrings"
+    ],
+    "cues": "Full foot on box, drive through heel, avoid pushing off back foot.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Sumo Squat",
+    "slug": "sumo-squat",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "squat",
+    "muscles": [
+      "adductors",
+      "glutes",
+      "quads"
+    ],
+    "muscles_sec": [
+      "hamstrings"
+    ],
+    "cues": "Wide stance, toes flared, keep chest up, drive knees out.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Front Squat",
+    "slug": "front-squat",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "squat",
+    "muscles": [
+      "quads",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "core",
+      "upper_back"
+    ],
+    "cues": "Elbows high, upright torso, knees track over toes, full depth.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Pause Squat",
+    "slug": "pause-squat",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "squat",
+    "muscles": [
+      "quads",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "hamstrings",
+      "core"
+    ],
+    "cues": "Brace core, pause 2-3s at bottom, drive up explosively.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Safety Bar Squat",
+    "slug": "safety-bar-squat",
+    "equipment": "other",
+    "equipment_sub": "other",
+    "movement": "squat",
+    "muscles": [
+      "quads",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "core",
+      "upper_back"
+    ],
+    "cues": "Arms hold cambered handles, more upright than barbell squat, full depth.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Smith Machine Squat",
+    "slug": "smith-machine-squat",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "squat",
+    "muscles": [
+      "quads",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "hamstrings"
+    ],
+    "cues": "Feet slightly forward, use the fixed bar path to sit back.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Pistol Squat",
+    "slug": "pistol-squat",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "squat",
+    "muscles": [
+      "quads",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "core",
+      "hamstrings"
+    ],
+    "cues": "Extend one leg forward, sit onto the working leg, drive through heel.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "Jump Squat",
+    "slug": "jump-squat",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "squat",
+    "muscles": [
+      "quads",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "hamstrings",
+      "calves"
+    ],
+    "cues": "Quarter squat, explode up, land softly, reset before next rep.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "Lateral Lunge",
+    "slug": "lateral-lunge",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "squat",
+    "muscles": [
+      "adductors",
+      "quads"
+    ],
+    "muscles_sec": [
+      "glutes",
+      "hamstrings"
+    ],
+    "cues": "Step wide to side, sit into the stepping leg, keep other leg straight.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Pendulum Squat",
+    "slug": "pendulum-squat",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "squat",
+    "muscles": [
+      "quads"
+    ],
+    "muscles_sec": [
+      "glutes",
+      "hamstrings"
+    ],
+    "cues": "Lean back against pad, feet forward on platform, full depth squat.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Sissy Squat",
+    "slug": "sissy-squat",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "squat",
+    "muscles": [
+      "quads"
+    ],
+    "muscles_sec": [
+      "core",
+      "hip_flexors"
+    ],
+    "cues": "Hold for balance, lean back as knees drive forward past toes.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "Split Squat",
+    "slug": "split-squat",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "squat",
+    "muscles": [
+      "quads",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "hamstrings",
+      "core"
+    ],
+    "cues": "Staggered stance, lower rear knee toward floor, drive front heel to stand.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "Heels-elevated Squat",
+    "slug": "heels-elevated-squat",
+    "equipment": "other",
+    "equipment_sub": "other",
+    "movement": "squat",
+    "muscles": [
+      "quads"
+    ],
+    "muscles_sec": [
+      "glutes",
+      "core"
+    ],
+    "cues": "Plates under heels for more upright torso, emphasises quad sweep.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Zercher Squat",
+    "slug": "zercher-squat",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "squat",
+    "muscles": [
+      "quads",
+      "glutes",
+      "core"
+    ],
+    "muscles_sec": [
+      "upper_back",
+      "biceps"
+    ],
+    "cues": "Bar in crook of elbows, elbows inside knees, upright torso, full depth.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Anderson Squat",
+    "slug": "anderson-squat",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "squat",
+    "muscles": [
+      "quads",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "hamstrings",
+      "core"
+    ],
+    "cues": "Bar set in pins at parallel, no stretch reflex, full effort concentric only.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Belt Squat",
+    "slug": "belt-squat",
+    "equipment": "other",
+    "equipment_sub": "other",
+    "movement": "squat",
+    "muscles": [
+      "quads",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "hamstrings",
+      "adductors"
+    ],
+    "cues": "Load attached to belt, stand on elevated platform, squat freely without bar on back.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Deadlift",
+    "slug": "deadlift",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "hinge",
+    "muscles": [
+      "hamstrings",
+      "glutes",
+      "erectors"
+    ],
+    "muscles_sec": [
+      "traps",
+      "lats",
+      "quads"
+    ],
+    "cues": "Hips hinge back, bar stays close to legs, neutral spine.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Sumo Deadlift",
+    "slug": "sumo-deadlift",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "hinge",
+    "muscles": [
+      "adductors",
+      "glutes",
+      "hamstrings"
+    ],
+    "muscles_sec": [
+      "erectors",
+      "quads"
+    ],
+    "cues": "Wide stance, toes flared, bar close, chest up, drive floor away.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Trap Bar Deadlift",
+    "slug": "trap-bar-deadlift",
+    "equipment": "other",
+    "equipment_sub": "other",
+    "movement": "hinge",
+    "muscles": [
+      "quads",
+      "glutes",
+      "hamstrings"
+    ],
+    "muscles_sec": [
+      "erectors",
+      "traps"
+    ],
+    "cues": "Stand inside bar, neutral spine, push floor away, stand tall.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Romanian Deadlift",
+    "slug": "romanian-deadlift",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "hinge",
+    "muscles": [
+      "hamstrings",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "erectors",
+      "lats"
+    ],
+    "cues": "Soft knee, hinge until hamstring stretch, drive hips forward.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Dumbbell Romanian Deadlift",
+    "slug": "dumbbell-rdl",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "hinge",
+    "muscles": [
+      "hamstrings",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "erectors"
+    ],
+    "cues": "Same as RDL but with dumbbells, keep them close to legs.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Single-leg Romanian Deadlift",
+    "slug": "single-leg-rdl",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "hinge",
+    "muscles": [
+      "hamstrings",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "core",
+      "erectors"
+    ],
+    "cues": "Hinge on one leg, weight on same-side arm, keep hips square.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Good Morning",
+    "slug": "good-morning",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "hinge",
+    "muscles": [
+      "hamstrings",
+      "glutes",
+      "erectors"
+    ],
+    "muscles_sec": [],
+    "cues": "Bar on traps, hinge forward with soft knees, squeeze glutes.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Hip Thrust",
+    "slug": "hip-thrust",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "hinge",
+    "muscles": [
+      "glutes"
+    ],
+    "muscles_sec": [
+      "hamstrings",
+      "core"
+    ],
+    "cues": "Bench at shoulder blades, drive hips up, squeeze at top.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Glute Bridge",
+    "slug": "glute-bridge",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "hinge",
+    "muscles": [
+      "glutes"
+    ],
+    "muscles_sec": [
+      "hamstrings",
+      "core"
+    ],
+    "cues": "Feet flat, drive hips up, squeeze glutes at top, hold 1s.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "Hyperextension",
+    "slug": "hyperextension",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "hinge",
+    "muscles": [
+      "erectors",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "hamstrings"
+    ],
+    "cues": "Hips on pad, hinge down under control, extend to neutral.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Deficit Deadlift",
+    "slug": "deficit-deadlift",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "hinge",
+    "muscles": [
+      "hamstrings",
+      "glutes",
+      "erectors"
+    ],
+    "muscles_sec": [
+      "quads",
+      "traps"
+    ],
+    "cues": "Stand on 2-4 inch deficit, start with hips lower, emphasises off-floor strength.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Snatch-grip Deadlift",
+    "slug": "snatch-grip-deadlift",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "hinge",
+    "muscles": [
+      "hamstrings",
+      "glutes",
+      "traps"
+    ],
+    "muscles_sec": [
+      "erectors",
+      "lats"
+    ],
+    "cues": "Wide grip forces lower hips, keeps bar close, builds upper back and grip.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Stiff-leg Deadlift",
+    "slug": "stiff-leg-deadlift",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "hinge",
+    "muscles": [
+      "hamstrings",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "erectors",
+      "lats"
+    ],
+    "cues": "Minimal knee bend, hinge until bar below knees, squeeze glutes to stand.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Cable Pull-through",
+    "slug": "cable-pull-through",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "hinge",
+    "muscles": [
+      "glutes",
+      "hamstrings"
+    ],
+    "muscles_sec": [
+      "core",
+      "erectors"
+    ],
+    "cues": "Face away from cable, hinge back between legs, drive hips forward at top.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Dumbbell Hip Thrust",
+    "slug": "dumbbell-hip-thrust",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "hinge",
+    "muscles": [
+      "glutes"
+    ],
+    "muscles_sec": [
+      "hamstrings",
+      "core"
+    ],
+    "cues": "Upper back on bench, dumbbell on hips, drive up, squeeze glutes at top.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Nordic Hamstring Curl",
+    "slug": "nordic-hamstring-curl",
+    "equipment": "bodyweight",
+    "equipment_sub": "suspension",
+    "movement": "hinge",
+    "muscles": [
+      "hamstrings"
+    ],
+    "muscles_sec": [
+      "glutes",
+      "calves"
+    ],
+    "cues": "Feet anchored, lower torso toward floor under control, push up to return.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "Reverse Hyperextension",
+    "slug": "reverse-hyperextension",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "hinge",
+    "muscles": [
+      "glutes",
+      "hamstrings"
+    ],
+    "muscles_sec": [
+      "erectors"
+    ],
+    "cues": "Hips on pad, swing legs up to parallel, squeeze glutes, lower slowly.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Glute Ham Raise",
+    "slug": "glute-ham-raise",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "hinge",
+    "muscles": [
+      "hamstrings",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "erectors",
+      "calves"
+    ],
+    "cues": "Secure feet, lower until nearly horizontal, curl body back up using hamstrings.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Power Clean",
+    "slug": "power-clean",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "hinge",
+    "muscles": [
+      "hamstrings",
+      "glutes",
+      "traps"
+    ],
+    "muscles_sec": [
+      "quads",
+      "shoulders",
+      "core"
+    ],
+    "cues": "Aggressive hip drive, high pull, drop under bar, catch in partial squat.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Hang Power Clean",
+    "slug": "hang-power-clean",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "hinge",
+    "muscles": [
+      "hamstrings",
+      "glutes",
+      "traps"
+    ],
+    "muscles_sec": [
+      "shoulders",
+      "quads"
+    ],
+    "cues": "Start from hang at knees, explosive hip extension, pull under.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Power Snatch",
+    "slug": "power-snatch",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "hinge",
+    "muscles": [
+      "hamstrings",
+      "glutes",
+      "traps"
+    ],
+    "muscles_sec": [
+      "shoulders",
+      "quads",
+      "core"
+    ],
+    "cues": "Wide grip, explosive pull, bar travels close to body, catch overhead in partial squat.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Clean Pull",
+    "slug": "clean-pull",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "hinge",
+    "muscles": [
+      "hamstrings",
+      "glutes",
+      "traps"
+    ],
+    "muscles_sec": [
+      "erectors",
+      "calves"
+    ],
+    "cues": "Pull with clean mechanics but don't receive bar, emphasise triple extension.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Hang Snatch",
+    "slug": "hang-snatch",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "hinge",
+    "muscles": [
+      "hamstrings",
+      "glutes",
+      "traps"
+    ],
+    "muscles_sec": [
+      "shoulders",
+      "core"
+    ],
+    "cues": "Wide grip from hang, explosive hip drive, pull wide, receive overhead in squat.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Dumbbell Swing",
+    "slug": "dumbbell-swing",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "hinge",
+    "muscles": [
+      "glutes",
+      "hamstrings"
+    ],
+    "muscles_sec": [
+      "core",
+      "traps",
+      "shoulders"
+    ],
+    "cues": "Hinge and swing between legs, snap hips to propel dumbbell to chest height.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Kettlebell Deadlift",
+    "slug": "kettlebell-deadlift",
+    "equipment": "other",
+    "equipment_sub": "kettlebell",
+    "movement": "hinge",
+    "muscles": [
+      "hamstrings",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "erectors",
+      "traps"
+    ],
+    "cues": "Kettlebell between feet, neutral spine, press floor away, stand tall at top.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Snatch",
+    "slug": "snatch",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "hinge",
+    "muscles": [
+      "hamstrings",
+      "glutes",
+      "traps"
+    ],
+    "muscles_sec": [
+      "shoulders",
+      "quads",
+      "core"
+    ],
+    "cues": "Wide grip, explosive pull, pull under into deep squat, receive with arms locked.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Bench Press",
+    "slug": "bench-press",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "press",
+    "muscles": [
+      "chest",
+      "triceps"
+    ],
+    "muscles_sec": [
+      "front_delts"
+    ],
+    "cues": "Arch, retract scapulae, bar touches low chest, elbows ~45°.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Close-grip Bench Press",
+    "slug": "close-grip-bench-press",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "press",
+    "muscles": [
+      "triceps",
+      "chest"
+    ],
+    "muscles_sec": [
+      "front_delts"
+    ],
+    "cues": "Hands shoulder-width, elbows tucked, press straight up.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Incline Bench Press",
+    "slug": "incline-bench-press",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "press",
+    "muscles": [
+      "upper_chest",
+      "triceps"
+    ],
+    "muscles_sec": [
+      "front_delts"
+    ],
+    "cues": "30-45° incline, touch high chest, control descent.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Decline Bench Press",
+    "slug": "decline-bench-press",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "press",
+    "muscles": [
+      "lower_chest",
+      "triceps"
+    ],
+    "muscles_sec": [
+      "front_delts"
+    ],
+    "cues": "Feet anchored, slight decline, touch low chest, control.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Dumbbell Bench Press",
+    "slug": "dumbbell-bench-press",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "press",
+    "muscles": [
+      "chest",
+      "triceps"
+    ],
+    "muscles_sec": [
+      "front_delts"
+    ],
+    "cues": "Neutral or pronated grip, full ROM, avoid flaring elbows too wide.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Incline Dumbbell Press",
+    "slug": "incline-dumbbell-press",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "press",
+    "muscles": [
+      "upper_chest",
+      "triceps"
+    ],
+    "muscles_sec": [
+      "front_delts"
+    ],
+    "cues": "30-45° incline, dumbbells at chest, press up and slightly in.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Dumbbell Chest Fly",
+    "slug": "dumbbell-chest-fly",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "isolation",
+    "muscles": [
+      "chest"
+    ],
+    "muscles_sec": [
+      "front_delts"
+    ],
+    "cues": "Slight elbow bend, wide arc down, squeeze chest at top.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Cable Chest Fly",
+    "slug": "cable-chest-fly",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "isolation",
+    "muscles": [
+      "chest"
+    ],
+    "muscles_sec": [
+      "front_delts"
+    ],
+    "cues": "High pulleys, slight forward lean, arc hands together at chest height.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Machine Chest Press",
+    "slug": "machine-chest-press",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "press",
+    "muscles": [
+      "chest",
+      "triceps"
+    ],
+    "muscles_sec": [
+      "front_delts"
+    ],
+    "cues": "Seat height aligns handles with mid-chest, full press and controlled return.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Push-up",
+    "slug": "push-up",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "press",
+    "muscles": [
+      "chest",
+      "triceps"
+    ],
+    "muscles_sec": [
+      "front_delts",
+      "core"
+    ],
+    "cues": "Plank position, elbows ~45°, chest to floor, lock out top.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "Overhead Press",
+    "slug": "overhead-press",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "press",
+    "muscles": [
+      "side_delts",
+      "front_delts",
+      "triceps"
+    ],
+    "muscles_sec": [
+      "core",
+      "traps"
+    ],
+    "cues": "Bar in front, tight core, press straight up, lock out.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Dumbbell Shoulder Press",
+    "slug": "dumbbell-shoulder-press",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "press",
+    "muscles": [
+      "side_delts",
+      "front_delts",
+      "triceps"
+    ],
+    "muscles_sec": [],
+    "cues": "Arms 90° at start, press to full lock-out.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Arnold Press",
+    "slug": "arnold-press",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "press",
+    "muscles": [
+      "front_delts",
+      "side_delts",
+      "triceps"
+    ],
+    "muscles_sec": [],
+    "cues": "Start palms in, rotate to press up, reverse on way down.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Machine Shoulder Press",
+    "slug": "machine-shoulder-press",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "press",
+    "muscles": [
+      "side_delts",
+      "front_delts",
+      "triceps"
+    ],
+    "muscles_sec": [],
+    "cues": "Seat height keeps elbows below handles, press overhead, control descent.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Landmine Press",
+    "slug": "landmine-press",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "press",
+    "muscles": [
+      "upper_chest",
+      "front_delts",
+      "triceps"
+    ],
+    "muscles_sec": [
+      "core"
+    ],
+    "cues": "Staggered stance, press bar along its natural arc, full extension.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Dip",
+    "slug": "dip",
+    "equipment": "bodyweight",
+    "equipment_sub": "pull-up-bar",
+    "movement": "press",
+    "muscles": [
+      "chest",
+      "triceps"
+    ],
+    "muscles_sec": [
+      "front_delts"
+    ],
+    "cues": "Lean forward for chest focus, stay upright for tri focus.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "Floor Press",
+    "slug": "floor-press",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "press",
+    "muscles": [
+      "chest",
+      "triceps"
+    ],
+    "muscles_sec": [
+      "front_delts"
+    ],
+    "cues": "Lie on floor, elbows touch down each rep, eliminates leg drive, pure upper body.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Z-Press",
+    "slug": "z-press",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "press",
+    "muscles": [
+      "front_delts",
+      "side_delts",
+      "triceps"
+    ],
+    "muscles_sec": [
+      "core",
+      "upper_back"
+    ],
+    "cues": "Seated on floor, legs straight, press overhead, demands core and hip flexibility.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Pike Push-up",
+    "slug": "pike-push-up",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "press",
+    "muscles": [
+      "front_delts",
+      "side_delts"
+    ],
+    "muscles_sec": [
+      "triceps",
+      "core"
+    ],
+    "cues": "Inverted V position, lower head toward floor, press back up, elbows track out.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "Handstand Push-up",
+    "slug": "handstand-push-up",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "press",
+    "muscles": [
+      "front_delts",
+      "side_delts"
+    ],
+    "muscles_sec": [
+      "triceps",
+      "core"
+    ],
+    "cues": "Wall-supported, lower crown toward floor, press to lockout, body vertical.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "Decline Dumbbell Press",
+    "slug": "decline-dumbbell-press",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "press",
+    "muscles": [
+      "lower_chest",
+      "triceps"
+    ],
+    "muscles_sec": [
+      "front_delts"
+    ],
+    "cues": "Feet elevated or declined bench, press dumbbells up and slightly in, full ROM.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Diamond Push-up",
+    "slug": "diamond-push-up",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "press",
+    "muscles": [
+      "triceps",
+      "chest"
+    ],
+    "muscles_sec": [
+      "front_delts"
+    ],
+    "cues": "Hands form diamond under sternum, elbows track rearward, full push-up ROM.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "Push Press",
+    "slug": "push-press",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "press",
+    "muscles": [
+      "front_delts",
+      "side_delts",
+      "triceps"
+    ],
+    "muscles_sec": [
+      "legs",
+      "core"
+    ],
+    "cues": "Slight knee dip, drive legs, press bar overhead, lock out at top.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Push Jerk",
+    "slug": "push-jerk",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "press",
+    "muscles": [
+      "front_delts",
+      "side_delts",
+      "triceps"
+    ],
+    "muscles_sec": [
+      "legs",
+      "core"
+    ],
+    "cues": "Dip, drive, re-dip under bar, receive with arms locked, stand up.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Incline Cable Press",
+    "slug": "incline-cable-press",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "press",
+    "muscles": [
+      "upper_chest",
+      "triceps"
+    ],
+    "muscles_sec": [
+      "front_delts"
+    ],
+    "cues": "Low pulleys, incline bench, constant tension throughout ROM.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Weighted Push-up",
+    "slug": "weighted-push-up",
+    "equipment": "other",
+    "equipment_sub": "other",
+    "movement": "press",
+    "muscles": [
+      "chest",
+      "triceps"
+    ],
+    "muscles_sec": [
+      "front_delts",
+      "core"
+    ],
+    "cues": "Plate on back, full push-up, maintain rigid plank position throughout.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Ring Dip",
+    "slug": "ring-dip",
+    "equipment": "bodyweight",
+    "equipment_sub": "pull-up-bar",
+    "movement": "press",
+    "muscles": [
+      "chest",
+      "triceps"
+    ],
+    "muscles_sec": [
+      "front_delts",
+      "core"
+    ],
+    "cues": "Support on rings, lower with control, turn rings out at top for stability.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "Svend Press",
+    "slug": "svend-press",
+    "equipment": "other",
+    "equipment_sub": "other",
+    "movement": "press",
+    "muscles": [
+      "chest"
+    ],
+    "muscles_sec": [
+      "front_delts",
+      "triceps"
+    ],
+    "cues": "Squeeze plates together throughout, press forward from chest to arm extension.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Spoto Press",
+    "slug": "spoto-press",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "press",
+    "muscles": [
+      "chest",
+      "triceps"
+    ],
+    "muscles_sec": [
+      "front_delts"
+    ],
+    "cues": "Pause bar 1-2 inches above chest, no touch, builds off-chest strength.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Clean and Jerk",
+    "slug": "clean-and-jerk",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "press",
+    "muscles": [
+      "front_delts",
+      "side_delts",
+      "triceps",
+      "glutes",
+      "quads"
+    ],
+    "muscles_sec": [
+      "traps",
+      "core"
+    ],
+    "cues": "Clean the bar to rack position, jerk overhead in one fluid sequence.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Jerk",
+    "slug": "jerk",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "press",
+    "muscles": [
+      "front_delts",
+      "side_delts",
+      "triceps"
+    ],
+    "muscles_sec": [
+      "legs",
+      "core"
+    ],
+    "cues": "From rack, dip and drive explosively, split or power under, arms locked.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Machine Strict Press",
+    "slug": "machine-strict-press",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "press",
+    "muscles": [
+      "side_delts",
+      "front_delts",
+      "triceps"
+    ],
+    "muscles_sec": [],
+    "cues": "Strict pressing machine, no momentum, full ROM, slow eccentric.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Barbell Row",
+    "slug": "barbell-row",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "row",
+    "muscles": [
+      "lats",
+      "rhomboids",
+      "mid_traps"
+    ],
+    "muscles_sec": [
+      "biceps",
+      "rear_delts",
+      "erectors"
+    ],
+    "cues": "Hip hinge 45°, pull to lower abdomen, retract shoulder blades.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "Pendlay Row",
+    "slug": "pendlay-row",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "row",
+    "muscles": [
+      "lats",
+      "rhomboids",
+      "mid_traps"
+    ],
+    "muscles_sec": [
+      "biceps",
+      "rear_delts"
+    ],
+    "cues": "Bar returns to floor each rep, explosive pull, horizontal torso.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "T-bar Row",
+    "slug": "t-bar-row",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "row",
+    "muscles": [
+      "lats",
+      "mid_traps",
+      "rhomboids"
+    ],
+    "muscles_sec": [
+      "biceps",
+      "rear_delts"
+    ],
+    "cues": "Chest on pad, pull handles to chest, squeeze at top, slow descent.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "Dumbbell Row",
+    "slug": "dumbbell-row",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "row",
+    "muscles": [
+      "lats",
+      "rhomboids"
+    ],
+    "muscles_sec": [
+      "biceps",
+      "rear_delts"
+    ],
+    "cues": "Brace on bench, pull to hip, full stretch at bottom.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "Chest-supported Row",
+    "slug": "chest-supported-row",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "row",
+    "muscles": [
+      "lats",
+      "rhomboids",
+      "mid_traps"
+    ],
+    "muscles_sec": [
+      "biceps",
+      "rear_delts"
+    ],
+    "cues": "Chest on incline bench, arms hang free, row to hips.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "Cable Row",
+    "slug": "cable-row",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "row",
+    "muscles": [
+      "lats",
+      "mid_traps",
+      "rhomboids"
+    ],
+    "muscles_sec": [
+      "biceps"
+    ],
+    "cues": "Sit tall, pull to navel, avoid lumbar rounding.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "Pull-up",
+    "slug": "pull-up",
+    "equipment": "bodyweight",
+    "equipment_sub": "pull-up-bar",
+    "movement": "row",
+    "muscles": [
+      "lats",
+      "biceps"
+    ],
+    "muscles_sec": [
+      "rear_delts",
+      "mid_traps"
+    ],
+    "cues": "Hang dead, depress scapulae, chin over bar, full hang.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Chin-up",
+    "slug": "chin-up",
+    "equipment": "bodyweight",
+    "equipment_sub": "pull-up-bar",
+    "movement": "row",
+    "muscles": [
+      "biceps",
+      "lats"
+    ],
+    "muscles_sec": [
+      "rear_delts",
+      "mid_traps"
+    ],
+    "cues": "Supinated grip, chin over bar, full dead hang between reps.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Inverted Row",
+    "slug": "inverted-row",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "row",
+    "muscles": [
+      "lats",
+      "rhomboids",
+      "mid_traps"
+    ],
+    "muscles_sec": [
+      "biceps",
+      "rear_delts"
+    ],
+    "cues": "Body rigid, pull chest to bar, control the descent.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "Lat Pulldown",
+    "slug": "lat-pulldown",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "row",
+    "muscles": [
+      "lats",
+      "biceps"
+    ],
+    "muscles_sec": [
+      "rear_delts"
+    ],
+    "cues": "Slight lean back, drive elbows down, squeeze lats at bottom.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "Single-arm Cable Pulldown",
+    "slug": "single-arm-cable-pulldown",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "row",
+    "muscles": [
+      "lats"
+    ],
+    "muscles_sec": [
+      "biceps",
+      "rear_delts"
+    ],
+    "cues": "Slight lean, pull handle to hip, feel full lat stretch at top.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "Face Pull",
+    "slug": "face-pull",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "row",
+    "muscles": [
+      "rear_delts",
+      "mid_traps",
+      "external_rotators"
+    ],
+    "muscles_sec": [],
+    "cues": "Rope to face level, external rotate at end, elbows high.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "Machine Row",
+    "slug": "machine-row",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "row",
+    "muscles": [
+      "lats",
+      "rhomboids",
+      "mid_traps"
+    ],
+    "muscles_sec": [
+      "biceps",
+      "rear_delts"
+    ],
+    "cues": "Chest against pad, pull handles to lower chest, squeeze shoulder blades.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "Meadows Row",
+    "slug": "meadows-row",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "row",
+    "muscles": [
+      "lats",
+      "rhomboids"
+    ],
+    "muscles_sec": [
+      "rear_delts",
+      "biceps"
+    ],
+    "cues": "Stagger stance, grip barbell at end, row with rotation to hip, full lat stretch.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "Cable High Row",
+    "slug": "cable-high-row",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "row",
+    "muscles": [
+      "mid_traps",
+      "rear_delts",
+      "rhomboids"
+    ],
+    "muscles_sec": [
+      "biceps"
+    ],
+    "cues": "High pulley, lean slightly back, pull elbows down and back, squeeze at peak.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "Straight-arm Pulldown",
+    "slug": "straight-arm-pulldown",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "row",
+    "muscles": [
+      "lats"
+    ],
+    "muscles_sec": [
+      "triceps",
+      "core"
+    ],
+    "cues": "Arms nearly straight, pull bar to thighs with lat contraction, constant tension.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "Incline Dumbbell Row",
+    "slug": "incline-dumbbell-row",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "row",
+    "muscles": [
+      "lats",
+      "rhomboids"
+    ],
+    "muscles_sec": [
+      "biceps",
+      "rear_delts"
+    ],
+    "cues": "Prone on incline bench, row dumbbells to hips, chest supported removes momentum.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "Neutral-grip Pull-up",
+    "slug": "neutral-grip-pull-up",
+    "equipment": "bodyweight",
+    "equipment_sub": "pull-up-bar",
+    "movement": "row",
+    "muscles": [
+      "lats",
+      "biceps"
+    ],
+    "muscles_sec": [
+      "mid_traps",
+      "rear_delts"
+    ],
+    "cues": "Palms facing each other, chin over bar, full dead hang between reps.",
+    "icon": "i-ph-arrow-fat-up"
+  },
+  {
+    "name": "Seated Machine Row",
+    "slug": "seated-machine-row",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "row",
+    "muscles": [
+      "lats",
+      "mid_traps",
+      "rhomboids"
+    ],
+    "muscles_sec": [
+      "biceps"
+    ],
+    "cues": "Chest against pad, neutral grip, full retraction at peak, slow eccentric.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "Renegade Row",
+    "slug": "renegade-row",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "row",
+    "muscles": [
+      "lats",
+      "rhomboids"
+    ],
+    "muscles_sec": [
+      "core",
+      "triceps"
+    ],
+    "cues": "Push-up position on dumbbells, maintain plank, row one arm, minimal rotation.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "Band Pull-apart",
+    "slug": "band-pull-apart",
+    "equipment": "other",
+    "equipment_sub": "bands",
+    "movement": "row",
+    "muscles": [
+      "rear_delts",
+      "mid_traps"
+    ],
+    "muscles_sec": [
+      "rhomboids",
+      "external_rotators"
+    ],
+    "cues": "Arms straight, pull band apart to chest level, retract scapulae, control return.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "Machine Pullover",
+    "slug": "machine-pullover",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "row",
+    "muscles": [
+      "lats"
+    ],
+    "muscles_sec": [
+      "chest",
+      "serratus"
+    ],
+    "cues": "Elbows on pad, pull bar down in arc from overhead to hips, full lat stretch.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "Seal Row",
+    "slug": "seal-row",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "row",
+    "muscles": [
+      "lats",
+      "rhomboids",
+      "mid_traps"
+    ],
+    "muscles_sec": [
+      "biceps",
+      "rear_delts"
+    ],
+    "cues": "Prone on elevated bench, pull bar to chest, scapulae fully retracted at top.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "Overhand Cable Row",
+    "slug": "overhand-cable-row",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "row",
+    "muscles": [
+      "mid_traps",
+      "rhomboids"
+    ],
+    "muscles_sec": [
+      "rear_delts",
+      "biceps"
+    ],
+    "cues": "Pronated grip, pull to sternum, retract scapulae, avoid shrugging.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "Chest-supported Cable Row",
+    "slug": "chest-supported-cable-row",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "row",
+    "muscles": [
+      "lats",
+      "rhomboids",
+      "mid_traps"
+    ],
+    "muscles_sec": [
+      "biceps"
+    ],
+    "cues": "Chest on incline pad, cable row, eliminates momentum, pure back contraction.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "Half-kneeling Cable Row",
+    "slug": "half-kneeling-cable-row",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "row",
+    "muscles": [
+      "lats",
+      "rhomboids"
+    ],
+    "muscles_sec": [
+      "core",
+      "biceps"
+    ],
+    "cues": "Kneeling with one knee down, single-arm row, resist rotation, stay tall.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "Farmer's Carry",
+    "slug": "farmers-carry",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "carry",
+    "muscles": [
+      "traps",
+      "core",
+      "forearms"
+    ],
+    "muscles_sec": [
+      "glutes",
+      "quads"
+    ],
+    "cues": "Shoulders packed, walk with short controlled steps, stay tall.",
+    "icon": "i-ph-person-simple-walk"
+  },
+  {
+    "name": "Suitcase Carry",
+    "slug": "suitcase-carry",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "carry",
+    "muscles": [
+      "core",
+      "obliques",
+      "traps"
+    ],
+    "muscles_sec": [
+      "glutes",
+      "forearms"
+    ],
+    "cues": "Single dumbbell, resist lateral tilt, stay tall, brace obliques.",
+    "icon": "i-ph-person-simple-walk"
+  },
+  {
+    "name": "Yoke Carry",
+    "slug": "yoke-carry",
+    "equipment": "other",
+    "equipment_sub": "other",
+    "movement": "carry",
+    "muscles": [
+      "traps",
+      "core",
+      "quads"
+    ],
+    "muscles_sec": [
+      "glutes",
+      "calves"
+    ],
+    "cues": "Loaded yoke on shoulders, stay upright, short quick steps, brace hard.",
+    "icon": "i-ph-person-simple-walk"
+  },
+  {
+    "name": "Overhead Carry",
+    "slug": "overhead-carry",
+    "equipment": "other",
+    "equipment_sub": "other",
+    "movement": "carry",
+    "muscles": [
+      "shoulders",
+      "core",
+      "traps"
+    ],
+    "muscles_sec": [
+      "triceps",
+      "glutes"
+    ],
+    "cues": "Lock out overhead, packed shoulder, walk with control, don't lean.",
+    "icon": "i-ph-person-simple-walk"
+  },
+  {
+    "name": "Cross-body Carry",
+    "slug": "cross-body-carry",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "carry",
+    "muscles": [
+      "obliques",
+      "core"
+    ],
+    "muscles_sec": [
+      "traps",
+      "glutes",
+      "forearms"
+    ],
+    "cues": "Single dumbbell at side, resist lateral tilt, walk tall, brace obliques.",
+    "icon": "i-ph-person-simple-walk"
+  },
+  {
+    "name": "Trap Bar Carry",
+    "slug": "trap-bar-carry",
+    "equipment": "other",
+    "equipment_sub": "other",
+    "movement": "carry",
+    "muscles": [
+      "traps",
+      "forearms",
+      "core"
+    ],
+    "muscles_sec": [
+      "quads",
+      "glutes"
+    ],
+    "cues": "Inside trap bar, grip handles, stand tall, walk with controlled short strides.",
+    "icon": "i-ph-person-simple-walk"
+  },
+  {
+    "name": "Goblet Carry",
+    "slug": "goblet-carry",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "carry",
+    "muscles": [
+      "core",
+      "shoulders",
+      "traps"
+    ],
+    "muscles_sec": [
+      "glutes",
+      "quads"
+    ],
+    "cues": "Hold weight at chest, tall posture, brace core, walk with intention.",
+    "icon": "i-ph-person-simple-walk"
+  },
+  {
+    "name": "Bicep Curl",
+    "slug": "bicep-curl",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "isolation",
+    "muscles": [
+      "biceps"
+    ],
+    "muscles_sec": [
+      "brachialis"
+    ],
+    "cues": "Elbows fixed at sides, supinate at top, full extension.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Dumbbell Curl",
+    "slug": "dumbbell-curl",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "isolation",
+    "muscles": [
+      "biceps"
+    ],
+    "muscles_sec": [
+      "brachialis"
+    ],
+    "cues": "Alternate or together, supinate as you curl.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Hammer Curl",
+    "slug": "hammer-curl",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "isolation",
+    "muscles": [
+      "brachialis",
+      "biceps"
+    ],
+    "muscles_sec": [
+      "brachioradialis"
+    ],
+    "cues": "Neutral grip throughout, elbows fixed, full ROM.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Preacher Curl",
+    "slug": "preacher-curl",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "isolation",
+    "muscles": [
+      "biceps"
+    ],
+    "muscles_sec": [
+      "brachialis"
+    ],
+    "cues": "Arms on pad, no swinging, squeeze at top, slow negative.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Cable Curl",
+    "slug": "cable-curl",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "isolation",
+    "muscles": [
+      "biceps"
+    ],
+    "muscles_sec": [
+      "brachialis"
+    ],
+    "cues": "Constant tension, elbows fixed, supinate at top, slow return.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Concentration Curl",
+    "slug": "concentration-curl",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "isolation",
+    "muscles": [
+      "biceps"
+    ],
+    "muscles_sec": [
+      "brachialis"
+    ],
+    "cues": "Elbow braced against inner thigh, curl to shoulder, full supination at top.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Incline Dumbbell Curl",
+    "slug": "incline-dumbbell-curl",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "isolation",
+    "muscles": [
+      "biceps"
+    ],
+    "muscles_sec": [
+      "brachialis"
+    ],
+    "cues": "Incline bench, arms hang behind torso for pre-stretch, curl fully, supinate.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Spider Curl",
+    "slug": "spider-curl",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "isolation",
+    "muscles": [
+      "biceps"
+    ],
+    "muscles_sec": [
+      "brachialis"
+    ],
+    "cues": "Prone on incline bench, arms hang freely, curl bar up, peak contraction.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Machine Curl",
+    "slug": "machine-curl",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "isolation",
+    "muscles": [
+      "biceps"
+    ],
+    "muscles_sec": [
+      "brachialis"
+    ],
+    "cues": "Elbows on pad, full curl, squeeze at top, slow negative on the way down.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Zottman Curl",
+    "slug": "zottman-curl",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "isolation",
+    "muscles": [
+      "biceps",
+      "brachioradialis"
+    ],
+    "muscles_sec": [
+      "brachialis"
+    ],
+    "cues": "Curl up supinated, rotate to pronated at top, lower with reverse curl, rotate back.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Tricep Pushdown",
+    "slug": "tricep-pushdown",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "isolation",
+    "muscles": [
+      "triceps"
+    ],
+    "muscles_sec": [],
+    "cues": "Elbows fixed, press to full extension, controlled return.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Overhead Tricep Extension",
+    "slug": "overhead-tricep-extension",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "isolation",
+    "muscles": [
+      "triceps"
+    ],
+    "muscles_sec": [],
+    "cues": "Elbows close to head, lower dumbbell behind, extend to lockout.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Skull Crusher",
+    "slug": "skull-crusher",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "isolation",
+    "muscles": [
+      "triceps"
+    ],
+    "muscles_sec": [],
+    "cues": "Bar to forehead or behind, elbows vertical, full lockout.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Cable Overhead Tricep Extension",
+    "slug": "cable-overhead-tricep-extension",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "isolation",
+    "muscles": [
+      "triceps"
+    ],
+    "muscles_sec": [],
+    "cues": "Rope attachment, face away from cable, extend arms overhead from behind head.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Machine Tricep Extension",
+    "slug": "machine-tricep-extension",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "isolation",
+    "muscles": [
+      "triceps"
+    ],
+    "muscles_sec": [],
+    "cues": "Elbows on pad, press handles down to full extension, slow controlled return.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Close-grip Push-up",
+    "slug": "close-grip-push-up",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "isolation",
+    "muscles": [
+      "triceps",
+      "chest"
+    ],
+    "muscles_sec": [
+      "front_delts"
+    ],
+    "cues": "Hands close, elbows tracking rearward, lower chest to floor, full extension.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "Tricep Dip",
+    "slug": "tricep-dip",
+    "equipment": "bodyweight",
+    "equipment_sub": "pull-up-bar",
+    "movement": "isolation",
+    "muscles": [
+      "triceps"
+    ],
+    "muscles_sec": [
+      "chest",
+      "front_delts"
+    ],
+    "cues": "Hands behind on bench, stay upright to target triceps, lower until 90°, press up.",
+    "icon": "i-ph-arrow-fat-down"
+  },
+  {
+    "name": "Rope Pushdown",
+    "slug": "rope-pushdown",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "isolation",
+    "muscles": [
+      "triceps"
+    ],
+    "muscles_sec": [],
+    "cues": "Rope attachment, spread rope at bottom, full extension, elbows fixed at sides.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Reverse-grip Pushdown",
+    "slug": "reverse-grip-pushdown",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "isolation",
+    "muscles": [
+      "triceps"
+    ],
+    "muscles_sec": [],
+    "cues": "Underhand grip on bar, elbows fixed, full extension, hits long head more.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "JM Press",
+    "slug": "jm-press",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "isolation",
+    "muscles": [
+      "triceps"
+    ],
+    "muscles_sec": [
+      "chest"
+    ],
+    "cues": "Close grip, lower bar toward throat with elbows out, partial extension at top.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Lateral Raise",
+    "slug": "lateral-raise",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "isolation",
+    "muscles": [
+      "side_delts"
+    ],
+    "muscles_sec": [],
+    "cues": "Slight forward lean, raise to shoulder height, lead with elbow.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Cable Lateral Raise",
+    "slug": "cable-lateral-raise",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "isolation",
+    "muscles": [
+      "side_delts"
+    ],
+    "muscles_sec": [],
+    "cues": "Low pulley, cable across body, raise to shoulder height, control.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Rear Delt Fly",
+    "slug": "rear-delt-fly",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "isolation",
+    "muscles": [
+      "rear_delts"
+    ],
+    "muscles_sec": [
+      "mid_traps",
+      "rhomboids"
+    ],
+    "cues": "Hinge forward, slight elbow bend, arc up to shoulder level.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Upright Row",
+    "slug": "upright-row",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "isolation",
+    "muscles": [
+      "side_delts",
+      "traps"
+    ],
+    "muscles_sec": [
+      "biceps"
+    ],
+    "cues": "Narrow grip, lead with elbows, pull to chin, slow descent.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Machine Lateral Raise",
+    "slug": "machine-lateral-raise",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "isolation",
+    "muscles": [
+      "side_delts"
+    ],
+    "muscles_sec": [],
+    "cues": "Elbows on pad, abduct arms to shoulder height, slow eccentric.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Cable Rear Delt Fly",
+    "slug": "cable-rear-delt-fly",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "isolation",
+    "muscles": [
+      "rear_delts"
+    ],
+    "muscles_sec": [
+      "mid_traps",
+      "rhomboids"
+    ],
+    "cues": "Cross cables, straight arms, pull to sides at shoulder height, squeeze rear delts.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Dumbbell Front Raise",
+    "slug": "dumbbell-front-raise",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "isolation",
+    "muscles": [
+      "front_delts"
+    ],
+    "muscles_sec": [
+      "side_delts"
+    ],
+    "cues": "Slight elbow bend, raise to eye level alternating or together, control descent.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Cable Front Raise",
+    "slug": "cable-front-raise",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "isolation",
+    "muscles": [
+      "front_delts"
+    ],
+    "muscles_sec": [
+      "side_delts"
+    ],
+    "cues": "Low cable, raise arm to shoulder height, constant tension, control descent.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Plate Front Raise",
+    "slug": "plate-front-raise",
+    "equipment": "other",
+    "equipment_sub": "other",
+    "movement": "isolation",
+    "muscles": [
+      "front_delts"
+    ],
+    "muscles_sec": [
+      "side_delts",
+      "core"
+    ],
+    "cues": "Hold plate with both hands, raise straight to eye level, control the descent.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Barbell Shrug",
+    "slug": "barbell-shrug",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "isolation",
+    "muscles": [
+      "traps"
+    ],
+    "muscles_sec": [],
+    "cues": "Arms straight, shrug straight up, hold 1s at top, no rolling.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Dumbbell Shrug",
+    "slug": "dumbbell-shrug",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "isolation",
+    "muscles": [
+      "traps"
+    ],
+    "muscles_sec": [],
+    "cues": "Arms at sides, straight shrug, brief pause at top.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Cable Shrug",
+    "slug": "cable-shrug",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "isolation",
+    "muscles": [
+      "traps"
+    ],
+    "muscles_sec": [],
+    "cues": "Straight shrug up, pause briefly at top, constant tension from cable.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Power Shrug",
+    "slug": "power-shrug",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "isolation",
+    "muscles": [
+      "traps"
+    ],
+    "muscles_sec": [
+      "biceps",
+      "forearms"
+    ],
+    "cues": "Use momentum for heavy shrug, explosive elevation, brief pause at top.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Behind-the-back Shrug",
+    "slug": "behind-the-back-shrug",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "isolation",
+    "muscles": [
+      "traps"
+    ],
+    "muscles_sec": [
+      "rear_delts"
+    ],
+    "cues": "Bar behind thighs, shrug straight up, targets mid and lower traps more.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Calf Raise",
+    "slug": "calf-raise",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "isolation",
+    "muscles": [
+      "calves"
+    ],
+    "muscles_sec": [],
+    "cues": "Full ROM, pause at top, controlled descent.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Seated Calf Raise",
+    "slug": "seated-calf-raise",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "isolation",
+    "muscles": [
+      "soleus",
+      "calves"
+    ],
+    "muscles_sec": [],
+    "cues": "Knees bent stresses soleus, full heel drop, press to full extension.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Leg Press Calf Raise",
+    "slug": "leg-press-calf-raise",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "isolation",
+    "muscles": [
+      "calves"
+    ],
+    "muscles_sec": [],
+    "cues": "Toes on edge of platform, full ROM, slow stretch at bottom, press to full extension.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Standing Single-leg Calf Raise",
+    "slug": "standing-single-leg-calf-raise",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "isolation",
+    "muscles": [
+      "calves"
+    ],
+    "muscles_sec": [
+      "soleus"
+    ],
+    "cues": "One foot on step edge, full ROM, pause at bottom stretch, no momentum.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "Donkey Calf Raise",
+    "slug": "donkey-calf-raise",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "isolation",
+    "muscles": [
+      "calves",
+      "soleus"
+    ],
+    "muscles_sec": [],
+    "cues": "Bent over position, pads on lower back, full ROM, slow stretch at bottom.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Leg Curl",
+    "slug": "leg-curl",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "isolation",
+    "muscles": [
+      "hamstrings"
+    ],
+    "muscles_sec": [],
+    "cues": "Full curl, hold briefly at top, slow eccentric.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Lying Leg Curl",
+    "slug": "lying-leg-curl",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "isolation",
+    "muscles": [
+      "hamstrings"
+    ],
+    "muscles_sec": [
+      "calves"
+    ],
+    "cues": "Hips on pad, curl toward glutes, pause at top, slow return.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Seated Leg Curl",
+    "slug": "seated-leg-curl",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "isolation",
+    "muscles": [
+      "hamstrings"
+    ],
+    "muscles_sec": [],
+    "cues": "Pad above knees, curl down under seat, full contraction, slow eccentric.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Standing Leg Curl",
+    "slug": "standing-leg-curl",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "isolation",
+    "muscles": [
+      "hamstrings"
+    ],
+    "muscles_sec": [
+      "glutes"
+    ],
+    "cues": "Single leg, stabilise on one leg, curl heel toward glute, slow negative.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Leg Extension",
+    "slug": "leg-extension",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "isolation",
+    "muscles": [
+      "quads"
+    ],
+    "muscles_sec": [],
+    "cues": "Full extension, hold at top, slow return.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Terminal Knee Extension",
+    "slug": "terminal-knee-extension",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "isolation",
+    "muscles": [
+      "quads"
+    ],
+    "muscles_sec": [],
+    "cues": "Band or cable at knee, fully extend knee from slight bend, squeeze quad at top.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Adductor Machine",
+    "slug": "adductor-machine",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "isolation",
+    "muscles": [
+      "adductors"
+    ],
+    "muscles_sec": [],
+    "cues": "Sit tall, squeeze knees together, control the opening phase.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Abductor Machine",
+    "slug": "abductor-machine",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "isolation",
+    "muscles": [
+      "glutes",
+      "hip_abductors"
+    ],
+    "muscles_sec": [],
+    "cues": "Sit tall, push knees apart against pad, control the closing phase.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Cable Kickback",
+    "slug": "cable-kickback",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "isolation",
+    "muscles": [
+      "glutes"
+    ],
+    "muscles_sec": [
+      "hamstrings"
+    ],
+    "cues": "Facing cable, ankle strap, kick leg back and up, squeeze glute at top.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Clamshell",
+    "slug": "clamshell",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "isolation",
+    "muscles": [
+      "glutes",
+      "hip_abductors"
+    ],
+    "muscles_sec": [],
+    "cues": "Side-lying, knees bent, rotate top knee up like a clamshell, keep hips stacked.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "Hip Thrust Machine",
+    "slug": "hip-thrust-machine",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "isolation",
+    "muscles": [
+      "glutes"
+    ],
+    "muscles_sec": [
+      "hamstrings",
+      "core"
+    ],
+    "cues": "Machine-loaded hip thrust, full extension, squeeze glutes at top, controlled return.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Plank",
+    "slug": "plank",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "isolation",
+    "muscles": [
+      "core"
+    ],
+    "muscles_sec": [
+      "glutes",
+      "shoulders"
+    ],
+    "cues": "Neutral spine, squeeze core and glutes, breathe.",
+    "icon": "i-ph-minus"
+  },
+  {
+    "name": "Hanging Leg Raise",
+    "slug": "hanging-leg-raise",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "isolation",
+    "muscles": [
+      "core",
+      "hip_flexors"
+    ],
+    "muscles_sec": [
+      "lats"
+    ],
+    "cues": "Dead hang, raise legs to 90° or higher, control descent.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "Cable Crunch",
+    "slug": "cable-crunch",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "isolation",
+    "muscles": [
+      "core"
+    ],
+    "muscles_sec": [],
+    "cues": "Kneel, rope at sides of head, crunch elbows to knees, round spine.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Dead Bug",
+    "slug": "dead-bug",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "isolation",
+    "muscles": [
+      "core"
+    ],
+    "muscles_sec": [
+      "hip_flexors"
+    ],
+    "cues": "Lower back pressed to floor, extend opposite arm and leg, breathe out.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "Ab Rollout",
+    "slug": "ab-rollout",
+    "equipment": "other",
+    "equipment_sub": "other",
+    "movement": "isolation",
+    "muscles": [
+      "core"
+    ],
+    "muscles_sec": [
+      "lats",
+      "shoulders"
+    ],
+    "cues": "On knees, roll out on inhale, pull back with lats and core.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Russian Twist",
+    "slug": "russian-twist",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "isolation",
+    "muscles": [
+      "obliques",
+      "core"
+    ],
+    "muscles_sec": [
+      "hip_flexors"
+    ],
+    "cues": "Lean back slightly, feet off floor, rotate side to side, hold weight for load.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "Bicycle Crunch",
+    "slug": "bicycle-crunch",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "isolation",
+    "muscles": [
+      "core",
+      "obliques"
+    ],
+    "muscles_sec": [
+      "hip_flexors"
+    ],
+    "cues": "Alternate elbow to opposite knee, extend leg straight, maintain lumbar contact.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "Wood Chop",
+    "slug": "wood-chop",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "isolation",
+    "muscles": [
+      "obliques",
+      "core"
+    ],
+    "muscles_sec": [
+      "shoulders",
+      "legs"
+    ],
+    "cues": "Rotate from high to low or low to high, pivot feet, use whole body rotation.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Side Plank",
+    "slug": "side-plank",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "isolation",
+    "muscles": [
+      "obliques",
+      "core"
+    ],
+    "muscles_sec": [
+      "glutes",
+      "shoulders"
+    ],
+    "cues": "Stack feet, straight body line, push hip up, don't let waist sag.",
+    "icon": "i-ph-minus"
+  },
+  {
+    "name": "Dragon Flag",
+    "slug": "dragon-flag",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "isolation",
+    "muscles": [
+      "core"
+    ],
+    "muscles_sec": [
+      "lats",
+      "hip_flexors"
+    ],
+    "cues": "Grip behind head, raise body to vertical, lower under control, stay rigid.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "Hollow Body Hold",
+    "slug": "hollow-body-hold",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "isolation",
+    "muscles": [
+      "core"
+    ],
+    "muscles_sec": [
+      "hip_flexors",
+      "shoulders"
+    ],
+    "cues": "Flatten lower back, arms overhead, legs extended, hold the hollow position.",
+    "icon": "i-ph-minus"
+  },
+  {
+    "name": "Pallof Press",
+    "slug": "pallof-press",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "isolation",
+    "muscles": [
+      "core",
+      "obliques"
+    ],
+    "muscles_sec": [
+      "shoulders"
+    ],
+    "cues": "Cable at chest height, perpendicular to body, press and hold, resist rotation.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Reverse Crunch",
+    "slug": "reverse-crunch",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "isolation",
+    "muscles": [
+      "core",
+      "hip_flexors"
+    ],
+    "muscles_sec": [],
+    "cues": "Lying on back, curl hips off floor, knees toward chest, lower under control.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "L-sit",
+    "slug": "l-sit",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "isolation",
+    "muscles": [
+      "core",
+      "hip_flexors"
+    ],
+    "muscles_sec": [
+      "triceps",
+      "shoulders"
+    ],
+    "cues": "On parallel bars or floor, arms locked, legs straight and parallel to ground.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "Toes-to-bar",
+    "slug": "toes-to-bar",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "isolation",
+    "muscles": [
+      "core",
+      "hip_flexors"
+    ],
+    "muscles_sec": [
+      "lats",
+      "shoulders"
+    ],
+    "cues": "Dead hang, kip or strict, touch toes to bar, lower under control.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "V-Up",
+    "slug": "v-up",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "isolation",
+    "muscles": [
+      "core",
+      "hip_flexors"
+    ],
+    "muscles_sec": [],
+    "cues": "Simultaneously raise legs and torso, touch hands to feet at top, controlled descent.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "GHD Sit-up",
+    "slug": "ghd-sit-up",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "isolation",
+    "muscles": [
+      "core",
+      "hip_flexors"
+    ],
+    "muscles_sec": [],
+    "cues": "Feet secured on GHD, lower until parallel, sit up explosively or controlled.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Machine Back Extension",
+    "slug": "machine-back-extension",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "isolation",
+    "muscles": [
+      "erectors"
+    ],
+    "muscles_sec": [
+      "glutes",
+      "hamstrings"
+    ],
+    "cues": "Hips on pad, cross arms on chest, hinge down under control, extend to neutral.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Wrist Curl",
+    "slug": "wrist-curl",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "isolation",
+    "muscles": [
+      "forearms"
+    ],
+    "muscles_sec": [],
+    "cues": "Forearms on thighs, curl wrists up, full ROM, slow eccentric.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Wrist Extension",
+    "slug": "wrist-extension",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "isolation",
+    "muscles": [
+      "forearms"
+    ],
+    "muscles_sec": [],
+    "cues": "Forearm on thigh, extend wrist upward against gravity, slow and controlled.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Plate Pinch",
+    "slug": "plate-pinch",
+    "equipment": "other",
+    "equipment_sub": "other",
+    "movement": "isolation",
+    "muscles": [
+      "forearms"
+    ],
+    "muscles_sec": [],
+    "cues": "Pinch two plates together, hold for time, builds grip and pinch strength.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Reverse Curl",
+    "slug": "reverse-curl",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "isolation",
+    "muscles": [
+      "forearms",
+      "brachioradialis"
+    ],
+    "muscles_sec": [
+      "biceps"
+    ],
+    "cues": "Pronated grip, curl full ROM, elbows fixed, targets brachioradialis heavily.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Pec Deck",
+    "slug": "pec-deck",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "isolation",
+    "muscles": [
+      "chest"
+    ],
+    "muscles_sec": [
+      "front_delts"
+    ],
+    "cues": "Seat aligns elbows at shoulder height, squeeze chest to close, control opening.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Cable Crossover",
+    "slug": "cable-crossover",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "isolation",
+    "muscles": [
+      "chest"
+    ],
+    "muscles_sec": [
+      "front_delts"
+    ],
+    "cues": "High pulleys, cable across body, cross hands at bottom for peak contraction.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Low-to-High Cable Fly",
+    "slug": "low-to-high-cable-fly",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "isolation",
+    "muscles": [
+      "upper_chest"
+    ],
+    "muscles_sec": [
+      "front_delts"
+    ],
+    "cues": "Low cable, arc hands upward from hips to above shoulder height, squeeze top.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "High-to-Low Cable Fly",
+    "slug": "high-to-low-cable-fly",
+    "equipment": "cable",
+    "equipment_sub": "cable",
+    "movement": "isolation",
+    "muscles": [
+      "lower_chest"
+    ],
+    "muscles_sec": [
+      "front_delts"
+    ],
+    "cues": "High cable, arc hands down from shoulder height to hip level, squeeze bottom.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Dumbbell Pull-over",
+    "slug": "dumbbell-pull-over",
+    "equipment": "dumbbell",
+    "equipment_sub": "dumbbell",
+    "movement": "isolation",
+    "muscles": [
+      "chest",
+      "lats"
+    ],
+    "muscles_sec": [
+      "triceps",
+      "serratus"
+    ],
+    "cues": "Across bench, dumbbell behind head, arc back over chest, keep slight elbow bend.",
+    "icon": "i-ph-activity"
+  },
+  {
+    "name": "Kettlebell Swing",
+    "slug": "kettlebell-swing",
+    "equipment": "other",
+    "equipment_sub": "kettlebell",
+    "movement": "hinge",
+    "muscles": [
+      "glutes",
+      "hamstrings"
+    ],
+    "muscles_sec": [
+      "core",
+      "traps",
+      "shoulders"
+    ],
+    "cues": "Hip hinge drives the swing, arms are a pendulum, snap hips at top.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Box Jump",
+    "slug": "box-jump",
+    "equipment": "other",
+    "equipment_sub": "other",
+    "movement": "squat",
+    "muscles": [
+      "quads",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "hamstrings",
+      "calves"
+    ],
+    "cues": "Athletic stance, swing arms, jump fully, land softly, step down.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Battle Ropes",
+    "slug": "battle-ropes",
+    "equipment": "other",
+    "equipment_sub": "other",
+    "movement": "cardio",
+    "muscles": [
+      "shoulders",
+      "core"
+    ],
+    "muscles_sec": [
+      "arms",
+      "back"
+    ],
+    "cues": "Anchor rope, alternate or simultaneous waves, hips slightly bent, full intensity.",
+    "icon": "i-ph-waves"
+  },
+  {
+    "name": "Rowing Machine",
+    "slug": "rowing-machine",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "cardio",
+    "muscles": [
+      "lats",
+      "legs",
+      "back"
+    ],
+    "muscles_sec": [
+      "core",
+      "biceps"
+    ],
+    "cues": "Drive with legs, then lean back, then pull handle to lower chest, reverse sequence.",
+    "icon": "i-ph-person-simple-walk"
+  },
+  {
+    "name": "Ski Erg",
+    "slug": "ski-erg",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "cardio",
+    "muscles": [
+      "lats",
+      "core",
+      "shoulders"
+    ],
+    "muscles_sec": [
+      "triceps",
+      "back"
+    ],
+    "cues": "Pull handles down and back in a ski-poling motion, hinge at hips, drive with lats.",
+    "icon": "i-ph-person-simple-ski"
+  },
+  {
+    "name": "Assault Bike",
+    "slug": "assault-bike",
+    "equipment": "machine",
+    "equipment_sub": "selectorized",
+    "movement": "cardio",
+    "muscles": [
+      "quads",
+      "shoulders"
+    ],
+    "muscles_sec": [
+      "hamstrings",
+      "core",
+      "arms"
+    ],
+    "cues": "Push and pull handles, maintain cadence, full arm and leg engagement.",
+    "icon": "i-ph-person-simple-bike"
+  },
+  {
+    "name": "Sled Push",
+    "slug": "sled-push",
+    "equipment": "other",
+    "equipment_sub": "sled",
+    "movement": "cardio",
+    "muscles": [
+      "quads",
+      "glutes"
+    ],
+    "muscles_sec": [
+      "core",
+      "shoulders",
+      "calves"
+    ],
+    "cues": "Lean forward, drive through balls of feet, keep low, fast short steps.",
+    "icon": "i-ph-person-simple-walk"
+  },
+  {
+    "name": "Jump Rope",
+    "slug": "jump-rope",
+    "equipment": "other",
+    "equipment_sub": "other",
+    "movement": "cardio",
+    "muscles": [
+      "calves",
+      "core"
+    ],
+    "muscles_sec": [
+      "shoulders",
+      "forearms"
+    ],
+    "cues": "Land on balls of feet, minimal jump height, wrists rotate the rope, rhythm.",
+    "icon": "i-ph-person-simple-walk"
+  },
+  {
+    "name": "Burpee",
+    "slug": "burpee",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "cardio",
+    "muscles": [
+      "quads",
+      "chest",
+      "core"
+    ],
+    "muscles_sec": [
+      "shoulders",
+      "triceps",
+      "hamstrings"
+    ],
+    "cues": "Squat down, kick feet out, push-up, jump feet forward, explode up.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "Mountain Climber",
+    "slug": "mountain-climber",
+    "equipment": "bodyweight",
+    "equipment_sub": "bodyweight",
+    "movement": "cardio",
+    "muscles": [
+      "core",
+      "hip_flexors"
+    ],
+    "muscles_sec": [
+      "quads",
+      "shoulders"
+    ],
+    "cues": "Plank position, drive knees to chest alternating, keep hips level.",
+    "icon": "i-ph-person"
+  },
+  {
+    "name": "Thruster",
+    "slug": "thruster",
+    "equipment": "barbell",
+    "equipment_sub": "barbell",
+    "movement": "cardio",
+    "muscles": [
+      "quads",
+      "glutes",
+      "shoulders"
+    ],
+    "muscles_sec": [
+      "triceps",
+      "core",
+      "hamstrings"
+    ],
+    "cues": "Front squat to overhead press in one fluid movement, use leg drive for press.",
+    "icon": "i-ph-barbell"
+  },
+  {
+    "name": "Wall Ball",
+    "slug": "wall-ball",
+    "equipment": "other",
+    "equipment_sub": "other",
+    "movement": "cardio",
+    "muscles": [
+      "quads",
+      "glutes",
+      "shoulders"
+    ],
+    "muscles_sec": [
+      "core",
+      "triceps"
+    ],
+    "cues": "Squat deep, drive up, throw ball to target, catch and immediately re-squat.",
+    "icon": "i-ph-person"
+  }
+]
