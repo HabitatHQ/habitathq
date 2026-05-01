@@ -17,7 +17,6 @@ const nodeId = new URLSearchParams(window.location.search).get("node") ?? crypto
  * Palladium backend, so we use an empty string (relative paths).
  * Set VITE_API_URL to an absolute URL to bypass the proxy.
  */
-// biome-ignore lint/complexity/useLiteralKeys: noPropertyAccessFromIndexSignature requires bracket notation
 const serverUrl = (import.meta.env["VITE_API_URL"] as string | undefined) ?? "";
 
 const engine = new NotesEngine(serverUrl, nodeId);

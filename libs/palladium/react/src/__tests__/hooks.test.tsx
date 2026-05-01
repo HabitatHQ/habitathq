@@ -1,7 +1,7 @@
 import { createEngine, sql } from "@palladium/core";
 import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import { type ReactNode, act } from "react";
+import { act, type ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { PalladiumProvider, useLiveQuery, useSyncStatus } from "../index.js";
 

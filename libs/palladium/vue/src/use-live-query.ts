@@ -1,6 +1,6 @@
-import { toError } from "@palladium/core";
 import type { PalladiumEngine, SqlQuery } from "@palladium/core";
-import { type Ref, onUnmounted, ref } from "vue";
+import { toError } from "@palladium/core";
+import { onUnmounted, type Ref, ref } from "vue";
 
 export interface LiveQueryResult<T> {
   rows: Ref<T[]>;

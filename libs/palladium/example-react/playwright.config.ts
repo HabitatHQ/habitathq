@@ -5,7 +5,6 @@ export const API_PORT = 13_743;
 /** Port for the Vite dev server. */
 export const APP_PORT = 5_191;
 
-// biome-ignore lint/complexity/useLiteralKeys: noPropertyAccessFromIndexSignature requires bracket notation
 const isCI = !!process.env["CI"];
 
 export default defineConfig({

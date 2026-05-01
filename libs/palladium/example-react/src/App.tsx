@@ -1,8 +1,8 @@
 import { generateUlid, sql } from "@palladium/core";
 import { useLiveQuery, usePalladium, useSyncStatus } from "@palladium/react";
 import { useMemo, useState } from "react";
-import { NoteEditor } from "./NoteEditor.js";
 import type { NoteRow, NotesSchema } from "./db.js";
+import { NoteEditor } from "./NoteEditor.js";
 
 export function App(): React.ReactElement {
   const db = usePalladium<NotesSchema>();

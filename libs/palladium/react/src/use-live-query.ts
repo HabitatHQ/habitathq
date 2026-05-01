@@ -1,5 +1,5 @@
-import { toError } from "@palladium/core";
 import type { SqlQuery } from "@palladium/core";
+import { toError } from "@palladium/core";
 import { useEffect, useState } from "react";
 import { usePalladium } from "./provider.js";
 

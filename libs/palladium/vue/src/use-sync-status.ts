@@ -1,5 +1,5 @@
 import type { PalladiumEngine, SyncStatus } from "@palladium/core";
-import { type Ref, onUnmounted, ref } from "vue";
+import { onUnmounted, type Ref, ref } from "vue";
 
 /**
  * Vue composable for reactive sync status.

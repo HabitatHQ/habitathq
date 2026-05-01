@@ -14,8 +14,8 @@
  *   the state survives page reloads.
  */
 
-import { PalladiumEngine } from "@palladium/core";
 import type { StorageAdapter } from "@palladium/core";
+import { PalladiumEngine } from "@palladium/core";
 import { BrowserSqliteAdapter } from "@palladium/sqlite-browser";
 
 // ── Schema ─────────────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
-import { toError } from "@palladium/core";
 import type { PalladiumEngine, SqlQuery, SyncStatus } from "@palladium/core";
+import { toError } from "@palladium/core";
 import { readable } from "svelte/store";
 
 export interface LiveQueryValue<T> {

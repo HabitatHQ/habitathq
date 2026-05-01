@@ -10,8 +10,7 @@
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { _electron as electron } from "@playwright/test";
-import { expect, test } from "@playwright/test";
+import { _electron as electron, expect, test } from "@playwright/test";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ELECTRON_MAIN = path.join(__dirname, "../electron/dist/index.js");
@@ -53,9 +52,9 @@ test("CapacitorSqliteAdapter CRUD operations pass in Electron", async () => {
 
     if (failureLines.length > 0 || bodyStatus !== "done") {
       const detail =
-        bodyError !== null
-          ? `\nFatal error: ${bodyError}`
-          : `\nFailed tests:\n${failureLines.join("\n")}`;
+        bodyError === null
+          ? `\nFailed tests:\n${failureLines.join("\n")}`
+          : `\nFatal error: ${bodyError}`;
       throw new Error(`Adapter smoke tests did not all pass.${detail}`);
     }
 

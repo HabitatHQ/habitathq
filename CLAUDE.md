@@ -1,6 +1,7 @@
 @apps/habitat/AGENTS.md
 @apps/hearth/AGENTS.md
 @apps/halcyon/AGENTS.md
+@libs/palladium/AGENTS.md
 
 # Habitat Monorepo
 

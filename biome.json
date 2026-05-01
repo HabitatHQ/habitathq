@@ -92,6 +92,42 @@
           }
         }
       }
+    },
+    {
+      "includes": ["libs/palladium/**"],
+      "javascript": {
+        "formatter": {
+          "quoteStyle": "double",
+          "semicolons": "always"
+        }
+      },
+      "linter": {
+        "rules": {
+          "style": {
+            "noDefaultExport": "error",
+            "useImportType": "error"
+          },
+          "suspicious": {
+            "noExplicitAny": "error"
+          },
+          "correctness": {
+            "useExhaustiveDependencies": "warn"
+          },
+          "performance": {
+            "noDelete": "warn"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["libs/palladium/**/*.config.ts", "libs/palladium/**/*.config.js"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noDefaultExport": "off"
+          }
+        }
+      }
     }
   ]
 }

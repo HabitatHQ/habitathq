@@ -13,8 +13,8 @@ import type {
   CapSQLiteChanges,
   CapSQLiteResult,
   CapSQLiteValues,
+  SQLiteDBConnection,
 } from "@palladium/sqlite-capacitor";
-import type { SQLiteDBConnection } from "@palladium/sqlite-capacitor";
 
 interface ElectronSqliteApi {
   open(dbName: string): Promise<void>;

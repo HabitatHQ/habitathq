@@ -51,12 +51,12 @@ export class EventEmitter<Events extends object> {
 
   /** Remove all listeners for an event (or all events if no event given). */
   removeAllListeners<K extends keyof Events>(event?: K): void {
-    if (event !== undefined) {
-      delete this.#listeners[event];
-    } else {
+    if (event === undefined) {
       for (const key of Object.keys(this.#listeners) as K[]) {
         delete this.#listeners[key];
       }
+    } else {
+      delete this.#listeners[event];
     }
   }
 }

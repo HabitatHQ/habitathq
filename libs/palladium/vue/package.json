@@ -12,7 +12,9 @@
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "lint": "biome check src",
@@ -26,7 +28,7 @@
     "@palladium/core": "workspace:*"
   },
   "devDependencies": {
-    "@biomejs/biome": "^1.9.4",
+    "@biomejs/biome": "^2.4.6",
     "@palladium/sqlite-node": "workspace:*",
     "@vue/test-utils": "^2.4.0",
     "happy-dom": "^20.8.3",

@@ -2,7 +2,6 @@ import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-// biome-ignore lint/complexity/useLiteralKeys: noPropertyAccessFromIndexSignature requires bracket notation
 const PALLADIUM_API = process.env["PALLADIUM_API"] ?? "http://localhost:13743";
 
 export default defineConfig({

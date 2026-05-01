@@ -14,7 +14,7 @@
  * Node IDs are zero-padded UUIDs for readable test output.
  */
 
-import { type Browser, type Page, expect, test } from "@playwright/test";
+import { type Browser, expect, type Page, test } from "@playwright/test";
 
 const ALICE = "00000000-0000-0000-0000-000000000001";
 const BOB = "00000000-0000-0000-0000-000000000002";

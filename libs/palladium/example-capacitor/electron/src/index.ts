@@ -10,9 +10,9 @@
  */
 
 import path from "node:path";
-import { BrowserWindow, app, ipcMain } from "electron";
-import initSqlJs from "sql.js";
+import { app, BrowserWindow, ipcMain } from "electron";
 import type { Database, SqlJsStatic } from "sql.js";
+import initSqlJs from "sql.js";
 
 const sqlJsDir = path.dirname(require.resolve("sql.js"));
 

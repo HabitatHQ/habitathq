@@ -1,12 +1,11 @@
-import { createEngine } from "@palladium/core";
-import { MemoryBlobAdapter } from "@palladium/core";
+import { createEngine, MemoryBlobAdapter } from "@palladium/core";
 import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { cleanup, render, waitFor } from "@testing-library/react";
-import { type ReactNode, act } from "react";
+import { act, type ReactNode } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { PalladiumProvider } from "../provider.js";
-import { useBlobUrl } from "../use-blob-url.js";
 import { useBlob } from "../use-blob.js";
+import { useBlobUrl } from "../use-blob-url.js";
 
 beforeAll(() => {
   vi.spyOn(URL, "createObjectURL").mockImplementation((_blob) => "blob:mock-url");
@@ -33,7 +32,7 @@ describe("useBlobUrl", () => {
     const engine = makeEngine();
     await engine.init();
 
-    let capturedUrl: string | null | undefined = undefined;
+    let capturedUrl: string | null | undefined;
 
     function App(): ReactNode {
       const url = useBlobUrl(engine, null);
@@ -50,7 +49,7 @@ describe("useBlobUrl", () => {
     const engine = makeEngine();
     await engine.init();
 
-    let capturedUrl: string | null | undefined = undefined;
+    let capturedUrl: string | null | undefined;
 
     function App(): ReactNode {
       const url = useBlobUrl(engine, "nonexistent");
@@ -67,7 +66,7 @@ describe("useBlobUrl", () => {
     const engine = makeEngine();
     await engine.init();
 
-    let capturedUrl: string | null | undefined = undefined;
+    let capturedUrl: string | null | undefined;
 
     function App(): ReactNode {
       const url = useBlobUrl(engine, "missing");
@@ -86,7 +85,7 @@ describe("useBlobUrl", () => {
     await engine.init();
     await engine.blobs.put("img1", new Uint8Array([1, 2, 3]));
 
-    let capturedUrl: string | null | undefined = undefined;
+    let capturedUrl: string | null | undefined;
 
     function App(): ReactNode {
       const url = useBlobUrl(engine, "img1");
@@ -106,7 +105,7 @@ describe("useBlob", () => {
     const engine = makeEngine();
     await engine.init();
 
-    let capturedBytes: Uint8Array | null | undefined = undefined;
+    let capturedBytes: Uint8Array | null | undefined;
 
     function App(): ReactNode {
       const bytes = useBlob(engine, null);
@@ -123,7 +122,7 @@ describe("useBlob", () => {
     const engine = makeEngine();
     await engine.init();
 
-    let capturedBytes: Uint8Array | null | undefined = undefined;
+    let capturedBytes: Uint8Array | null | undefined;
 
     function App(): ReactNode {
       const bytes = useBlob(engine, "missing");
@@ -142,7 +141,7 @@ describe("useBlob", () => {
     const data = new Uint8Array([10, 20, 30]);
     await engine.blobs.put("file1", data);
 
-    let capturedBytes: Uint8Array | null | undefined = undefined;
+    let capturedBytes: Uint8Array | null | undefined;
 
     function App(): ReactNode {
       const bytes = useBlob(engine, "file1");
@@ -162,7 +161,7 @@ describe("useBlob", () => {
     await engine.blobs.put("b", new Uint8Array([2]));
 
     let currentId = "a";
-    let capturedBytes: Uint8Array | null | undefined = undefined;
+    let capturedBytes: Uint8Array | null | undefined;
 
     function App(): ReactNode {
       const bytes = useBlob(engine, currentId);

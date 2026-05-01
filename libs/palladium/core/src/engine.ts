@@ -14,10 +14,10 @@ import { EventEmitter } from "./event-emitter.js";
 import { LiveQuery } from "./live-query.js";
 import { MemoryBlobAdapter } from "./memory-blob-adapter.js";
 import type { SqlQuery } from "./sql.js";
-import { isTransactable } from "./storage.js";
 import type { StorageAdapter } from "./storage.js";
-import { TxBuilder } from "./tx.js";
+import { isTransactable } from "./storage.js";
 import type { Op, SchemaMap } from "./tx.js";
+import { TxBuilder } from "./tx.js";
 
 export type SyncStatus = "idle" | "syncing" | "error" | "offline";
 
