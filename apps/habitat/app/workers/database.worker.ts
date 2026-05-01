@@ -519,7 +519,7 @@ await (async () => {
         const tid = crypto.randomUUID()
         exec(
           'INSERT INTO checkin_templates (id,title,schedule_type,days_active) VALUES (?,?,?,?)',
-          [tid, title, schedule_type, days_active != null ? JSON.stringify(days_active) : null],
+          [tid, title, schedule_type, days_active == null ? null : JSON.stringify(days_active)],
         )
         for (const q of qs) {
           exec(

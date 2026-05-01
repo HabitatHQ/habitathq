@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { DashboardSummary, RecurringPatternRow } from '~/types/database'
-import { formatAmount, formatDateRelative, splitCurrencyParts } from '~/utils/format'
+import { formatDateRelative, splitCurrencyParts } from '~/utils/format'
 
 const db = useDatabase()
 const { settings } = useAppSettings()

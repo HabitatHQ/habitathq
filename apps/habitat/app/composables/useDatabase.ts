@@ -173,7 +173,7 @@ export function useDatabase() {
     ): Promise<CheckinHistoryRow[]> =>
       sendToWorker({
         type: 'GET_CHECKIN_HISTORY',
-        payload: { from, to, ...(template_id !== undefined ? { template_id } : {}) },
+        payload: { from, to, ...(template_id === undefined ? {} : { template_id }) },
       }),
     exportJsonData: (sel: ExportSelection): Promise<HabitatExport> =>
       sendToWorker({ type: 'EXPORT_JSON_DATA', payload: sel }),

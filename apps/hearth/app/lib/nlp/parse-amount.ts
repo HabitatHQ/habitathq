@@ -79,7 +79,7 @@ export function parseAmount(text: string): AmountResult | null {
   const eurMatch = EUR_RE.exec(text)
   if (eurMatch?.[1]) {
     return {
-      amount: parseFloat(eurMatch[1].replace(/,/g, '')),
+      amount: Number.parseFloat(eurMatch[1].replace(/,/g, '')),
       confidence: 'high',
       matchedText: eurMatch[0],
       currency: 'EUR',
@@ -90,7 +90,7 @@ export function parseAmount(text: string): AmountResult | null {
   const gbpMatch = GBP_RE.exec(text)
   if (gbpMatch?.[1]) {
     return {
-      amount: parseFloat(gbpMatch[1].replace(/,/g, '')),
+      amount: Number.parseFloat(gbpMatch[1].replace(/,/g, '')),
       confidence: 'high',
       matchedText: gbpMatch[0],
       currency: 'GBP',
@@ -101,7 +101,7 @@ export function parseAmount(text: string): AmountResult | null {
   const yenMatch = YEN_RE.exec(text)
   if (yenMatch?.[1]) {
     return {
-      amount: parseFloat(yenMatch[1].replace(/,/g, '')),
+      amount: Number.parseFloat(yenMatch[1].replace(/,/g, '')),
       confidence: 'high',
       matchedText: yenMatch[0],
       currency: 'JPY',
@@ -112,7 +112,7 @@ export function parseAmount(text: string): AmountResult | null {
   const usdMatch = USD_RE.exec(text)
   if (usdMatch?.[1]) {
     return {
-      amount: parseFloat(usdMatch[1].replace(/,/g, '')),
+      amount: Number.parseFloat(usdMatch[1].replace(/,/g, '')),
       confidence: 'high',
       matchedText: usdMatch[0],
       currency: 'USD',
@@ -125,7 +125,7 @@ export function parseAmount(text: string): AmountResult | null {
     const word = wordMatch[0].replace(wordMatch[1], '').trim().toLowerCase()
     const currency = CURRENCY_WORD_MAP[word]
     return {
-      amount: parseFloat(wordMatch[1].replace(/,/g, '')),
+      amount: Number.parseFloat(wordMatch[1].replace(/,/g, '')),
       confidence: 'high',
       matchedText: wordMatch[0],
       currency,
@@ -148,7 +148,7 @@ export function parseAmount(text: string): AmountResult | null {
   // 7. Bare number (lowest confidence — no currency detected)
   const bareMatch = BARE_NUMBER_RE.exec(text)
   if (bareMatch?.[1]) {
-    const val = parseFloat(bareMatch[1])
+    const val = Number.parseFloat(bareMatch[1])
     if (val > 0 && val < 100000) {
       return {
         amount: val,

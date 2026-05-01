@@ -22,7 +22,10 @@ export interface JSContactCard {
 
 // ─── Export ───────────────────────────────────────────────────────────────────
 
-export function contactToJSContact(contact: Contact, fields: ContactFieldWithType[]): JSContactCard {
+export function contactToJSContact(
+  contact: Contact,
+  fields: ContactFieldWithType[],
+): JSContactCard {
   const card: JSContactCard = {
     '@type': 'Card',
     version: '1.0',

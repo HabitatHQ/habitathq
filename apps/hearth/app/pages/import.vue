@@ -3,7 +3,7 @@ import { autoMapCategories } from '~/lib/import/category-mapper'
 import { autoMapColumns, type HearthField } from '~/lib/import/column-mapper'
 import { parseCSV } from '~/lib/import/csv-parser'
 import { findDuplicates } from '~/lib/import/dedup'
-import { type ImportPreset, MINT_PRESET, YNAB_PRESET } from '~/lib/import/presets'
+import type { ImportPreset } from '~/lib/import/presets'
 import type { Transaction } from '~/types/database'
 
 const db = useDatabase()
@@ -221,13 +221,13 @@ function parseImportDate(raw: string): string | null {
   // Try M/D/YYYY
   const mdyMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
   if (mdyMatch) {
-    return `${mdyMatch[3]}-${mdyMatch[1]!.padStart(2, '0')}-${mdyMatch[2]!.padStart(2, '0')}`
+    return `${mdyMatch[3]}-${mdyMatch[1]?.padStart(2, '0')}-${mdyMatch[2]?.padStart(2, '0')}`
   }
   // Try M/D/YY
   const mdyShort = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/)
   if (mdyShort) {
     const year = Number(mdyShort[3]) > 50 ? `19${mdyShort[3]}` : `20${mdyShort[3]}`
-    return `${year}-${mdyShort[1]!.padStart(2, '0')}-${mdyShort[2]!.padStart(2, '0')}`
+    return `${year}-${mdyShort[1]?.padStart(2, '0')}-${mdyShort[2]?.padStart(2, '0')}`
   }
   return null
 }

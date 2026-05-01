@@ -106,7 +106,7 @@ export function parseDate(text: string, today: string): DateResult | null {
   if (monthDayMatch?.[1] && monthDayMatch[2]) {
     const monthKey = monthDayMatch[1].toLowerCase().slice(0, 3)
     const month = MONTH_MAP[monthKey]
-    const day = parseInt(monthDayMatch[2], 10)
+    const day = Number.parseInt(monthDayMatch[2], 10)
     if (month !== undefined && day >= 1 && day <= 31) {
       const d = new Date(todayDate.getFullYear(), month, day)
       // If the date is in the future, use previous year
@@ -118,8 +118,8 @@ export function parseDate(text: string, today: string): DateResult | null {
   // 5. "3/15", "3-15" (M/D format)
   const numericMatch = NUMERIC_DATE_RE.exec(text)
   if (numericMatch?.[1] && numericMatch[2]) {
-    const month = parseInt(numericMatch[1], 10) - 1
-    const day = parseInt(numericMatch[2], 10)
+    const month = Number.parseInt(numericMatch[1], 10) - 1
+    const day = Number.parseInt(numericMatch[2], 10)
     if (month >= 0 && month <= 11 && day >= 1 && day <= 31) {
       const d = new Date(todayDate.getFullYear(), month, day)
       if (d > todayDate) d.setFullYear(d.getFullYear() - 1)

@@ -2,7 +2,6 @@
 import { useDatabase } from '~/composables/useDatabase'
 import { useVault } from '~/composables/useVault'
 import type { SearchResult } from '~/types/database'
-import { contactDisplayName, contactInitials } from '~/utils/contact-helpers'
 
 const db = useDatabase()
 const { activeVaultId } = useVault()

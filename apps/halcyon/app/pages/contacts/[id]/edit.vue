@@ -1,10 +1,24 @@
 <script setup lang="ts">
 import { useDatabase } from '~/composables/useDatabase'
 import type {
-  Address, AddressType, Company, ContactDetail, ContactField, ContactFieldType,
-  GiftNote, LifeEvent, LifeEventType, Occupation, Pet, Relationship, RelationshipType, Reminder, StayInTouch, Task,
+  Address,
+  AddressType,
+  Company,
+  ContactDetail,
+  ContactField,
+  ContactFieldType,
+  GiftNote,
+  LifeEvent,
+  LifeEventType,
+  Occupation,
+  Pet,
+  Relationship,
+  RelationshipType,
+  Reminder,
+  StayInTouch,
+  Task,
 } from '~/types/database'
-import { formatDate, localDateString } from '~/utils/format'
+import { localDateString } from '~/utils/format'
 
 const route = useRoute()
 const router = useRouter()
@@ -46,7 +60,14 @@ const newField = reactive({ type_id: '', value: '', label: '' })
 const addingField = ref(false)
 
 // Address add form
-const newAddress = reactive({ type_id: '', street: '', city: '', province: '', postal_code: '', country: '' })
+const newAddress = reactive({
+  type_id: '',
+  street: '',
+  city: '',
+  province: '',
+  postal_code: '',
+  country: '',
+})
 const addingAddress = ref(false)
 
 // Pet form
@@ -83,7 +104,13 @@ const addingRel = ref(false)
 // Occupations
 const occupations = ref<Occupation[]>([])
 const companies = ref<Company[]>([])
-const newOcc = reactive({ company_id: '', title: '', department: '', started_at: '', is_current: true })
+const newOcc = reactive({
+  company_id: '',
+  title: '',
+  department: '',
+  started_at: '',
+  is_current: true,
+})
 const addingOcc = ref(false)
 
 // Stay-in-touch form
@@ -91,7 +118,7 @@ const sitFrequency = ref(30)
 const editingSit = ref(false)
 
 async function load() {
-  const id = route.params['id'] as string
+  const id = route.params.id as string
   loading.value = true
   try {
     const detail = await db.getContactDetail(id)
@@ -136,7 +163,10 @@ async function load() {
     lifeEvents.value = les
     lifeEventTypes.value = lets
     relationships.value = detail.relationships
-    occupations.value = [...(detail.current_occupation ? [detail.current_occupation] : []), ...detail.past_occupations]
+    occupations.value = [
+      ...(detail.current_occupation ? [detail.current_occupation] : []),
+      ...detail.past_occupations,
+    ]
     stayInTouch.value = detail.stay_in_touch ?? null
     if (stayInTouch.value) sitFrequency.value = stayInTouch.value.frequency_days
   } finally {
@@ -202,7 +232,14 @@ async function addAddress() {
       is_primary: addresses.value.length === 0,
     })
     addresses.value.push(a)
-    Object.assign(newAddress, { type_id: '', street: '', city: '', province: '', postal_code: '', country: '' })
+    Object.assign(newAddress, {
+      type_id: '',
+      street: '',
+      city: '',
+      province: '',
+      postal_code: '',
+      country: '',
+    })
     toast.add({ title: 'Address added', color: 'success' })
   } finally {
     addingAddress.value = false
@@ -315,7 +352,11 @@ async function addGiftNote() {
   if (!contact.value || !newGift.idea.trim()) return
   addingGift.value = true
   try {
-    const g = await db.createGiftNote({ contact_id: contact.value.id, idea: newGift.idea.trim(), occasion: newGift.occasion })
+    const g = await db.createGiftNote({
+      contact_id: contact.value.id,
+      idea: newGift.idea.trim(),
+      occasion: newGift.occasion,
+    })
     giftNotes.value.push(g)
     Object.assign(newGift, { idea: '', occasion: '' })
     toast.add({ title: 'Gift idea added', color: 'success' })
@@ -360,7 +401,7 @@ const relDebounce = useDebounceFn(async () => {
   if (!relSearch.value.trim() || !contact.value) return
   const results = await db.search(contact.value.vault_id, relSearch.value)
   relSearchResults.value = results.contacts
-    .filter((c) => c.id !== contact.value!.id)
+    .filter((c) => c.id !== contact.value?.id)
     .map((c) => ({ id: c.id, name: [c.first_name, c.last_name].filter(Boolean).join(' ') }))
 }, 300)
 watch(relSearch, relDebounce)
@@ -375,7 +416,12 @@ async function addRelationship() {
   if (!contact.value || !newRel.related_id || !newRel.type_id) return
   addingRel.value = true
   try {
-    const r = await db.createRelationship({ contact_id: contact.value.id, related_id: newRel.related_id, type_id: newRel.type_id, notes: newRel.notes })
+    const r = await db.createRelationship({
+      contact_id: contact.value.id,
+      related_id: newRel.related_id,
+      type_id: newRel.type_id,
+      notes: newRel.notes,
+    })
     relationships.value.push(r)
     Object.assign(newRel, { related_id: '', type_id: '', notes: '' })
     relSearch.value = ''
@@ -405,7 +451,13 @@ async function addOccupation() {
       ended_at: null,
     })
     occupations.value.push(o)
-    Object.assign(newOcc, { company_id: '', title: '', department: '', started_at: '', is_current: true })
+    Object.assign(newOcc, {
+      company_id: '',
+      title: '',
+      department: '',
+      started_at: '',
+      is_current: true,
+    })
     toast.add({ title: 'Position added', color: 'success' })
   } finally {
     addingOcc.value = false

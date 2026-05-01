@@ -46,7 +46,7 @@ export function formatMmSs(totalSeconds: number): string {
 }
 
 export function computeElapsed(timer: ActiveTimer, now: number): number {
-  return timer.elapsed + (timer.startedAt !== null ? Math.floor((now - timer.startedAt) / 1000) : 0)
+  return timer.elapsed + (timer.startedAt === null ? 0 : Math.floor((now - timer.startedAt) / 1000))
 }
 
 export function formatTimerDisplay(

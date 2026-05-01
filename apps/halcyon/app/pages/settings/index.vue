@@ -1,9 +1,29 @@
 <script setup lang="ts">
 const links = [
-  { label: 'Vaults', description: 'Manage your vaults', to: '/settings/vault', icon: 'i-heroicons-archive-box' },
-  { label: 'Contact field types', description: 'Custom fields for contacts', to: '/settings/field-types', icon: 'i-heroicons-tag' },
-  { label: 'Relationship types', description: 'Define relationship labels', to: '/settings/relationship-types', icon: 'i-heroicons-arrow-path-rounded-square' },
-  { label: 'Import & Export', description: 'Import vCard, export JSON or vCard', to: '/settings/import-export', icon: 'i-heroicons-arrow-down-tray' },
+  {
+    label: 'Vaults',
+    description: 'Manage your vaults',
+    to: '/settings/vault',
+    icon: 'i-heroicons-archive-box',
+  },
+  {
+    label: 'Contact field types',
+    description: 'Custom fields for contacts',
+    to: '/settings/field-types',
+    icon: 'i-heroicons-tag',
+  },
+  {
+    label: 'Relationship types',
+    description: 'Define relationship labels',
+    to: '/settings/relationship-types',
+    icon: 'i-heroicons-arrow-path-rounded-square',
+  },
+  {
+    label: 'Import & Export',
+    description: 'Import vCard, export JSON or vCard',
+    to: '/settings/import-export',
+    icon: 'i-heroicons-arrow-down-tray',
+  },
 ]
 </script>
 

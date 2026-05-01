@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { SUPPORTED_CURRENCIES } from '~/lib/currency/convert'
 import type { Account, Category, User } from '~/types/database'
-import { formatAmount, formatCurrency } from '~/utils/format'
+import { formatCurrency } from '~/utils/format'
 
 const db = useDatabase()
 const router = useRouter()
@@ -80,12 +79,12 @@ const categoryOptions = computed(() => {
 })
 
 const amountNum = computed(() => {
-  const n = parseFloat(form.amountStr)
+  const n = Number.parseFloat(form.amountStr)
   return Number.isNaN(n) ? 0 : n
 })
 
 const amountFormatted = computed(() => {
-  const n = form.amountStr ? parseFloat(form.amountStr) : 0
+  const n = form.amountStr ? Number.parseFloat(form.amountStr) : 0
   return formatCurrency(Number.isNaN(n) ? 0 : n, form.currency)
 })
 

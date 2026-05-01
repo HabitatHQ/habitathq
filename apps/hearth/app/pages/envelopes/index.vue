@@ -63,7 +63,7 @@ function openEditModal(env: EnvelopeWithSpending) {
 }
 
 async function saveEnvelope() {
-  const budget = parseFloat(modalEnvelope.budget_amount)
+  const budget = Number.parseFloat(modalEnvelope.budget_amount)
   if (!modalEnvelope.name || Number.isNaN(budget)) return
   if (isEditing.value && editingEnvelope.value) {
     await db.updateEnvelope({

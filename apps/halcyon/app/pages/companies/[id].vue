@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { useDatabase } from '~/composables/useDatabase'
 import type { Company, Contact } from '~/types/database'
-import { normalizeWebsite } from '~/utils/company-helpers'
-import { contactDisplayName, contactInitials } from '~/utils/contact-helpers'
 
 const route = useRoute()
 const router = useRouter()
@@ -18,16 +16,18 @@ const saving = ref(false)
 const form = reactive({ name: '', website: '', description: '' })
 
 async function load() {
-  const id = route.params['id'] as string
+  const id = route.params.id as string
   loading.value = true
   try {
-    const [co, cs] = await Promise.all([
-      db.getCompany(id),
-      db.getCompanyContacts(id),
-    ])
+    const [co, cs] = await Promise.all([db.getCompany(id), db.getCompanyContacts(id)])
     company.value = co
     contacts.value = cs
-    if (co) Object.assign(form, { name: co.name, website: co.website ?? '', description: co.description ?? '' })
+    if (co)
+      Object.assign(form, {
+        name: co.name,
+        website: co.website ?? '',
+        description: co.description ?? '',
+      })
   } finally {
     loading.value = false
   }

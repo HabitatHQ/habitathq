@@ -78,7 +78,7 @@ export async function idbDelete(store: string, id: string): Promise<void> {
   })
 }
 
-export { VOICE_STORE, IMAGE_STORE }
+export { IMAGE_STORE, VOICE_STORE }
 
 // ─── Composable ───────────────────────────────────────────────────────────────
 

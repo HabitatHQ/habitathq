@@ -35,7 +35,9 @@ async function create() {
     const rt = await db.createRelationshipType({
       vault_id: activeVaultId.value,
       name: newForm.name.trim(),
-      name_reverse: newForm.is_symmetric ? newForm.name.trim() : (newForm.name_reverse.trim() || newForm.name.trim()),
+      name_reverse: newForm.is_symmetric
+        ? newForm.name.trim()
+        : newForm.name_reverse.trim() || newForm.name.trim(),
       is_symmetric: newForm.is_symmetric,
     })
     relTypes.value.push(rt)
@@ -49,7 +51,11 @@ async function create() {
 
 function startEdit(rt: RelationshipType) {
   editingId.value = rt.id
-  Object.assign(editForm, { name: rt.name, name_reverse: rt.name_reverse, is_symmetric: rt.is_symmetric })
+  Object.assign(editForm, {
+    name: rt.name,
+    name_reverse: rt.name_reverse,
+    is_symmetric: rt.is_symmetric,
+  })
 }
 
 async function saveEdit(rt: RelationshipType) {

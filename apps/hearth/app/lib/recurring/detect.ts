@@ -49,7 +49,7 @@ export function detectRecurringPatterns(
   for (const t of transactions) {
     const key = `${t.merchant.toLowerCase().trim()}|${t.type}`
     if (!groups.has(key)) groups.set(key, [])
-    groups.get(key)!.push(t)
+    groups.get(key)?.push(t)
   }
 
   // Track existing patterns to skip
@@ -69,7 +69,7 @@ export function detectRecurringPatterns(
     // Calculate intervals between consecutive transactions
     const intervals: number[] = []
     for (let i = 1; i < sorted.length; i++) {
-      intervals.push(daysBetween(sorted[i - 1]!.date, sorted[i]!.date))
+      intervals.push(daysBetween(sorted[i - 1]?.date, sorted[i]?.date))
     }
 
     const meanInterval = mean(intervals)
@@ -101,7 +101,7 @@ export function detectRecurringPatterns(
     // Calculate confidence
     const baseScore = sorted.length >= 5 ? 0.9 : sorted.length >= 4 ? 0.7 : 0.5
 
-    const lastOccurrence = sorted[sorted.length - 1]!.date
+    const lastOccurrence = sorted[sorted.length - 1]?.date
     const expectedIntervalDays = meanInterval
     const today = new Date()
     const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
@@ -122,16 +122,16 @@ export function detectRecurringPatterns(
 
     patterns.push({
       id: `rp-${Date.now()}-${patterns.length}`,
-      merchant: sorted[0]!.merchant,
-      type: sorted[0]!.type,
+      merchant: sorted[0]?.merchant,
+      type: sorted[0]?.type,
       interval: matchedInterval.name,
       averageAmount: Math.round(meanAmount * 100) / 100,
       lastOccurrence,
       nextExpected,
       confidence: Math.round(confidence * 100) / 100,
       status: 'detected',
-      categoryId: sorted[0]!.category_id,
-      accountId: sorted[0]!.account_id,
+      categoryId: sorted[0]?.category_id,
+      accountId: sorted[0]?.account_id,
       transactionIds: sorted.map((t) => t.id),
     })
   }

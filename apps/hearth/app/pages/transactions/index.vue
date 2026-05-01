@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { TransactionWithDetails } from '~/types/database'
-import { formatAmount, formatDateRelative } from '~/utils/format'
+import { formatDateRelative } from '~/utils/format'
 
 const db = useDatabase()
 const { settings } = useAppSettings()

@@ -54,7 +54,7 @@ export function formatRelativeTime(isoTimestamp: string): string {
   if (minutes < 1) return 'just now'
   if (minutes < 60) return `${minutes} min ago`
   if (hours < 24) return `${hours} h ago`
-  return `${days} day${days !== 1 ? 's' : ''} ago`
+  return `${days} day${days === 1 ? '' : 's'} ago`
 }
 
 /** Format a duration in minutes as "45 min", "1 h", "1 h 30 min" */

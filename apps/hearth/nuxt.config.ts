@@ -8,6 +8,7 @@ const isPWA = !isNative
 export default defineNuxtConfig({
   devServer: {
     host: '127.0.0.1',
+    port: 3100,
   },
   compatibilityDate: '2025-01-01',
 

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import VChart from 'vue-echarts'
 import { getHearthTheme } from '~/lib/echarts-theme'
 import type { EnvelopeWithSpending, MonthlyTotal, TransactionWithDetails } from '~/types/database'
 import { formatCompact } from '~/utils/format'
@@ -243,7 +242,7 @@ const monthLabels = computed(() =>
       'Nov',
       'Dec',
     ]
-    return MONTHS[Number.parseInt(month!) - 1]
+    return MONTHS[Number.parseInt(month!, 10) - 1]
   }),
 )
 
@@ -437,7 +436,7 @@ function onPersonDonutClick(params: any) {
 // biome-ignore lint/suspicious/noExplicitAny: ECharts event params have dynamic shape
 function onTrendClick(params: any) {
   if (params?.dataIndex != null && monthlyTotals.value[params.dataIndex]) {
-    period.value = monthlyTotals.value[params.dataIndex]!.period
+    period.value = monthlyTotals.value[params.dataIndex]?.period
   }
 }
 </script>

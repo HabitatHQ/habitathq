@@ -795,7 +795,7 @@ await (async () => {
           const p = req.payload
           const id = uuid()
           db.exec(
-            `INSERT INTO users VALUES (?,?,?,?,?,?,?,?)`,
+            'INSERT INTO users VALUES (?,?,?,?,?,?,?,?)',
             B([id, p.name, p.email ?? null, p.role, p.avatar_emoji, p.color, p.is_current, now()]),
           )
           return db.selectObject('SELECT * FROM users WHERE id = ?', B([id]))
@@ -822,7 +822,7 @@ await (async () => {
           const p = req.payload
           const id = uuid()
           db.exec(
-            `INSERT INTO accounts VALUES (?,?,?,?,?,?,?,?,?,?)`,
+            'INSERT INTO accounts VALUES (?,?,?,?,?,?,?,?,?,?)',
             B([id, p.user_id, p.name, p.type, p.balance, p.currency, p.color, p.icon, 1, now()]),
           )
           return db.selectObject('SELECT * FROM accounts WHERE id = ?', B([id]))
@@ -988,7 +988,7 @@ await (async () => {
           const p = req.payload
           const id = uuid()
           db.exec(
-            `INSERT INTO envelopes VALUES (?,?,?,?,?,?,?,?,?,?)`,
+            'INSERT INTO envelopes VALUES (?,?,?,?,?,?,?,?,?,?)',
             B([
               id,
               p.name,
@@ -1020,7 +1020,7 @@ await (async () => {
           const p = req.payload
           const id = uuid()
           db.exec(
-            `INSERT INTO savings_goals VALUES (?,?,?,?,?,?,?,?,?)`,
+            'INSERT INTO savings_goals VALUES (?,?,?,?,?,?,?,?,?)',
             B([
               id,
               p.name,
@@ -1072,7 +1072,7 @@ await (async () => {
           const p = req.payload
           const id = uuid()
           db.exec(
-            `INSERT INTO iou_splits VALUES (?,?,?,?,?,?,?,?)`,
+            'INSERT INTO iou_splits VALUES (?,?,?,?,?,?,?,?)',
             B([
               id,
               p.transaction_id ?? null,
@@ -1270,7 +1270,7 @@ await (async () => {
           const p = req.payload
           const id = uuid()
           db.exec(
-            `INSERT INTO chores VALUES (?,?,?,?,?,?,?,?)`,
+            'INSERT INTO chores VALUES (?,?,?,?,?,?,?,?)',
             B([id, p.name, p.icon, p.color, p.frequency, p.scope, p.assigned_to ?? null, now()]),
           )
           return db.selectObject('SELECT * FROM chores WHERE id = ?', B([id]))
@@ -1294,7 +1294,7 @@ await (async () => {
           const id = uuid()
           const ts = now()
           db.exec(
-            `INSERT OR IGNORE INTO chore_completions VALUES (?,?,?,?,?,?)`,
+            'INSERT OR IGNORE INTO chore_completions VALUES (?,?,?,?,?,?)',
             B([id, chore_id, user_id, ts, pk, ts]),
           )
           return null
@@ -1446,7 +1446,7 @@ await (async () => {
         case 'UPDATE_RECURRING_PATTERN': {
           const { id, status } = req.payload
           db.exec(
-            `UPDATE recurring_patterns SET status = ?, updated_at = ? WHERE id = ?`,
+            'UPDATE recurring_patterns SET status = ?, updated_at = ? WHERE id = ?',
             B([status, now(), id]),
           )
           if (status === 'confirmed') {

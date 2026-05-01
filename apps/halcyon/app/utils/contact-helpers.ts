@@ -8,7 +8,10 @@ export function contactDisplayName(contact: Contact): string {
 
   const nick = nickname ? ` "${nickname}"` : ''
   const parts = [first_name, last_name].filter(Boolean)
-  return parts.join(nick ? `${nick} ` : ' ').replace(/ +/g, ' ').trim()
+  return parts
+    .join(nick ? `${nick} ` : ' ')
+    .replace(/ +/g, ' ')
+    .trim()
 }
 
 // Simpler rebuild: first + nick + last
@@ -29,10 +32,10 @@ export function contactDisplayNameFull(contact: Contact): string {
 export function contactInitials(contact: Contact): string {
   const { first_name, last_name, nickname } = contact
   if (!first_name && !last_name) {
-    return nickname ? nickname[0]!.toUpperCase() : '?'
+    return nickname ? nickname[0]?.toUpperCase() : '?'
   }
-  const a = first_name ? first_name[0]!.toUpperCase() : ''
-  const b = last_name ? last_name[0]!.toUpperCase() : ''
+  const a = first_name ? first_name[0]?.toUpperCase() : ''
+  const b = last_name ? last_name[0]?.toUpperCase() : ''
   return a + b
 }
 

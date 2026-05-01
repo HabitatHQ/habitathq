@@ -2,7 +2,6 @@
 import { useDatabase } from '~/composables/useDatabase'
 import { useVault } from '~/composables/useVault'
 import type { Contact, Group } from '~/types/database'
-import { contactDisplayName, contactInitials } from '~/utils/contact-helpers'
 
 const route = useRoute()
 const router = useRouter()
@@ -24,13 +23,10 @@ const searchResults = ref<Contact[]>([])
 const adding = ref(false)
 
 async function load() {
-  const id = route.params['id'] as string
+  const id = route.params.id as string
   loading.value = true
   try {
-    const [g, ms] = await Promise.all([
-      db.getGroup(id),
-      db.getGroupContacts(id),
-    ])
+    const [g, ms] = await Promise.all([db.getGroup(id), db.getGroupContacts(id)])
     group.value = g
     members.value = ms
     if (g) Object.assign(form, { name: g.name, description: g.description ?? '' })

@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "app=$(echo \"$CLAUDE_TOOL_INPUT_file_path\" | sed -n 's|.*/apps/\\([^/]*\\)/.*|\\1|p'); [ -n \"$app\" ] && cd \"$CLAUDE_PROJECT_DIR/apps/$app\" && pnpm typecheck 2>&1 | tail -20 || true",
+            "timeout": 30,
+            "statusMessage": "Typechecking..."
+          }
+        ]
+      }
+    ]
+  }
+}

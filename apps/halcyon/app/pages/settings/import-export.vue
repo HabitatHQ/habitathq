@@ -32,7 +32,10 @@ async function exportJSON() {
 
 function buildFieldsWithType(data: Awaited<ReturnType<typeof db.exportVault>>, contactId: string) {
   const fields = data.contact_fields.filter((f) => f.contact_id === contactId)
-  return fields.map((f) => ({ ...f, type: data.contact_field_types.find((t) => t.id === f.type_id)! }))
+  return fields.map((f) => ({
+    ...f,
+    type: data.contact_field_types.find((t) => t.id === f.type_id)!,
+  }))
 }
 
 async function exportVCard() {
@@ -84,7 +87,12 @@ function onFileChange(e: Event) {
   importError.value = ''
 }
 
-async function createContactFromParsed(parsed: { first_name: string; last_name: string; nickname: string; birthday: string | null }) {
+async function createContactFromParsed(parsed: {
+  first_name: string
+  last_name: string
+  nickname: string
+  birthday: string | null
+}) {
   await db.createContact({
     vault_id: activeVaultId.value!,
     first_name: parsed.first_name || 'Unknown',
@@ -122,10 +130,15 @@ async function importVCard() {
     for (const block of blocks) {
       try {
         const parsed = parseVCardBlock(block)
-        if (!parsed.first_name && !parsed.last_name) { errors++; continue }
+        if (!parsed.first_name && !parsed.last_name) {
+          errors++
+          continue
+        }
         await createContactFromParsed(parsed)
         added++
-      } catch { errors++ }
+      } catch {
+        errors++
+      }
     }
     importResult.value = { added, errors }
   } catch (e) {
@@ -151,10 +164,15 @@ async function importJSContact() {
     for (const card of cards) {
       try {
         const parsed = parseJSContact(card as Record<string, unknown>)
-        if (!parsed.first_name && !parsed.last_name) { errors++; continue }
+        if (!parsed.first_name && !parsed.last_name) {
+          errors++
+          continue
+        }
         await createContactFromParsed(parsed)
         added++
-      } catch { errors++ }
+      } catch {
+        errors++
+      }
     }
     importResult.value = { added, errors }
   } catch (e) {

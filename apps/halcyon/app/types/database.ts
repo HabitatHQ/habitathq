@@ -309,7 +309,13 @@ export type WorkerRequestBody =
   | { type: 'GET_CONTACTS'; payload: { vault_id: string } }
   | { type: 'GET_CONTACT'; payload: { id: string } }
   | { type: 'GET_CONTACT_DETAIL'; payload: { id: string } }
-  | { type: 'CREATE_CONTACT'; payload: Omit<Contact, 'id' | 'created_at' | 'updated_at' | 'archived_at' | 'last_contacted_at'> }
+  | {
+      type: 'CREATE_CONTACT'
+      payload: Omit<
+        Contact,
+        'id' | 'created_at' | 'updated_at' | 'archived_at' | 'last_contacted_at'
+      >
+    }
   | { type: 'UPDATE_CONTACT'; payload: Partial<Contact> & { id: string } }
   | { type: 'ARCHIVE_CONTACT'; payload: { id: string } }
   | { type: 'UNARCHIVE_CONTACT'; payload: { id: string } }
@@ -370,8 +376,14 @@ export type WorkerRequestBody =
   // Interactions
   | { type: 'GET_INTERACTIONS'; payload: { vault_id: string; contact_id?: string; limit?: number } }
   | { type: 'GET_INTERACTION'; payload: { id: string } }
-  | { type: 'CREATE_INTERACTION'; payload: Omit<Interaction, 'id' | 'created_at' | 'updated_at'> & { contact_ids: string[] } }
-  | { type: 'UPDATE_INTERACTION'; payload: Partial<Interaction> & { id: string } & { contact_ids?: string[] } }
+  | {
+      type: 'CREATE_INTERACTION'
+      payload: Omit<Interaction, 'id' | 'created_at' | 'updated_at'> & { contact_ids: string[] }
+    }
+  | {
+      type: 'UPDATE_INTERACTION'
+      payload: Partial<Interaction> & { id: string } & { contact_ids?: string[] }
+    }
   | { type: 'DELETE_INTERACTION'; payload: { id: string } }
   // Notes
   | { type: 'GET_NOTES'; payload: { contact_id: string } }
@@ -389,7 +401,10 @@ export type WorkerRequestBody =
   // Reminders
   | { type: 'GET_REMINDERS'; payload: { contact_id: string } }
   | { type: 'GET_UPCOMING_REMINDERS'; payload: { vault_id: string; days: number } }
-  | { type: 'CREATE_REMINDER'; payload: Omit<Reminder, 'id' | 'created_at' | 'is_done' | 'done_at'> }
+  | {
+      type: 'CREATE_REMINDER'
+      payload: Omit<Reminder, 'id' | 'created_at' | 'is_done' | 'done_at'>
+    }
   | { type: 'UPDATE_REMINDER'; payload: Partial<Reminder> & { id: string } }
   | { type: 'DONE_REMINDER'; payload: { id: string } }
   | { type: 'DELETE_REMINDER'; payload: { id: string } }
@@ -401,20 +416,29 @@ export type WorkerRequestBody =
   | { type: 'MARK_CONTACTED'; payload: { contact_id: string } }
   // Tasks
   | { type: 'GET_TASKS'; payload: { contact_id: string } }
-  | { type: 'CREATE_TASK'; payload: Omit<Task, 'id' | 'created_at' | 'updated_at' | 'is_done' | 'done_at'> }
+  | {
+      type: 'CREATE_TASK'
+      payload: Omit<Task, 'id' | 'created_at' | 'updated_at' | 'is_done' | 'done_at'>
+    }
   | { type: 'UPDATE_TASK'; payload: Partial<Task> & { id: string } }
   | { type: 'TOGGLE_TASK'; payload: { id: string } }
   | { type: 'DELETE_TASK'; payload: { id: string } }
   // Gift notes
   | { type: 'GET_GIFT_NOTES'; payload: { contact_id: string } }
-  | { type: 'CREATE_GIFT_NOTE'; payload: Omit<GiftNote, 'id' | 'created_at' | 'is_given' | 'given_at'> }
+  | {
+      type: 'CREATE_GIFT_NOTE'
+      payload: Omit<GiftNote, 'id' | 'created_at' | 'is_given' | 'given_at'>
+    }
   | { type: 'UPDATE_GIFT_NOTE'; payload: Partial<GiftNote> & { id: string } }
   | { type: 'MARK_GIFT_GIVEN'; payload: { id: string } }
   | { type: 'DELETE_GIFT_NOTE'; payload: { id: string } }
   // Journal
   | { type: 'GET_JOURNAL_ENTRIES'; payload: { vault_id: string } }
   | { type: 'GET_JOURNAL_ENTRY'; payload: { date: string; vault_id: string } }
-  | { type: 'UPSERT_JOURNAL_ENTRY'; payload: Omit<JournalEntry, 'id' | 'created_at' | 'updated_at'> }
+  | {
+      type: 'UPSERT_JOURNAL_ENTRY'
+      payload: Omit<JournalEntry, 'id' | 'created_at' | 'updated_at'>
+    }
   | { type: 'DELETE_JOURNAL_ENTRY'; payload: { id: string } }
   // Search
   | { type: 'SEARCH'; payload: { vault_id: string; query: string } }

@@ -43,7 +43,7 @@ export function buildTodoPayload(
   form: TodoFormState,
   existingAnnotations: Record<string, string> | null,
 ) {
-  const mins = form.estimated_minutes !== '' ? Number(form.estimated_minutes) : null
+  const mins = form.estimated_minutes === '' ? null : Number(form.estimated_minutes)
   const tags = form.tags.map((t) => t.trim()).filter(Boolean)
   return {
     title: form.title.trim(),

@@ -37,8 +37,7 @@ export function useDatabase() {
     isAvailable: true as const,
 
     // ── Vaults ──────────────────────────────────────────────────────────────
-    getVaults: (): Promise<Vault[]> =>
-      sendToWorker({ type: 'GET_VAULTS' }),
+    getVaults: (): Promise<Vault[]> => sendToWorker({ type: 'GET_VAULTS' }),
     createVault: (p: Omit<Vault, 'id' | 'created_at'>): Promise<Vault> =>
       sendToWorker({ type: 'CREATE_VAULT', payload: p }),
     updateVault: (p: Partial<Vault> & { id: string }): Promise<Vault> =>
@@ -55,8 +54,7 @@ export function useDatabase() {
       sendToWorker({ type: 'GET_CONTACT_DETAIL', payload: { id } }),
     createContact: (
       p: Omit<Contact, 'id' | 'created_at' | 'updated_at' | 'archived_at' | 'last_contacted_at'>,
-    ): Promise<Contact> =>
-      sendToWorker({ type: 'CREATE_CONTACT', payload: p }),
+    ): Promise<Contact> => sendToWorker({ type: 'CREATE_CONTACT', payload: p }),
     updateContact: (p: Partial<Contact> & { id: string }): Promise<Contact> =>
       sendToWorker({ type: 'UPDATE_CONTACT', payload: p }),
     archiveContact: (id: string): Promise<null> =>
@@ -71,8 +69,9 @@ export function useDatabase() {
       sendToWorker({ type: 'GET_CONTACT_FIELD_TYPES', payload: { vault_id } }),
     createContactFieldType: (p: Omit<ContactFieldType, 'id'>): Promise<ContactFieldType> =>
       sendToWorker({ type: 'CREATE_CONTACT_FIELD_TYPE', payload: p }),
-    updateContactFieldType: (p: Partial<ContactFieldType> & { id: string }): Promise<ContactFieldType> =>
-      sendToWorker({ type: 'UPDATE_CONTACT_FIELD_TYPE', payload: p }),
+    updateContactFieldType: (
+      p: Partial<ContactFieldType> & { id: string },
+    ): Promise<ContactFieldType> => sendToWorker({ type: 'UPDATE_CONTACT_FIELD_TYPE', payload: p }),
     deleteContactFieldType: (id: string): Promise<null> =>
       sendToWorker({ type: 'DELETE_CONTACT_FIELD_TYPE', payload: { id } }),
 
@@ -99,10 +98,12 @@ export function useDatabase() {
     // ── Relationship types ────────────────────────────────────────────────────
     getRelationshipTypes: (vault_id: string): Promise<RelationshipType[]> =>
       sendToWorker({ type: 'GET_RELATIONSHIP_TYPES', payload: { vault_id } }),
-    createRelationshipType: (p: Omit<RelationshipType, 'id' | 'created_at'>): Promise<RelationshipType> =>
-      sendToWorker({ type: 'CREATE_RELATIONSHIP_TYPE', payload: p }),
-    updateRelationshipType: (p: Partial<RelationshipType> & { id: string }): Promise<RelationshipType> =>
-      sendToWorker({ type: 'UPDATE_RELATIONSHIP_TYPE', payload: p }),
+    createRelationshipType: (
+      p: Omit<RelationshipType, 'id' | 'created_at'>,
+    ): Promise<RelationshipType> => sendToWorker({ type: 'CREATE_RELATIONSHIP_TYPE', payload: p }),
+    updateRelationshipType: (
+      p: Partial<RelationshipType> & { id: string },
+    ): Promise<RelationshipType> => sendToWorker({ type: 'UPDATE_RELATIONSHIP_TYPE', payload: p }),
     deleteRelationshipType: (id: string): Promise<null> =>
       sendToWorker({ type: 'DELETE_RELATIONSHIP_TYPE', payload: { id } }),
     createRelationship: (p: Omit<Relationship, 'id' | 'created_at'>): Promise<Relationship> =>
@@ -141,8 +142,7 @@ export function useDatabase() {
       sendToWorker({ type: 'CREATE_PET', payload: p }),
     updatePet: (p: Partial<Pet> & { id: string }): Promise<Pet> =>
       sendToWorker({ type: 'UPDATE_PET', payload: p }),
-    deletePet: (id: string): Promise<null> =>
-      sendToWorker({ type: 'DELETE_PET', payload: { id } }),
+    deletePet: (id: string): Promise<null> => sendToWorker({ type: 'DELETE_PET', payload: { id } }),
 
     // ── Tags ──────────────────────────────────────────────────────────────────
     getTags: (vault_id: string): Promise<Tag[]> =>
@@ -151,16 +151,14 @@ export function useDatabase() {
       sendToWorker({ type: 'CREATE_TAG', payload: p }),
     updateTag: (p: Partial<Tag> & { id: string }): Promise<Tag> =>
       sendToWorker({ type: 'UPDATE_TAG', payload: p }),
-    deleteTag: (id: string): Promise<null> =>
-      sendToWorker({ type: 'DELETE_TAG', payload: { id } }),
+    deleteTag: (id: string): Promise<null> => sendToWorker({ type: 'DELETE_TAG', payload: { id } }),
     setContactTags: (contact_id: string, tag_ids: string[]): Promise<null> =>
       sendToWorker({ type: 'SET_CONTACT_TAGS', payload: { contact_id, tag_ids } }),
 
     // ── Groups ────────────────────────────────────────────────────────────────
     getGroups: (vault_id: string): Promise<GroupWithCount[]> =>
       sendToWorker({ type: 'GET_GROUPS', payload: { vault_id } }),
-    getGroup: (id: string): Promise<Group> =>
-      sendToWorker({ type: 'GET_GROUP', payload: { id } }),
+    getGroup: (id: string): Promise<Group> => sendToWorker({ type: 'GET_GROUP', payload: { id } }),
     createGroup: (p: Omit<Group, 'id' | 'created_at'>): Promise<Group> =>
       sendToWorker({ type: 'CREATE_GROUP', payload: p }),
     updateGroup: (p: Partial<Group> & { id: string }): Promise<Group> =>
@@ -175,18 +173,20 @@ export function useDatabase() {
       sendToWorker({ type: 'GET_GROUP_CONTACTS', payload: { group_id } }),
 
     // ── Interactions ──────────────────────────────────────────────────────────
-    getInteractions: (vault_id: string, contact_id?: string, limit?: number): Promise<InteractionWithContacts[]> =>
+    getInteractions: (
+      vault_id: string,
+      contact_id?: string,
+      limit?: number,
+    ): Promise<InteractionWithContacts[]> =>
       sendToWorker({ type: 'GET_INTERACTIONS', payload: { vault_id, contact_id, limit } }),
     getInteraction: (id: string): Promise<InteractionWithContacts> =>
       sendToWorker({ type: 'GET_INTERACTION', payload: { id } }),
     createInteraction: (
       p: Omit<Interaction, 'id' | 'created_at' | 'updated_at'> & { contact_ids: string[] },
-    ): Promise<InteractionWithContacts> =>
-      sendToWorker({ type: 'CREATE_INTERACTION', payload: p }),
+    ): Promise<InteractionWithContacts> => sendToWorker({ type: 'CREATE_INTERACTION', payload: p }),
     updateInteraction: (
       p: Partial<Interaction> & { id: string } & { contact_ids?: string[] },
-    ): Promise<InteractionWithContacts> =>
-      sendToWorker({ type: 'UPDATE_INTERACTION', payload: p }),
+    ): Promise<InteractionWithContacts> => sendToWorker({ type: 'UPDATE_INTERACTION', payload: p }),
     deleteInteraction: (id: string): Promise<null> =>
       sendToWorker({ type: 'DELETE_INTERACTION', payload: { id } }),
 
@@ -221,10 +221,14 @@ export function useDatabase() {
     // ── Reminders ─────────────────────────────────────────────────────────────
     getReminders: (contact_id: string): Promise<Reminder[]> =>
       sendToWorker({ type: 'GET_REMINDERS', payload: { contact_id } }),
-    getUpcomingReminders: (vault_id: string, days: number): Promise<Array<{ contact: Contact; reminder: Reminder; days_away: number }>> =>
+    getUpcomingReminders: (
+      vault_id: string,
+      days: number,
+    ): Promise<Array<{ contact: Contact; reminder: Reminder; days_away: number }>> =>
       sendToWorker({ type: 'GET_UPCOMING_REMINDERS', payload: { vault_id, days } }),
-    createReminder: (p: Omit<Reminder, 'id' | 'created_at' | 'is_done' | 'done_at'>): Promise<Reminder> =>
-      sendToWorker({ type: 'CREATE_REMINDER', payload: p }),
+    createReminder: (
+      p: Omit<Reminder, 'id' | 'created_at' | 'is_done' | 'done_at'>,
+    ): Promise<Reminder> => sendToWorker({ type: 'CREATE_REMINDER', payload: p }),
     updateReminder: (p: Partial<Reminder> & { id: string }): Promise<Reminder> =>
       sendToWorker({ type: 'UPDATE_REMINDER', payload: p }),
     doneReminder: (id: string): Promise<Reminder> =>
@@ -247,8 +251,9 @@ export function useDatabase() {
     // ── Tasks ─────────────────────────────────────────────────────────────────
     getTasks: (contact_id: string): Promise<Task[]> =>
       sendToWorker({ type: 'GET_TASKS', payload: { contact_id } }),
-    createTask: (p: Omit<Task, 'id' | 'created_at' | 'updated_at' | 'is_done' | 'done_at'>): Promise<Task> =>
-      sendToWorker({ type: 'CREATE_TASK', payload: p }),
+    createTask: (
+      p: Omit<Task, 'id' | 'created_at' | 'updated_at' | 'is_done' | 'done_at'>,
+    ): Promise<Task> => sendToWorker({ type: 'CREATE_TASK', payload: p }),
     updateTask: (p: Partial<Task> & { id: string }): Promise<Task> =>
       sendToWorker({ type: 'UPDATE_TASK', payload: p }),
     toggleTask: (id: string): Promise<Task> =>
@@ -259,8 +264,9 @@ export function useDatabase() {
     // ── Gift notes ────────────────────────────────────────────────────────────
     getGiftNotes: (contact_id: string): Promise<GiftNote[]> =>
       sendToWorker({ type: 'GET_GIFT_NOTES', payload: { contact_id } }),
-    createGiftNote: (p: Omit<GiftNote, 'id' | 'created_at' | 'is_given' | 'given_at'>): Promise<GiftNote> =>
-      sendToWorker({ type: 'CREATE_GIFT_NOTE', payload: p }),
+    createGiftNote: (
+      p: Omit<GiftNote, 'id' | 'created_at' | 'is_given' | 'given_at'>,
+    ): Promise<GiftNote> => sendToWorker({ type: 'CREATE_GIFT_NOTE', payload: p }),
     updateGiftNote: (p: Partial<GiftNote> & { id: string }): Promise<GiftNote> =>
       sendToWorker({ type: 'UPDATE_GIFT_NOTE', payload: p }),
     markGiftGiven: (id: string): Promise<GiftNote> =>
@@ -275,8 +281,7 @@ export function useDatabase() {
       sendToWorker({ type: 'GET_JOURNAL_ENTRY', payload: { date, vault_id } }),
     upsertJournalEntry: (
       p: Omit<JournalEntry, 'id' | 'created_at' | 'updated_at'>,
-    ): Promise<JournalEntry> =>
-      sendToWorker({ type: 'UPSERT_JOURNAL_ENTRY', payload: p }),
+    ): Promise<JournalEntry> => sendToWorker({ type: 'UPSERT_JOURNAL_ENTRY', payload: p }),
     deleteJournalEntry: (id: string): Promise<null> =>
       sendToWorker({ type: 'DELETE_JOURNAL_ENTRY', payload: { id } }),
 

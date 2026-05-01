@@ -37,7 +37,7 @@ export function parseTransfer(
   const match = TRANSFER_PATTERN.exec(text)
   if (!match) return null
 
-  const amount = match[1] ? parseFloat(match[1]) : null
+  const amount = match[1] ? Number.parseFloat(match[1]) : null
   const fromAccountId = match[2] ? fuzzyMatchAccount(match[2], accounts) : null
   const toAccountId = match[3] ? fuzzyMatchAccount(match[3], accounts) : null
 

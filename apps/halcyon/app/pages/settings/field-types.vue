@@ -64,7 +64,12 @@ function startEdit(ft: ContactFieldType) {
 }
 
 async function saveEdit(ft: ContactFieldType) {
-  await db.updateContactFieldType({ id: ft.id, name: editForm.name, icon: editForm.icon, protocol: editForm.protocol })
+  await db.updateContactFieldType({
+    id: ft.id,
+    name: editForm.name,
+    icon: editForm.icon,
+    protocol: editForm.protocol,
+  })
   const idx = fieldTypes.value.findIndex((f) => f.id === ft.id)
   if (idx !== -1) fieldTypes.value[idx] = { ...fieldTypes.value[idx], ...editForm }
   editingId.value = null

@@ -34,7 +34,7 @@ function parseSingleTransaction(segment: string, context: ParserContext): Parsed
         type: 'transfer',
         typeConfidence: typeResult.confidence,
         amount: transferResult.amount,
-        amountConfidence: transferResult.amount != null ? 'high' : 'low',
+        amountConfidence: transferResult.amount == null ? 'low' : 'high',
         merchant: '',
         merchantConfidence: 'high',
         categoryId: null,

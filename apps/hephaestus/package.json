@@ -50,7 +50,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.11.1",
-    "@biomejs/biome": "^2.4.4",
+
     "@capacitor/android": "^8.1.0",
     "@capacitor/cli": "^8.1.0",
     "@capacitor/core": "^8.1.0",
@@ -64,7 +64,7 @@
     "@vite-pwa/nuxt": "^1.1.1",
     "@vue/test-utils": "^2.4.6",
     "happy-dom": "^20.7.0",
-    "lefthook": "^1.11.13",
+
     "playwright-core": "^1.58.2",
     "sql.js": "^1.14.1",
     "tailwindcss": "^4.2.0",

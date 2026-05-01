@@ -38,7 +38,7 @@ export function extractDate(lines: string[]): string | null {
     // MM/DD/YYYY
     const mdy = line.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/)
     if (mdy) {
-      return `${mdy[3]}-${mdy[1]!.padStart(2, '0')}-${mdy[2]!.padStart(2, '0')}`
+      return `${mdy[3]}-${mdy[1]?.padStart(2, '0')}-${mdy[2]?.padStart(2, '0')}`
     }
     // YYYY-MM-DD
     const iso = line.match(/(\d{4})-(\d{2})-(\d{2})/)

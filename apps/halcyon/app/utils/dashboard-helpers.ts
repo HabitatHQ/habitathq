@@ -3,7 +3,7 @@ import { parseDateString } from '~/utils/format'
 import { nextBirthdayDate } from '~/utils/reminder-helpers'
 
 export function daysUntilBirthday(birthday: string | null, today: string): number {
-  if (!birthday) return Infinity
+  if (!birthday) return Number.POSITIVE_INFINITY
   const next = nextBirthdayDate(birthday, today)
   const todayMs = parseDateString(today).getTime()
   const nextMs = parseDateString(next).getTime()
@@ -24,7 +24,11 @@ export interface BirthdayItem {
   turning_age: number | null
 }
 
-export function upcomingBirthdays(contacts: Contact[], today: string, days: number): BirthdayItem[] {
+export function upcomingBirthdays(
+  contacts: Contact[],
+  today: string,
+  days: number,
+): BirthdayItem[] {
   const items: BirthdayItem[] = []
   for (const contact of contacts) {
     if (!contact.birthday) continue

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type { AppTheme, ColorMode, NlpTier } from '~/composables/useAppSettings'
-import { SUPPORTED_CURRENCIES } from '~/lib/currency/convert'
 import type { Account, HearthExport } from '~/types/database'
 
 const { settings, set, reset } = useAppSettings()

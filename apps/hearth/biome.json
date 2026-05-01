@@ -1,61 +1,21 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.4.6/schema.json",
-  "vcs": {
-    "enabled": true,
-    "clientKind": "git",
-    "useIgnoreFile": true
-  },
+  "root": false,
+  "extends": ["../../biome.json"],
+
   "files": {
-    "ignoreUnknown": true,
-    "includes": [
-      "**",
-      "!**/node_modules",
-      "!**/.nuxt",
-      "!**/.output",
-      "!**/android",
-      "!**/ios",
-      "!**/dist",
-      "!**/public/licenses.json"
-    ]
+    "includes": ["app/**/*.ts", "app/**/*.vue", "nuxt.config.ts"]
   },
-  "formatter": {
-    "enabled": true,
-    "indentStyle": "space",
-    "indentWidth": 2,
-    "lineWidth": 100
-  },
-  "linter": {
-    "enabled": true,
-    "rules": {
-      "recommended": true,
-      "suspicious": {
-        "noExplicitAny": "warn"
-      },
-      "style": {
-        "noNonNullAssertion": "warn"
-      },
-      "correctness": {
-        "noUnusedVariables": "warn"
-      }
-    }
-  },
+
   "overrides": [
     {
-      "includes": ["**/*.vue"],
+      "includes": ["app/workers/database.worker.ts", "app/lib/db-native.ts"],
       "linter": {
         "rules": {
-          "correctness": {
-            "noUnusedVariables": "off"
-          }
+          "style": { "noNonNullAssertion": "off" },
+          "complexity": { "noExcessiveCognitiveComplexity": "off" },
+          "suspicious": { "noExplicitAny": "off" }
         }
       }
     }
-  ],
-  "javascript": {
-    "formatter": {
-      "quoteStyle": "single",
-      "trailingCommas": "all",
-      "semicolons": "asNeeded"
-    }
-  }
+  ]
 }

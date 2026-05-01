@@ -2,13 +2,12 @@
 import { useDatabase } from '~/composables/useDatabase'
 import { useVault } from '~/composables/useVault'
 import type { JournalEntry } from '~/types/database'
-import { formatDate } from '~/utils/format'
 
 const route = useRoute()
 const db = useDatabase()
 const { activeVaultId } = useVault()
 
-const date = computed(() => route.params['date'] as string)
+const date = computed(() => route.params.date as string)
 const entry = ref<JournalEntry | null>(null)
 const form = reactive({ title: '', body: '' })
 const saving = ref(false)
@@ -38,7 +37,9 @@ async function save() {
     })
     entry.value = updated
     saved.value = true
-    setTimeout(() => { saved.value = false }, 1500)
+    setTimeout(() => {
+      saved.value = false
+    }, 1500)
   } finally {
     saving.value = false
   }

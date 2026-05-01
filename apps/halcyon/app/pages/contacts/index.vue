@@ -2,7 +2,7 @@
 import { useDatabase } from '~/composables/useDatabase'
 import { useVault } from '~/composables/useVault'
 import type { Contact } from '~/types/database'
-import { contactDisplayName, contactInitials, contactSortKey } from '~/utils/contact-helpers'
+import { contactDisplayName, contactSortKey } from '~/utils/contact-helpers'
 import { daysUntilBirthday } from '~/utils/dashboard-helpers'
 import { localDateString } from '~/utils/format'
 
@@ -30,21 +30,24 @@ watch(activeVaultId, load)
 const filtered = computed(() => {
   const q = query.value.toLowerCase().trim()
   if (!q) return contacts.value
-  return contacts.value.filter((c) =>
-    contactDisplayName(c).toLowerCase().includes(q) ||
-    c.nickname.toLowerCase().includes(q),
+  return contacts.value.filter(
+    (c) => contactDisplayName(c).toLowerCase().includes(q) || c.nickname.toLowerCase().includes(q),
   )
 })
 
 const grouped = computed(() => {
   const map = new Map<string, Contact[]>()
-  for (const c of [...filtered.value].sort((a, b) => contactSortKey(a).localeCompare(contactSortKey(b)))) {
+  for (const c of [...filtered.value].sort((a, b) =>
+    contactSortKey(a).localeCompare(contactSortKey(b)),
+  )) {
     const letter = contactSortKey(c)[0]?.toUpperCase() ?? '#'
     const key = /[A-Z]/.test(letter) ? letter : '#'
     if (!map.has(key)) map.set(key, [])
-    map.get(key)!.push(c)
+    map.get(key)?.push(c)
   }
-  return [...map.entries()].sort(([a], [b]) => (a === '#' ? 1 : b === '#' ? -1 : a.localeCompare(b)))
+  return [...map.entries()].sort(([a], [b]) =>
+    a === '#' ? 1 : b === '#' ? -1 : a.localeCompare(b),
+  )
 })
 
 function birthdaySoon(contact: Contact): boolean {

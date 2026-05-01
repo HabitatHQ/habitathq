@@ -2,9 +2,7 @@
 import { useDatabase } from '~/composables/useDatabase'
 import { useVault } from '~/composables/useVault'
 import type { DashboardData } from '~/types/database'
-import { contactDisplayName, contactInitials } from '~/utils/contact-helpers'
-import { formatDate, formatDateRelative, formatRelativeTime, localDateString } from '~/utils/format'
-import { interactionIcon, interactionSummary } from '~/utils/interaction-helpers'
+import { localDateString } from '~/utils/format'
 
 const db = useDatabase()
 const { activeVaultId } = useVault()
@@ -26,12 +24,13 @@ async function load() {
 onMounted(load)
 watch(activeVaultId, load)
 
-const isEmpty = computed(() =>
-  dashboard.value &&
-  dashboard.value.upcoming_dates.length === 0 &&
-  dashboard.value.upcoming_birthdays.length === 0 &&
-  dashboard.value.overdue_stay_in_touch.length === 0 &&
-  dashboard.value.recent_interactions.length === 0,
+const isEmpty = computed(
+  () =>
+    dashboard.value &&
+    dashboard.value.upcoming_dates.length === 0 &&
+    dashboard.value.upcoming_birthdays.length === 0 &&
+    dashboard.value.overdue_stay_in_touch.length === 0 &&
+    dashboard.value.recent_interactions.length === 0,
 )
 </script>
 

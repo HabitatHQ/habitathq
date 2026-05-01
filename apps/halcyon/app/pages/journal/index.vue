@@ -2,7 +2,7 @@
 import { useDatabase } from '~/composables/useDatabase'
 import { useVault } from '~/composables/useVault'
 import type { JournalEntry } from '~/types/database'
-import { formatDate, localDateString } from '~/utils/format'
+import { localDateString } from '~/utils/format'
 
 const db = useDatabase()
 const { activeVaultId } = useVault()

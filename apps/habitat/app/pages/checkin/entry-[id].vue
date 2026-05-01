@@ -69,8 +69,8 @@ async function loadResponses() {
   // Sync text inputs
   for (const q of questions.value) {
     const r = responses.value.get(q.id)
-    if (r?.value_text != null) textValues[q.id] = r.value_text
-    else delete textValues[q.id]
+    if (r?.value_text == null) delete textValues[q.id]
+    else textValues[q.id] = r.value_text
   }
 }
 

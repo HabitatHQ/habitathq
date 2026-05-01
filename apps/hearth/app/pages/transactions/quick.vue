@@ -364,7 +364,7 @@ async function scanReceipt() {
       type: 'expense',
       typeConfidence: 'high',
       amount,
-      amountConfidence: amount != null ? 'high' : 'low',
+      amountConfidence: amount == null ? 'low' : 'high',
       merchant,
       merchantConfidence: merchant ? 'medium' : 'low',
       categoryId,

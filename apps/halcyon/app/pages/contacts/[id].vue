@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { useDatabase } from '~/composables/useDatabase'
-import type { ContactDetail, GiftNote, InteractionWithContacts, LifeEvent, Note, Reminder, Task } from '~/types/database'
-import { contactDisplayName, contactInitials } from '~/utils/contact-helpers'
-import { formatDate, formatDateRelative, formatRelativeTime, localDateString } from '~/utils/format'
-import { getRelationshipLabel } from '~/utils/relationship-helpers'
-import { interactionIcon, interactionSummary } from '~/utils/interaction-helpers'
-import { addressOneLiner } from '~/utils/address-helpers'
-import { daysUntilBirthday, turningAge } from '~/utils/dashboard-helpers'
+import type {
+  ContactDetail,
+  GiftNote,
+  InteractionWithContacts,
+  LifeEvent,
+  Note,
+  Reminder,
+  Task,
+} from '~/types/database'
+import { localDateString } from '~/utils/format'
 
 const route = useRoute()
 const db = useDatabase()
@@ -27,7 +30,7 @@ const newNote = ref('')
 const savingNote = ref(false)
 
 async function loadAll() {
-  const id = route.params['id'] as string
+  const id = route.params.id as string
   loading.value = true
   try {
     const detail = await db.getContactDetail(id)

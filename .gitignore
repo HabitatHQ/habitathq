@@ -1,5 +1,75 @@
-node_modules
-.nuxt
-.output
-dist
+# Dependencies
+node_modules/
+
+# Nuxt / Nitro
+.nuxt/
+.output/
+.nitro/
+.data/
+.cache/
+dist/
+
+# Capacitor native projects (regenerated via cap add)
+android/
+ios/
+
+# Test artifacts
+coverage/
+playwright-report/
+test-results/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# TypeScript
+*.tsbuildinfo
+
+# Generated at build time
+public/licenses.json
+
+# OS
 .DS_Store
+.AppleDouble
+.LSOverride
+._*
+Thumbs.db
+Thumbs.db:encryptable
+
+# Editor / IDE
+.idea/
+*.iws
+*.sublime-workspace
+*.swp
+*.swo
+*.tmp
+.vscode/
+.vs/
+.aider*
+
+# Claude Code — track shared hooks, ignore local settings
+.claude/*
+!.claude/settings.json
+**/apps/*/.claude/settings.local.json
+
+# Git worktrees
+.worktrees/
+
+# Per-app lockfiles (root lockfile only)
+apps/*/pnpm-lock.yaml
+
+# Cached data
+apps/*/scripts/cache/
+
+# Local-only scratch
+scratch/
+outsiders/
+out/
+
+# Runtime
+pids
+*.pid
+*.seed
+*.pid.lock
+*.log

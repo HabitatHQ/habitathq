@@ -74,13 +74,13 @@ export function buildUpdatePairs(
         pairs.push([s.name, v])
         break
       case 'nullable':
-        pairs.push([s.name, v ?? (s.fallback !== undefined ? s.fallback : null)])
+        pairs.push([s.name, v ?? (s.fallback === undefined ? null : s.fallback)])
         break
       case 'json':
         pairs.push([s.name, JSON.stringify(v ?? s.fallback)])
         break
       case 'json-nullable':
-        pairs.push([s.name, v != null ? JSON.stringify(v) : null])
+        pairs.push([s.name, v == null ? null : JSON.stringify(v)])
         break
       case 'bool':
         pairs.push([s.name, v ? 1 : 0])
@@ -552,7 +552,7 @@ export async function createCheckinTemplate(
       id,
       payload.title,
       payload.schedule_type ?? 'DAILY',
-      payload.days_active != null ? JSON.stringify(payload.days_active) : null,
+      payload.days_active == null ? null : JSON.stringify(payload.days_active),
     ],
   )
   const row = await db.queryOne<Record<string, unknown>>(
@@ -874,7 +874,7 @@ export async function createCheckinReminder(
   const id = crypto.randomUUID()
   await db.exec(
     'INSERT INTO checkin_reminders (id, template_id, trigger_time, days_active) VALUES (?,?,?,?)',
-    [id, template_id, trigger_time, days_active != null ? JSON.stringify(days_active) : null],
+    [id, template_id, trigger_time, days_active == null ? null : JSON.stringify(days_active)],
   )
   const row = await db.queryOne<Record<string, unknown>>(
     'SELECT * FROM checkin_reminders WHERE id = ?',
@@ -987,7 +987,7 @@ export async function createReminder(
   const id = crypto.randomUUID()
   await db.exec(
     'INSERT INTO reminders (id, habit_id, trigger_time, days_active) VALUES (?,?,?,?)',
-    [id, habit_id, trigger_time, days_active != null ? JSON.stringify(days_active) : null],
+    [id, habit_id, trigger_time, days_active == null ? null : JSON.stringify(days_active)],
   )
   const row = await db.queryOne<Record<string, unknown>>('SELECT * FROM reminders WHERE id = ?', [
     id,
@@ -1633,7 +1633,7 @@ export async function importJson(db: DbAdapter, data: HabitatExport): Promise<nu
           s.habit_id,
           s.schedule_type ?? 'DAILY',
           s.frequency_count ?? null,
-          s.days_of_week != null ? JSON.stringify(s.days_of_week) : null,
+          s.days_of_week == null ? null : JSON.stringify(s.days_of_week),
           s.due_time ?? null,
           s.start_date ?? null,
           s.end_date ?? null,
@@ -1647,7 +1647,7 @@ export async function importJson(db: DbAdapter, data: HabitatExport): Promise<nu
           r.id,
           r.habit_id,
           r.trigger_time,
-          r.days_active != null ? JSON.stringify(r.days_active) : null,
+          r.days_active == null ? null : JSON.stringify(r.days_active),
         ],
       )
     }
@@ -1658,7 +1658,7 @@ export async function importJson(db: DbAdapter, data: HabitatExport): Promise<nu
           t.id,
           t.title,
           t.schedule_type ?? 'DAILY',
-          t.days_active != null ? JSON.stringify(t.days_active) : null,
+          t.days_active == null ? null : JSON.stringify(t.days_active),
         ],
       )
     }
@@ -1688,7 +1688,7 @@ export async function importJson(db: DbAdapter, data: HabitatExport): Promise<nu
           r.id,
           r.template_id,
           r.trigger_time,
-          r.days_active != null ? JSON.stringify(r.days_active) : null,
+          r.days_active == null ? null : JSON.stringify(r.days_active),
         ],
       )
     }

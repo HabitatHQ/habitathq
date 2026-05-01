@@ -32,7 +32,7 @@ export function groupRelationshipsByType(
   for (const item of items) {
     const key = item.type.name
     if (!map.has(key)) map.set(key, [])
-    map.get(key)!.push(item)
+    map.get(key)?.push(item)
   }
   return map
 }

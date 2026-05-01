@@ -30,7 +30,11 @@ async function create() {
   if (!activeVaultId.value || !newName.value.trim()) return
   creating.value = true
   try {
-    const g = await db.createGroup({ vault_id: activeVaultId.value, name: newName.value.trim(), description: newDescription.value })
+    const g = await db.createGroup({
+      vault_id: activeVaultId.value,
+      name: newName.value.trim(),
+      description: newDescription.value,
+    })
     groups.value.push({ ...g, member_count: 0 })
     newName.value = ''
     newDescription.value = ''

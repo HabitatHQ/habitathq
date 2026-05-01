@@ -68,11 +68,11 @@ export function useNlpParser() {
     initPromise = new Promise<void>((resolve) => {
       const onReady = (e: MessageEvent) => {
         if (e.data?.type === 'READY') {
-          worker!.removeEventListener('message', onReady)
+          worker?.removeEventListener('message', onReady)
           resolve()
         }
       }
-      worker!.addEventListener('message', onReady)
+      worker?.addEventListener('message', onReady)
     })
 
     sendToNlp({ type: 'INIT', payload: { tier: requestedTier } })

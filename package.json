@@ -1,0 +1,32 @@
+{
+  "name": "habitat-monorepo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:habitat": "pnpm --filter habitat dev",
+    "dev:hearth": "pnpm --filter hearth dev",
+    "dev:halcyon": "pnpm --filter halcyon dev",
+    "dev:hephaestus": "pnpm --filter hephaestus dev",
+    "build": "pnpm -r build:pwa",
+    "lint": "pnpm -r lint",
+    "lint:fix": "pnpm -r lint:fix",
+    "check": "pnpm -r check",
+    "check:fix": "pnpm -r check:fix",
+    "typecheck": "pnpm -r typecheck",
+    "test:unit": "pnpm -r test:unit",
+    "test": "pnpm -r test",
+    "ci": "pnpm -r ci",
+    "clean": "pnpm -r clean"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.6",
+    "lefthook": "^1.11.13"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@parcel/watcher",
+      "esbuild",
+      "vue-demi"
+    ]
+  }
+}

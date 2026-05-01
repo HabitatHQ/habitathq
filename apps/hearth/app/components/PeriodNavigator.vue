@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { formatPeriod } from '~/utils/format'
-
 defineProps<{
   period: string
   isCurrentPeriod: boolean

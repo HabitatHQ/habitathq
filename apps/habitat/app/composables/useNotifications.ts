@@ -9,9 +9,9 @@ import { resolveIcon } from '~/utils/icons'
 const _permission = ref<NotificationPermission>(
   Capacitor.isNativePlatform()
     ? 'default'
-    : typeof Notification !== 'undefined'
-      ? Notification.permission
-      : 'default',
+    : typeof Notification === 'undefined'
+      ? 'default'
+      : Notification.permission,
 )
 
 // Android 12+ exact alarm permission state ('granted' | 'denied' | 'unknown')
@@ -736,9 +736,9 @@ export function useNotifications() {
         const mm = String(on.minute ?? 0).padStart(2, '0')
         const time = `${hh}:${mm}`
         when =
-          on.weekday != null
-            ? `${CAP_DAYS[(on.weekday - 1) % 7] ?? '?'} · ${time}`
-            : `daily · ${time}`
+          on.weekday == null
+            ? `daily · ${time}`
+            : `${CAP_DAYS[(on.weekday - 1) % 7] ?? '?'} · ${time}`
       }
       return { title: n.title ?? '(no title)', body: n.body ?? '', when }
     })

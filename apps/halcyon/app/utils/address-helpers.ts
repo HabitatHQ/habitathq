@@ -18,7 +18,13 @@ const COUNTRY_CODES: Record<string, string> = {
 }
 
 export function isAddressEmpty(address: Address): boolean {
-  return !address.street && !address.city && !address.province && !address.postal_code && !address.country
+  return (
+    !address.street &&
+    !address.city &&
+    !address.province &&
+    !address.postal_code &&
+    !address.country
+  )
 }
 
 export function formatAddress(address: Address): string {

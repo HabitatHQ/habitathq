@@ -49,7 +49,7 @@ const showChannel = computed(() => form.type === 'conversation')
 const showDuration = computed(() => form.type === 'call' || form.type === 'meeting')
 
 async function load() {
-  const id = route.params['id'] as string
+  const id = route.params.id as string
   contact.value = await db.getContact(id)
   if (activeVaultId.value) {
     allContacts.value = await db.getContacts(activeVaultId.value)
@@ -59,7 +59,7 @@ async function load() {
 onMounted(load)
 
 const filteredAdd = computed(() => {
-  const id = route.params['id'] as string
+  const id = route.params.id as string
   const q = searchAdd.value.toLowerCase()
   return allContacts.value
     .filter(
@@ -84,10 +84,7 @@ async function save() {
   if (!contact.value || !activeVaultId.value) return
   saving.value = true
   try {
-    const contact_ids = [
-      contact.value.id,
-      ...additionalContacts.value.map((c) => c.id),
-    ]
+    const contact_ids = [contact.value.id, ...additionalContacts.value.map((c) => c.id)]
     await db.createInteraction({
       vault_id: activeVaultId.value,
       type: form.type,
@@ -95,7 +92,8 @@ async function save() {
       subject: form.subject.trim(),
       notes: form.notes.trim(),
       happened_at: new Date(form.happened_at).toISOString(),
-      duration_minutes: showDuration.value && form.duration_minutes ? Number(form.duration_minutes) : null,
+      duration_minutes:
+        showDuration.value && form.duration_minutes ? Number(form.duration_minutes) : null,
       contact_ids,
     })
     toast.add({ title: 'Interaction logged', color: 'success' })

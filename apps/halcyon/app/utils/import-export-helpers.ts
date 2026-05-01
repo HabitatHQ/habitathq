@@ -2,11 +2,11 @@ import type { Contact, ContactFieldWithType } from '~/types/database'
 
 // ─── vCard type detection ─────────────────────────────────────────────────────
 
-export function vCardEmailType(prop: string): string {
+export function vCardEmailType(_prop: string): string {
   return 'Email'
 }
 
-export function vCardPhoneType(prop: string): string {
+export function vCardPhoneType(_prop: string): string {
   return 'Phone'
 }
 
