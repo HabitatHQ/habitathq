@@ -120,7 +120,7 @@ export function usePrograms() {
           isDeload: week.isDeload,
           intensityModifier: week.intensityModifier,
           volumeModifier: week.volumeModifier,
-          ...(week.phase !== undefined ? { phase: week.phase } : {}),
+          ...(week.phase === undefined ? {} : { phase: week.phase }),
         })
       }
     }

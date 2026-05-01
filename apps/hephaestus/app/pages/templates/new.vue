@@ -205,9 +205,9 @@ async function handleSave() {
         setsPlanned: item.setsPlanned,
         repsPlanned: item.repsPlanned,
         restSeconds: item.restSeconds,
-        ...(item.supersetGroup !== null ? { supersetGroup: item.supersetGroup } : {}),
-        ...(item.setRests !== null ? { setRestSeconds: serialiseSetRests(item.setRests) } : {}),
-        ...(item.setScheme !== null ? { setScheme: item.setScheme } : {}),
+        ...(item.supersetGroup === null ? {} : { supersetGroup: item.supersetGroup }),
+        ...(item.setRests === null ? {} : { setRestSeconds: serialiseSetRests(item.setRests) }),
+        ...(item.setScheme === null ? {} : { setScheme: item.setScheme }),
       })),
     )
 

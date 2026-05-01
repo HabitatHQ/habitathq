@@ -438,7 +438,7 @@ await (async () => {
         switch (type) {
           case 'EXEC': {
             const { sql, bind } = payload as { sql: string; bind?: any[] }
-            db.exec({ sql, ...(bind !== undefined ? { bind } : {}) })
+            db.exec({ sql, ...(bind === undefined ? {} : { bind }) })
             reply(null)
             break
           }
@@ -448,7 +448,7 @@ await (async () => {
             const rows: unknown[] = []
             db.exec({
               sql,
-              ...(bind !== undefined ? { bind } : {}),
+              ...(bind === undefined ? {} : { bind }),
               rowMode: 'object',
               callback: (row: any) => void rows.push(row),
             })

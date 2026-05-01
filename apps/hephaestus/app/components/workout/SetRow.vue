@@ -23,7 +23,7 @@ const stateIcon = computed(() => {
 })
 
 const weightStr = computed(() =>
-  props.set.weight_kg !== null ? formatWeight(props.set.weight_kg, unit.value) : '—',
+  props.set.weight_kg === null ? '—' : formatWeight(props.set.weight_kg, unit.value),
 )
 </script>
 

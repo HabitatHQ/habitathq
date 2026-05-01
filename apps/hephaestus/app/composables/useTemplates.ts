@@ -260,7 +260,7 @@ export function useTemplates() {
         setsPlanned: 3,
         repsPlanned: '8',
         restSeconds: ex.rest_seconds,
-        ...(ex.superset_group != null ? { supersetGroup: ex.superset_group } : {}),
+        ...(ex.superset_group == null ? {} : { supersetGroup: ex.superset_group }),
       })),
     )
     return id

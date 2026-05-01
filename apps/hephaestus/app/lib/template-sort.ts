@@ -27,8 +27,8 @@ export function sortTemplates(templates: TemplateRow[], order: TemplateSortOrder
 
     case 'pinned_first':
       return copy.sort((a, b) => {
-        const aPinned = a.pinned_at != null ? 0 : 1
-        const bPinned = b.pinned_at != null ? 0 : 1
+        const aPinned = a.pinned_at == null ? 1 : 0
+        const bPinned = b.pinned_at == null ? 1 : 0
         if (aPinned !== bPinned) return aPinned - bPinned
         return (a.sort_order ?? 0) - (b.sort_order ?? 0)
       })

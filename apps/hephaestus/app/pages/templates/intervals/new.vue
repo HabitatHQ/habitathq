@@ -58,9 +58,9 @@ async function handleSave() {
         '[]',
         now,
         mode.value,
-        mode.value !== 'amrap' ? workSec.value : null,
-        mode.value !== 'amrap' ? restSec.value : null,
-        mode.value !== 'amrap' ? rounds.value : null,
+        mode.value === 'amrap' ? null : workSec.value,
+        mode.value === 'amrap' ? null : restSec.value,
+        mode.value === 'amrap' ? null : rounds.value,
       ],
     )
     await navigateTo('/templates/intervals')

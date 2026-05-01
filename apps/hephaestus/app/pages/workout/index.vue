@@ -47,10 +47,10 @@ const filteredExercises = computed(() => {
 })
 
 const addSetExtraProps = computed(() => ({
-  ...(activeExercise.value?.movement != null
-    ? { exerciseMovement: activeExercise.value.movement }
-    : {}),
-  ...(activeExercise.value?.icon != null ? { exerciseIcon: activeExercise.value.icon } : {}),
+  ...(activeExercise.value?.movement == null
+    ? {}
+    : { exerciseMovement: activeExercise.value.movement }),
+  ...(activeExercise.value?.icon == null ? {} : { exerciseIcon: activeExercise.value.icon }),
 }))
 
 // Group workout exercises into solo blocks and superset group blocks
@@ -137,8 +137,8 @@ async function handleStartFromTemplate(templateId: string) {
 async function handleFinish() {
   showFinishSheet.value = false
   summary.value = await workout.finishWorkout({
-    ...(moodRating.value != null ? { moodRating: moodRating.value } : {}),
-    ...(energyRating.value != null ? { energyRating: energyRating.value } : {}),
+    ...(moodRating.value == null ? {} : { moodRating: moodRating.value }),
+    ...(energyRating.value == null ? {} : { energyRating: energyRating.value }),
     ...(workoutNotes.value ? { notes: workoutNotes.value } : {}),
   })
 }
