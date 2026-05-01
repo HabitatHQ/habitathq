@@ -40,9 +40,7 @@ Both paths share the same `WorkerRequest` / `WorkerResponse` message types defin
 
 ## Schema (user_version = 1)
 
-**Tables**: users, accounts, categories, transactions, envelopes, envelope_periods, iou_splits, savings_goals
-
-**Seed data**: Applied once on first run via `applied_defaults` table. Includes 2 household members (Alex + Sam), common accounts, categories hierarchy, 3 months of sample transactions, 4 envelopes, 3 savings goals.
+**Tables**: users, accounts, categories, transactions, envelopes, envelope_periods, iou_splits, savings_goals, chores
 
 ## Adding a DB Operation
 
