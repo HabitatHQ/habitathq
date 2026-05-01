@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/tsconfig",
+  "extends": "../tsconfig.base.json",
+  "include": ["src"],
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "lib": ["ES2022", "DOM"]
+  }
+}

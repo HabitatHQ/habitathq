@@ -1,0 +1,11 @@
+{
+  "name": "@habitathq/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared Nuxt layer for Habitat apps — config, CSS, composables",
+  "type": "module",
+  "main": "./nuxt.config.ts",
+  "dependencies": {
+    "@habitathq/utils": "workspace:*"
+  }
+}
