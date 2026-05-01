@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "types": ["vite/client"],
+    "paths": {
+      "@palladium/core": ["../core/src/index.ts"],
+      "@palladium/react": ["../react/src/index.ts"]
+    }
+  },
+  "include": ["src", "e2e", "playwright.config.ts", "vite.config.ts"]
+}

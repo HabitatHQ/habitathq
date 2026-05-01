@@ -1,0 +1,11 @@
+[tools]
+node = "24"
+pnpm = "9"
+rust = "stable"
+just = "latest"
+"cargo:cargo-deny" = "latest"
+"cargo:cargo-audit" = "latest"
+"cargo:cargo-machete" = "latest"
+
+[env]
+CARGO_TARGET_DIR = "{{config_root}}/target"

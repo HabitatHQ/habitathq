@@ -1,0 +1,30 @@
+{
+  "name": "@palladium/sqlite-browser",
+  "version": "0.1.0",
+  "description": "Palladium StorageAdapter backed by @sqlite.org/sqlite-wasm",
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "lint": "biome check src",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@palladium/core": "workspace:*",
+    "@sqlite.org/sqlite-wasm": "^3.49.0-build1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.0"
+  }
+}
