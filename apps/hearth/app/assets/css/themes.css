@@ -1,0 +1,133 @@
+/* ── Hearth Themes ──────────────────────────────────────────────────────────
+   Amber (default), Forest, Ocean — matches habitat's theme pattern.
+   Applied via data-theme="hearth|forest|ocean" on <html>.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* ── 1. Default Hearth theme — Amber primary (matches app.config.ts) ─────── */
+/* Nuxt UI handles the amber scale via app.config — no override needed here.
+   Only bg/border tokens need customising for the warm dark mode. */
+
+html.dark {
+  --ui-bg: #0c1219;
+  --ui-bg-muted: #111922;
+  --ui-bg-elevated: #172030;
+  --ui-bg-accented: #1d2a3e;
+  --ui-border: color-mix(in oklch, #d97706 20%, transparent);
+  --ui-border-accented: color-mix(in oklch, #d97706 35%, transparent);
+}
+
+html:not(.dark) {
+  --ui-bg: #fefaf4;
+  --ui-bg-muted: #fdf3e3;
+  --ui-bg-elevated: #faecd3;
+  --ui-bg-accented: #f5e0bb;
+  --ui-border: color-mix(in oklch, #d97706 20%, transparent);
+  --ui-border-accented: color-mix(in oklch, #d97706 35%, transparent);
+}
+
+/* ── 2. Forest theme — Moss green primary ────────────────────────────────── */
+[data-theme="forest"] {
+  --color-primary-50: #f0fbf7;
+  --color-primary-100: #d1f0e6;
+  --color-primary-200: #a5dece;
+  --color-primary-300: #6cc5ae;
+  --color-primary-400: #34a07a;
+  --color-primary-500: #208a65;
+  --color-primary-600: #1a6e50;
+  --color-primary-700: #15533e;
+  --color-primary-800: #10402f;
+  --color-primary-900: #0a2b1f;
+  --color-primary-950: #051711;
+  --ui-color-primary-50: #f0fbf7;
+  --ui-color-primary-100: #d1f0e6;
+  --ui-color-primary-200: #a5dece;
+  --ui-color-primary-300: #6cc5ae;
+  --ui-color-primary-400: #34a07a;
+  --ui-color-primary-500: #208a65;
+  --ui-color-primary-600: #1a6e50;
+  --ui-color-primary-700: #15533e;
+  --ui-color-primary-800: #10402f;
+  --ui-color-primary-900: #0a2b1f;
+  --ui-color-primary-950: #051711;
+}
+
+html.dark[data-theme="forest"] {
+  --ui-bg: #0d1710;
+  --ui-bg-muted: #13201a;
+  --ui-bg-elevated: #1b2d23;
+  --ui-bg-accented: #22382c;
+  --ui-border: color-mix(in oklch, #3d7055 30%, transparent);
+  --ui-border-accented: color-mix(in oklch, #3d7055 50%, transparent);
+}
+
+html:not(.dark)[data-theme="forest"] {
+  --ui-bg: #f2f5ee;
+  --ui-bg-muted: #e8ede3;
+  --ui-bg-elevated: #dde5d7;
+  --ui-bg-accented: #d3dccb;
+  --ui-text: var(--ui-color-neutral-900);
+  --ui-text-muted: var(--ui-color-neutral-600);
+  --ui-border: color-mix(in oklch, #607a60 25%, transparent);
+  --ui-border-accented: color-mix(in oklch, #607a60 40%, transparent);
+}
+
+/* ── 3. Ocean theme — Indigo primary ─────────────────────────────────────── */
+[data-theme="ocean"] {
+  --color-primary-50: #eef2ff;
+  --color-primary-100: #e0e7ff;
+  --color-primary-200: #c7d2fe;
+  --color-primary-300: #a5b4fc;
+  --color-primary-400: #818cf8;
+  --color-primary-500: #6366f1;
+  --color-primary-600: #4f46e5;
+  --color-primary-700: #4338ca;
+  --color-primary-800: #3730a3;
+  --color-primary-900: #312e81;
+  --color-primary-950: #1e1b4b;
+  --ui-color-primary-50: #eef2ff;
+  --ui-color-primary-100: #e0e7ff;
+  --ui-color-primary-200: #c7d2fe;
+  --ui-color-primary-300: #a5b4fc;
+  --ui-color-primary-400: #818cf8;
+  --ui-color-primary-500: #6366f1;
+  --ui-color-primary-600: #4f46e5;
+  --ui-color-primary-700: #4338ca;
+  --ui-color-primary-800: #3730a3;
+  --ui-color-primary-900: #312e81;
+  --ui-color-primary-950: #1e1b4b;
+}
+
+html.dark[data-theme="ocean"] {
+  --ui-bg: #081318;
+  --ui-bg-muted: #0d1c23;
+  --ui-bg-elevated: #112630;
+  --ui-bg-accented: #163040;
+  --ui-border: color-mix(in oklch, #207090 30%, transparent);
+  --ui-border-accented: color-mix(in oklch, #207090 45%, transparent);
+}
+
+html:not(.dark)[data-theme="ocean"] {
+  --ui-bg: #f5f7ff;
+  --ui-bg-muted: #eaedff;
+  --ui-bg-elevated: #dde2ff;
+  --ui-bg-accented: #d0d6ff;
+  --ui-text: var(--ui-color-neutral-900);
+  --ui-text-muted: var(--ui-color-neutral-600);
+  --ui-border: color-mix(in oklch, #6070c0 20%, transparent);
+  --ui-border-accented: color-mix(in oklch, #6070c0 35%, transparent);
+}
+
+/* ── Theme crossfade transition ─────────────────────────────────────────── */
+html.theme-transitioning,
+html.theme-transitioning * {
+  transition:
+    background-color 200ms ease,
+    color 200ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.theme-transitioning,
+  html.theme-transitioning * {
+    transition: none;
+  }
+}
