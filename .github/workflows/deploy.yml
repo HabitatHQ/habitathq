@@ -64,7 +64,7 @@ jobs:
           PREFIX="${{ steps.prefix.outputs.path }}"
           for app in habitat hearth halcyon hephaestus; do
             echo "Building $app..."
-            NUXT_APP_BASE_URL="/habitat-monorepo/$PREFIX/$app/" pnpm --filter "$app" build:pwa
+            NUXT_APP_BASE_URL="/habitathq/$PREFIX/$app/" pnpm --filter "$app" build:pwa
           done
 
       - name: Combine outputs
