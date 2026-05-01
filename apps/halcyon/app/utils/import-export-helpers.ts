@@ -65,7 +65,7 @@ export function parseVCardBlock(block: string): ParsedVCard {
     const prop = line.slice(0, colonIdx)
     const value = line.slice(colonIdx + 1)
 
-    const propBase = prop.split(';')[0].toUpperCase()
+    const propBase = prop.split(';')[0]!.toUpperCase()
 
     if (propBase === 'N') {
       const parts = value.split(';')

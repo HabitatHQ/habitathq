@@ -98,7 +98,7 @@ export function parseJSContact(card: Record<string, unknown>): ParsedJSContact {
   }
 
   // Name
-  const name = card.name as JSContactCard['name'] | undefined
+  const name = card['name'] as JSContactCard['name'] | undefined
   if (name) {
     const components = name.components ?? []
     const given = components.find((c) => c.kind === 'given')?.value ?? ''
@@ -116,14 +116,14 @@ export function parseJSContact(card: Record<string, unknown>): ParsedJSContact {
   }
 
   // Nickname
-  const nicknames = card.nicknames as Record<string, { name: string }> | undefined
+  const nicknames = card['nicknames'] as Record<string, { name: string }> | undefined
   if (nicknames) {
     const first = Object.values(nicknames)[0]
     if (first) result.nickname = first.name
   }
 
   // Birthday
-  const anniversaries = card.anniversaries as JSContactCard['anniversaries'] | undefined
+  const anniversaries = card['anniversaries'] as JSContactCard['anniversaries'] | undefined
   if (anniversaries) {
     for (const ann of Object.values(anniversaries)) {
       if (ann.kind === 'birth' && ann.date?.calendarDate) {
@@ -134,7 +134,7 @@ export function parseJSContact(card: Record<string, unknown>): ParsedJSContact {
   }
 
   // Emails
-  const emails = card.emails as JSContactCard['emails'] | undefined
+  const emails = card['emails'] as JSContactCard['emails'] | undefined
   if (emails) {
     for (const e of Object.values(emails)) {
       if (e.address) result.fields.push({ value: e.address, label: 'email' })
@@ -142,7 +142,7 @@ export function parseJSContact(card: Record<string, unknown>): ParsedJSContact {
   }
 
   // Phones
-  const phones = card.phones as JSContactCard['phones'] | undefined
+  const phones = card['phones'] as JSContactCard['phones'] | undefined
   if (phones) {
     for (const p of Object.values(phones)) {
       if (p.number) result.fields.push({ value: p.number, label: 'phone' })

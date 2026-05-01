@@ -1,4 +1,4 @@
-import sqlite3InitModule from '@sqlite.org/sqlite-wasm'
+import sqlite3InitModule, { type BindableValue } from '@sqlite.org/sqlite-wasm'
 import type {
   Address,
   AddressType,
@@ -514,19 +514,28 @@ await (async () => {
       return new Date().toISOString()
     }
 
-    function queryRaw(sql: string, bind?: unknown[]): Record<string, unknown>[] {
-      const rows: Record<string, unknown>[] = []
+    // SqlRow: raw SQLite row from exec({ rowMode: 'object' }).
+    // Typed as `any` because the shape depends on the SQL query at runtime;
+    // the rowToX() mapping functions perform the actual type narrowing.
+    // Using Record<string, unknown> would trigger TS4111 at every dot-access
+    // under noPropertyAccessFromIndexSignature.
+    type SqlRow = any // eslint-disable-line @typescript-eslint/no-explicit-any
+
+    function queryRaw(sql: string, bind?: unknown[]): SqlRow[] {
+      const rows: SqlRow[] = []
       db.exec({
         sql,
-        ...(bind !== undefined && { bind }),
+        ...(bind !== undefined && { bind: bind as BindableValue[] }),
         rowMode: 'object',
-        callback: (row: Record<string, unknown>) => rows.push({ ...row }),
+        callback: (row) => {
+          rows.push({ ...row })
+        },
       })
       return rows
     }
 
     function exec(sql: string, bind?: unknown[]): void {
-      db.exec({ sql, ...(bind !== undefined && { bind }) })
+      db.exec({ sql, ...(bind !== undefined && { bind: bind as BindableValue[] }) })
     }
 
     function safeJsonParse<T>(str: string | null | undefined, fallback: T): T {
@@ -538,7 +547,7 @@ await (async () => {
       }
     }
 
-    function rowToVault(r: Record<string, unknown>): Vault {
+    function rowToVault(r: SqlRow): Vault {
       return {
         id: r.id as string,
         name: r.name as string,
@@ -549,7 +558,7 @@ await (async () => {
       }
     }
 
-    function rowToContact(r: Record<string, unknown>): Contact {
+    function rowToContact(r: SqlRow): Contact {
       return {
         id: r.id as string,
         vault_id: r.vault_id as string,
@@ -575,7 +584,7 @@ await (async () => {
       }
     }
 
-    function rowToContactFieldType(r: Record<string, unknown>): ContactFieldType {
+    function rowToContactFieldType(r: SqlRow): ContactFieldType {
       return {
         id: r.id as string,
         vault_id: r.vault_id as string,
@@ -586,7 +595,7 @@ await (async () => {
       }
     }
 
-    function rowToContactField(r: Record<string, unknown>): ContactField {
+    function rowToContactField(r: SqlRow): ContactField {
       return {
         id: r.id as string,
         contact_id: r.contact_id as string,
@@ -597,7 +606,7 @@ await (async () => {
       }
     }
 
-    function rowToAddress(r: Record<string, unknown>): Address {
+    function rowToAddress(r: SqlRow): Address {
       return {
         id: r.id as string,
         contact_id: r.contact_id as string,
@@ -612,7 +621,7 @@ await (async () => {
       }
     }
 
-    function rowToRelationshipType(r: Record<string, unknown>): RelationshipType {
+    function rowToRelationshipType(r: SqlRow): RelationshipType {
       return {
         id: r.id as string,
         vault_id: r.vault_id as string,
@@ -623,7 +632,7 @@ await (async () => {
       }
     }
 
-    function rowToRelationship(r: Record<string, unknown>): Relationship {
+    function rowToRelationship(r: SqlRow): Relationship {
       return {
         id: r.id as string,
         contact_id: r.contact_id as string,
@@ -634,7 +643,7 @@ await (async () => {
       }
     }
 
-    function rowToCompany(r: Record<string, unknown>): Company {
+    function rowToCompany(r: SqlRow): Company {
       return {
         id: r.id as string,
         vault_id: r.vault_id as string,
@@ -647,7 +656,7 @@ await (async () => {
       }
     }
 
-    function rowToOccupation(r: Record<string, unknown>): Occupation {
+    function rowToOccupation(r: SqlRow): Occupation {
       return {
         id: r.id as string,
         contact_id: r.contact_id as string,
@@ -661,7 +670,7 @@ await (async () => {
       }
     }
 
-    function rowToPet(r: Record<string, unknown>): Pet {
+    function rowToPet(r: SqlRow): Pet {
       return {
         id: r.id as string,
         contact_id: r.contact_id as string,
@@ -672,7 +681,7 @@ await (async () => {
       }
     }
 
-    function rowToTag(r: Record<string, unknown>): Tag {
+    function rowToTag(r: SqlRow): Tag {
       return {
         id: r.id as string,
         vault_id: r.vault_id as string,
@@ -681,7 +690,7 @@ await (async () => {
       }
     }
 
-    function rowToGroup(r: Record<string, unknown>): Group {
+    function rowToGroup(r: SqlRow): Group {
       return {
         id: r.id as string,
         vault_id: r.vault_id as string,
@@ -691,7 +700,7 @@ await (async () => {
       }
     }
 
-    function rowToInteraction(r: Record<string, unknown>): Interaction {
+    function rowToInteraction(r: SqlRow): Interaction {
       return {
         id: r.id as string,
         vault_id: r.vault_id as string,
@@ -706,7 +715,7 @@ await (async () => {
       }
     }
 
-    function rowToNote(r: Record<string, unknown>): Note {
+    function rowToNote(r: SqlRow): Note {
       return {
         id: r.id as string,
         contact_id: r.contact_id as string,
@@ -717,7 +726,7 @@ await (async () => {
       }
     }
 
-    function rowToLifeEventType(r: Record<string, unknown>): LifeEventType {
+    function rowToLifeEventType(r: SqlRow): LifeEventType {
       return {
         id: r.id as string,
         vault_id: r.vault_id as string,
@@ -727,7 +736,7 @@ await (async () => {
       }
     }
 
-    function rowToLifeEvent(r: Record<string, unknown>): LifeEvent {
+    function rowToLifeEvent(r: SqlRow): LifeEvent {
       return {
         id: r.id as string,
         contact_id: r.contact_id as string,
@@ -740,7 +749,7 @@ await (async () => {
       }
     }
 
-    function rowToReminder(r: Record<string, unknown>): Reminder {
+    function rowToReminder(r: SqlRow): Reminder {
       return {
         id: r.id as string,
         contact_id: r.contact_id as string,
@@ -754,7 +763,7 @@ await (async () => {
       }
     }
 
-    function rowToStayInTouch(r: Record<string, unknown>): StayInTouch {
+    function rowToStayInTouch(r: SqlRow): StayInTouch {
       return {
         id: r.id as string,
         contact_id: r.contact_id as string,
@@ -766,7 +775,7 @@ await (async () => {
       }
     }
 
-    function rowToTask(r: Record<string, unknown>): Task {
+    function rowToTask(r: SqlRow): Task {
       return {
         id: r.id as string,
         contact_id: r.contact_id as string,
@@ -780,7 +789,7 @@ await (async () => {
       }
     }
 
-    function rowToGiftNote(r: Record<string, unknown>): GiftNote {
+    function rowToGiftNote(r: SqlRow): GiftNote {
       return {
         id: r.id as string,
         contact_id: r.contact_id as string,
@@ -792,7 +801,7 @@ await (async () => {
       }
     }
 
-    function rowToJournalEntry(r: Record<string, unknown>): JournalEntry {
+    function rowToJournalEntry(r: SqlRow): JournalEntry {
       return {
         id: r.id as string,
         vault_id: r.vault_id as string,

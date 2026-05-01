@@ -178,7 +178,14 @@ export function useDatabase() {
       contact_id?: string,
       limit?: number,
     ): Promise<InteractionWithContacts[]> =>
-      sendToWorker({ type: 'GET_INTERACTIONS', payload: { vault_id, contact_id, limit } }),
+      sendToWorker({
+        type: 'GET_INTERACTIONS',
+        payload: {
+          vault_id,
+          ...(contact_id !== undefined && { contact_id }),
+          ...(limit !== undefined && { limit }),
+        },
+      }),
     getInteraction: (id: string): Promise<InteractionWithContacts> =>
       sendToWorker({ type: 'GET_INTERACTION', payload: { id } }),
     createInteraction: (

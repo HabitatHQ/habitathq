@@ -59,7 +59,10 @@ export function useDatabase() {
       period: string,
       user_id?: string,
     ): Promise<TransactionWithDetails[]> =>
-      sendToWorker({ type: 'GET_TRANSACTIONS_FOR_PERIOD', payload: { period, user_id } }),
+      sendToWorker({
+        type: 'GET_TRANSACTIONS_FOR_PERIOD',
+        payload: { period, ...(user_id !== undefined && { user_id }) },
+      }),
     getTransaction: (id: string): Promise<TransactionWithDetails | null> =>
       sendToWorker({ type: 'GET_TRANSACTION', payload: { id } }),
     createTransaction: (
@@ -138,7 +141,11 @@ export function useDatabase() {
     ): Promise<MerchantMapping> =>
       sendToWorker({
         type: 'UPSERT_MERCHANT_MAPPING',
-        payload: { merchant, category_id, account_id },
+        payload: {
+          merchant,
+          category_id,
+          ...(account_id !== undefined && { account_id }),
+        },
       }),
     getRecentAccountByType: (
       type: TransactionType,
@@ -156,7 +163,10 @@ export function useDatabase() {
       status?: RecurringStatus,
       includeDismissed = false,
     ): Promise<RecurringPatternRow[]> =>
-      sendToWorker({ type: 'GET_RECURRING_PATTERNS', payload: { status, includeDismissed } }),
+      sendToWorker({
+        type: 'GET_RECURRING_PATTERNS',
+        payload: { ...(status !== undefined && { status }), includeDismissed },
+      }),
     updateRecurringPattern: (id: string, status: RecurringStatus): Promise<RecurringPatternRow> =>
       sendToWorker({ type: 'UPDATE_RECURRING_PATTERN', payload: { id, status } }),
     confirmAllRecurring: (minConfidence = 0.8): Promise<{ updated: number }> =>
@@ -170,7 +180,11 @@ export function useDatabase() {
     ): Promise<{ id: string; file_size: number }> =>
       sendToWorker({
         type: 'SAVE_RECEIPT_IMAGE',
-        payload: { transaction_id, image_data, mime_type },
+        payload: {
+          transaction_id,
+          image_data,
+          ...(mime_type !== undefined && { mime_type }),
+        },
       }),
     getReceiptImage: (
       transaction_id: string,

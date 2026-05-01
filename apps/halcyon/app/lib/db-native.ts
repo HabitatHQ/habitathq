@@ -6,7 +6,7 @@
 import type { WorkerRequestBody } from '~/types/database'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _db: any = null
+let _db: any
 
 export async function initNativeDb(): Promise<void> {
   const { CapacitorSQLite } = await import('@capacitor-community/sqlite')
@@ -25,5 +25,6 @@ export async function initNativeDb(): Promise<void> {
 export async function dispatchNative(_req: WorkerRequestBody): Promise<any> {
   // TODO: Implement native SQLite mirror matching database.worker.ts operations.
   // This is a stub that will be implemented in a follow-up iteration.
+  void _db // will be used once native dispatch is implemented
   throw new Error('Native DB dispatch not yet implemented — use PWA build for development')
 }

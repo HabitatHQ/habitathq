@@ -70,11 +70,11 @@ export function buildExportPayload(
 export function validateImportPayload(payload: unknown): boolean {
   if (typeof payload !== 'object' || payload === null) return false
   const p = payload as Record<string, unknown>
-  if (typeof p.version !== 'number') return false
-  if (typeof p.template !== 'object' || p.template === null) return false
-  const t = p.template as Record<string, unknown>
-  if (typeof t.name !== 'string' || !t.name) return false
-  if (!Array.isArray(p.exercises)) return false
+  if (typeof p['version'] !== 'number') return false
+  if (typeof p['template'] !== 'object' || p['template'] === null) return false
+  const t = p['template'] as Record<string, unknown>
+  if (typeof t['name'] !== 'string' || !t['name']) return false
+  if (!Array.isArray(p['exercises'])) return false
   return true
 }
 

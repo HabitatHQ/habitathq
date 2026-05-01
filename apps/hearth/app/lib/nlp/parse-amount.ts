@@ -128,7 +128,7 @@ export function parseAmount(text: string): AmountResult | null {
       amount: Number.parseFloat(wordMatch[1].replace(/,/g, '')),
       confidence: 'high',
       matchedText: wordMatch[0],
-      currency,
+      ...(currency !== undefined && { currency }),
     }
   }
 
