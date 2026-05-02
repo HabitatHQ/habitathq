@@ -11,6 +11,7 @@
       "includes": [
         "app/workers/database.worker.ts",
         "app/lib/db-native.ts",
+        "app/lib/db-schema.ts",
         "app/lib/db-shared.ts",
         "app/composables/useNotifications.ts",
         "app/composables/useTabReorder.ts"
