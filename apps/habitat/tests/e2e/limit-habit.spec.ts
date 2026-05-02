@@ -82,7 +82,9 @@ async function logHabitValue(page: import('@playwright/test').Page, value: numbe
 
 /** Locator for the amber check-circle icon shown on done LIMIT habits. */
 function doneCheckCircle(page: import('@playwright/test').Page) {
-  return page.locator('.i-lucide\\:circle-check.text-amber-400')
+  // UIcon in SVG mode renders as a <span> (or <img>) — the text-amber-400
+  // class is on the wrapper element, not a CSS icon class.
+  return page.locator('.text-amber-400')
 }
 
 // ─── Home page completion ──────────────────────────────────────────────────────

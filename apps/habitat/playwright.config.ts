@@ -1,5 +1,8 @@
 import { defineConfig, devices } from '@playwright/test'
 
+// Dedicated port for e2e tests — avoids collisions with any running dev server.
+const E2E_PORT = 4200
+
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: true,
@@ -7,7 +10,7 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: 'html',
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: `http://localhost:${E2E_PORT}`,
     trace: 'on-first-retry',
   },
   projects: [
@@ -17,9 +20,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'pnpm dev:pwa',
-    url: 'http://localhost:3000',
+    command: `BUILD_TARGET=pwa nuxt generate && npx -y serve .output/public -l ${E2E_PORT} --no-clipboard --single`,
+    url: `http://localhost:${E2E_PORT}`,
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    timeout: 180_000,
   },
 })
