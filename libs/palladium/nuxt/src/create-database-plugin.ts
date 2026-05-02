@@ -33,12 +33,24 @@ export function createDatabasePlugin(config: DatabasePluginConfig) {
   let worker: Worker | null = null;
   const pending = new Map<string, PendingEntry>();
   let nativeReady = false;
+  let workerDead = false;
+
+  function drainPending(reason: string): void {
+    const err = new Error(reason);
+    for (const [id, entry] of pending) {
+      entry.reject(err);
+      pending.delete(id);
+    }
+  }
 
   // ── RPC ────────────────────────────────────────────────────────────────
 
   function sendToWorker<T>(req: Record<string, unknown>): Promise<T> {
     if (nativeReady && native) {
       return native.dispatch(req) as Promise<T>;
+    }
+    if (workerDead) {
+      return Promise.reject(new Error("Database worker is not available."));
     }
     const id = crypto.randomUUID();
     return new Promise<T>((resolve, reject) => {
@@ -126,6 +138,8 @@ export function createDatabasePlugin(config: DatabasePluginConfig) {
       if (worker) {
         worker.onerror = () => {
           clearTimeout(t);
+          workerDead = true;
+          drainPending("Database worker crashed.");
           onError("Database failed to initialize. Try refreshing.");
           resolve();
         };
