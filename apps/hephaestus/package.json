@@ -37,16 +37,9 @@
     "@nuxt/ui": "^4.4.0",
     "@sqlite.org/sqlite-wasm": "3.51.2-build6",
     "fflate": "^0.8.2",
-    "nuxt": "^4.3.1",
+    "nuxt": "~4.3.1",
     "vue": "latest",
     "vue-router": "latest"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@parcel/watcher",
-      "esbuild",
-      "vue-demi"
-    ]
   },
   "devDependencies": {
     "@capacitor/android": "^8.1.0",
