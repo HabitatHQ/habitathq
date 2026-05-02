@@ -17,62 +17,51 @@ function db(): SQLiteDBConnection {
   return _db
 }
 
-// ─── Low-level helpers ────────────────────────────────────────────────────────
+// ─── DbAdapter via raw Capacitor SQLite ──────────────────────────────────────
+// Capacitor's query()/run()/execute() API requires routing DML differently
+// from SELECT, and BEGIN/COMMIT/ROLLBACK through the transaction API.
 
-async function queryRaw(sql: string, bind?: unknown[]): Promise<Record<string, unknown>[]> {
-  const result = await db().query(sql, bind as (string | number | null)[] | undefined)
-  return (result.values ?? []) as Record<string, unknown>[]
-}
-
-async function exec(sql: string, bind?: unknown[]): Promise<void> {
-  const s = sql.trim().toUpperCase()
-  if (s === 'BEGIN') {
-    await db().beginTransaction()
-    return
-  }
-  if (s === 'COMMIT') {
-    await db().commitTransaction()
-    return
-  }
-  if (s === 'ROLLBACK') {
-    await db().rollbackTransaction()
-    return
-  }
-  if (bind && bind.length > 0) {
-    await db().run(sql, bind as (string | number | boolean | null)[], false)
-  } else {
-    await db().execute(sql, false)
-  }
-}
-
-// ─── NativeDbAdapter ──────────────────────────────────────────────────────────
-// Wraps the async Capacitor SQLite API to satisfy the DbAdapter interface
-// shared with the web worker path.
-
-class NativeDbAdapter implements DbAdapter {
+const adapter: DbAdapter = {
   async queryAll<T>(sql: string, bind?: unknown[]): Promise<T[]> {
-    return queryRaw(sql, bind) as Promise<T[]>
-  }
+    const result = await db().query(sql, bind as (string | number | null)[] | undefined)
+    return (result.values ?? []) as T[]
+  },
 
   async queryOne<T>(sql: string, bind?: unknown[]): Promise<T | null> {
-    const rows = await queryRaw(sql, bind)
-    return rows.length > 0 ? (rows[0] as T) : null
-  }
+    const result = await db().query(sql, bind as (string | number | null)[] | undefined)
+    const rows = (result.values ?? []) as T[]
+    return rows[0] ?? null
+  },
 
   async exec(sql: string, bind?: unknown[]): Promise<void> {
-    return exec(sql, bind)
-  }
+    const s = sql.trim().toUpperCase()
+    if (s === 'BEGIN') {
+      await db().beginTransaction()
+      return
+    }
+    if (s === 'COMMIT') {
+      await db().commitTransaction()
+      return
+    }
+    if (s === 'ROLLBACK') {
+      await db().rollbackTransaction()
+      return
+    }
+    if (bind && bind.length > 0) {
+      await db().run(sql, bind as (string | number | boolean | null)[], false)
+    } else {
+      await db().execute(sql, false)
+    }
+  },
 }
-
-const adapter = new NativeDbAdapter()
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 export async function initNativeDb(): Promise<void> {
   _db = await sqliteConn.createConnection('habitat', false, 'no-encryption', 1, false)
   await _db.open()
-  await exec('PRAGMA foreign_keys = ON')
-  await exec(schema.SCHEMA_DDL)
+  await adapter.exec('PRAGMA foreign_keys = ON')
+  await adapter.exec(schema.SCHEMA_DDL)
   await schema.runMigrations(adapter)
   await schema.seedDefaults(adapter)
 }
@@ -82,7 +71,7 @@ export async function initNativeDb(): Promise<void> {
 export async function dispatchNative(req: WorkerRequestBody): Promise<unknown> {
   switch (req.type) {
     case 'NUKE_OPFS':
-      return null // no-op on native (no OPFS)
+      return null
     case 'EXPORT_DB':
       throw new Error('EXPORT_DB not supported on native')
     default: {
