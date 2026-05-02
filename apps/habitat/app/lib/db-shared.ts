@@ -50,6 +50,7 @@ import type {
   TagRow,
   TagSource,
   Todo,
+  WorkerRequestBody,
 } from '~/types/database'
 
 // ─── Dynamic UPDATE helpers ──────────────────────────────────────────────────
@@ -1778,5 +1779,222 @@ export async function importJson(db: DbAdapter, data: HabitatExport): Promise<nu
   } catch (err) {
     await db.exec('ROLLBACK')
     throw err
+  }
+}
+
+// ─── Shared dispatcher ─────────────────────────────────────────────────────────
+// Maps WorkerRequestBody.type to the corresponding db-shared function.
+// Worker-only ops (EXPORT_DB, NUKE_OPFS) are handled by the caller.
+
+export async function dispatch(db: DbAdapter, req: WorkerRequestBody): Promise<unknown> {
+  switch (req.type) {
+    case 'GET_HABITS':
+      return getHabits(db)
+    case 'CREATE_HABIT':
+      return createHabit(db, req.payload)
+    case 'UPDATE_HABIT':
+      return updateHabit(db, req.payload)
+    case 'ARCHIVE_HABIT':
+      return archiveHabit(db, req.payload.id)
+    case 'DELETE_HABIT':
+      return deleteHabit(db, req.payload.id)
+    case 'GET_ARCHIVED_HABITS':
+      return getArchivedHabits(db)
+    case 'GET_COMPLETIONS_FOR_DATE':
+      return getCompletionsForDate(db, req.payload.date)
+    case 'GET_COMPLETIONS_FOR_HABIT':
+      return getCompletionsForHabit(db, req.payload.habit_id, req.payload.from, req.payload.to)
+    case 'GET_COMPLETIONS_FOR_DATE_RANGE':
+      return getCompletionsForDateRange(db, req.payload.from, req.payload.to)
+    case 'GET_ALL_COMPLETIONS':
+      return getAllCompletions(db)
+    case 'TOGGLE_COMPLETION':
+      return toggleCompletion(
+        db,
+        req.payload.habit_id,
+        req.payload.date,
+        req.payload.tags,
+        req.payload.annotations,
+      )
+    case 'GET_STREAK':
+      return getStreak(db, req.payload.habit_id)
+    case 'DELETE_ALL_HABITS':
+      return deleteAllHabits(db)
+    case 'PAUSE_HABIT':
+      return pauseHabit(db, req.payload.id, req.payload.until)
+    case 'PAUSE_ALL_HABITS':
+      return pauseAllHabits(db, req.payload.until)
+    case 'GET_HABIT_LOGS_FOR_DATE':
+      return getHabitLogsForDate(db, req.payload.date)
+    case 'GET_HABIT_LOGS_FOR_HABIT':
+      return getHabitLogsForHabit(db, req.payload.habit_id, req.payload.from, req.payload.to)
+    case 'GET_HABIT_LOGS_FOR_DATE_RANGE':
+      return getHabitLogsForDateRange(db, req.payload.from, req.payload.to)
+    case 'LOG_HABIT_VALUE':
+      return logHabitValue(
+        db,
+        req.payload.habit_id,
+        req.payload.date,
+        req.payload.value,
+        req.payload.notes,
+      )
+    case 'DELETE_HABIT_LOG':
+      return deleteHabitLog(db, req.payload.id)
+    case 'GET_SCHEDULE_FOR_HABIT':
+      return getScheduleForHabit(db, req.payload.habit_id)
+    case 'UPDATE_HABIT_SCHEDULE':
+      return updateHabitSchedule(db, req.payload)
+    case 'GET_CHECKIN_ENTRY':
+      return getCheckinEntry(db, req.payload.date)
+    case 'UPSERT_CHECKIN_ENTRY':
+      return upsertCheckinEntry(db, req.payload.date, req.payload.content)
+    case 'DELETE_CHECKIN_ENTRY':
+      return deleteCheckinEntry(db, req.payload.id)
+    case 'GET_CHECKIN_ENTRIES':
+      return getCheckinEntries(db, req.payload.from, req.payload.to)
+    case 'DELETE_ALL_CHECKIN_ENTRIES':
+      return deleteAllCheckinEntries(db)
+    case 'GET_CHECKIN_TEMPLATES':
+      return getCheckinTemplates(db)
+    case 'GET_CHECKIN_TEMPLATE':
+      return getCheckinTemplate(db, req.payload.id)
+    case 'CREATE_CHECKIN_TEMPLATE':
+      return createCheckinTemplate(db, req.payload)
+    case 'UPDATE_CHECKIN_TEMPLATE':
+      return updateCheckinTemplate(db, req.payload)
+    case 'DELETE_CHECKIN_TEMPLATE':
+      return deleteCheckinTemplate(db, req.payload.id)
+    case 'DELETE_ALL_CHECKIN_DATA':
+      return deleteAllCheckinData(db)
+    case 'GET_CHECKIN_QUESTIONS':
+      return getCheckinQuestions(db, req.payload.template_id)
+    case 'CREATE_CHECKIN_QUESTION':
+      return createCheckinQuestion(db, req.payload)
+    case 'UPDATE_CHECKIN_QUESTION':
+      return updateCheckinQuestion(db, req.payload)
+    case 'DELETE_CHECKIN_QUESTION':
+      return deleteCheckinQuestion(db, req.payload.id)
+    case 'GET_CHECKIN_RESPONSES':
+      return getCheckinResponses(db, req.payload.template_id, req.payload.date)
+    case 'UPSERT_CHECKIN_RESPONSE':
+      return upsertCheckinResponse(
+        db,
+        req.payload.question_id,
+        req.payload.logged_date,
+        req.payload.value_numeric,
+        req.payload.value_text,
+      )
+    case 'DELETE_CHECKIN_RESPONSE':
+      return deleteCheckinResponse(db, req.payload.id)
+    case 'TOGGLE_CHECKIN_COMPLETION':
+      return toggleCheckinCompletion(db, req.payload.template_id, req.payload.date)
+    case 'GET_CHECKIN_COMPLETIONS_FOR_DATE':
+      return getCheckinCompletionsForDate(db, req.payload.date)
+    case 'GET_CHECKIN_RESPONSE_DATES':
+      return getCheckinResponseDates(db)
+    case 'GET_CHECKIN_HISTORY':
+      return getCheckinHistory(db, req.payload.from, req.payload.to, req.payload.template_id)
+    case 'GET_CHECKIN_SUMMARY_FOR_DATE':
+      return getCheckinSummaryForDate(db, req.payload.date)
+    case 'GET_SCRIBBLES':
+      return getScribbles(db)
+    case 'GET_SCRIBBLES_FOR_DATE':
+      return getScribblesForDate(db, req.payload.date)
+    case 'CREATE_SCRIBBLE':
+      return createScribble(db, req.payload)
+    case 'UPDATE_SCRIBBLE':
+      return updateScribble(db, req.payload)
+    case 'DELETE_SCRIBBLE':
+      return deleteScribble(db, req.payload.id)
+    case 'DELETE_ALL_SCRIBBLES':
+      return deleteAllScribbles(db)
+    case 'GET_ALL_REMINDERS':
+      return getAllReminders(db)
+    case 'GET_REMINDERS_FOR_HABIT':
+      return getRemindersForHabit(db, req.payload.habit_id)
+    case 'CREATE_REMINDER':
+      return createReminder(
+        db,
+        req.payload.habit_id,
+        req.payload.trigger_time,
+        req.payload.days_active,
+      )
+    case 'DELETE_REMINDER':
+      return deleteReminder(db, req.payload.id)
+    case 'GET_ALL_CHECKIN_REMINDERS':
+      return getAllCheckinReminders(db)
+    case 'GET_CHECKIN_REMINDERS_FOR_TEMPLATE':
+      return getCheckinRemindersForTemplate(db, req.payload.template_id)
+    case 'CREATE_CHECKIN_REMINDER':
+      return createCheckinReminder(
+        db,
+        req.payload.template_id,
+        req.payload.trigger_time,
+        req.payload.days_active,
+      )
+    case 'DELETE_CHECKIN_REMINDER':
+      return deleteCheckinReminder(db, req.payload.id)
+    case 'IS_DEFAULT_APPLIED':
+      return isDefaultApplied(db, req.payload.key)
+    case 'MARK_DEFAULT_APPLIED':
+      return markDefaultApplied(db, req.payload.key)
+    case 'CLEAR_APPLIED_DEFAULTS':
+      return clearAppliedDefaults(db)
+    case 'GET_DB_INFO':
+      return getDbInfo(db)
+    case 'INTEGRITY_CHECK':
+      return integrityCheck(db)
+    case 'EXPORT_JSON_DATA':
+      return exportJsonData(db, req.payload)
+    case 'IMPORT_JSON':
+      return importJson(db, req.payload)
+    case 'GET_BORED_CATEGORIES':
+      return getBoredCategories(db)
+    case 'CREATE_BORED_CATEGORY':
+      return createBoredCategory(db, req.payload)
+    case 'UPDATE_BORED_CATEGORY':
+      return updateBoredCategory(db, req.payload)
+    case 'DELETE_BORED_CATEGORY':
+      return deleteBoredCategory(db, req.payload.id)
+    case 'GET_BORED_ACTIVITIES':
+      return getBoredActivities(db)
+    case 'GET_BORED_ACTIVITIES_FOR_CATEGORY':
+      return getBoredActivitiesForCategory(db, req.payload.category_id)
+    case 'CREATE_BORED_ACTIVITY':
+      return createBoredActivity(db, req.payload)
+    case 'UPDATE_BORED_ACTIVITY':
+      return updateBoredActivity(db, req.payload)
+    case 'DELETE_BORED_ACTIVITY':
+      return deleteBoredActivity(db, req.payload.id)
+    case 'ARCHIVE_BORED_ACTIVITY':
+      return archiveBoredActivity(db, req.payload.id)
+    case 'MARK_BORED_ACTIVITY_DONE':
+      return markBoredActivityDone(db, req.payload.id)
+    case 'GET_BORED_ORACLE':
+      return getBoredOracle(db, req.payload.excluded_category_ids, req.payload.max_minutes)
+    case 'DELETE_ALL_BORED_DATA':
+      return deleteAllBoredData(db)
+    case 'GET_TODOS':
+      return getTodos(db)
+    case 'CREATE_TODO':
+      return createTodo(db, req.payload)
+    case 'UPDATE_TODO':
+      return updateTodo(db, req.payload)
+    case 'DELETE_TODO':
+      return deleteTodo(db, req.payload.id)
+    case 'ARCHIVE_TODO':
+      return archiveTodo(db, req.payload.id)
+    case 'TOGGLE_TODO':
+      return toggleTodo(db, req.payload.id)
+    case 'DELETE_ALL_TODOS':
+      return deleteAllTodos(db)
+    case 'GET_CONTEXT_TAGS':
+      return getContextTags(db)
+    case 'GET_ALL_TAGS':
+      return getAllTags(db)
+    case 'SEARCH_GLOBAL':
+      return searchGlobal(db, req.payload.query)
+    default:
+      return undefined
   }
 }
