@@ -553,4 +553,12 @@ onUnmounted(() => {
     transform: scale(1) translateY(0);
   }
 }
+
+/* Respect reduce-motion */
+@media (prefers-reduced-motion: reduce) {
+  .slide-up-sheet { animation: none; }
+  .jots-masonry > li { animation: none; }
+}
+:global(html.reduce-motion) .slide-up-sheet { animation: none; }
+:global(html.reduce-motion) .jots-masonry > li { animation: none; }
 </style>

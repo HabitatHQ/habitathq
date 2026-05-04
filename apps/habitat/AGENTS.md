@@ -88,6 +88,8 @@ Routes: `/`, `/matrix`, `/habits`, `/habits/[id]`, `/health`, `/todos`, `/bored`
 
 **Typography**: use semantic classes from `typography.css` instead of raw `font-mono`/`tabular-nums` combos. `type-timer` — large timer displays; `type-duration` — inline time/duration values (mono + tabular); `type-code` — technical/code text; `type-numeric` — tabular number alignment (keeps sans font). Font stacks are defined via `@theme` in `main.css`.
 
+**Reduced motion**: guard animations with both `@media (prefers-reduced-motion: reduce)` and `:global(html.reduce-motion)`. JS animations: gate with `isMotionReduced()`.
+
 ## Config
 
 - `nuxt.config.ts` — COOP/COEP headers (required for OPFS/SharedArrayBuffer), conditional PWA via `BUILD_TARGET` env

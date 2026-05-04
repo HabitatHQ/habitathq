@@ -101,7 +101,10 @@ onMounted(() => {
   currentPhrase.value = first
   displayedText.value = first
   textVisible.value = true
-  phraseTimer = setTimeout(cyclePhrase, 3500)
+  // Only cycle/typewrite when motion is allowed
+  if (!isMotionReduced()) {
+    phraseTimer = setTimeout(cyclePhrase, 3500)
+  }
 })
 
 onUnmounted(() => {

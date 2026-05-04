@@ -220,7 +220,7 @@ onUnmounted(() => {
       </div>
 
       <button
-        class="w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300"
+        class="record-btn w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300"
         :class="isRecording
           ? 'bg-red-500/20 border-2 border-red-500 animate-pulse'
           : 'bg-(--ui-bg-elevated) border-2 border-(--ui-border-accented) hover:border-primary-500'"
@@ -271,3 +271,10 @@ onUnmounted(() => {
     </Teleport>
   </div>
 </template>
+
+<style scoped>
+@media (prefers-reduced-motion: reduce) {
+  .record-btn { animation: none; transition: none; }
+}
+:global(html.reduce-motion) .record-btn { animation: none; transition: none; }
+</style>
