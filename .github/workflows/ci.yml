@@ -35,6 +35,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Prepare (generate tsconfig)
+        run: pnpm --filter ${{ matrix.app }} exec nuxt prepare
+
       - name: Lint & format check
         run: pnpm --filter ${{ matrix.app }} check
 
