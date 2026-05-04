@@ -117,9 +117,8 @@ test.describe('Page load — key elements visible', () => {
   test('/bored — heading or oracle visible', async ({ page }) => {
     await page.goto('/bored')
     await page.waitForLoadState('networkidle')
-    // Bored page shows oracle / activity picker
-    const heading = await page.locator('h1, h2').first().isVisible().catch(() => false)
-    expect(heading, '/bored should render a heading').toBe(true)
+    // Bored page renders "I'm Bored" heading
+    await expect(page.getByText("I'm Bored")).toBeVisible({ timeout: 8000 })
   })
 
   test('/matrix desktop — "Month" heading', async ({ page }) => {
