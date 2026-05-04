@@ -1,3 +1,4 @@
+import type { SchemaConfig } from "@palladium/core";
 import { createEngine, sql } from "@palladium/core";
 import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { get } from "svelte/store";
@@ -8,12 +9,14 @@ interface Schema {
   tasks: { id: string; name: string; done: number };
 }
 
-const MIGRATIONS = [
-  "CREATE TABLE tasks (id TEXT PRIMARY KEY, name TEXT NOT NULL, done INTEGER NOT NULL)",
-];
+const SCHEMA: SchemaConfig = {
+  schema:
+    "CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, name TEXT NOT NULL, done INTEGER NOT NULL)",
+  version: 1,
+};
 
 function makeDb() {
-  return createEngine<Schema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }), MIGRATIONS);
+  return createEngine<Schema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }));
 }
 
 /** Drain all pending microtasks (works across multiple promise levels). */
@@ -35,7 +38,7 @@ describe("liveQueryStore", () => {
 
   it("resolves to empty rows after init", async () => {
     const db = makeDb();
-    await db.init();
+    await db.init(SCHEMA);
     const store = liveQueryStore<Schema["tasks"]>(db, sql`SELECT * FROM tasks`);
 
     const unsub = store.subscribe(() => {});
@@ -48,7 +51,7 @@ describe("liveQueryStore", () => {
 
   it("emits updated rows on insert", async () => {
     const db = makeDb();
-    await db.init();
+    await db.init(SCHEMA);
     const store = liveQueryStore<Schema["tasks"]>(db, sql`SELECT * FROM tasks`);
 
     const unsub = store.subscribe(() => {});
@@ -64,7 +67,7 @@ describe("liveQueryStore", () => {
 
   it("unsubscribe cancels the live query", async () => {
     const db = makeDb();
-    await db.init();
+    await db.init(SCHEMA);
     const store = liveQueryStore<Schema["tasks"]>(db, sql`SELECT * FROM tasks`);
 
     const unsub = store.subscribe(() => {});
@@ -81,7 +84,7 @@ describe("liveQueryStore", () => {
 describe("syncStatusStore", () => {
   it("starts with idle status", async () => {
     const db = makeDb();
-    await db.init();
+    await db.init(SCHEMA);
     const store = syncStatusStore(db);
     const unsub = store.subscribe(() => {});
     expect(get(store)).toBe("idle");
@@ -90,7 +93,7 @@ describe("syncStatusStore", () => {
 
   it("updates when engine status changes", async () => {
     const db = makeDb();
-    await db.init();
+    await db.init(SCHEMA);
     const store = syncStatusStore(db);
 
     const unsub = store.subscribe(() => {});

@@ -9,6 +9,7 @@
  */
 
 import { SQLiteConnection } from "@capacitor-community/sqlite";
+import type { SchemaConfig } from "@palladium/core";
 import { createEngine } from "@palladium/core";
 import { CapacitorSqliteAdapter } from "@palladium/sqlite-capacitor";
 
@@ -16,9 +17,11 @@ interface Schema {
   tasks: { id: string; name: string; done: number };
 }
 
-const MIGRATIONS = [
-  "CREATE TABLE tasks (id TEXT PRIMARY KEY, name TEXT NOT NULL, done INTEGER NOT NULL)",
-];
+const SCHEMA: SchemaConfig = {
+  schema:
+    "CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, name TEXT NOT NULL, done INTEGER NOT NULL)",
+  version: 1,
+};
 
 interface TestResult {
   name: string;
@@ -40,8 +43,8 @@ async function test(name: string, fn: () => Promise<void>): Promise<void> {
 async function runTests(): Promise<void> {
   const conn = new SQLiteConnection();
   const adapter = new CapacitorSqliteAdapter(conn, { dbName: "smoke-test" });
-  const db = createEngine<Schema>(adapter, MIGRATIONS);
-  await db.init();
+  const db = createEngine<Schema>(adapter);
+  await db.init(SCHEMA);
 
   await test("returns empty rows initially", async () => {
     const rows = await adapter.exec<Schema["tasks"]>("SELECT * FROM tasks");

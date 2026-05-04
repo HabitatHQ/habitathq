@@ -20,6 +20,8 @@ export { IDBBlobAdapter } from "./idb-blob-adapter.js";
 export { LiveQuery } from "./live-query.js";
 export { LocalStorageBlobAdapter } from "./localstorage-blob-adapter.js";
 export { MemoryBlobAdapter } from "./memory-blob-adapter.js";
+export type { MigrationExec, MigrationStep, SchemaConfig, Seed } from "./migration.js";
+export { applySchema, applySeeds } from "./migration.js";
 export type { SqlQuery } from "./sql.js";
 export { sql } from "./sql.js";
 export type { SqlValue, StorageAdapter, TransactableStorageAdapter } from "./storage.js";

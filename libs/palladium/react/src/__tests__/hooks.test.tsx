@@ -1,3 +1,4 @@
+import type { SchemaConfig } from "@palladium/core";
 import { createEngine, sql } from "@palladium/core";
 import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
@@ -11,12 +12,14 @@ interface Schema {
   tasks: { id: string; name: string; done: number };
 }
 
-const MIGRATIONS = [
-  "CREATE TABLE tasks (id TEXT PRIMARY KEY, name TEXT NOT NULL, done INTEGER NOT NULL)",
-];
+const SCHEMA: SchemaConfig = {
+  schema:
+    "CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, name TEXT NOT NULL, done INTEGER NOT NULL)",
+  version: 1,
+};
 
 function makeDb() {
-  return createEngine<Schema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }), MIGRATIONS);
+  return createEngine<Schema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }));
 }
 
 function wrapper(
@@ -30,7 +33,7 @@ function wrapper(
 describe("useLiveQuery", () => {
   it("returns empty array initially", async () => {
     const db = makeDb();
-    await db.init();
+    await db.init(SCHEMA);
 
     function App(): ReactNode {
       const { rows, loading } = useLiveQuery<Schema["tasks"]>(sql`SELECT * FROM tasks`);
@@ -43,7 +46,7 @@ describe("useLiveQuery", () => {
 
   it("re-renders when a row is inserted", async () => {
     const db = makeDb();
-    await db.init();
+    await db.init(SCHEMA);
 
     function App(): ReactNode {
       const { rows } = useLiveQuery<Schema["tasks"]>(sql`SELECT * FROM tasks`);
@@ -71,7 +74,7 @@ describe("useLiveQuery", () => {
 describe("useSyncStatus", () => {
   it("returns idle by default", async () => {
     const db = makeDb();
-    await db.init();
+    await db.init(SCHEMA);
 
     function App(): ReactNode {
       const status = useSyncStatus();
@@ -84,7 +87,7 @@ describe("useSyncStatus", () => {
 
   it("updates when engine emits sync:status", async () => {
     const db = makeDb();
-    await db.init();
+    await db.init(SCHEMA);
 
     function App(): ReactNode {
       const status = useSyncStatus();

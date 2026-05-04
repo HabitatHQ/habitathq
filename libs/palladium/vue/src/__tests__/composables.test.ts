@@ -1,3 +1,4 @@
+import type { SchemaConfig } from "@palladium/core";
 import { createEngine, sql } from "@palladium/core";
 import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { flushPromises, mount } from "@vue/test-utils";
@@ -9,18 +10,20 @@ interface Schema {
   tasks: { id: string; name: string; done: number };
 }
 
-const MIGRATIONS = [
-  "CREATE TABLE tasks (id TEXT PRIMARY KEY, name TEXT NOT NULL, done INTEGER NOT NULL)",
-];
+const SCHEMA: SchemaConfig = {
+  schema:
+    "CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, name TEXT NOT NULL, done INTEGER NOT NULL)",
+  version: 1,
+};
 
 function makeDb() {
-  return createEngine<Schema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }), MIGRATIONS);
+  return createEngine<Schema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }));
 }
 
 describe("useLiveQuery", () => {
   it("returns empty rows initially", async () => {
     const db = makeDb();
-    await db.init();
+    await db.init(SCHEMA);
 
     const Comp = defineComponent({
       setup() {
@@ -39,7 +42,7 @@ describe("useLiveQuery", () => {
 
   it("updates when a row is inserted", async () => {
     const db = makeDb();
-    await db.init();
+    await db.init(SCHEMA);
 
     const Comp = defineComponent({
       setup() {
@@ -65,7 +68,7 @@ describe("useLiveQuery", () => {
 describe("useSyncStatus", () => {
   it("returns idle initially", async () => {
     const db = makeDb();
-    await db.init();
+    await db.init(SCHEMA);
 
     const Comp = defineComponent({
       setup() {
@@ -83,7 +86,7 @@ describe("useSyncStatus", () => {
 
   it("updates on status change", async () => {
     const db = makeDb();
-    await db.init();
+    await db.init(SCHEMA);
 
     const Comp = defineComponent({
       setup() {

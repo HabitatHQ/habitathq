@@ -10,8 +10,8 @@
  *   import { SQLiteConnection, CapacitorSQLite } from '@capacitor-community/sqlite';
  *   const conn = new SQLiteConnection(CapacitorSQLite);
  *   const adapter = new CapacitorSqliteAdapter(conn, { dbName: 'myapp' });
- *   const engine = createEngine(adapter, MIGRATIONS);
- *   await engine.init();
+ *   const engine = createEngine(adapter);
+ *   await engine.init(schema);
  */
 
 import type { StorageAdapter, TransactableStorageAdapter } from "@palladium/core";

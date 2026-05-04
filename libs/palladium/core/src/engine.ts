@@ -13,6 +13,8 @@ import { BlobRegistry } from "./blob-registry.js";
 import { EventEmitter } from "./event-emitter.js";
 import { LiveQuery } from "./live-query.js";
 import { MemoryBlobAdapter } from "./memory-blob-adapter.js";
+import type { SchemaConfig } from "./migration.js";
+import { applySchema } from "./migration.js";
 import type { SqlQuery } from "./sql.js";
 import type { StorageAdapter } from "./storage.js";
 import { isTransactable } from "./storage.js";
@@ -28,7 +30,6 @@ export interface EngineEvents {
 
 export class PalladiumEngine<S extends SchemaMap> {
   readonly adapter: StorageAdapter;
-  readonly #migrations: readonly string[];
   protected readonly emitter = new EventEmitter<EngineEvents>();
   protected status: SyncStatus = "idle";
   readonly #liveQueries = new Set<LiveQuery>();
@@ -36,20 +37,23 @@ export class PalladiumEngine<S extends SchemaMap> {
   /** High-level blob storage API. */
   readonly blobs: BlobHandle;
 
-  constructor(
-    adapter: StorageAdapter,
-    migrations: readonly string[] = [],
-    blobAdapter?: BlobAdapter,
-  ) {
+  constructor(adapter: StorageAdapter, blobAdapter?: BlobAdapter) {
     this.adapter = adapter;
-    this.#migrations = migrations;
     this.blobs = new BlobHandle(blobAdapter ?? new MemoryBlobAdapter(), this.#blobRegistry);
   }
 
-  /** Open the adapter and run migrations. */
-  async init(): Promise<void> {
+  /**
+   * Open the adapter and optionally apply versioned migrations and seeds.
+   *
+   * Without a schema config, just opens the adapter.
+   * With a schema config, also runs baseline DDL, versioned migrations,
+   * and seeds via `applySchema()`.
+   */
+  async init(schema?: SchemaConfig): Promise<void> {
     await this.adapter.open();
-    await this.adapter.runMigrations(this.#migrations);
+    if (schema) {
+      await applySchema(this.adapter, schema);
+    }
   }
 
   /** Execute a batch of mutations, wrapped in a transaction when supported. */
@@ -111,7 +115,12 @@ export class PalladiumEngine<S extends SchemaMap> {
     return this.adapter.exec<T>(query.text, query.params);
   }
 
-  /** Create a reactive live query. Automatically deregisters on cancel(). */
+  /**
+   * Create a reactive live query. Automatically deregisters on cancel().
+   * @deprecated LiveQuery runs on the same thread as the engine. In worker-based
+   * architectures (OPFS / SharedArrayBuffer), use framework composables or a
+   * message-bus subscription instead.
+   */
   liveQuery<T = Record<string, unknown>>(query: SqlQuery): LiveQuery<T> {
     const lq = new LiveQuery<T>(query, this.adapter, () => {
       // Stryker disable next-line all -- removing delete is observably equivalent: cancelled lq returns early from notifyTables
@@ -189,13 +198,12 @@ export class PalladiumEngine<S extends SchemaMap> {
   }
 }
 
-/** Factory — create a PalladiumEngine with the given adapter, migrations, and optional blob adapter. */
+/** Factory — create a PalladiumEngine with the given adapter and optional blob adapter. */
 export function createEngine<S extends SchemaMap>(
   adapter: StorageAdapter,
-  migrations: readonly string[] = [],
   blobAdapter?: BlobAdapter,
 ): PalladiumEngine<S> {
-  return new PalladiumEngine<S>(adapter, migrations, blobAdapter);
+  return new PalladiumEngine<S>(adapter, blobAdapter);
 }
 
 /** Coerces an unknown thrown value to an `Error` instance. */

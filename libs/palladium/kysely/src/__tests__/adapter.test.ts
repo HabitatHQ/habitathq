@@ -1,3 +1,4 @@
+import type { SchemaConfig } from "@palladium/core";
 import { createEngine, sql } from "@palladium/core";
 import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { Kysely } from "kysely";
@@ -12,12 +13,14 @@ interface Schema {
   tasks: { id: string; name: string; done: number };
 }
 
-const MIGRATIONS = [
-  "CREATE TABLE tasks (id TEXT PRIMARY KEY, name TEXT NOT NULL, done INTEGER NOT NULL)",
-];
+const SCHEMA: SchemaConfig = {
+  schema:
+    "CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, name TEXT NOT NULL, done INTEGER NOT NULL)",
+  version: 1,
+};
 
 function makeEngine() {
-  return createEngine<Schema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }), MIGRATIONS);
+  return createEngine<Schema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }));
 }
 
 function makeKysely(engine: ReturnType<typeof makeEngine>) {
@@ -27,7 +30,7 @@ function makeKysely(engine: ReturnType<typeof makeEngine>) {
 describe("PalladiumDialect", () => {
   it("executes a raw SQL query via the engine", async () => {
     const engine = makeEngine();
-    await engine.init();
+    await engine.init(SCHEMA);
     await engine.insert("tasks", { id: "t1", name: "Buy milk", done: 0 });
 
     const db = makeKysely(engine);
@@ -39,7 +42,7 @@ describe("PalladiumDialect", () => {
 
   it("executes a raw sql template via exec()", async () => {
     const engine = makeEngine();
-    await engine.init();
+    await engine.init(SCHEMA);
     await engine.insert("tasks", { id: "t1", name: "hello", done: 0 });
 
     const rows = await engine.exec<Schema["tasks"]>(sql`SELECT * FROM tasks`);
@@ -48,7 +51,7 @@ describe("PalladiumDialect", () => {
 
   it("compiles a WHERE clause correctly", async () => {
     const engine = makeEngine();
-    await engine.init();
+    await engine.init(SCHEMA);
     await engine.insert("tasks", { id: "t1", name: "A", done: 0 });
     await engine.insert("tasks", { id: "t2", name: "B", done: 0 });
 

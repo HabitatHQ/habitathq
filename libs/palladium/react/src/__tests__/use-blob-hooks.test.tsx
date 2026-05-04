@@ -16,7 +16,7 @@ afterEach(cleanup);
 
 function makeEngine() {
   const blobAdapter = new MemoryBlobAdapter();
-  return createEngine(new NodeSqliteAdapter({ vfs: { type: "memory" } }), [], blobAdapter);
+  return createEngine(new NodeSqliteAdapter({ vfs: { type: "memory" } }), blobAdapter);
 }
 
 function wrapper(
