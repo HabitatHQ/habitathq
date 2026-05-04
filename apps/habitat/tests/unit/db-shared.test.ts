@@ -813,3 +813,43 @@ describe('searchGlobal', () => {
     expect(result.some(r => r.kind === 'habit')).toBe(true)
   })
 })
+
+// ─── getAllTags: scribbles CTE must not reference archived_at ─────────────────
+
+describe('getAllTags — scribbles CTE', () => {
+  it('does not reference scribbles.archived_at (column does not exist)', async () => {
+    const db = new MockDbAdapter()
+    db.setRows('SELECT tag, src, cnt', [])
+    await shared.getAllTags(db)
+    const sql = db.calls[0]!.sql
+    // The scribble CTE should not filter by archived_at
+    const scribbleCte = sql.slice(sql.indexOf('scribbles s'))
+    expect(scribbleCte).not.toContain('archived_at')
+  })
+})
+
+// ─── importJson: habits INSERT includes why column ───────────────────────────
+
+describe('importJson — why column', () => {
+  it('includes why field in habits INSERT', async () => {
+    const db = new MockDbAdapter()
+    const data = {
+      version: 1 as const,
+      exported_at: '2025-01-01T00:00:00Z',
+      habits: [{
+        id: 'h1', name: 'Run', description: 'Go for a run', why: 'Stay healthy',
+        color: '#fff', icon: 'star', frequency: 'daily',
+        created_at: '2025-01-01T00:00:00Z', archived_at: null,
+        tags: [], annotations: {}, type: 'BOOLEAN' as const, target_value: 1, paused_until: null,
+      }],
+      completions: [], habit_logs: [], habit_schedules: [],
+      checkin_templates: [], checkin_questions: [], checkin_responses: [],
+      reminders: [], checkin_reminders: [], scribbles: [],
+      checkin_entries: [], bored_categories: [], bored_activities: [], todos: [],
+    }
+    await shared.importJson(db, data)
+    const habitInsert = db.calls.find(c => c.method === 'exec' && c.sql.includes('INSERT OR IGNORE INTO habits'))!
+    expect(habitInsert.sql).toContain('why')
+    expect(habitInsert.bind).toContain('Stay healthy')
+  })
+})

@@ -403,13 +403,17 @@ export async function runMigrations(db: DbAdapter): Promise<void> {
   const rows = await db.queryAll<Record<string, unknown>>('PRAGMA user_version')
   let userVersion = (rows[0]?.['user_version'] as number) ?? 0
 
-  for (let v = userVersion + 1; v in MIGRATIONS; v++) {
-    for (const sql of MIGRATIONS[v]!) {
-      await db.exec(sql)
+  const applyNumbered = async () => {
+    for (let v = userVersion + 1; v in MIGRATIONS; v++) {
+      for (const sql of MIGRATIONS[v]!) {
+        await db.exec(sql)
+      }
+      await db.exec(`PRAGMA user_version = ${v}`)
+      userVersion = v
     }
-    await db.exec(`PRAGMA user_version = ${v}`)
-    userVersion = v
   }
+
+  await applyNumbered()
 
   // v15: Replace i-lucide-* class strings with registry keys
   if (userVersion > 0 && userVersion <= 14) {
@@ -420,6 +424,9 @@ export async function runMigrations(db: DbAdapter): Promise<void> {
     await db.exec('PRAGMA user_version = 15')
     userVersion = 15
   }
+
+  // Continue applying any numbered migrations after v15 (e.g. v16, v17)
+  await applyNumbered()
 
   // Ensure fresh installs (user_version = 0) are stamped at the current baseline.
   if (userVersion === 0) await db.exec(`PRAGMA user_version = ${CURRENT_USER_VERSION}`)

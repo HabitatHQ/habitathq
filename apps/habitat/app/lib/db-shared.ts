@@ -1423,7 +1423,7 @@ export async function getAllTags(db: DbAdapter): Promise<TagRow[]> {
       ht AS (SELECT t.value AS tag, 'habit' AS src, COUNT(*) AS cnt FROM habits h, json_each(h.tags) t WHERE h.archived_at IS NULL GROUP BY t.value),
       tt AS (SELECT t.value AS tag, 'todo' AS src, COUNT(*) AS cnt FROM todos td, json_each(td.tags) t WHERE td.archived_at IS NULL GROUP BY t.value),
       bt AS (SELECT t.value AS tag, 'bored' AS src, COUNT(*) AS cnt FROM bored_activities b, json_each(b.tags) t WHERE b.archived_at IS NULL GROUP BY t.value),
-      st AS (SELECT t.value AS tag, 'scribble' AS src, COUNT(*) AS cnt FROM scribbles s, json_each(s.tags) t WHERE s.archived_at IS NULL GROUP BY t.value)
+      st AS (SELECT t.value AS tag, 'scribble' AS src, COUNT(*) AS cnt FROM scribbles s, json_each(s.tags) t GROUP BY t.value)
     SELECT tag, src, cnt FROM ht
     UNION ALL SELECT tag, src, cnt FROM tt
     UNION ALL SELECT tag, src, cnt FROM bt
@@ -1587,12 +1587,13 @@ export async function importJson(db: DbAdapter, data: HabitatExport): Promise<nu
     for (const h of data.habits ?? []) {
       await db.exec(
         `INSERT OR IGNORE INTO habits
-         (id,name,description,color,icon,frequency,created_at,archived_at,tags,annotations,type,target_value,paused_until)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         (id,name,description,why,color,icon,frequency,created_at,archived_at,tags,annotations,type,target_value,paused_until)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           h.id,
           h.name,
           h.description,
+          h.why ?? '',
           h.color,
           h.icon,
           h.frequency,
