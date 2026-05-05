@@ -35,6 +35,9 @@
   "dependencies": {
     "@capacitor-community/speech-recognition": "^7.0.1",
     "@capacitor-community/sqlite": "^8.0.0",
+    "@palladium/core": "workspace:*",
+    "@palladium/nuxt": "workspace:*",
+    "@palladium/sqlite-capacitor": "workspace:*",
     "@capacitor/camera": "^8.1.0",
     "@capacitor/local-notifications": "^8.0.1",
     "@huggingface/transformers": "^4.2.0",

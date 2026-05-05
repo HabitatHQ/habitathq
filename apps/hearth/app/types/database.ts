@@ -335,3 +335,11 @@ export type WorkerRequest = WorkerRequestBody & { id: string }
 export type WorkerResponse =
   | { id: string; ok: true; data: unknown }
   | { id: string; ok: false; error: string }
+
+// ── Async DB adapter interface ────────────────────────────────────────────────
+
+export interface DbAdapter {
+  queryAll<T>(sql: string, bind?: unknown[]): Promise<T[]>
+  queryOne<T>(sql: string, bind?: unknown[]): Promise<T | null>
+  exec(sql: string, bind?: unknown[]): Promise<void>
+}

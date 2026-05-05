@@ -4,8 +4,7 @@ import {
   type SQLiteDBConnection,
 } from '@capacitor-community/sqlite'
 import * as schema from '~/lib/db-schema'
-import * as shared from '~/lib/db-shared'
-import type { DbAdapter, WorkerRequestBody } from '~/types/database'
+import type { DbAdapter } from '~/types/database'
 
 // ─── Connection singleton ─────────────────────────────────────────────────────
 
@@ -33,7 +32,7 @@ const adapter: DbAdapter = {
 
   async exec(sql: string, bind?: unknown[]): Promise<void> {
     const s = sql.trim().toUpperCase()
-    if (s === 'BEGIN' || s === 'BEGIN TRANSACTION') {
+    if (s === 'BEGIN') {
       await db().beginTransaction()
       return
     }
@@ -56,41 +55,42 @@ const adapter: DbAdapter = {
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 export async function initNativeDb(): Promise<void> {
-  _db = await sqliteConn.createConnection('hearth', false, 'no-encryption', 1, false)
+  _db = await sqliteConn.createConnection('hephaestus', false, 'no-encryption', 1, false)
   await _db.open()
   await adapter.exec('PRAGMA foreign_keys = ON')
-  await adapter.exec('PRAGMA journal_mode = WAL')
   await adapter.exec(schema.SCHEMA_DDL)
   await schema.runMigrations(adapter)
 }
 
 // ─── Dispatcher ───────────────────────────────────────────────────────────────
 
-export async function dispatchNative(req: WorkerRequestBody): Promise<unknown> {
-  switch (req.type) {
+export async function dispatchNative(req: unknown): Promise<unknown> {
+  const { type, payload } = req as { type: string; payload?: unknown }
+  switch (type) {
     case 'NUKE_OPFS':
       return null
     case 'EXPORT_DB':
       throw new Error('EXPORT_DB not supported on native')
-    case 'EXPORT_JSON':
-      return {
-        version: '1.0',
-        exported_at: new Date().toISOString(),
-        users: await adapter.queryAll('SELECT * FROM users'),
-        accounts: await adapter.queryAll('SELECT * FROM accounts'),
-        categories: await adapter.queryAll('SELECT * FROM categories'),
-        transactions: await adapter.queryAll('SELECT * FROM transactions'),
-        envelopes: await adapter.queryAll('SELECT * FROM envelopes'),
-        envelope_periods: await adapter.queryAll('SELECT * FROM envelope_periods'),
-        iou_splits: await adapter.queryAll('SELECT * FROM iou_splits'),
-        savings_goals: await adapter.queryAll('SELECT * FROM savings_goals'),
-        chores: await adapter.queryAll('SELECT * FROM chores'),
-      }
-    default: {
-      const result = await shared.dispatch(adapter, req)
-      if (result === undefined)
-        throw new Error(`Unknown request type: ${(req as { type: string }).type}`)
-      return result
+    case 'QUERY': {
+      const { sql, bind } = payload as { sql: string; bind?: unknown[] }
+      return adapter.queryAll(sql, bind)
     }
+    case 'EXEC': {
+      const { sql, bind } = payload as { sql: string; bind?: unknown[] }
+      await adapter.exec(sql, bind)
+      return null
+    }
+    case 'IS_DEFAULT_APPLIED': {
+      const { key } = payload as { key: string }
+      const row = await adapter.queryOne('SELECT key FROM applied_defaults WHERE key = ?', [key])
+      return row !== null
+    }
+    case 'MARK_DEFAULT_APPLIED': {
+      const { key } = payload as { key: string }
+      await adapter.exec('INSERT OR IGNORE INTO applied_defaults (key) VALUES (?)', [key])
+      return null
+    }
+    default:
+      throw new Error(`Unknown request type: ${type}`)
   }
 }

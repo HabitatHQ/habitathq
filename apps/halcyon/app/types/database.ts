@@ -446,8 +446,17 @@ export type WorkerRequestBody =
   | { type: 'GET_DASHBOARD'; payload: { vault_id: string } }
   // Export/Import
   | { type: 'EXPORT_VAULT'; payload: { vault_id: string } }
+  | { type: 'NUKE_OPFS' }
 
 export type WorkerRequest = WorkerRequestBody & { id: string }
+
+// ─── Async DB adapter interface ────────────────────────────────────────────────
+
+export interface DbAdapter {
+  queryAll<T = Record<string, unknown>>(sql: string, bind?: unknown[]): Promise<T[]>
+  queryOne<T = Record<string, unknown>>(sql: string, bind?: unknown[]): Promise<T | null>
+  exec(sql: string, bind?: unknown[]): Promise<void>
+}
 
 export type WorkerResponse =
   | { id: string; ok: true; data: unknown }

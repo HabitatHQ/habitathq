@@ -429,6 +429,14 @@ export interface WeeklyTrainingLoadRow {
   chronic_load: number | null
 }
 
+// ─── DbAdapter interface ─────────────────────────────────────────────────────
+
+export interface DbAdapter {
+  queryAll<T>(sql: string, bind?: unknown[]): Promise<T[]>
+  queryOne<T>(sql: string, bind?: unknown[]): Promise<T | null>
+  exec(sql: string, bind?: unknown[]): Promise<void>
+}
+
 // ─── Worker message types ─────────────────────────────────────────────────────
 
 export interface WorkerRequest {
@@ -437,12 +445,12 @@ export interface WorkerRequest {
   payload?: unknown
 }
 
-export interface WorkerResponse {
-  id?: string
-  type: string
-  payload?: unknown
-  error?: string
-}
+export type WorkerResponse =
+  | { type: 'READY' }
+  | { type: 'LOCK_UNAVAILABLE' }
+  | { type: 'INIT_ERROR'; message: string }
+  | { id: string; ok: true; data: unknown }
+  | { id: string; ok: false; error: string }
 
 // ─── Type guards ──────────────────────────────────────────────────────────────
 

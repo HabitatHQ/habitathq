@@ -35,6 +35,9 @@
   "dependencies": {
     "@capacitor-community/sqlite": "^8.0.0",
     "@nuxt/ui": "^4.4.0",
+    "@palladium/core": "workspace:*",
+    "@palladium/nuxt": "workspace:*",
+    "@palladium/sqlite-capacitor": "workspace:*",
     "@sqlite.org/sqlite-wasm": "3.51.2-build6",
     "fflate": "^0.8.2",
     "nuxt": "~4.3.1",

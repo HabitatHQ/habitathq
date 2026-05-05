@@ -1,10 +1,9 @@
 import { Capacitor } from '@capacitor/core'
 import { createDatabasePlugin } from '@palladium/nuxt'
 import { dispatchNative, initNativeDb } from '~/lib/db-native'
-import type { WorkerRequestBody } from '~/types/database'
 
 const { sendToWorker: _send, initialize } = createDatabasePlugin({
-  appName: 'Halcyon',
+  appName: 'Hephaestus',
   createWorker: () =>
     new Worker(new URL('../workers/database.worker.ts', import.meta.url), { type: 'module' }),
   native: {
@@ -13,8 +12,8 @@ const { sendToWorker: _send, initialize } = createDatabasePlugin({
   },
 })
 
-export function sendToWorker<T>(req: WorkerRequestBody): Promise<T> {
-  return _send<T>(req as Record<string, unknown>)
+export function sendToWorker<T>(req: Record<string, unknown>): Promise<T> {
+  return _send<T>(req)
 }
 
 export default defineNuxtPlugin(async () => {
