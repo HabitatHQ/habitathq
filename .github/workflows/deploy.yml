@@ -8,12 +8,14 @@ on:
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
+      - ".github/workflows/deploy.yml"
   pull_request:
     paths:
       - "apps/**"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
+      - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
 permissions:
