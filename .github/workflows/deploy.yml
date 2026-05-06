@@ -8,12 +8,14 @@ on:
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
+      - ".github/workflows/deploy.yml"
   pull_request:
     paths:
       - "apps/**"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
+      - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
 permissions:
@@ -47,6 +49,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Build workspace deps
+        run: pnpm --filter "@palladium/core" build && pnpm --filter "@palladium/nuxt" build
 
       - name: Determine deploy prefix
         id: prefix
