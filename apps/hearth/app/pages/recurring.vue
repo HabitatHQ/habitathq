@@ -121,7 +121,7 @@ function intervalLabel(interval: string): string {
         aria-label="Back"
         @click="router.back()"
       >
-        <UIcon name="i-heroicons-arrow-left" class="w-5 h-5" />
+        <AppIcon name="arrow-left" class="w-5 h-5" />
       </button>
       <h1 class="text-sm font-semibold text-(--ui-text)">Recurring</h1>
       <button
@@ -130,8 +130,8 @@ function intervalLabel(interval: string): string {
         aria-label="Run detection"
         @click="runDetection"
       >
-        <UIcon
-          name="i-heroicons-arrow-path"
+        <AppIcon
+          name="arrow-path"
           class="w-5 h-5"
           :class="detecting ? 'animate-spin' : ''"
         />
@@ -254,7 +254,7 @@ function intervalLabel(interval: string): string {
       </div>
 
       <div v-else-if="!confirmedPatterns.length && !dismissedPatterns.length" class="text-center py-12">
-        <UIcon name="i-heroicons-arrow-path" class="w-12 h-12 text-(--ui-text-dimmed) mb-4 mx-auto" />
+        <AppIcon name="arrow-path" class="w-12 h-12 text-(--ui-text-dimmed) mb-4 mx-auto" />
         <p class="text-(--ui-text-muted) font-medium">No recurring patterns yet</p>
         <p class="text-sm text-(--ui-text-dimmed) mt-1">Patterns are detected from your transaction history</p>
       </div>
@@ -282,7 +282,7 @@ function intervalLabel(interval: string): string {
             aria-label="Delete pattern"
             @click="updateStatus(p.id, 'dismissed')"
           >
-            <UIcon name="i-heroicons-trash" class="w-4 h-4" />
+            <AppIcon name="trash" class="w-4 h-4" />
           </button>
           <button
             v-if="p.status === 'dismissed'"
@@ -290,7 +290,7 @@ function intervalLabel(interval: string): string {
             aria-label="Restore pattern"
             @click="updateStatus(p.id, 'confirmed')"
           >
-            <UIcon name="i-heroicons-arrow-uturn-left" class="w-4 h-4" />
+            <AppIcon name="arrow-uturn-left" class="w-4 h-4" />
           </button>
         </li>
       </ul>

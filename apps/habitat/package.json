@@ -40,6 +40,8 @@
   },
   "dependencies": {
     "@habitathq/db": "workspace:*",
+    "@habitathq/shared": "workspace:*",
+    "@habitathq/utils": "workspace:*",
     "@palladium/core": "workspace:*",
     "@palladium/nuxt": "workspace:*",
     "@palladium/sqlite-capacitor": "workspace:*",

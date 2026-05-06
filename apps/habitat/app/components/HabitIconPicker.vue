@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { HABIT_PICKER_CATEGORIES, iconsByCategory } from '~/utils/icons'
+import { iconsByCategory } from '@habitathq/utils'
+import { HABIT_PICKER_CATEGORIES } from '~/utils/icons'
 
 const model = defineModel<string>({ required: true })
 const props = defineProps<{

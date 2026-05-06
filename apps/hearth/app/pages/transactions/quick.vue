@@ -405,7 +405,7 @@ function categoryLabel(id: string | null): string {
         aria-label="Back"
         @click="router.back()"
       >
-        <UIcon name="i-heroicons-arrow-left" class="w-5 h-5" />
+        <AppIcon name="arrow-left" class="w-5 h-5" />
       </button>
       <h1 class="text-sm font-semibold text-(--ui-text)">Quick Add</h1>
       <NuxtLink
@@ -424,8 +424,8 @@ function categoryLabel(id: string | null): string {
         aria-label="Scan receipt"
         @click="scanReceipt"
       >
-        <UIcon
-          name="i-heroicons-camera"
+        <AppIcon
+          name="camera"
           class="w-5 h-5"
           :class="scanningReceipt ? 'animate-pulse' : ''"
         />
@@ -449,7 +449,7 @@ function categoryLabel(id: string | null): string {
         :aria-label="speech.isListening.value ? 'Stop voice input' : 'Start voice input'"
         @click="toggleVoice"
       >
-        <UIcon name="i-heroicons-microphone" class="w-5 h-5" />
+        <AppIcon name="microphone" class="w-5 h-5" />
       </button>
       <button
         class="flex items-center justify-center w-10 h-10 rounded-xl text-primary-400 hover:bg-primary-500/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
@@ -457,7 +457,7 @@ function categoryLabel(id: string | null): string {
         aria-label="Parse and save"
         @click="handleSubmit"
       >
-        <UIcon name="i-heroicons-paper-airplane" class="w-5 h-5" />
+        <AppIcon name="paper-airplane" class="w-5 h-5" />
       </button>
     </div>
 
@@ -486,14 +486,14 @@ function categoryLabel(id: string | null): string {
             :class="isLowConfidence ? 'ring-1 ring-amber-500/50' : ''"
             @click="reRecord"
           >
-            <UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5" />
+            <AppIcon name="arrow-path" class="w-3.5 h-3.5" />
             Re-record
           </button>
           <button
             class="flex items-center gap-1 px-3 min-h-[44px] rounded-lg text-xs font-medium text-white bg-primary-500 hover:bg-primary-600 transition-colors"
             @click="confirmSend"
           >
-            <UIcon name="i-heroicons-paper-airplane" class="w-3.5 h-3.5" />
+            <AppIcon name="paper-airplane" class="w-3.5 h-3.5" />
             Send
           </button>
           <span
@@ -508,7 +508,7 @@ function categoryLabel(id: string | null): string {
 
     <!-- ── Speech error ────────────────────────────────────────────────────── -->
     <div v-if="speech.error.value" class="px-4 pt-2">
-      <UAlert :description="speech.error.value" color="error" variant="soft" icon="i-heroicons-exclamation-triangle" />
+      <UAlert :description="speech.error.value" color="error" variant="soft" :icon="resolveIcon('exclamation-triangle')" />
     </div>
 
     <!-- ── OCR scanning progress ─────────────────────────────────────────── -->
@@ -671,7 +671,7 @@ function categoryLabel(id: string | null): string {
 
             <span class="ml-auto flex items-center gap-1">
               <template v-if="card.saved">
-                <UIcon name="i-heroicons-check-circle" class="w-3.5 h-3.5 text-green-400" />
+                <AppIcon name="check-circle" class="w-3.5 h-3.5 text-green-400" />
                 <span class="text-green-400">Saved</span>
               </template>
             </span>
@@ -682,7 +682,7 @@ function categoryLabel(id: string | null): string {
             v-if="card.amount == null"
             class="mt-2 text-xs text-amber-400 flex items-center gap-1"
           >
-            <UIcon name="i-heroicons-exclamation-triangle" class="w-3 h-3" />
+            <AppIcon name="exclamation-triangle" class="w-3 h-3" />
             Enter amount to save
           </div>
         </div>
@@ -693,8 +693,8 @@ function categoryLabel(id: string | null): string {
         v-if="!cards.length && !isProcessing"
         class="flex flex-col items-center justify-center py-16 text-center"
       >
-        <UIcon
-          name="i-heroicons-bolt"
+        <AppIcon
+          name="bolt"
           class="w-12 h-12 text-(--ui-text-dimmed) mb-4"
         />
         <p class="text-(--ui-text-muted) font-medium">Quick Add</p>
@@ -709,7 +709,7 @@ function categoryLabel(id: string | null): string {
           class="mt-6 max-w-xs mx-auto rounded-xl bg-(--ui-bg-muted) border border-(--ui-border) p-3 text-left"
         >
           <div class="flex items-start gap-2">
-            <UIcon name="i-heroicons-microphone" class="w-5 h-5 text-primary-400 shrink-0 mt-0.5" />
+            <AppIcon name="microphone" class="w-5 h-5 text-primary-400 shrink-0 mt-0.5" />
             <div class="flex-1">
               <p class="text-xs font-medium text-(--ui-text)">Tip: Voice input</p>
               <p class="text-xs text-(--ui-text-dimmed) mt-0.5">
@@ -721,7 +721,7 @@ function categoryLabel(id: string | null): string {
               aria-label="Dismiss tip"
               @click="dismissVoiceTip"
             >
-              <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
+              <AppIcon name="x-mark" class="w-4 h-4" />
             </button>
           </div>
         </div>

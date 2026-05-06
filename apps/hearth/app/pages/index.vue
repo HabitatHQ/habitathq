@@ -141,7 +141,7 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
         <!-- Income chip -->
         <div class="flex items-center gap-1.5 text-sm">
           <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-500/10 text-green-400 text-xs font-medium">
-            <UIcon name="i-heroicons-arrow-down-tray" class="w-3 h-3" />
+            <AppIcon name="arrow-down-tray" class="w-3 h-3" />
             {{ formatAmount(summary.income_this_month, homeCurrency) }} income
           </span>
         </div>
@@ -157,7 +157,7 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
     >
       <div class="flex items-center justify-between mb-2">
         <span class="text-xs uppercase tracking-widest text-(--ui-text-muted) font-medium">Household</span>
-        <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-(--ui-text-muted)" />
+        <AppIcon name="chevron-right" class="w-4 h-4 text-(--ui-text-muted)" />
       </div>
       <div class="space-y-1.5">
         <div
@@ -187,7 +187,7 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
         <span class="text-xs uppercase tracking-widest text-(--ui-text-muted) font-medium">
           Upcoming ({{ upcomingRecurring.length }})
         </span>
-        <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-(--ui-text-muted)" />
+        <AppIcon name="chevron-right" class="w-4 h-4 text-(--ui-text-muted)" />
       </div>
       <div class="space-y-1.5">
         <div
@@ -369,14 +369,14 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
           to="/transactions/add"
           class="inline-flex items-center gap-1.5 px-4 py-2.5 bg-primary-500 hover:bg-primary-400 text-white text-sm font-semibold rounded-xl transition-colors min-h-[44px]"
         >
-          <UIcon name="i-heroicons-plus" class="w-4 h-4" />
+          <AppIcon name="plus" class="w-4 h-4" />
           Add transaction
         </NuxtLink>
         <NuxtLink
           to="/envelopes"
           class="inline-flex items-center gap-1.5 px-4 py-2.5 bg-(--ui-bg-elevated) hover:bg-(--ui-bg-accented) text-(--ui-text) text-sm font-medium rounded-xl border border-(--ui-border) transition-colors min-h-[44px]"
         >
-          <UIcon name="i-heroicons-archive-box" class="w-4 h-4" />
+          <AppIcon name="archive-box" class="w-4 h-4" />
           Set up envelopes
         </NuxtLink>
       </div>
@@ -388,7 +388,7 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
       :description="error"
       color="error"
       variant="soft"
-      icon="i-heroicons-exclamation-triangle"
+      :icon="resolveIcon('exclamation-triangle')"
     />
 
     <!-- ── FAB: Add transaction ────────────────────────────────────────────── -->
@@ -401,7 +401,7 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
         class="flex items-center gap-2 bg-primary-500 hover:bg-primary-400 text-white font-semibold rounded-2xl px-5 py-3.5 shadow-lg shadow-primary-500/30 transition-all active:scale-95 min-h-[44px]"
         aria-label="Add transaction"
       >
-        <UIcon name="i-heroicons-plus" class="w-5 h-5" />
+        <AppIcon name="plus" class="w-5 h-5" />
         <span class="text-sm">Add</span>
       </NuxtLink>
     </div>

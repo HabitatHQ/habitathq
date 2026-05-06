@@ -172,7 +172,7 @@ async function deleteEnvelope(id: string) {
           aria-label="Add envelope"
           @click="openAddModal"
         >
-          <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
+          <AppIcon name="plus" class="w-3.5 h-3.5" />
           Add
         </button>
       </div>
@@ -184,7 +184,7 @@ async function deleteEnvelope(id: string) {
 
       <!-- Empty -->
       <div v-else-if="!envelopes.length" class="text-center py-12">
-        <UIcon name="i-heroicons-archive-box" class="w-12 h-12 text-(--ui-text-dimmed) mb-3 mx-auto" aria-hidden="true" />
+        <AppIcon name="archive-box" class="w-12 h-12 text-(--ui-text-dimmed) mb-3 mx-auto" aria-hidden="true" />
         <p class="text-(--ui-text-muted) font-medium">No envelopes yet</p>
         <p class="text-sm text-(--ui-text-dimmed) mt-1">Create an envelope to start budgeting</p>
         <button
@@ -233,14 +233,14 @@ async function deleteEnvelope(id: string) {
                 :aria-label="`Edit ${env.name} envelope`"
                 @click="openEditModal(env)"
               >
-                <UIcon name="i-heroicons-pencil" class="w-4 h-4" />
+                <AppIcon name="pencil" class="w-4 h-4" />
               </button>
               <button
                 class="p-2 rounded-lg text-(--ui-text-dimmed) hover:text-rose-400 hover:bg-rose-500/10 transition-colors min-h-[44px] min-w-[44px]"
                 :aria-label="`Delete ${env.name} envelope`"
                 @click="deleteEnvelope(env.id)"
               >
-                <UIcon name="i-heroicons-trash" class="w-4 h-4" />
+                <AppIcon name="trash" class="w-4 h-4" />
               </button>
             </div>
           </div>
@@ -311,7 +311,7 @@ async function deleteEnvelope(id: string) {
                 aria-label="Close"
                 @click="showAddModal = false"
               >
-                <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
+                <AppIcon name="x-mark" class="w-5 h-5" />
               </button>
             </div>
 

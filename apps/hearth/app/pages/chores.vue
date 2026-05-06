@@ -147,7 +147,7 @@ const COLORS = [
         <p class="text-xs text-(--ui-text-muted)">{{ today }}</p>
       </div>
       <UButton
-        icon="i-heroicons-plus"
+        :icon="resolveIcon('plus')"
         size="sm"
         class="min-h-[44px] min-w-[44px]"
         aria-label="Add chore"
@@ -192,7 +192,7 @@ const COLORS = [
 
     <!-- Loading -->
     <div v-if="loading" class="py-12 flex justify-center">
-      <UIcon name="i-heroicons-arrow-path" class="w-6 h-6 animate-spin text-(--ui-text-muted)" />
+      <AppIcon name="arrow-path" class="w-6 h-6 animate-spin text-(--ui-text-muted)" />
     </div>
 
     <!-- Empty state -->
@@ -223,8 +223,8 @@ const COLORS = [
           :aria-label="chore.is_done ? `Mark ${chore.name} incomplete` : `Complete ${chore.name}`"
           @click="toggleComplete(chore)"
         >
-          <UIcon
-            :name="chore.is_done ? 'i-heroicons-check' : 'i-heroicons-circle-stack'"
+          <AppIcon
+            :name="chore.is_done ? 'check' : 'circle-stack'"
             class="w-4 h-4"
           />
         </button>
@@ -249,7 +249,7 @@ const COLORS = [
               <span>{{ chore.assigned_to_name }}</span>
             </span>
             <span v-if="chore.is_done && chore.completed_by_name" class="text-xs text-green-500 flex items-center gap-1">
-              <UIcon name="i-heroicons-check-circle" class="w-3 h-3" />
+              <AppIcon name="check-circle" class="w-3 h-3" />
               {{ chore.completed_by_avatar }} {{ chore.completed_by_name }}
             </span>
             <span v-if="!chore.assigned_to_name && !chore.is_done" class="text-xs text-(--ui-text-muted)">
@@ -261,7 +261,7 @@ const COLORS = [
         <!-- Edit / Delete (show on hover) -->
         <div class="flex gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
           <UButton
-            icon="i-heroicons-pencil-square"
+            :icon="resolveIcon('pencil-square')"
             variant="ghost"
             color="neutral"
             size="xs"
@@ -270,7 +270,7 @@ const COLORS = [
             @click="openEdit(chore)"
           />
           <UButton
-            icon="i-heroicons-trash"
+            :icon="resolveIcon('trash')"
             variant="ghost"
             color="error"
             size="xs"
@@ -302,7 +302,7 @@ const COLORS = [
             <div class="flex items-center justify-between">
               <h2 class="text-lg font-semibold">{{ editingId ? 'Edit Chore' : 'Add Chore' }}</h2>
               <UButton
-                icon="i-heroicons-x-mark"
+                :icon="resolveIcon('x-mark')"
                 variant="ghost"
                 color="neutral"
                 size="sm"

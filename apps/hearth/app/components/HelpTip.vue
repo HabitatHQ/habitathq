@@ -31,7 +31,7 @@ function dismiss() {
       <summary
         class="inline-flex items-center gap-1.5 text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) transition-colors min-h-[44px] cursor-pointer list-none [&::-webkit-details-marker]:hidden"
       >
-        <UIcon name="i-heroicons-question-mark-circle" class="w-3.5 h-3.5 shrink-0" />
+        <AppIcon name="question-mark-circle" class="w-3.5 h-3.5 shrink-0" />
         <span class="underline underline-offset-2 decoration-dotted">
           <slot name="label">What's this?</slot>
         </span>

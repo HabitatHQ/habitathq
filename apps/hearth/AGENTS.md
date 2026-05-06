@@ -51,6 +51,15 @@ Native (Capacitor) builds and the PWA (when assets are pre-fetched) work fully o
 | `app/layouts/default.vue` | Header + bottom nav (Dashboard / Transactions / Envelopes / Reports) |
 | `app/utils/format.ts` | Currency formatting, date helpers |
 
+## Icons
+
+Hearth extends `@habitathq/shared` (Nuxt layer at `libs/habitat-shared`), which auto-imports the cross-app icon registry and `<AppIcon>` wrapper.
+
+- Use `<AppIcon name="semantic-key" class="…" />` instead of `<UIcon name="i-…">`
+- For `:icon=` props on `UButton`/`UAlert`/etc., use `:icon="resolveIcon('semantic-key')"`
+- Lucide is bundled at build time via `@iconify-json/lucide` so icons render offline (PWA + native)
+- The registry lives in `libs/habitat-utils/src/icons.ts` — add new entries there if a needed icon is missing
+
 ## Schema (user_version = 1)
 
 **Tables**: users, accounts, categories, transactions, envelopes, envelope_periods, iou_splits, savings_goals, chores

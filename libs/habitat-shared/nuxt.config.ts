@@ -1,3 +1,5 @@
+import { getRegistryIconifyNames } from '@habitathq/utils'
+
 /**
  * Shared Nuxt layer for all Habitat apps.
  *
@@ -7,6 +9,8 @@
  * - Vite config for SQLite WASM (optimizeDeps exclude, ES worker format)
  * - PWA injectManifest scaffold (apps supply their own manifest + sw.ts)
  * - Mobile-safe viewport meta tags
+ * - Lucide icon clientBundle (offline-safe via @iconify-json/lucide)
+ * - Shared `<AppIcon>` component (registry-aware UIcon wrapper)
  *
  * Apps extend this via `extends: ['../../libs/habitat-shared']` in nuxt.config.
  * App-specific config (port, PWA manifest, colors, plugins) stays in the app.
@@ -65,5 +69,25 @@ export default defineNuxtConfig({
     public: {
       buildTarget: process.env['BUILD_TARGET'] ?? 'pwa',
     },
+  },
+
+  // Inline the Lucide icons used by the shared registry so they render offline.
+  // Apps that use icons outside the registry add them via their own `icon.clientBundle`.
+  icon: {
+    provider: 'iconify',
+    clientBundle: {
+      icons: getRegistryIconifyNames(),
+      sizeLimitKb: 512,
+    },
+  },
+
+  // Auto-import the registry helpers so apps don't need explicit imports.
+  imports: {
+    presets: [
+      {
+        from: '@habitathq/utils',
+        imports: ['resolveIcon', 'iconRegistry', 'ICON_SIZES', 'iconsByCategory'],
+      },
+    ],
   },
 })

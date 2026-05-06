@@ -93,7 +93,7 @@ const FILTER_OPTIONS = [
     <!-- ── Search + Filter ────────────────────────────────────────────────── -->
     <div class="sticky top-0 z-10 bg-(--ui-bg) border-b border-(--ui-border) px-4 pt-3 pb-2 space-y-2">
       <div class="relative">
-        <UIcon name="i-heroicons-magnifying-glass" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-(--ui-text-muted)" aria-hidden="true" />
+        <AppIcon name="magnifying-glass" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-(--ui-text-muted)" aria-hidden="true" />
         <input
           v-model="searchQuery"
           type="search"
@@ -132,7 +132,7 @@ const FILTER_OPTIONS = [
         v-else-if="!filtered.length"
         class="flex flex-col items-center justify-center py-16 text-center"
       >
-        <UIcon name="i-heroicons-banknotes" class="w-12 h-12 text-(--ui-text-dimmed) mb-4" aria-hidden="true" />
+        <AppIcon name="banknote" class="w-12 h-12 text-(--ui-text-dimmed) mb-4" aria-hidden="true" />
         <p class="text-(--ui-text-muted) font-medium">No transactions found</p>
         <p class="text-sm text-(--ui-text-dimmed) mt-1">
           {{ searchQuery ? 'Try a different search term' : 'Add your first transaction' }}
@@ -194,7 +194,7 @@ const FILTER_OPTIONS = [
                 :aria-label="`Delete transaction: ${tx.merchant || tx.description}`"
                 @click.prevent.stop="requestDelete(tx)"
               >
-                <UIcon name="i-heroicons-trash" class="w-4 h-4" />
+                <AppIcon name="trash" class="w-4 h-4" />
               </button>
             </NuxtLink>
             </li>
@@ -225,7 +225,7 @@ const FILTER_OPTIONS = [
         class="flex items-center justify-center w-14 h-14 bg-primary-500 hover:bg-primary-400 text-white rounded-2xl shadow-lg shadow-primary-500/30 transition-all active:scale-95"
         aria-label="Add transaction"
       >
-        <UIcon name="i-heroicons-plus" class="w-6 h-6" />
+        <AppIcon name="plus" class="w-6 h-6" />
       </NuxtLink>
     </div>
 
@@ -241,7 +241,7 @@ const FILTER_OPTIONS = [
         <div class="mx-4 w-full max-w-sm bg-(--ui-bg) rounded-2xl border border-(--ui-border) p-5 space-y-4 shadow-xl">
           <div class="flex items-start gap-3">
             <div class="shrink-0 w-10 h-10 rounded-full bg-rose-500/10 flex items-center justify-center">
-              <UIcon name="i-heroicons-trash" class="w-5 h-5 text-rose-400" />
+              <AppIcon name="trash" class="w-5 h-5 text-rose-400" />
             </div>
             <div>
               <h2 class="text-sm font-semibold text-(--ui-text)">Delete transaction?</h2>
