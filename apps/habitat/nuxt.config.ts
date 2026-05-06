@@ -67,6 +67,22 @@ export default defineNuxtConfig({
     colorMode: true,
   },
 
+  // Bundle Lucide icons into the app so they render offline (and on native).
+  // Without this, @nuxt/icon falls back to fetching from api.iconify.design at
+  // runtime, which fails when offline. `clientBundle.scan` greps the source for
+  // icon name strings at build time and inlines just those — but its default
+  // glob only covers .vue/.jsx/.tsx/.md, missing our registry (`utils/icons.ts`)
+  // and seed data (`lib/db-schema.ts`), so we extend it to include .ts.
+  icon: {
+    provider: 'iconify',
+    clientBundle: {
+      scan: {
+        globInclude: ['**/*.{vue,jsx,tsx,mdc,md,ts}'],
+      },
+      sizeLimitKb: 512,
+    },
+  },
+
   // PWA config (only active when BUILD_TARGET=pwa or dev)
   ...(isPWA && {
     pwa: {

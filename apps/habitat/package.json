@@ -60,6 +60,7 @@
     "@capacitor/ios": "^8.1.0",
     "@capacitor/preferences": "^8.0.1",
     "@capacitor/status-bar": "^8.0.1",
+    "@iconify-json/lucide": "^1.2.105",
     "@vite-pwa/nuxt": "^1.1.1",
     "@vitejs/plugin-vue": "^6.0.5",
     "@vue/test-utils": "^2.4.6",
