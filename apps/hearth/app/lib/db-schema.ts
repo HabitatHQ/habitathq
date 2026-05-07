@@ -1,7 +1,7 @@
 import { MIGRATION_V7_SQL } from '~/lib/migrations/v7-multi-currency'
 import type { DbAdapter } from '~/types/database'
 
-export const CURRENT_USER_VERSION = 7
+export const CURRENT_USER_VERSION = 8
 
 export const SCHEMA_DDL = `
   CREATE TABLE IF NOT EXISTS users (
@@ -183,6 +183,14 @@ export const SCHEMA_DDL = `
 export async function runMigrations(db: DbAdapter): Promise<void> {
   const rows = await db.queryAll<{ user_version: number }>('PRAGMA user_version')
   const version = rows[0]?.user_version ?? 0
+
+  // Fresh install: SCHEMA_DDL already contains every column added by past
+  // migrations (v7 ALTERs, etc.), so re-running them throws "duplicate column".
+  // Stamp the DB at the current version and skip the upgrade path entirely.
+  if (version === 0) {
+    await db.exec(`PRAGMA user_version = ${CURRENT_USER_VERSION}`)
+    return
+  }
 
   if (version < 1) {
     await db.exec('PRAGMA user_version = 1')
