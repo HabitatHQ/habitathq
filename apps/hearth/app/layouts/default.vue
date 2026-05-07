@@ -251,7 +251,7 @@ function toggleColorMode() {
         v-for="item in NAV_ITEMS"
         :key="item.to"
         :to="item.to"
-        :icon="item.icon"
+        :icon="resolveIcon(item.icon)"
         :color="isActive(item.to) ? 'primary' : 'neutral'"
         variant="ghost"
         :ui="{ base: 'flex-col gap-0.5 h-auto py-2 px-3 text-xs min-h-[44px]' }"
