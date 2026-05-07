@@ -2,6 +2,13 @@
 
 Shared local-first database plumbing for all Habitat apps. Pure TS source, no build step (consumers compile via Vite/Vitest/Jiti).
 
+> **Transitional package.** The contents here belong upstream:
+> - `SahPoolAdapter` should become a `vfs: { type: 'opfs-sah-pool' }` variant on `@palladium/sqlite-browser`'s `BrowserSqliteAdapter` (today palladium only ships the slower `oo1.OpfsDb` VFS).
+> - Native (`db-native.ts`) currently constructs a `DbAdapter` directly from `@capacitor-community/sqlite`; it should switch to `@palladium/sqlite-capacitor`'s `CapacitorSqliteAdapter` + `toCapacitorDbAdapter`.
+> - Once both above land in palladium, `@habitathq/db` collapses to (at most) the `DbAdapter` shim type, and can probably be deleted entirely.
+>
+> This package exists today only to deduplicate four byte-identical copies that lived in each app. Treat it as a holding pen, not the long-term home.
+
 ## Modules
 
 | File | Purpose |
