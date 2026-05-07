@@ -1,6 +1,5 @@
-import { toDbAdapter } from '~/lib/db-adapter-bridge'
+import { SahPoolAdapter, toDbAdapter } from '@habitathq/db'
 import * as schema from '~/lib/db-schema'
-import { SahPoolAdapter } from '~/lib/sah-pool-adapter'
 import type { WorkerResponse } from '~/types/database'
 
 await (async () => {

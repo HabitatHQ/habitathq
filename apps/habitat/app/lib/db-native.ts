@@ -66,19 +66,32 @@ export async function initNativeDb(): Promise<void> {
   await schema.seedDefaults(adapter)
 }
 
+// ─── Reset (Capacitor) ────────────────────────────────────────────────────────
+
+async function resetNativeDb(): Promise<void> {
+  if (_db) {
+    await _db.close()
+    _db = null
+  }
+  await sqliteConn.closeConnection('habitat', false)
+  await CapacitorSQLite.deleteDatabase({ database: 'habitat' })
+}
+
 // ─── Dispatcher ───────────────────────────────────────────────────────────────
 
 export async function dispatchNative(req: WorkerRequestBody): Promise<unknown> {
   switch (req.type) {
     case 'NUKE_OPFS':
+      // Same UX as web: wipe everything. The page reloads after this and
+      // initNativeDb() runs again from scratch.
+      await resetNativeDb()
       return null
     case 'EXPORT_DB':
       throw new Error('EXPORT_DB not supported on native')
-    default: {
-      const result = await shared.dispatch(adapter, req)
-      if (result === undefined)
-        throw new Error(`Unknown request type: ${(req as { type: string }).type}`)
-      return result
-    }
+    default:
+      // shared.dispatch's own default case throws for truly unknown types;
+      // void-returning ops legitimately resolve to undefined, so don't treat
+      // that as a missing handler.
+      return shared.dispatch(adapter, req)
   }
 }

@@ -10,6 +10,8 @@
     "build:native": "BUILD_TARGET=native nuxt generate && cap sync",
     "preview:pwa": "BUILD_TARGET=pwa nuxt generate && pnpm dlx serve .output/public",
     "clean": "rm -rf .output .nuxt",
+    "fetch:assets": "node scripts/fetch-offline-assets.mjs",
+    "prebuild:native": "pnpm fetch:assets",
     "postinstall": "nuxt prepare",
     "cap:add:android": "cap add android",
     "cap:add:ios": "cap add ios",
@@ -35,6 +37,7 @@
   "dependencies": {
     "@capacitor-community/speech-recognition": "^7.0.1",
     "@capacitor-community/sqlite": "^8.0.0",
+    "@habitathq/db": "workspace:*",
     "@palladium/core": "workspace:*",
     "@palladium/nuxt": "workspace:*",
     "@palladium/sqlite-capacitor": "workspace:*",

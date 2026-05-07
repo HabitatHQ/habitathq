@@ -59,9 +59,23 @@ export async function initNativeDb(): Promise<void> {
   _db = await sqliteConn.createConnection('hearth', false, 'no-encryption', 1, false)
   await _db.open()
   await adapter.exec('PRAGMA foreign_keys = ON')
-  await adapter.exec('PRAGMA journal_mode = WAL')
+  // PRAGMA journal_mode returns the new mode as a row, which Capacitor
+  // SQLite's execute() (Android execSQL) rejects with "Queries can be
+  // performed using SQLiteDatabase query or rawQuery methods only".
+  // Habitat doesn't set this; SQLite falls back to rollback journal — fine.
   await adapter.exec(schema.SCHEMA_DDL)
   await schema.runMigrations(adapter)
+}
+
+// ─── Reset (Capacitor) ────────────────────────────────────────────────────────
+
+async function resetNativeDb(): Promise<void> {
+  if (_db) {
+    await _db.close()
+    _db = null
+  }
+  await sqliteConn.closeConnection('hearth', false)
+  await CapacitorSQLite.deleteDatabase({ database: 'hearth' })
 }
 
 // ─── Dispatcher ───────────────────────────────────────────────────────────────
@@ -69,6 +83,9 @@ export async function initNativeDb(): Promise<void> {
 export async function dispatchNative(req: WorkerRequestBody): Promise<unknown> {
   switch (req.type) {
     case 'NUKE_OPFS':
+      // Same UX as web: wipe everything. The page reloads after this and
+      // initNativeDb() runs again from scratch.
+      await resetNativeDb()
       return null
     case 'EXPORT_DB':
       throw new Error('EXPORT_DB not supported on native')
@@ -86,11 +103,10 @@ export async function dispatchNative(req: WorkerRequestBody): Promise<unknown> {
         savings_goals: await adapter.queryAll('SELECT * FROM savings_goals'),
         chores: await adapter.queryAll('SELECT * FROM chores'),
       }
-    default: {
-      const result = await shared.dispatch(adapter, req)
-      if (result === undefined)
-        throw new Error(`Unknown request type: ${(req as { type: string }).type}`)
-      return result
-    }
+    default:
+      // shared.dispatch's own default case throws for truly unknown types;
+      // void-returning ops legitimately resolve to undefined, so don't treat
+      // that as a missing handler.
+      return shared.dispatch(adapter, req)
   }
 }

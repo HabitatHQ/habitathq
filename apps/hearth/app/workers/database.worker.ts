@@ -1,7 +1,6 @@
-import { toDbAdapter } from '~/lib/db-adapter-bridge'
+import { SahPoolAdapter, toDbAdapter } from '@habitathq/db'
 import * as schema from '~/lib/db-schema'
 import * as shared from '~/lib/db-shared'
-import { SahPoolAdapter } from '~/lib/sah-pool-adapter'
 import type { WorkerRequest, WorkerResponse } from '~/types/database'
 
 await (async () => {
@@ -86,9 +85,9 @@ await (async () => {
             break
           }
           default:
+            // shared.dispatch's own default throws on truly unknown types;
+            // void-returning ops legitimately resolve to undefined.
             result = await shared.dispatch(adapter, req)
-            if (result === undefined)
-              throw new Error(`Unknown request type: ${(req as WorkerRequest).type}`)
         }
         self.postMessage({ id: req.id, ok: true, data: result } satisfies WorkerResponse)
       } catch (err) {

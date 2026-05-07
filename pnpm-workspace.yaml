@@ -1,5 +1,6 @@
 packages:
   - "apps/*"
   - "libs/palladium/*"
+  - "libs/habitat-db"
   - "libs/habitat-shared"
   - "libs/habitat-utils"

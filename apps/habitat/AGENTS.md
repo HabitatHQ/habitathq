@@ -20,7 +20,7 @@ pnpm cap:run:android  # Run on Android
 
 **Native**: Same composable → `db-native.ts` (Capacitor SQLite, no worker)
 
-Both paths share the same `WorkerRequest` / `WorkerResponse<T>` message types.
+Both paths share the same `WorkerRequest` / `WorkerResponse<T>` message types. The SQLite plumbing (`SahPoolAdapter`, `toDbAdapter`, `DbAdapter` type) lives in `@habitathq/db`.
 
 ## Key Files
 

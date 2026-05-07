@@ -39,6 +39,7 @@
     "screenshot": "node scripts/screenshot.mjs"
   },
   "dependencies": {
+    "@habitathq/db": "workspace:*",
     "@palladium/core": "workspace:*",
     "@palladium/nuxt": "workspace:*",
     "@palladium/sqlite-capacitor": "workspace:*",

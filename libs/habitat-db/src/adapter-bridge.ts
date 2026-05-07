@@ -1,10 +1,9 @@
 /**
- * Bridge functions that wrap a palladium StorageAdapter to satisfy
- * habitat's DbAdapter interface. Keeps db-shared.ts and its 491 tests
- * unchanged while the underlying adapter switches to palladium.
+ * Bridge functions that wrap a palladium StorageAdapter to satisfy the
+ * shared `DbAdapter` interface used by every app's `db-shared.ts`.
  */
 import type { StorageAdapter } from '@palladium/core'
-import type { DbAdapter } from '~/types/database'
+import type { DbAdapter } from './types.js'
 
 /** Wrap a StorageAdapter (e.g. SahPoolAdapter) as a DbAdapter. */
 export function toDbAdapter(storage: StorageAdapter): DbAdapter {
@@ -23,12 +22,11 @@ export function toDbAdapter(storage: StorageAdapter): DbAdapter {
 }
 
 /**
- * Wrap a CapacitorSqliteAdapter as a DbAdapter, intercepting
- * BEGIN/COMMIT/ROLLBACK to route through Capacitor's transaction API.
- *
- * Capacitor SQLite doesn't support raw `BEGIN`/`COMMIT`/`ROLLBACK` SQL
- * statements — they must go through beginTransaction/commitTransaction/
- * rollbackTransaction. This bridge intercepts those statements.
+ * Wrap a CapacitorSqliteAdapter (or any StorageAdapter) as a DbAdapter,
+ * intercepting `BEGIN`/`COMMIT`/`ROLLBACK` to route through Capacitor's
+ * dedicated transaction API. Capacitor SQLite doesn't accept those
+ * statements as raw SQL — they must go through beginTransaction /
+ * commitTransaction / rollbackTransaction.
  */
 export function toCapacitorDbAdapter(
   storage: StorageAdapter,
