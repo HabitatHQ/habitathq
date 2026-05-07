@@ -103,11 +103,10 @@ export async function dispatchNative(req: WorkerRequestBody): Promise<unknown> {
         savings_goals: await adapter.queryAll('SELECT * FROM savings_goals'),
         chores: await adapter.queryAll('SELECT * FROM chores'),
       }
-    default: {
-      const result = await shared.dispatch(adapter, req)
-      if (result === undefined)
-        throw new Error(`Unknown request type: ${(req as { type: string }).type}`)
-      return result
-    }
+    default:
+      // shared.dispatch's own default case throws for truly unknown types;
+      // void-returning ops legitimately resolve to undefined, so don't treat
+      // that as a missing handler.
+      return shared.dispatch(adapter, req)
   }
 }
