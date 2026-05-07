@@ -35,6 +35,7 @@
   },
   "dependencies": {
     "@capacitor-community/sqlite": "^8.0.0",
+    "@habitathq/db": "workspace:*",
     "@palladium/core": "workspace:*",
     "@palladium/nuxt": "workspace:*",
     "@palladium/sqlite-capacitor": "workspace:*",

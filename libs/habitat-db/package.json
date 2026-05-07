@@ -1,0 +1,31 @@
+{
+  "name": "@habitathq/db",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared local-first database plumbing for Habitat apps (DbAdapter, SAH-pool SQLite-WASM, Capacitor bridge)",
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "lint": "biome check src",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@palladium/core": "workspace:*",
+    "@sqlite.org/sqlite-wasm": "*"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.6",
+    "typescript": "^5.7.0"
+  }
+}

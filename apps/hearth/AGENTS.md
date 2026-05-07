@@ -23,7 +23,20 @@ pnpm cap:run:android  # Run on Android
 
 **Native**: Same composable → `db-native.ts` (Capacitor SQLite, no worker)
 
-Both paths share the same `WorkerRequest` / `WorkerResponse` message types defined in `app/types/database.ts`.
+Both paths share the same `WorkerRequest` / `WorkerResponse` message types defined in `app/types/database.ts`. The SQLite plumbing (`SahPoolAdapter`, `toDbAdapter`, `DbAdapter` type) lives in `@habitathq/db`.
+
+## Offline parity
+
+Native (Capacitor) builds and the PWA (when assets are pre-fetched) work fully offline:
+
+- **Storage**: SQLite (WASM/OPFS on web, Capacitor SQLite on native).
+- **Icons**: Lucide bundled at build time via the `habitat-shared` Nuxt layer.
+- **OCR**: Tesseract `eng.traineddata.gz` (~10 MB) bundled in `public/tessdata/`.
+- **NLP embeddings** (smart categorization): Xenova `all-MiniLM-L6-v2` (~23 MB) + onnxruntime-web wasm (~13 MB) bundled in `public/models/` and `public/onnx-wasm/`.
+- **Reset Database**: Settings → Reset works on native (closes connection, deletes the Capacitor SQLite db, reloads).
+- **JSON import/export**: round-trip both web and native.
+
+`scripts/fetch-offline-assets.mjs` downloads the binary assets (~46 MB total, gitignored). It runs automatically before `build:native` (`prebuild:native`). For the PWA it stays opt-in (`pnpm fetch:assets`) so casual web visitors don't pay the precache.
 
 ## Key Files
 

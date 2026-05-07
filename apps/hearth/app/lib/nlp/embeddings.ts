@@ -27,7 +27,24 @@ export async function loadEmbeddingsModel(onProgress?: (progress: number) => voi
 
   try {
     // Dynamic import — only loaded when embeddings tier is activated
-    const { pipeline: createPipeline } = await import('@huggingface/transformers')
+    const { env, pipeline: createPipeline } = await import('@huggingface/transformers')
+
+    // Load model from /public/models if scripts/fetch-offline-assets.mjs has
+    // populated it. Otherwise fall back to the HF CDN (first-use online).
+    // The fetch script primes both for native builds; for PWA we leave it
+    // optional so casual web visits don't pay a 25MB precache.
+    const baseURL = useRuntimeConfig().app.baseURL
+    const localModelsResp = await fetch(`${baseURL}models/Xenova/all-MiniLM-L6-v2/config.json`, {
+      method: 'HEAD',
+    }).catch(() => null)
+    const haveLocalModels = !!localModelsResp?.ok
+    if (haveLocalModels) {
+      env.allowRemoteModels = false
+      env.localModelPath = `${baseURL}models/`
+      if (env.backends.onnx?.wasm) {
+        env.backends.onnx.wasm.wasmPaths = `${baseURL}onnx-wasm/`
+      }
+    }
 
     onProgress?.(10)
 

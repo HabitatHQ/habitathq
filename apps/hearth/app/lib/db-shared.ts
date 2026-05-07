@@ -8,7 +8,7 @@
 import { detectRecurringPatterns } from '~/lib/recurring/detect'
 import type { DetectableTransaction, RecurringPattern } from '~/lib/recurring/types'
 import { aggregateIouBalances } from '~/lib/worker-helpers'
-import type { DbAdapter, WorkerRequestBody } from '~/types/database'
+import type { DbAdapter, HearthExport, WorkerRequestBody } from '~/types/database'
 
 // ─── Local helpers ────────────────────────────────────────────────────────────
 
@@ -1129,6 +1129,182 @@ export async function getDbInfo(db: DbAdapter) {
   }
 }
 
+// ─── Import / restore from JSON ──────────────────────────────────────────────
+
+/**
+ * Restore a previously exported JSON snapshot into the local database.
+ *
+ * Tables are populated in FK-safe order (parent rows before children).
+ * Every insert is `INSERT OR IGNORE`, so re-importing the same snapshot is a
+ * no-op. Wrapped in a transaction; on error everything rolls back.
+ */
+export async function importJson(db: DbAdapter, data: HearthExport): Promise<null> {
+  if (data.version !== '1.0')
+    throw new Error(`Unsupported export version: ${String((data as { version: unknown }).version)}`)
+
+  await db.exec('BEGIN')
+  try {
+    for (const u of data.users ?? []) {
+      await db.exec(
+        `INSERT OR IGNORE INTO users
+         (id,name,email,role,avatar_emoji,color,is_current,created_at)
+         VALUES (?,?,?,?,?,?,?,?)`,
+        [
+          u.id,
+          u.name,
+          u.email ?? null,
+          u.role,
+          u.avatar_emoji,
+          u.color,
+          u.is_current,
+          u.created_at,
+        ],
+      )
+    }
+    for (const a of data.accounts ?? []) {
+      await db.exec(
+        `INSERT OR IGNORE INTO accounts
+         (id,user_id,name,type,balance,currency,color,icon,is_active,created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`,
+        [
+          a.id,
+          a.user_id,
+          a.name,
+          a.type,
+          a.balance,
+          a.currency,
+          a.color,
+          a.icon,
+          a.is_active,
+          a.created_at,
+        ],
+      )
+    }
+    for (const c of data.categories ?? []) {
+      await db.exec(
+        `INSERT OR IGNORE INTO categories
+         (id,parent_id,name,icon,color,sort_order)
+         VALUES (?,?,?,?,?,?)`,
+        [c.id, c.parent_id ?? null, c.name, c.icon, c.color, c.sort_order],
+      )
+    }
+    for (const t of data.transactions ?? []) {
+      await db.exec(
+        `INSERT OR IGNORE INTO transactions
+         (id,date,amount,currency,account_id,user_id,type,category_id,description,merchant,
+          is_private,is_recurring,transfer_to_account_id,split_id,created_at,updated_at,
+          source,home_amount,exchange_rate)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [
+          t.id,
+          t.date,
+          t.amount,
+          t.currency,
+          t.account_id ?? null,
+          t.user_id ?? null,
+          t.type,
+          t.category_id ?? null,
+          t.description,
+          t.merchant,
+          t.is_private,
+          t.is_recurring,
+          t.transfer_to_account_id ?? null,
+          t.split_id ?? null,
+          t.created_at,
+          t.updated_at,
+          t.source ?? 'manual',
+          t.home_amount ?? null,
+          t.exchange_rate ?? null,
+        ],
+      )
+    }
+    for (const e of data.envelopes ?? []) {
+      await db.exec(
+        `INSERT OR IGNORE INTO envelopes
+         (id,name,icon,color,budget_amount,period,scope,category_ids,rollover,created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`,
+        [
+          e.id,
+          e.name,
+          e.icon,
+          e.color,
+          e.budget_amount,
+          e.period,
+          e.scope,
+          e.category_ids,
+          e.rollover,
+          e.created_at,
+        ],
+      )
+    }
+    for (const p of data.envelope_periods ?? []) {
+      await db.exec(
+        `INSERT OR IGNORE INTO envelope_periods
+         (id,envelope_id,period,spent,rolled_over)
+         VALUES (?,?,?,?,?)`,
+        [p.id, p.envelope_id, p.period, p.spent, p.rolled_over],
+      )
+    }
+    for (const s of data.iou_splits ?? []) {
+      await db.exec(
+        `INSERT OR IGNORE INTO iou_splits
+         (id,transaction_id,from_user_id,to_user_id,amount,is_settled,settled_at,created_at)
+         VALUES (?,?,?,?,?,?,?,?)`,
+        [
+          s.id,
+          s.transaction_id,
+          s.from_user_id,
+          s.to_user_id,
+          s.amount,
+          s.is_settled,
+          s.settled_at ?? null,
+          s.created_at,
+        ],
+      )
+    }
+    for (const g of data.savings_goals ?? []) {
+      await db.exec(
+        `INSERT OR IGNORE INTO savings_goals
+         (id,name,icon,color,target_amount,current_amount,target_date,scope,created_at)
+         VALUES (?,?,?,?,?,?,?,?,?)`,
+        [
+          g.id,
+          g.name,
+          g.icon,
+          g.color,
+          g.target_amount,
+          g.current_amount,
+          g.target_date ?? null,
+          g.scope,
+          g.created_at,
+        ],
+      )
+    }
+    for (const ch of data.chores ?? []) {
+      await db.exec(
+        `INSERT OR IGNORE INTO chores
+         (id,name,icon,color,frequency,scope,assigned_to,created_at)
+         VALUES (?,?,?,?,?,?,?,?)`,
+        [
+          ch.id,
+          ch.name,
+          ch.icon,
+          ch.color,
+          ch.frequency,
+          ch.scope,
+          ch.assigned_to ?? null,
+          ch.created_at,
+        ],
+      )
+    }
+    await db.exec('COMMIT')
+    return null
+  } catch (err) {
+    await db.exec('ROLLBACK')
+    throw err
+  }
+}
+
 // ─── Dispatch router ──────────────────────────────────────────────────────────
 
 export async function dispatch(db: DbAdapter, req: WorkerRequestBody): Promise<unknown> {
@@ -1264,6 +1440,8 @@ export async function dispatch(db: DbAdapter, req: WorkerRequestBody): Promise<u
     // Import
     case 'IMPORT_TRANSACTIONS':
       return importTransactions(db, req.payload)
+    case 'IMPORT_JSON':
+      return importJson(db, req.payload)
 
     // Exchange Rates
     case 'GET_EXCHANGE_RATE':
@@ -1278,7 +1456,7 @@ export async function dispatch(db: DbAdapter, req: WorkerRequestBody): Promise<u
       return getDbInfo(db)
 
     // These are handled directly by the worker/native layer:
-    // EXPORT_DB, EXPORT_JSON, NUKE_OPFS, IMPORT_JSON
+    // EXPORT_DB, EXPORT_JSON, NUKE_OPFS
     default:
       throw new Error(`Unknown request type: ${(req as WorkerRequestBody).type}`)
   }

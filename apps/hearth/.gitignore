@@ -6,3 +6,8 @@ android
 ios
 *.log
 .DS_Store
+
+# Large offline assets — fetched by scripts/fetch-offline-assets.mjs
+public/tessdata/
+public/models/
+public/onnx-wasm/

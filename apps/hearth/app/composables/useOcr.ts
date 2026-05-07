@@ -15,7 +15,12 @@ export function useOcr() {
 
     try {
       const Tesseract = await import('tesseract.js')
+      const baseURL = useRuntimeConfig().app.baseURL
       const worker = await Tesseract.createWorker('eng', undefined, {
+        // Load language data from the bundled file in /public/tessdata so OCR
+        // works offline (PWA + native). Fetched at build time by
+        // scripts/fetch-offline-assets.mjs.
+        langPath: `${baseURL}tessdata`,
         logger: (m: { progress?: number }) => {
           if (m.progress != null) {
             progress.value = Math.round(m.progress * 100)
