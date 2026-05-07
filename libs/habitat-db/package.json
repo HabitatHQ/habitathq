@@ -20,7 +20,7 @@
     "lint": "biome check src",
     "typecheck": "tsc --noEmit"
   },
-  "peerDependencies": {
+  "dependencies": {
     "@palladium/core": "workspace:*",
     "@sqlite.org/sqlite-wasm": "*"
   },
