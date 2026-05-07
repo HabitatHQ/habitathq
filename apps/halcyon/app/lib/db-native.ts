@@ -70,11 +70,9 @@ export async function dispatchNative(req: WorkerRequestBody): Promise<unknown> {
   switch (req.type) {
     case 'NUKE_OPFS':
       return null
-    default: {
-      const result = await shared.dispatch(adapter, req)
-      if (result === undefined)
-        throw new Error(`Unknown request type: ${(req as { type: string }).type}`)
-      return result
-    }
+    default:
+      // shared.dispatch's own default throws on truly unknown types;
+      // void-returning ops legitimately resolve to undefined.
+      return shared.dispatch(adapter, req)
   }
 }

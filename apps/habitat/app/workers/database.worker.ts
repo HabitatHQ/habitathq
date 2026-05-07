@@ -65,9 +65,9 @@ await (async () => {
             break
           }
           default:
+            // shared.dispatch's own default throws on truly unknown types;
+            // void-returning ops legitimately resolve to undefined.
             result = await shared.dispatch(adapter, req)
-            if (result === undefined)
-              throw new Error(`Unknown request type: ${(req as WorkerRequest).type}`)
         }
         self.postMessage({ id: req.id, ok: true, data: result } satisfies WorkerResponse)
       } catch (err) {
