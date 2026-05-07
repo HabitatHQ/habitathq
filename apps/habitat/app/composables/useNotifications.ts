@@ -1,6 +1,6 @@
 import { Capacitor } from '@capacitor/core'
+import { resolveIcon } from '@habitathq/utils'
 import { reactive, readonly, ref } from 'vue'
-import { resolveIcon } from '~/utils/icons'
 
 // ─── Module-level singletons ──────────────────────────────────────────────────
 // Persists across composable calls so permission state stays in sync and timers

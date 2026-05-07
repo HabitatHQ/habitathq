@@ -19,7 +19,7 @@ vi.mock('@capacitor/core', () => ({
   },
 }))
 
-import { resolveIcon } from '~/utils/icons'
+import { resolveIcon } from '@habitathq/utils'
 import { useNotifications } from '~/composables/useNotifications'
 
 // ── Shared stubs ─────────────────────────────────────────────────────────────

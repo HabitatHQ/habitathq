@@ -163,9 +163,9 @@ async function submit() {
 }
 
 const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
-  { value: 'expense', label: 'Expense', icon: 'i-heroicons-arrow-up' },
-  { value: 'income', label: 'Income', icon: 'i-heroicons-arrow-down' },
-  { value: 'transfer', label: 'Transfer', icon: 'i-heroicons-arrows-right-left' },
+  { value: 'expense', label: 'Expense', icon: 'arrow-up' },
+  { value: 'income', label: 'Income', icon: 'arrow-down' },
+  { value: 'transfer', label: 'Transfer', icon: 'arrows-right-left' },
 ]
 </script>
 
@@ -180,7 +180,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
         aria-label="Cancel"
         @click="router.back()"
       >
-        <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
+        <AppIcon name="x-mark" class="w-5 h-5" />
       </button>
       <h1 class="text-base font-semibold">Edit Transaction</h1>
       <button
@@ -213,7 +213,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
           :aria-pressed="form.type === opt.value"
           @click="form.type = opt.value"
         >
-          <UIcon :name="opt.icon" class="w-4 h-4" />
+          <AppIcon :name="opt.icon" class="w-4 h-4" />
           {{ opt.label }}
         </button>
       </div>
@@ -244,7 +244,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
             :aria-label="key === 'backspace' ? 'Backspace' : key"
             @click="pad(key)"
           >
-            <UIcon v-if="key === 'backspace'" name="i-heroicons-backspace" class="w-5 h-5" />
+            <AppIcon v-if="key === 'backspace'" name="backspace" class="w-5 h-5" />
             <span v-else>{{ key }}</span>
           </button>
           <div v-else class="h-14" />
@@ -256,7 +256,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
 
         <!-- Date -->
         <div class="flex items-center gap-3 py-2 px-3 rounded-xl bg-(--ui-bg-muted) min-h-[52px]">
-          <UIcon name="i-heroicons-calendar" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
+          <AppIcon name="calendar" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
           <label class="text-sm text-(--ui-text-muted) w-20 shrink-0" for="tx-date">Date</label>
           <input
             id="tx-date"
@@ -268,7 +268,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
 
         <!-- Account -->
         <div class="flex items-center gap-3 py-2 px-3 rounded-xl bg-(--ui-bg-muted) min-h-[52px]">
-          <UIcon name="i-heroicons-building-library" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
+          <AppIcon name="building-library" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
           <label class="text-sm text-(--ui-text-muted) w-20 shrink-0" for="tx-account">Account</label>
           <select
             id="tx-account"
@@ -283,7 +283,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
 
         <!-- Currency -->
         <div class="flex items-center gap-3 py-2 px-3 rounded-xl bg-(--ui-bg-muted) min-h-[52px]">
-          <UIcon name="i-heroicons-currency-dollar" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
+          <AppIcon name="currency-dollar" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
           <label class="text-sm text-(--ui-text-muted) w-20 shrink-0" for="tx-currency">Currency</label>
           <select
             id="tx-currency"
@@ -302,7 +302,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
           v-if="isForeignCurrency && amountNum && exchangeRate"
           class="flex items-center gap-2 px-4 py-1.5 text-xs text-(--ui-text-muted) bg-(--ui-bg-muted) rounded-xl"
         >
-          <UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+          <AppIcon name="arrow-path" class="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
           <span>1 {{ form.currency }} = {{ exchangeRate.toFixed(4) }} {{ homeCurrency }}</span>
           <span class="ml-auto font-mono">≈ {{ formatAmount(Math.abs(homeEquiv ?? 0), homeCurrency) }}</span>
         </div>
@@ -312,7 +312,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
           v-if="form.type === 'transfer'"
           class="flex items-center gap-3 py-2 px-3 rounded-xl bg-(--ui-bg-muted) min-h-[52px]"
         >
-          <UIcon name="i-heroicons-arrows-right-left" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
+          <AppIcon name="arrows-right-left" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
           <label class="text-sm text-(--ui-text-muted) w-20 shrink-0" for="tx-to-account">To</label>
           <select
             id="tx-to-account"
@@ -330,7 +330,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
           v-if="form.type !== 'transfer'"
           class="flex items-center gap-3 py-2 px-3 rounded-xl bg-(--ui-bg-muted) min-h-[52px]"
         >
-          <UIcon name="i-heroicons-tag" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
+          <AppIcon name="tag" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
           <label class="text-sm text-(--ui-text-muted) w-20 shrink-0" for="tx-category">Category</label>
           <select
             id="tx-category"
@@ -346,7 +346,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
 
         <!-- Merchant -->
         <div class="flex items-center gap-3 py-2 px-3 rounded-xl bg-(--ui-bg-muted) min-h-[52px]">
-          <UIcon name="i-heroicons-building-storefront" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
+          <AppIcon name="building-storefront" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
           <label class="text-sm text-(--ui-text-muted) w-20 shrink-0" for="tx-merchant">Merchant</label>
           <input
             id="tx-merchant"
@@ -359,7 +359,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
 
         <!-- Note -->
         <div class="flex items-start gap-3 py-2 px-3 rounded-xl bg-(--ui-bg-muted) min-h-[52px]">
-          <UIcon name="i-heroicons-pencil" class="w-5 h-5 text-(--ui-text-muted) shrink-0 mt-0.5" aria-hidden="true" />
+          <AppIcon name="pencil" class="w-5 h-5 text-(--ui-text-muted) shrink-0 mt-0.5" aria-hidden="true" />
           <label class="text-sm text-(--ui-text-muted) w-20 shrink-0 pt-0.5" for="tx-note">Note</label>
           <textarea
             id="tx-note"
@@ -372,7 +372,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
 
         <!-- Privacy toggle -->
         <div class="flex items-center gap-3 py-2 px-3 rounded-xl bg-(--ui-bg-muted) min-h-[52px]">
-          <UIcon name="i-heroicons-eye-slash" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
+          <AppIcon name="eye-slash" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
           <span class="text-sm text-(--ui-text) flex-1">Private transaction</span>
           <button
             type="button"
@@ -396,7 +396,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
           :description="error"
           color="error"
           variant="soft"
-          icon="i-heroicons-exclamation-triangle"
+          :icon="resolveIcon('exclamation-triangle')"
         />
 
         <div class="h-4" />

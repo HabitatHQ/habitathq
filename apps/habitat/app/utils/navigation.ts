@@ -1,4 +1,4 @@
-import { resolveIcon } from '~/utils/icons'
+import { resolveIcon } from '@habitathq/utils'
 
 export interface NavItem {
   to: string

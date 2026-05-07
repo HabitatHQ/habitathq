@@ -17,7 +17,7 @@ const emit = defineEmits<{
       aria-label="Previous month"
       @click="emit('prev')"
     >
-      <UIcon name="i-heroicons-chevron-left" class="w-5 h-5" />
+      <AppIcon name="chevron-left" class="w-5 h-5" />
     </button>
     <h1 class="text-xs font-semibold text-(--ui-text-muted) tracking-wide uppercase">
       {{ formatPeriod(period) }}
@@ -29,7 +29,7 @@ const emit = defineEmits<{
       aria-label="Next month"
       @click="emit('next')"
     >
-      <UIcon name="i-heroicons-chevron-right" class="w-5 h-5" />
+      <AppIcon name="chevron-right" class="w-5 h-5" />
     </button>
   </div>
 </template>

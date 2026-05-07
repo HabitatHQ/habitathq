@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { resolveIcon } from '~/utils/icons'
+import { resolveIcon } from '@habitathq/utils'
 
 const props = defineProps<{
   /** Registry name (e.g., 'star') or raw icon class (e.g., 'i-lucide-star') */

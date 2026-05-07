@@ -32,28 +32,23 @@ const isNative = buildTarget === 'native'
 const isPWA = !isNative
 
 export default defineNuxtConfig({
+  // Boilerplate (SPA mode, COOP/COEP, Vite OPFS config, lucide icon bundle,
+  // <AppIcon>) lives in the shared layer.
+  extends: ['../../libs/habitat-shared'],
+
   devServer: {
     host: '127.0.0.1',
   },
-  compatibilityDate: '2025-01-01',
 
-  // Required for SharedArrayBuffer (SQLite WASM OPFS persistence).
-  // The full Content-Security-Policy lives in the HTML <meta> tag — it is
-  // injected by the `nitro:build:done` hook (build) / cspHashPlugin (dev) so
-  // that inline-script hashes can be computed dynamically.
-  // `frame-ancestors` cannot be set via a meta tag so it stays here.
+  // CSP frame-ancestors stays here (cannot be set via meta tag).
+  // Other COOP/COEP headers come from the shared layer.
   routeRules: {
     '/**': {
       headers: {
-        'Cross-Origin-Opener-Policy': 'same-origin',
-        'Cross-Origin-Embedder-Policy': 'require-corp',
         'Content-Security-Policy': "frame-ancestors 'none'",
       },
     },
   },
-
-  // SPA mode — works for both PWA and Capacitor
-  ssr: false,
 
   devtools: { enabled: true },
 
@@ -65,22 +60,6 @@ export default defineNuxtConfig({
   // Nuxt UI module options
   ui: {
     colorMode: true,
-  },
-
-  // Bundle Lucide icons into the app so they render offline (and on native).
-  // Without this, @nuxt/icon falls back to fetching from api.iconify.design at
-  // runtime, which fails when offline. `clientBundle.scan` greps the source for
-  // icon name strings at build time and inlines just those — but its default
-  // glob only covers .vue/.jsx/.tsx/.md, missing our registry (`utils/icons.ts`)
-  // and seed data (`lib/db-schema.ts`), so we extend it to include .ts.
-  icon: {
-    provider: 'iconify',
-    clientBundle: {
-      scan: {
-        globInclude: ['**/*.{vue,jsx,tsx,mdc,md,ts}'],
-      },
-      sizeLimitKb: 512,
-    },
   },
 
   // PWA config (only active when BUILD_TARGET=pwa or dev)

@@ -308,7 +308,7 @@ const totalIncome = computed(() =>
         aria-label="Back"
         @click="step === 'upload' ? router.back() : (step = step === 'preview' ? 'categories' : step === 'categories' ? 'columns' : 'upload')"
       >
-        <UIcon name="i-heroicons-arrow-left" class="w-5 h-5" />
+        <AppIcon name="arrow-left" class="w-5 h-5" />
       </button>
       <h1 class="text-sm font-semibold text-(--ui-text)">Import Transactions</h1>
       <span class="text-xs text-(--ui-text-muted) w-10 text-right">
@@ -327,7 +327,7 @@ const totalIncome = computed(() =>
         <label
           class="flex flex-col items-center justify-center gap-3 p-8 rounded-2xl border-2 border-dashed border-(--ui-border) hover:border-primary-500/50 cursor-pointer transition-colors"
         >
-          <UIcon name="i-heroicons-document-arrow-up" class="w-12 h-12 text-(--ui-text-dimmed)" />
+          <AppIcon name="document-arrow-up" class="w-12 h-12 text-(--ui-text-dimmed)" />
           <p class="text-sm text-(--ui-text-muted)">Drop CSV file here or tap to browse</p>
           <input type="file" accept=".csv,.tsv" class="hidden" @change="handleFile" />
         </label>

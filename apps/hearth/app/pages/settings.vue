@@ -153,7 +153,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
 
         <!-- Reduce motion -->
         <div class="flex items-center gap-3 p-4 min-h-[60px]">
-          <UIcon name="i-heroicons-sparkles" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
+          <AppIcon name="sparkles" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
           <div class="flex-1">
             <p class="text-sm font-medium text-(--ui-text)">Reduce motion</p>
             <p class="text-xs text-(--ui-text-muted)">Disable animations</p>
@@ -176,7 +176,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
       <h2 class="text-xs uppercase tracking-widest text-(--ui-text-muted) font-medium mb-3">Display</h2>
       <div class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) divide-y divide-(--ui-border) overflow-hidden">
         <div class="flex items-center gap-3 p-4 min-h-[60px]">
-          <UIcon name="i-heroicons-device-phone-mobile" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
+          <AppIcon name="device-phone-mobile" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
           <div class="flex-1">
             <p class="text-sm font-medium text-(--ui-text)">Sticky bottom nav</p>
             <p class="text-xs text-(--ui-text-muted)">Fix nav bar to bottom</p>
@@ -199,7 +199,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
       <h2 class="text-xs uppercase tracking-widest text-(--ui-text-muted) font-medium mb-3">Currency</h2>
       <div class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) divide-y divide-(--ui-border) overflow-hidden">
         <div class="flex items-center gap-3 p-4 min-h-[60px]">
-          <UIcon name="i-heroicons-currency-dollar" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
+          <AppIcon name="currency-dollar" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
           <div class="flex-1">
             <p class="text-sm font-medium text-(--ui-text)">Home currency</p>
             <p class="text-xs text-(--ui-text-muted)">All totals and budgets shown in this currency</p>
@@ -277,7 +277,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
 
         <!-- Default expense account -->
         <div class="flex items-center gap-3 p-4 min-h-[60px]">
-          <UIcon name="i-heroicons-credit-card" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
+          <AppIcon name="credit-card" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
           <div class="flex-1">
             <p class="text-sm font-medium text-(--ui-text)">Default expense account</p>
             <p class="text-xs text-(--ui-text-muted)">Used when no account is specified</p>
@@ -295,7 +295,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
 
         <!-- Default income account -->
         <div class="flex items-center gap-3 p-4 min-h-[60px]">
-          <UIcon name="i-heroicons-banknotes" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
+          <AppIcon name="banknote" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
           <div class="flex-1">
             <p class="text-sm font-medium text-(--ui-text)">Default income account</p>
             <p class="text-xs text-(--ui-text-muted)">Used for salary, payments, etc.</p>
@@ -335,12 +335,12 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
           aria-label="Export data as JSON"
           @click="exportJson"
         >
-          <UIcon name="i-heroicons-arrow-down-tray" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
+          <AppIcon name="arrow-down-tray" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
           <div class="flex-1">
             <p class="text-sm font-medium text-(--ui-text)">Export data</p>
             <p class="text-xs text-(--ui-text-muted)">Download JSON backup</p>
           </div>
-          <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-(--ui-text-muted)" aria-hidden="true" />
+          <AppIcon name="chevron-right" class="w-4 h-4 text-(--ui-text-muted)" aria-hidden="true" />
         </button>
 
         <!-- Import -->
@@ -357,12 +357,12 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
           aria-label="Import data from JSON"
           @click="importFileRef?.click()"
         >
-          <UIcon name="i-heroicons-arrow-up-tray" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
+          <AppIcon name="arrow-up-tray" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
           <div class="flex-1">
             <p class="text-sm font-medium text-(--ui-text)">Import data</p>
             <p class="text-xs text-(--ui-text-muted)">Restore from JSON backup</p>
           </div>
-          <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-(--ui-text-muted)" aria-hidden="true" />
+          <AppIcon name="chevron-right" class="w-4 h-4 text-(--ui-text-muted)" aria-hidden="true" />
         </button>
 
         <!-- Import CSV -->
@@ -371,12 +371,12 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
           class="flex items-center gap-3 w-full p-4 text-left hover:bg-(--ui-bg-elevated) transition-colors min-h-[60px]"
           aria-label="Import transactions from CSV"
         >
-          <UIcon name="i-heroicons-table-cells" class="w-5 h-5 text-primary-400 shrink-0" aria-hidden="true" />
+          <AppIcon name="table-cells" class="w-5 h-5 text-primary-400 shrink-0" aria-hidden="true" />
           <div class="flex-1">
             <p class="text-sm font-medium text-(--ui-text)">Import from CSV</p>
             <p class="text-xs text-(--ui-text-muted)">Import transactions from YNAB, Mint, or any CSV</p>
           </div>
-          <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-(--ui-text-muted)" aria-hidden="true" />
+          <AppIcon name="chevron-right" class="w-4 h-4 text-(--ui-text-muted)" aria-hidden="true" />
         </NuxtLink>
 
       </div>
@@ -407,7 +407,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
     <section class="space-y-2">
       <button class="w-full flex items-center justify-between px-1 py-0.5" @click="dragonsOpen = !dragonsOpen">
         <p class="text-xs font-semibold uppercase tracking-wider text-rose-400/70">🐉 Here be dragons</p>
-        <UIcon :name="dragonsOpen ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-3.5 h-3.5 text-rose-400/50" />
+        <AppIcon :name="dragonsOpen ? 'chevron-up' : 'chevron-down'" class="w-3.5 h-3.5 text-rose-400/50" />
       </button>
       <div v-if="dragonsOpen" class="rounded-2xl bg-(--ui-bg-muted) border border-rose-500/20 divide-y divide-(--ui-border) overflow-hidden">
 
@@ -419,7 +419,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
           </div>
           <UButton
             size="sm" variant="ghost" color="neutral"
-            icon="i-heroicons-arrow-path" :loading="forceReloading" class="shrink-0"
+            :icon="resolveIcon('arrow-path')" :loading="forceReloading" class="shrink-0"
             @click="forceReload"
           />
         </div>
@@ -429,7 +429,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
           class="flex items-center gap-3 w-full px-4 py-3.5 text-left hover:bg-(--ui-bg-elevated) transition-colors min-h-[44px]"
           @click="reset(); location.reload()"
         >
-          <UIcon name="i-heroicons-cog-6-tooth" class="w-5 h-5 text-(--ui-text-muted) shrink-0" />
+          <AppIcon name="cog-6-tooth" class="w-5 h-5 text-(--ui-text-muted) shrink-0" />
           <div class="space-y-0.5">
             <p class="text-sm font-medium text-(--ui-text)">Reset settings</p>
             <p class="text-xs text-(--ui-text-dimmed)">Restore all preferences to defaults. Data is not affected.</p>
@@ -441,7 +441,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
           class="flex items-center gap-3 w-full px-4 py-3.5 text-left hover:bg-rose-500/5 transition-colors min-h-[44px]"
           @click="resetDatabase"
         >
-          <UIcon name="i-heroicons-trash" class="w-5 h-5 text-rose-400 shrink-0" />
+          <AppIcon name="trash" class="w-5 h-5 text-rose-400 shrink-0" />
           <div class="space-y-0.5">
             <p class="text-sm font-medium text-rose-400">Nuke database</p>
             <p class="text-xs text-(--ui-text-dimmed)">Permanently deletes all data. Cannot be undone.</p>

@@ -6,37 +6,17 @@ const isNative = buildTarget === 'native'
 const isPWA = !isNative
 
 export default defineNuxtConfig({
+  // Boilerplate (SPA mode, COOP/COEP, lucide icon bundle, <AppIcon>) lives in
+  // the shared layer. KNOWN ISSUE: On static hosts (GitHub Pages) the first-
+  // ever visit has no SW installed yet, so COOP/COEP headers are missing and
+  // OPFS fails. The SW installs in the background during that first load. A
+  // single page reload activates it and all subsequent visits work.
+  extends: ['../../libs/habitat-shared'],
+
   devServer: {
     host: '127.0.0.1',
     port: 3100,
   },
-  compatibilityDate: '2025-01-01',
-
-  // COOP/COEP required for SQLite WASM (SharedArrayBuffer / OPFS).
-  //
-  // Three layers set these headers:
-  //   1. routeRules      — Nitro production server
-  //   2. vite.server     — dev server
-  //   3. sw.ts           — service worker injects on navigation (for static hosts)
-  //
-  // KNOWN ISSUE: On static hosts (GitHub Pages) the first-ever visit has no SW
-  // installed yet, so COOP/COEP headers are missing and OPFS fails. The SW
-  // installs in the background during that first load. A single page reload
-  // activates it and all subsequent visits work. If this becomes a UX problem,
-  // add coi-serviceworker (https://github.com/nicegoodthings/coi-serviceworker)
-  // as a <script> in app.head to auto-bootstrap + reload on first visit.
-  routeRules: {
-    '/**': {
-      headers: {
-        'Cross-Origin-Opener-Policy': 'same-origin',
-        'Cross-Origin-Embedder-Policy': 'require-corp',
-        'Content-Security-Policy': "frame-ancestors 'none'",
-      },
-    },
-  },
-
-  // SPA — works for both PWA and Capacitor
-  ssr: false,
 
   devtools: { enabled: true },
 

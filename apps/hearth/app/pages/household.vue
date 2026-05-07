@@ -69,7 +69,7 @@ function iOwe(b: IouBalance): boolean {
       aria-label="Go back"
       @click="router.back()"
     >
-      <UIcon name="i-heroicons-chevron-left" class="w-4 h-4" />
+      <AppIcon name="chevron-left" class="w-4 h-4" />
       Back
     </button>
 
@@ -111,7 +111,7 @@ function iOwe(b: IouBalance): boolean {
       </div>
 
       <div v-else-if="!balances.length" class="text-center py-12">
-        <UIcon name="i-heroicons-check-circle" class="w-12 h-12 text-green-400 mx-auto mb-3" aria-hidden="true" />
+        <AppIcon name="check-circle" class="w-12 h-12 text-green-400 mx-auto mb-3" aria-hidden="true" />
         <p class="font-semibold text-(--ui-text)">All settled up!</p>
         <p class="text-sm text-(--ui-text-muted) mt-1">No outstanding balances in the household</p>
       </div>

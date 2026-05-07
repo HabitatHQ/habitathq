@@ -1,12 +1,6 @@
+import { ICON_SIZES, iconRegistry, iconsByCategory, resolveIcon } from '@habitathq/utils'
 import { describe, expect, it } from 'vitest'
-import {
-  HABIT_COLORS,
-  HABIT_PICKER_CATEGORIES,
-  ICON_SIZES,
-  iconRegistry,
-  iconsByCategory,
-  resolveIcon,
-} from '~/utils/icons'
+import { HABIT_COLORS, HABIT_PICKER_CATEGORIES } from '~/utils/icons'
 
 describe('resolveIcon', () => {
   it('resolves a registry name to its outline class', () => {

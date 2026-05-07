@@ -38,6 +38,7 @@ Both paths share the same `WorkerRequest` / `WorkerResponse<T>` message types. T
 | `app/composables/useLongPress.ts` | Long-press handler (pointerdown + timeout, cancels on move/up) |
 | `app/components/AppModal.vue` | Reusable modal (v-model, title prop, #default + #footer slots) |
 | `app/composables/useCrudForm.ts` | Generic add/edit form state (item ref, open/close, isEditing) |
+| `app/utils/icons.ts` | Habitat-specific icon picker constants (`HABIT_PICKER_CATEGORIES`, `HABIT_COLORS`). Shared registry (`iconRegistry`, `resolveIcon`, `<AppIcon>`) is in the `@habitathq/shared` Nuxt layer / `@habitathq/utils` package — auto-imported. |
 | `app/types/database.ts` | All types, WorkerRequest union, DbAdapter interface, export types |
 | `app/layouts/default.vue` | Header + bottom nav (filtered by settings flags) |
 | `app/utils/` | Pure helpers: `format.ts`, `scribble.ts`, `habit-helpers.ts`, `checkin-helpers.ts`, `todos-helpers.ts`, `error.ts` |

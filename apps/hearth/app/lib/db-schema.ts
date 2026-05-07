@@ -1,4 +1,5 @@
 import { MIGRATION_V7_SQL } from '~/lib/migrations/v7-multi-currency'
+import { MIGRATION_V8_SQL } from '~/lib/migrations/v8-icons-lucide'
 import type { DbAdapter } from '~/types/database'
 
 export const CURRENT_USER_VERSION = 8
@@ -23,7 +24,7 @@ export const SCHEMA_DDL = `
     balance    REAL NOT NULL DEFAULT 0,
     currency   TEXT NOT NULL DEFAULT 'USD',
     color      TEXT NOT NULL DEFAULT '#f59e0b',
-    icon       TEXT NOT NULL DEFAULT 'i-heroicons-building-library',
+    icon       TEXT NOT NULL DEFAULT 'i-lucide-landmark',
     is_active  INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL
   );
@@ -32,7 +33,7 @@ export const SCHEMA_DDL = `
     id         TEXT PRIMARY KEY,
     parent_id  TEXT REFERENCES categories(id) ON DELETE SET NULL,
     name       TEXT NOT NULL,
-    icon       TEXT NOT NULL DEFAULT 'i-heroicons-tag',
+    icon       TEXT NOT NULL DEFAULT 'i-lucide-tag',
     color      TEXT NOT NULL DEFAULT '#94a3b8',
     sort_order INTEGER NOT NULL DEFAULT 0
   );
@@ -219,5 +220,11 @@ export async function runMigrations(db: DbAdapter): Promise<void> {
       await db.exec(sql)
     }
     await db.exec('PRAGMA user_version = 7')
+  }
+  if (version < 8) {
+    for (const sql of MIGRATION_V8_SQL) {
+      await db.exec(sql)
+    }
+    await db.exec('PRAGMA user_version = 8')
   }
 }

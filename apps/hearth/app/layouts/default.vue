@@ -9,11 +9,11 @@ const colorMode = useColorMode()
 // ── Navigation items ──────────────────────────────────────────────────────
 
 const NAV_ITEMS = [
-  { to: '/', label: 'Dashboard', icon: 'i-heroicons-home' },
-  { to: '/transactions', label: 'Transactions', icon: 'i-heroicons-list-bullet' },
-  { to: '/envelopes', label: 'Envelopes', icon: 'i-heroicons-archive-box' },
-  { to: '/reports', label: 'Reports', icon: 'i-heroicons-chart-bar' },
-  { to: '/chores', label: 'Chores', icon: 'i-heroicons-check-circle' },
+  { to: '/', label: 'Dashboard', icon: 'home' },
+  { to: '/transactions', label: 'Transactions', icon: 'list-bullet' },
+  { to: '/envelopes', label: 'Envelopes', icon: 'archive-box' },
+  { to: '/reports', label: 'Reports', icon: 'chart-bar' },
+  { to: '/chores', label: 'Chores', icon: 'check-circle' },
 ] as const
 
 function isActive(to: string) {
@@ -125,7 +125,7 @@ function toggleColorMode() {
 
         <!-- Dark / light toggle -->
         <UButton
-          :icon="colorMode.value === 'dark' ? 'i-heroicons-sun' : 'i-heroicons-moon'"
+          :icon="colorMode.value === 'dark' ? resolveIcon('sun') : resolveIcon('moon')"
           variant="ghost"
           color="neutral"
           size="sm"
@@ -137,7 +137,7 @@ function toggleColorMode() {
         <!-- Theme picker -->
         <div class="relative">
           <UButton
-            icon="i-heroicons-swatch"
+            :icon="resolveIcon('swatch')"
             variant="ghost"
             color="neutral"
             size="sm"
@@ -176,7 +176,7 @@ function toggleColorMode() {
             aria-label="Account menu"
             @click="showAvatarMenu = !showAvatarMenu"
           >
-            <UIcon name="i-heroicons-user-circle" class="w-5 h-5" />
+            <AppIcon name="user-circle" class="w-5 h-5" />
           </button>
           <div v-if="showAvatarMenu" class="fixed inset-0 z-40" role="button" aria-label="Close menu" tabindex="-1" @click="showAvatarMenu = false" />
           <ul
@@ -192,7 +192,7 @@ function toggleColorMode() {
                   : 'text-(--ui-text) hover:bg-(--ui-bg-elevated)'"
                 @click="showAvatarMenu = false"
               >
-                <UIcon name="i-heroicons-user-group" class="w-4 h-4" />
+                <AppIcon name="user-group" class="w-4 h-4" />
                 Household
               </NuxtLink>
             </li>
@@ -205,7 +205,7 @@ function toggleColorMode() {
                   : 'text-(--ui-text) hover:bg-(--ui-bg-elevated)'"
                 @click="showAvatarMenu = false"
               >
-                <UIcon name="i-heroicons-cog-6-tooth" class="w-4 h-4" />
+                <AppIcon name="cog-6-tooth" class="w-4 h-4" />
                 Settings
               </NuxtLink>
             </li>
@@ -220,7 +220,7 @@ function toggleColorMode() {
       :description="$dbError"
       color="error"
       variant="soft"
-      icon="i-heroicons-exclamation-triangle"
+      :icon="resolveIcon('exclamation-triangle')"
       class="rounded-none border-0 border-b border-red-900/50"
     />
 
@@ -251,7 +251,7 @@ function toggleColorMode() {
         v-for="item in NAV_ITEMS"
         :key="item.to"
         :to="item.to"
-        :icon="item.icon"
+        :icon="resolveIcon(item.icon)"
         :color="isActive(item.to) ? 'primary' : 'neutral'"
         variant="ghost"
         :ui="{ base: 'flex-col gap-0.5 h-auto py-2 px-3 text-xs min-h-[44px]' }"
