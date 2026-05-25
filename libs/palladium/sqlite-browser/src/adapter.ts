@@ -1,22 +1,27 @@
 /**
  * BrowserSqliteAdapter — StorageAdapter backed by @sqlite.org/sqlite-wasm.
  *
- * Supports in-memory and OPFS (Origin Private File System) VFS modes.
- * OPFS provides persistent storage in modern browsers; memory is ephemeral.
+ * Supports three VFS modes:
+ * - `memory`:         ephemeral in-memory database
+ * - `opfs`:           basic OPFS via oo1.OpfsDb (serializable, no locking)
+ * - `opfs-sah-pool`:  high-performance OPFS SAH pool VFS with synchronous
+ *                     file access handles (recommended for production)
+ *
+ * OPFS modes require `Cross-Origin-Opener-Policy: same-origin` and
+ * `Cross-Origin-Embedder-Policy: require-corp` response headers.
  *
  * Vite config note: add `optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'] }`
  * to prevent Vite from pre-bundling the WASM module.
- *
- * OPFS note: OPFS requires `Cross-Origin-Opener-Policy: same-origin` and
- * `Cross-Origin-Embedder-Policy: require-corp` response headers.
  */
 
 import type { StorageAdapter, TransactableStorageAdapter } from "@palladium/core";
+import { dbg } from "@palladium/core";
 import sqlite3InitModule from "@sqlite.org/sqlite-wasm";
 
 export type BrowserVfs =
   | { readonly type: "memory" }
-  | { readonly type: "opfs"; readonly filename: string };
+  | { readonly type: "opfs"; readonly filename: string }
+  | { readonly type: "opfs-sah-pool"; readonly directory: string; readonly filename: string };
 
 export interface BrowserSqliteConfig {
   readonly vfs: BrowserVfs;
@@ -37,6 +42,8 @@ type Sqlite3Db = any;
 export class BrowserSqliteAdapter implements TransactableStorageAdapter {
   readonly #config: BrowserSqliteConfig;
   #db: Sqlite3Db | null = null;
+  // biome-ignore lint/suspicious/noExplicitAny: sqlite-wasm internals
+  #sqlite3: any = null;
 
   constructor(config: BrowserSqliteConfig = { vfs: { type: "memory" } }) {
     this.#config = config;
@@ -50,14 +57,31 @@ export class BrowserSqliteAdapter implements TransactableStorageAdapter {
   }
 
   async open(): Promise<void> {
-    const sqlite3 = await sqlite3InitModule({ print: () => {}, printErr: () => {} });
-    if (this.#config.vfs.type === "memory") {
+    const vfs = this.#config.vfs;
+    dbg("sqlite-browser", "open start", { type: vfs.type });
+
+    this.#sqlite3 = await sqlite3InitModule({ print: () => {}, printErr: () => {} });
+
+    if (vfs.type === "memory") {
       // biome-ignore lint/suspicious/noExplicitAny: oo1 not in TS types
-      this.#db = new (sqlite3 as any).oo1.DB(":memory:");
+      this.#db = new (this.#sqlite3 as any).oo1.DB(":memory:");
+    } else if (vfs.type === "opfs") {
+      // biome-ignore lint/suspicious/noExplicitAny: oo1 not in TS types
+      this.#db = new (this.#sqlite3 as any).oo1.OpfsDb(vfs.filename);
     } else {
-      // biome-ignore lint/suspicious/noExplicitAny: oo1 not in TS types
-      this.#db = new (sqlite3 as any).oo1.OpfsDb(this.#config.vfs.filename);
+      dbg("sqlite-browser", "installing SAH pool VFS", {
+        directory: vfs.directory,
+        filename: vfs.filename,
+      });
+      const poolUtil = await this.#sqlite3.installOpfsSAHPoolVfs({
+        directory: vfs.directory,
+        clearOnInit: false,
+      });
+      this.#db = new poolUtil.OpfsSAHPoolDb(vfs.filename);
+      this.#db.exec("PRAGMA foreign_keys = ON");
     }
+
+    dbg("sqlite-browser", "open complete", { type: vfs.type });
   }
 
   async exec<T = Record<string, unknown>>(
@@ -119,10 +143,45 @@ export class BrowserSqliteAdapter implements TransactableStorageAdapter {
     }
   }
 
+  /**
+   * Serialize the live database to a Uint8Array via sqlite3_serialize FFI.
+   *
+   * Only available for persistent VFS types (`opfs` and `opfs-sah-pool`).
+   * Throws if the adapter is not open or uses the `memory` VFS.
+   */
+  serialize(): Uint8Array {
+    if (!this.#sqlite3 || !this.#db) {
+      throw new Error("BrowserSqliteAdapter: not open");
+    }
+    if (this.#config.vfs.type === "memory") {
+      throw new Error("BrowserSqliteAdapter: serialize() is not supported for memory VFS");
+    }
+
+    dbg("sqlite-browser", "serialize start");
+    const w = this.#sqlite3.wasm;
+    const c = this.#sqlite3.capi;
+    const savedStack = w.pstack.pointer;
+    try {
+      const pSize = w.pstack.alloc(8);
+      const pData = c.sqlite3_serialize(this.#db.pointer, "main", pSize, 0);
+      if (!pData) throw new Error("sqlite3_serialize returned null");
+      const nBytes = Number(w.peek(pSize, "i64"));
+      const bytes = new Uint8Array(nBytes);
+      bytes.set(w.heap8u().subarray(pData, pData + nBytes));
+      c.sqlite3_free(pData);
+      dbg("sqlite-browser", "serialize complete", { bytes: nBytes });
+      return bytes;
+    } finally {
+      w.pstack.restore(savedStack);
+    }
+  }
+
   async close(): Promise<void> {
     if (this.#db !== null) {
+      dbg("sqlite-browser", "close");
       this.#db.close();
       this.#db = null;
+      this.#sqlite3 = null;
     }
   }
 }

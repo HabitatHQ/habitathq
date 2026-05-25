@@ -35,6 +35,18 @@ pnpm --filter @palladium/core lint    # Lint a single package
 - **TypeScript**: Strict — `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`
 - **Base tsconfig**: `libs/palladium/tsconfig.base.json` (packages extend via `../tsconfig.base.json`)
 
+## Key Modules (`@palladium/core`)
+
+| Module | Purpose |
+|--------|---------|
+| `storage.ts` | `StorageAdapter` interface — foundational DB abstraction |
+| `db-adapter.ts` | `DbAdapter` interface + `toDbAdapter()` / `toCapacitorDbAdapter()` bridges for app use |
+| `migration.ts` | `SchemaConfig`, `applySchema()`, `applySeeds()` — declarative migration framework |
+| `idb-blob-adapter.ts` | `IDBBlobAdapter` — IndexedDB-backed binary blob storage with optional chunking |
+| `debug.ts` | `dbg()` — gated debug logging, zero-cost when disabled, worker-safe |
+| `hlc.ts` | Hybrid Logical Clock primitives |
+| `ulid.ts` | ULID generation |
+
 ## Conventions
 
 - No default exports (`noDefaultExport` is an error in Biome)
