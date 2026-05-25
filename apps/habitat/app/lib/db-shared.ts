@@ -44,12 +44,14 @@ import type {
   HabitLog,
   HabitSchedule,
   HabitWithSchedule,
+  ImageNoteRow,
   Reminder,
   Scribble,
   SearchResult,
   TagRow,
   TagSource,
   Todo,
+  VoiceNoteRow,
   WorkerRequestBody,
 } from '~/types/database'
 
@@ -1995,7 +1997,55 @@ export async function dispatch(db: DbAdapter, req: WorkerRequestBody): Promise<u
       return getAllTags(db)
     case 'SEARCH_GLOBAL':
       return searchGlobal(db, req.payload.query)
+    case 'GET_VOICE_NOTES':
+      return getVoiceNotes(db)
+    case 'CREATE_VOICE_NOTE':
+      return createVoiceNote(db, req.payload)
+    case 'DELETE_VOICE_NOTE':
+      return deleteVoiceNote(db, req.payload.id)
+    case 'GET_IMAGE_NOTES':
+      return getImageNotes(db)
+    case 'CREATE_IMAGE_NOTE':
+      return createImageNote(db, req.payload)
+    case 'DELETE_IMAGE_NOTE':
+      return deleteImageNote(db, req.payload.id)
     default:
       return undefined
   }
+}
+
+// ─── Voice / Image notes (metadata only — binary data lives in IDBBlobAdapter) ──
+
+async function getVoiceNotes(db: DbAdapter): Promise<VoiceNoteRow[]> {
+  return db.queryAll<VoiceNoteRow>('SELECT * FROM voice_notes ORDER BY created_at DESC')
+}
+
+async function createVoiceNote(db: DbAdapter, p: VoiceNoteRow): Promise<VoiceNoteRow> {
+  await db.exec(
+    'INSERT INTO voice_notes (id, mime_type, duration, created_at) VALUES (?, ?, ?, ?)',
+    [p.id, p.mime_type, p.duration, p.created_at],
+  )
+  return p
+}
+
+async function deleteVoiceNote(db: DbAdapter, id: string): Promise<null> {
+  await db.exec('DELETE FROM voice_notes WHERE id = ?', [id])
+  return null
+}
+
+async function getImageNotes(db: DbAdapter): Promise<ImageNoteRow[]> {
+  return db.queryAll<ImageNoteRow>('SELECT * FROM image_notes ORDER BY created_at DESC')
+}
+
+async function createImageNote(db: DbAdapter, p: ImageNoteRow): Promise<ImageNoteRow> {
+  await db.exec(
+    'INSERT INTO image_notes (id, mime_type, filename, created_at) VALUES (?, ?, ?, ?)',
+    [p.id, p.mime_type, p.filename, p.created_at],
+  )
+  return p
+}
+
+async function deleteImageNote(db: DbAdapter, id: string): Promise<null> {
+  await db.exec('DELETE FROM image_notes WHERE id = ?', [id])
+  return null
 }

@@ -44,6 +44,7 @@
     "@habitathq/utils": "workspace:*",
     "@palladium/core": "workspace:*",
     "@palladium/nuxt": "workspace:*",
+    "@palladium/sqlite-browser": "workspace:*",
     "@palladium/sqlite-capacitor": "workspace:*",
     "@capacitor-community/sqlite": "^8.0.0",
     "@capacitor/keyboard": "^8.0.1",

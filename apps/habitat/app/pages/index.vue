@@ -209,24 +209,10 @@ const hasTodayActivity = computed(
     todayCheckins.value.length > 0 || todayScribbles.value.length > 0 || todayVoiceCount.value > 0,
 )
 
-function openVoiceIdb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open('habitat', 1)
-    req.onupgradeneeded = () => req.result.createObjectStore('voice_notes', { keyPath: 'id' })
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
-  })
-}
-
 async function loadVoiceCount() {
   try {
-    const idb = await openVoiceIdb()
-    const notes: Array<{ created_at: string }> = await new Promise((resolve, reject) => {
-      const req = idb.transaction('voice_notes', 'readonly').objectStore('voice_notes').getAll()
-      req.onsuccess = () => resolve(req.result as Array<{ created_at: string }>)
-      req.onerror = () => reject(req.error)
-    })
-    todayVoiceCount.value = notes.filter((n) => n.created_at.slice(0, 10) === today).length
+    const rows = await db.getVoiceNotes()
+    todayVoiceCount.value = rows.filter((n) => n.created_at.slice(0, 10) === today).length
   } catch {
     todayVoiceCount.value = 0
   }

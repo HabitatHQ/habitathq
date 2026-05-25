@@ -1,6 +1,5 @@
-import type { CheckinQuestion, DbAdapter } from '~/types/database'
-
-export const CURRENT_USER_VERSION = 17
+import type { MigrationExec, SchemaConfig, Seed } from '@palladium/core'
+import type { CheckinQuestion } from '~/types/database'
 
 export const SCHEMA_DDL = `
   CREATE TABLE IF NOT EXISTS habits (
@@ -200,66 +199,21 @@ export const SCHEMA_DDL = `
 
   CREATE INDEX IF NOT EXISTS idx_todos_due_date ON todos(due_date);
   CREATE INDEX IF NOT EXISTS idx_todos_is_done  ON todos(is_done);
-`
 
-export const MIGRATIONS: Record<number, string[]> = {
-  11: [
-    `CREATE TABLE IF NOT EXISTS bored_categories (
-        id TEXT PRIMARY KEY, name TEXT NOT NULL,
-        icon TEXT NOT NULL DEFAULT 'sparkles',
-        color TEXT NOT NULL DEFAULT '#6366f1',
-        is_system INTEGER NOT NULL DEFAULT 0,
-        sort_order INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL
-      )`,
-    `CREATE TABLE IF NOT EXISTS bored_activities (
-        id TEXT PRIMARY KEY, title TEXT NOT NULL,
-        description TEXT NOT NULL DEFAULT '',
-        category_id TEXT NOT NULL REFERENCES bored_categories(id) ON DELETE CASCADE,
-        estimated_minutes INTEGER, tags TEXT NOT NULL DEFAULT '[]',
-        annotations TEXT NOT NULL DEFAULT '{}',
-        is_recurring INTEGER NOT NULL DEFAULT 0, recurrence_rule TEXT,
-        is_done INTEGER NOT NULL DEFAULT 0, done_at TEXT,
-        done_count INTEGER NOT NULL DEFAULT 0, last_done_at TEXT,
-        archived_at TEXT, created_at TEXT NOT NULL
-      )`,
-    'CREATE INDEX IF NOT EXISTS idx_bored_activities_category ON bored_activities(category_id)',
-    `CREATE TABLE IF NOT EXISTS todos (
-        id TEXT PRIMARY KEY, title TEXT NOT NULL,
-        description TEXT NOT NULL DEFAULT '', due_date TEXT,
-        priority TEXT NOT NULL DEFAULT 'medium', estimated_minutes INTEGER,
-        is_done INTEGER NOT NULL DEFAULT 0, done_at TEXT,
-        done_count INTEGER NOT NULL DEFAULT 0, last_done_at TEXT,
-        tags TEXT NOT NULL DEFAULT '[]', annotations TEXT NOT NULL DEFAULT '{}',
-        is_recurring INTEGER NOT NULL DEFAULT 0, recurrence_rule TEXT,
-        show_in_bored INTEGER NOT NULL DEFAULT 0,
-        bored_category_id TEXT REFERENCES bored_categories(id) ON DELETE SET NULL,
-        archived_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-      )`,
-    'CREATE INDEX IF NOT EXISTS idx_todos_due_date ON todos(due_date)',
-    'CREATE INDEX IF NOT EXISTS idx_todos_is_done ON todos(is_done)',
-  ],
-  12: [
-    'ALTER TABLE checkin_templates ADD COLUMN archived_at TEXT',
-    'ALTER TABLE checkin_questions ADD COLUMN archived_at TEXT',
-  ],
-  13: [
-    `CREATE TABLE IF NOT EXISTS checkin_completions (
-            id TEXT PRIMARY KEY,
-            template_id TEXT NOT NULL REFERENCES checkin_templates(id) ON DELETE CASCADE,
-            date TEXT NOT NULL,
-            completed_at TEXT NOT NULL,
-            UNIQUE(template_id, date)
-          )`,
-    'CREATE INDEX IF NOT EXISTS idx_checkin_completions_date ON checkin_completions(date)',
-  ],
-  14: [
-    `UPDATE habits SET icon = REPLACE(icon, 'i-heroicons-', 'i-lucide-') WHERE icon LIKE 'i-heroicons-%'`,
-    `UPDATE bored_categories SET icon = REPLACE(icon, 'i-heroicons-', 'i-lucide-') WHERE icon LIKE 'i-heroicons-%'`,
-  ],
-  16: [`ALTER TABLE habits ADD COLUMN why TEXT NOT NULL DEFAULT ''`],
-  17: ['ALTER TABLE checkin_questions ADD COLUMN desired_answer INTEGER DEFAULT 1'],
-}
+  CREATE TABLE IF NOT EXISTS voice_notes (
+    id         TEXT PRIMARY KEY,
+    mime_type  TEXT NOT NULL,
+    duration   REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS image_notes (
+    id         TEXT PRIMARY KEY,
+    mime_type  TEXT NOT NULL,
+    filename   TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+  );
+`
 
 export const ICON_MAP: [string, string][] = [
   ['star', 'i-lucide-star'],
@@ -399,244 +353,170 @@ export const ICON_MAP: [string, string][] = [
   ['syringe', 'i-lucide-syringe'],
 ]
 
-export async function runMigrations(db: DbAdapter): Promise<void> {
-  const rows = await db.queryAll<Record<string, unknown>>('PRAGMA user_version')
-  let userVersion = (rows[0]?.['user_version'] as number) ?? 0
+// ─── Seed helpers ─────────────────────────────────────────────────────────────
 
-  const applyNumbered = async () => {
-    for (let v = userVersion + 1; v in MIGRATIONS; v++) {
-      for (const sql of MIGRATIONS[v]!) {
-        await db.exec(sql)
-      }
-      await db.exec(`PRAGMA user_version = ${v}`)
-      userVersion = v
-    }
+async function insertTemplate(
+  exec: MigrationExec,
+  title: string,
+  schedule_type: string,
+  days_active: number[] | null,
+  qs: (Omit<CheckinQuestion, 'id' | 'template_id' | 'archived_at' | 'desired_answer'> & {
+    desired_answer?: number
+  })[],
+): Promise<void> {
+  const tid = crypto.randomUUID()
+  await exec(
+    'INSERT INTO checkin_templates (id,title,schedule_type,days_active) VALUES (?,?,?,?)',
+    [tid, title, schedule_type, days_active == null ? null : JSON.stringify(days_active)],
+  )
+  for (const q of qs) {
+    await exec(
+      'INSERT INTO checkin_questions (id,template_id,prompt,response_type,display_order,desired_answer) VALUES (?,?,?,?,?,?)',
+      [crypto.randomUUID(), tid, q.prompt, q.response_type, q.display_order, q.desired_answer ?? 1],
+    )
   }
-
-  await applyNumbered()
-
-  // v15: Replace i-lucide-* class strings with registry keys
-  if (userVersion > 0 && userVersion <= 14) {
-    for (const [key, cls] of ICON_MAP) {
-      await db.exec(`UPDATE habits SET icon = '${key}' WHERE icon = '${cls}'`)
-      await db.exec(`UPDATE bored_categories SET icon = '${key}' WHERE icon = '${cls}'`)
-    }
-    await db.exec('PRAGMA user_version = 15')
-    userVersion = 15
-  }
-
-  // Continue applying any numbered migrations after v15 (e.g. v16, v17)
-  await applyNumbered()
-
-  // Ensure fresh installs (user_version = 0) are stamped at the current baseline.
-  if (userVersion === 0) await db.exec(`PRAGMA user_version = ${CURRENT_USER_VERSION}`)
 }
 
-export async function seedDefaults(db: DbAdapter): Promise<void> {
-  type Seed = { key: string; apply: () => Promise<void> }
-
-  async function insertTemplate(
-    title: string,
-    schedule_type: string,
-    days_active: number[] | null,
-    qs: (Omit<CheckinQuestion, 'id' | 'template_id' | 'archived_at' | 'desired_answer'> & {
-      desired_answer?: number
-    })[],
-  ): Promise<void> {
-    const tid = crypto.randomUUID()
-    await db.exec(
-      'INSERT INTO checkin_templates (id,title,schedule_type,days_active) VALUES (?,?,?,?)',
-      [tid, title, schedule_type, days_active == null ? null : JSON.stringify(days_active)],
+async function insertBoredCategory(
+  exec: MigrationExec,
+  id: string,
+  name: string,
+  icon: string,
+  color: string,
+  sortOrder: number,
+  activities: [string, string, number][],
+): Promise<void> {
+  const now = new Date().toISOString()
+  await exec(
+    'INSERT OR IGNORE INTO bored_categories (id,name,icon,color,is_system,sort_order,created_at) VALUES (?,?,?,?,?,?,?)',
+    [id, name, icon, color, 1, sortOrder, now],
+  )
+  for (const [title, description, mins] of activities) {
+    await exec(
+      'INSERT OR IGNORE INTO bored_activities (id,title,description,category_id,estimated_minutes,tags,annotations,is_recurring,is_done,done_count,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+      [crypto.randomUUID(), title, description, id, mins, '[]', '{}', 0, 0, 0, now],
     )
-    for (const q of qs) {
-      await db.exec(
-        'INSERT INTO checkin_questions (id,template_id,prompt,response_type,display_order,desired_answer) VALUES (?,?,?,?,?,?)',
-        [
-          crypto.randomUUID(),
-          tid,
-          q.prompt,
-          q.response_type,
-          q.display_order,
-          q.desired_answer ?? 1,
-        ],
-      )
-    }
   }
+}
 
-  const seeds: Seed[] = [
-    {
-      key: 'checkin_template:morning_checkin',
-      apply: () =>
-        insertTemplate('Morning Check-in', 'DAILY', null, [
-          { prompt: 'How did you sleep?', response_type: 'SCALE', display_order: 0 },
-          { prompt: 'What did you dream about?', response_type: 'TEXT', display_order: 1 },
-          {
-            prompt: 'How is your energy level right now?',
-            response_type: 'SCALE',
-            display_order: 2,
-          },
-          {
-            prompt: "What's your main intention for today?",
-            response_type: 'TEXT',
-            display_order: 3,
-          },
-          {
-            prompt: 'Are you feeling anxious or stressed?',
-            response_type: 'BOOLEAN',
-            display_order: 4,
-            desired_answer: 0,
-          },
-        ]),
-    },
-    {
-      key: 'checkin_template:morning_dream_update',
-      apply: async () => {
-        const rows = await db.queryAll<Record<string, unknown>>(
-          "SELECT id FROM checkin_templates WHERE title = 'Morning Check-in' AND archived_at IS NULL",
+// ─── Seeds ────────────────────────────────────────────────────────────────────
+
+const SEEDS: Seed[] = [
+  {
+    key: 'checkin_template:morning_checkin',
+    apply: (exec) =>
+      insertTemplate(exec, 'Morning Check-in', 'DAILY', null, [
+        { prompt: 'How did you sleep?', response_type: 'SCALE', display_order: 0 },
+        { prompt: 'What did you dream about?', response_type: 'TEXT', display_order: 1 },
+        { prompt: 'How is your energy level right now?', response_type: 'SCALE', display_order: 2 },
+        {
+          prompt: "What's your main intention for today?",
+          response_type: 'TEXT',
+          display_order: 3,
+        },
+        {
+          prompt: 'Are you feeling anxious or stressed?',
+          response_type: 'BOOLEAN',
+          display_order: 4,
+          desired_answer: 0,
+        },
+      ]),
+  },
+  {
+    key: 'checkin_template:morning_dream_update',
+    apply: async (exec) => {
+      const rows = await exec<Record<string, unknown>>(
+        "SELECT id FROM checkin_templates WHERE title = 'Morning Check-in' AND archived_at IS NULL",
+      )
+      for (const t of rows) {
+        const qs = await exec<Record<string, unknown>>(
+          'SELECT id, prompt FROM checkin_questions WHERE template_id = ?',
+          [t['id']],
         )
-        for (const t of rows) {
-          const qs = await db.queryAll<Record<string, unknown>>(
-            'SELECT id, prompt FROM checkin_questions WHERE template_id = ?',
+        if (!qs.some((q) => q['prompt'] === 'What did you dream about?')) {
+          await exec(
+            'UPDATE checkin_questions SET display_order = display_order + 1 WHERE template_id = ? AND display_order >= 1',
             [t['id']],
           )
-          if (!qs.some((q) => q['prompt'] === 'What did you dream about?')) {
-            await db.exec(
-              'UPDATE checkin_questions SET display_order = display_order + 1 WHERE template_id = ? AND display_order >= 1',
-              [t['id']],
-            )
-            await db.exec(
-              'INSERT INTO checkin_questions (id, template_id, prompt, response_type, display_order) VALUES (?,?,?,?,?)',
-              [crypto.randomUUID(), t['id'], 'What did you dream about?', 'TEXT', 1],
-            )
-          }
+          await exec(
+            'INSERT INTO checkin_questions (id, template_id, prompt, response_type, display_order) VALUES (?,?,?,?,?)',
+            [crypto.randomUUID(), t['id'], 'What did you dream about?', 'TEXT', 1],
+          )
         }
-      },
+      }
     },
-    {
-      key: 'checkin_template:evening_reflection',
-      apply: () =>
-        insertTemplate('Evening Reflection', 'DAILY', null, [
-          { prompt: 'Overall mood today (1\u201310)?', response_type: 'SCALE', display_order: 0 },
-          { prompt: 'What went well today?', response_type: 'TEXT', display_order: 1 },
-          { prompt: 'What could have gone better?', response_type: 'TEXT', display_order: 2 },
+  },
+  {
+    key: 'checkin_template:evening_reflection',
+    apply: (exec) =>
+      insertTemplate(exec, 'Evening Reflection', 'DAILY', null, [
+        { prompt: 'Overall mood today (1\u201310)?', response_type: 'SCALE', display_order: 0 },
+        { prompt: 'What went well today?', response_type: 'TEXT', display_order: 1 },
+        { prompt: 'What could have gone better?', response_type: 'TEXT', display_order: 2 },
+        {
+          prompt: 'Did you complete your main intention?',
+          response_type: 'BOOLEAN',
+          display_order: 3,
+        },
+      ]),
+  },
+  {
+    key: 'checkin_template:weekly_review',
+    apply: (exec) =>
+      insertTemplate(
+        exec,
+        'Weekly Review',
+        'WEEKLY',
+        [0],
+        [
           {
-            prompt: 'Did you complete your main intention?',
-            response_type: 'BOOLEAN',
-            display_order: 3,
+            prompt: 'How would you rate this week overall (1\u201310)?',
+            response_type: 'SCALE',
+            display_order: 0,
           },
-        ]),
+          { prompt: 'What were your biggest wins?', response_type: 'TEXT', display_order: 1 },
+          { prompt: 'Which habit are you most proud of?', response_type: 'TEXT', display_order: 2 },
+          { prompt: 'What will you focus on next week?', response_type: 'TEXT', display_order: 3 },
+        ],
+      ),
+  },
+  {
+    key: 'checkin_template:boolean_desired_answer',
+    apply: async (exec) => {
+      await exec(
+        `UPDATE checkin_questions SET desired_answer = 0 WHERE prompt = 'Are you feeling anxious or stressed?' AND archived_at IS NULL`,
+      )
     },
-    {
-      key: 'checkin_template:weekly_review',
-      apply: () =>
-        insertTemplate(
-          'Weekly Review',
-          'WEEKLY',
-          [0],
-          [
-            {
-              prompt: 'How would you rate this week overall (1\u201310)?',
-              response_type: 'SCALE',
-              display_order: 0,
-            },
-            { prompt: 'What were your biggest wins?', response_type: 'TEXT', display_order: 1 },
-            {
-              prompt: 'Which habit are you most proud of?',
-              response_type: 'TEXT',
-              display_order: 2,
-            },
-            {
-              prompt: 'What will you focus on next week?',
-              response_type: 'TEXT',
-              display_order: 3,
-            },
-          ],
-        ),
-    },
-    {
-      key: 'checkin_template:boolean_desired_answer',
-      apply: async () => {
-        await db.exec(
-          `UPDATE checkin_questions SET desired_answer = 0 WHERE prompt = 'Are you feeling anxious or stressed?' AND archived_at IS NULL`,
-        )
-      },
-    },
-    {
-      key: 'bored:cat:reading',
-      apply: async () => {
-        const id = 'bored-cat-reading'
-        const now2 = new Date().toISOString()
-        await db.exec(
-          'INSERT OR IGNORE INTO bored_categories (id,name,icon,color,is_system,sort_order,created_at) VALUES (?,?,?,?,?,?,?)',
-          [id, 'Things to Read', 'book-open', '#3b82f6', 1, 0, now2],
-        )
-        for (const [title, description, mins] of [
-          ['Read 10 pages of current book', 'Pick up wherever you left off.', 20],
-          ['Catch up on saved articles', 'Clear your reading list a bit.', 15],
-          ['Wikipedia rabbit hole', 'Start on any topic and follow curiosity.', 30],
-        ] as [string, string, number][]) {
-          await db.exec(
-            'INSERT OR IGNORE INTO bored_activities (id,title,description,category_id,estimated_minutes,tags,annotations,is_recurring,is_done,done_count,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-            [
-              crypto.randomUUID(),
-              title,
-              description,
-              id,
-              mins,
-              '[]',
-              '{}',
-              0,
-              0,
-              0,
-              new Date().toISOString(),
-            ],
-          )
-        }
-      },
-    },
-    {
-      key: 'bored:cat:chores',
-      apply: async () => {
-        const id = 'bored-cat-chores'
-        const now2 = new Date().toISOString()
-        await db.exec(
-          'INSERT OR IGNORE INTO bored_categories (id,name,icon,color,is_system,sort_order,created_at) VALUES (?,?,?,?,?,?,?)',
-          [id, 'Chores', 'home', '#f59e0b', 1, 1, now2],
-        )
-        for (const [title, description, mins] of [
-          ['Clean one small area', 'A drawer, a shelf, a corner \u2014 pick one.', 15],
-          ['Do laundry', "Throw in a load or fold what's waiting.", 45],
-          ['Organize one drawer', 'Just one. It always feels satisfying.', 20],
-        ] as [string, string, number][]) {
-          await db.exec(
-            'INSERT OR IGNORE INTO bored_activities (id,title,description,category_id,estimated_minutes,tags,annotations,is_recurring,is_done,done_count,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-            [
-              crypto.randomUUID(),
-              title,
-              description,
-              id,
-              mins,
-              '[]',
-              '{}',
-              0,
-              0,
-              0,
-              new Date().toISOString(),
-            ],
-          )
-        }
-      },
-    },
-    {
-      key: 'bored:cat:contacts',
-      apply: async () => {
-        const id = 'bored-cat-contacts'
-        const now2 = new Date().toISOString()
-        await db.exec(
-          'INSERT OR IGNORE INTO bored_categories (id,name,icon,color,is_system,sort_order,created_at) VALUES (?,?,?,?,?,?,?)',
-          [id, 'People to Contact', 'chat-circle', '#10b981', 1, 2, now2],
-        )
-        for (const [title, description, mins] of [
+  },
+  {
+    key: 'bored:cat:reading',
+    apply: (exec) =>
+      insertBoredCategory(exec, 'bored-cat-reading', 'Things to Read', 'book-open', '#3b82f6', 0, [
+        ['Read 10 pages of current book', 'Pick up wherever you left off.', 20],
+        ['Catch up on saved articles', 'Clear your reading list a bit.', 15],
+        ['Wikipedia rabbit hole', 'Start on any topic and follow curiosity.', 30],
+      ]),
+  },
+  {
+    key: 'bored:cat:chores',
+    apply: (exec) =>
+      insertBoredCategory(exec, 'bored-cat-chores', 'Chores', 'home', '#f59e0b', 1, [
+        ['Clean one small area', 'A drawer, a shelf, a corner \u2014 pick one.', 15],
+        ['Do laundry', "Throw in a load or fold what's waiting.", 45],
+        ['Organize one drawer', 'Just one. It always feels satisfying.', 20],
+      ]),
+  },
+  {
+    key: 'bored:cat:contacts',
+    apply: (exec) =>
+      insertBoredCategory(
+        exec,
+        'bored-cat-contacts',
+        'People to Contact',
+        'chat-circle',
+        '#10b981',
+        2,
+        [
           [
             "Text a friend you haven't spoken to lately",
             'A simple "hey, how are you?" goes a long way.',
@@ -644,36 +524,20 @@ export async function seedDefaults(db: DbAdapter): Promise<void> {
           ],
           ['Send an appreciation message', 'Tell someone you appreciate them.', 5],
           ['Catch up with family', 'Call or message a family member.', 15],
-        ] as [string, string, number][]) {
-          await db.exec(
-            'INSERT OR IGNORE INTO bored_activities (id,title,description,category_id,estimated_minutes,tags,annotations,is_recurring,is_done,done_count,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-            [
-              crypto.randomUUID(),
-              title,
-              description,
-              id,
-              mins,
-              '[]',
-              '{}',
-              0,
-              0,
-              0,
-              new Date().toISOString(),
-            ],
-          )
-        }
-      },
-    },
-    {
-      key: 'bored:cat:learning',
-      apply: async () => {
-        const id = 'bored-cat-learning'
-        const now2 = new Date().toISOString()
-        await db.exec(
-          'INSERT OR IGNORE INTO bored_categories (id,name,icon,color,is_system,sort_order,created_at) VALUES (?,?,?,?,?,?,?)',
-          [id, 'Things to Learn', 'graduation', '#8b5cf6', 1, 3, now2],
-        )
-        for (const [title, description, mins] of [
+        ],
+      ),
+  },
+  {
+    key: 'bored:cat:learning',
+    apply: (exec) =>
+      insertBoredCategory(
+        exec,
+        'bored-cat-learning',
+        'Things to Learn',
+        'graduation',
+        '#8b5cf6',
+        3,
+        [
           ['Watch a YouTube tutorial', "Pick a skill you've been curious about.", 20],
           [
             'Practice a skill for 15 min',
@@ -681,71 +545,117 @@ export async function seedDefaults(db: DbAdapter): Promise<void> {
             15,
           ],
           ['Read documentation or a how-to', 'Level up something you already use.', 20],
-        ] as [string, string, number][]) {
-          await db.exec(
-            'INSERT OR IGNORE INTO bored_activities (id,title,description,category_id,estimated_minutes,tags,annotations,is_recurring,is_done,done_count,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-            [
-              crypto.randomUUID(),
-              title,
-              description,
-              id,
-              mins,
-              '[]',
-              '{}',
-              0,
-              0,
-              0,
-              new Date().toISOString(),
-            ],
-          )
-        }
-      },
-    },
-    {
-      key: 'bored:cat:idle',
-      apply: async () => {
-        const id = 'bored-cat-idle'
-        const now2 = new Date().toISOString()
-        await db.exec(
-          'INSERT OR IGNORE INTO bored_categories (id,name,icon,color,is_system,sort_order,created_at) VALUES (?,?,?,?,?,?,?)',
-          [id, 'Idle Quests', 'sparkles', '#f97316', 1, 4, now2],
-        )
-        for (const [title, description, mins] of [
-          ['Take a 10-min walk', 'No destination needed. Just move.', 10],
-          ['Stretch or light yoga', 'Even 5 minutes resets the body.', 10],
-          ['Doodle without overthinking', 'Pen and paper, no expectations.', 15],
-          ['Listen to a new album', 'Pick something outside your usual taste.', 30],
-        ] as [string, string, number][]) {
-          await db.exec(
-            'INSERT OR IGNORE INTO bored_activities (id,title,description,category_id,estimated_minutes,tags,annotations,is_recurring,is_done,done_count,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-            [
-              crypto.randomUUID(),
-              title,
-              description,
-              id,
-              mins,
-              '[]',
-              '{}',
-              0,
-              0,
-              0,
-              new Date().toISOString(),
-            ],
-          )
-        }
-      },
-    },
-  ]
+        ],
+      ),
+  },
+  {
+    key: 'bored:cat:idle',
+    apply: (exec) =>
+      insertBoredCategory(exec, 'bored-cat-idle', 'Idle Quests', 'sparkles', '#f97316', 4, [
+        ['Take a 10-min walk', 'No destination needed. Just move.', 10],
+        ['Stretch or light yoga', 'Even 5 minutes resets the body.', 10],
+        ['Doodle without overthinking', 'Pen and paper, no expectations.', 15],
+        ['Listen to a new album', 'Pick something outside your usual taste.', 30],
+      ]),
+  },
+]
 
-  const now = new Date().toISOString()
-  for (const { key, apply } of seeds) {
-    const already = await db.queryAll<Record<string, unknown>>(
-      'SELECT key FROM applied_defaults WHERE key = ?',
-      [key],
-    )
-    if (already.length === 0) {
-      await apply()
-      await db.exec('INSERT INTO applied_defaults (key, applied_at) VALUES (?,?)', [key, now])
-    }
-  }
+// ─── Schema config ────────────────────────────────────────────────────────────
+
+export const SCHEMA_CONFIG: SchemaConfig = {
+  schema: SCHEMA_DDL,
+  version: 19,
+  migrations: {
+    11: [
+      `CREATE TABLE IF NOT EXISTS bored_categories (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL,
+        icon TEXT NOT NULL DEFAULT 'sparkles',
+        color TEXT NOT NULL DEFAULT '#6366f1',
+        is_system INTEGER NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS bored_activities (
+        id TEXT PRIMARY KEY, title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        category_id TEXT NOT NULL REFERENCES bored_categories(id) ON DELETE CASCADE,
+        estimated_minutes INTEGER, tags TEXT NOT NULL DEFAULT '[]',
+        annotations TEXT NOT NULL DEFAULT '{}',
+        is_recurring INTEGER NOT NULL DEFAULT 0, recurrence_rule TEXT,
+        is_done INTEGER NOT NULL DEFAULT 0, done_at TEXT,
+        done_count INTEGER NOT NULL DEFAULT 0, last_done_at TEXT,
+        archived_at TEXT, created_at TEXT NOT NULL
+      )`,
+      'CREATE INDEX IF NOT EXISTS idx_bored_activities_category ON bored_activities(category_id)',
+      `CREATE TABLE IF NOT EXISTS todos (
+        id TEXT PRIMARY KEY, title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '', due_date TEXT,
+        priority TEXT NOT NULL DEFAULT 'medium', estimated_minutes INTEGER,
+        is_done INTEGER NOT NULL DEFAULT 0, done_at TEXT,
+        done_count INTEGER NOT NULL DEFAULT 0, last_done_at TEXT,
+        tags TEXT NOT NULL DEFAULT '[]', annotations TEXT NOT NULL DEFAULT '{}',
+        is_recurring INTEGER NOT NULL DEFAULT 0, recurrence_rule TEXT,
+        show_in_bored INTEGER NOT NULL DEFAULT 0,
+        bored_category_id TEXT REFERENCES bored_categories(id) ON DELETE SET NULL,
+        archived_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      )`,
+      'CREATE INDEX IF NOT EXISTS idx_todos_due_date ON todos(due_date)',
+      'CREATE INDEX IF NOT EXISTS idx_todos_is_done ON todos(is_done)',
+    ],
+    12: [
+      'ALTER TABLE checkin_templates ADD COLUMN archived_at TEXT',
+      'ALTER TABLE checkin_questions ADD COLUMN archived_at TEXT',
+    ],
+    13: [
+      `CREATE TABLE IF NOT EXISTS checkin_completions (
+        id TEXT PRIMARY KEY,
+        template_id TEXT NOT NULL REFERENCES checkin_templates(id) ON DELETE CASCADE,
+        date TEXT NOT NULL,
+        completed_at TEXT NOT NULL,
+        UNIQUE(template_id, date)
+      )`,
+      'CREATE INDEX IF NOT EXISTS idx_checkin_completions_date ON checkin_completions(date)',
+    ],
+    14: [
+      `UPDATE habits SET icon = REPLACE(icon, 'i-heroicons-', 'i-lucide-') WHERE icon LIKE 'i-heroicons-%'`,
+      `UPDATE bored_categories SET icon = REPLACE(icon, 'i-heroicons-', 'i-lucide-') WHERE icon LIKE 'i-heroicons-%'`,
+    ],
+    15: [
+      async (exec: MigrationExec) => {
+        for (const [key, cls] of ICON_MAP) {
+          await exec(`UPDATE habits SET icon = '${key}' WHERE icon = '${cls}'`)
+          await exec(`UPDATE bored_categories SET icon = '${key}' WHERE icon = '${cls}'`)
+        }
+      },
+    ],
+    16: [`ALTER TABLE habits ADD COLUMN why TEXT NOT NULL DEFAULT ''`],
+    17: ['ALTER TABLE checkin_questions ADD COLUMN desired_answer INTEGER DEFAULT 1'],
+    18: [
+      async (exec: MigrationExec) => {
+        await exec(
+          'CREATE TABLE IF NOT EXISTS _palladium_seeds (key TEXT PRIMARY KEY, applied_at TEXT NOT NULL)',
+        )
+        const existing = await exec<{ key: string; applied_at: string }>(
+          'SELECT key, applied_at FROM applied_defaults',
+        )
+        for (const row of existing) {
+          await exec('INSERT OR IGNORE INTO _palladium_seeds (key, applied_at) VALUES (?, ?)', [
+            row.key,
+            row.applied_at,
+          ])
+        }
+      },
+    ],
+    19: [
+      `CREATE TABLE IF NOT EXISTS voice_notes (
+        id TEXT PRIMARY KEY, mime_type TEXT NOT NULL,
+        duration REAL NOT NULL DEFAULT 0, created_at TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS image_notes (
+        id TEXT PRIMARY KEY, mime_type TEXT NOT NULL,
+        filename TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
+      )`,
+    ],
+  },
+  seeds: SEEDS,
 }

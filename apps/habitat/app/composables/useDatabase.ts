@@ -19,11 +19,13 @@ import type {
   HabitLog,
   HabitSchedule,
   HabitWithSchedule,
+  ImageNoteRow,
   Reminder,
   Scribble,
   SearchResult,
   TagRow,
   Todo,
+  VoiceNoteRow,
 } from '~/types/database'
 
 export function useDatabase() {
@@ -242,5 +244,15 @@ export function useDatabase() {
     getAllTags: (): Promise<TagRow[]> => sendToWorker({ type: 'GET_ALL_TAGS' }),
     searchGlobal: (query: string): Promise<SearchResult[]> =>
       sendToWorker({ type: 'SEARCH_GLOBAL', payload: { query } }),
+    getVoiceNotes: (): Promise<VoiceNoteRow[]> => sendToWorker({ type: 'GET_VOICE_NOTES' }),
+    createVoiceNote: (p: VoiceNoteRow): Promise<VoiceNoteRow> =>
+      sendToWorker({ type: 'CREATE_VOICE_NOTE', payload: p }),
+    deleteVoiceNote: (id: string): Promise<null> =>
+      sendToWorker({ type: 'DELETE_VOICE_NOTE', payload: { id } }),
+    getImageNotes: (): Promise<ImageNoteRow[]> => sendToWorker({ type: 'GET_IMAGE_NOTES' }),
+    createImageNote: (p: ImageNoteRow): Promise<ImageNoteRow> =>
+      sendToWorker({ type: 'CREATE_IMAGE_NOTE', payload: p }),
+    deleteImageNote: (id: string): Promise<null> =>
+      sendToWorker({ type: 'DELETE_IMAGE_NOTE', payload: { id } }),
   }
 }

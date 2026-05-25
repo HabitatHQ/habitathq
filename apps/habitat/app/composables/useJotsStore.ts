@@ -1,4 +1,5 @@
-import type { Scribble, Todo } from '~/types/database'
+import { IDBBlobAdapter } from '@palladium/core'
+import type { ImageNoteRow, Scribble, Todo, VoiceNoteRow } from '~/types/database'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,60 +26,128 @@ export type JotItem =
   | { kind: 'voice'; data: VoiceNote }
   | { kind: 'image'; data: ImageNote }
 
-// ─── IndexedDB helpers ────────────────────────────────────────────────────────
+// ─── Blob adapter (main-thread IDB for binary data) ──────────────────────────
 
-const IDB_NAME = 'habitat'
-const VOICE_STORE = 'voice_notes'
-const IMAGE_STORE = 'image_notes'
-let _db: IDBDatabase | null = null
+const blobAdapter = new IDBBlobAdapter('habitat-blobs')
 
-function openDB(): Promise<IDBDatabase> {
-  if (_db) return Promise.resolve(_db)
+export { blobAdapter }
+
+// ─── Legacy IDB migration helpers ────────────────────────────────────────────
+
+const MIGRATION_KEY = 'habitat:blobs-migrated'
+
+interface LegacyVoiceRecord {
+  id: string
+  blob: Blob
+  mimeType: string
+  duration: number
+  created_at: string
+}
+
+interface LegacyImageRecord {
+  id: string
+  blob: Blob
+  mimeType: string
+  filename: string
+  created_at: string
+}
+
+function legacyIdbGetAll<T>(dbName: string, storeName: string): Promise<T[]> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(IDB_NAME, 2)
+    const req = indexedDB.open(dbName, 2)
     req.onupgradeneeded = (e) => {
       const db = req.result
-      if (e.oldVersion < 1) db.createObjectStore(VOICE_STORE, { keyPath: 'id' })
-      if (e.oldVersion < 2) db.createObjectStore(IMAGE_STORE, { keyPath: 'id' })
+      if (e.oldVersion < 1 && !db.objectStoreNames.contains('voice_notes'))
+        db.createObjectStore('voice_notes', { keyPath: 'id' })
+      if (e.oldVersion < 2 && !db.objectStoreNames.contains('image_notes'))
+        db.createObjectStore('image_notes', { keyPath: 'id' })
     }
     req.onsuccess = () => {
-      _db = req.result
-      resolve(req.result)
+      const db = req.result
+      if (!db.objectStoreNames.contains(storeName)) {
+        db.close()
+        resolve([])
+        return
+      }
+      const tx = db.transaction(storeName, 'readonly')
+      const getAll = tx.objectStore(storeName).getAll()
+      getAll.onsuccess = () => {
+        db.close()
+        resolve(getAll.result as T[])
+      }
+      getAll.onerror = () => {
+        db.close()
+        reject(getAll.error)
+      }
     }
     req.onerror = () => reject(req.error)
   })
 }
 
-async function idbGetAll<T>(store: string): Promise<T[]> {
-  const db = await openDB()
-  return new Promise((resolve, reject) => {
-    const req = db.transaction(store, 'readonly').objectStore(store).getAll()
-    req.onsuccess = () => resolve(req.result as T[])
-    req.onerror = () => reject(req.error)
-  })
+async function runBlobMigration(db: ReturnType<typeof useDatabase>): Promise<void> {
+  if (typeof window === 'undefined') return
+  if (localStorage.getItem(MIGRATION_KEY) === '1') return
+
+  const voices = await legacyIdbGetAll<LegacyVoiceRecord>('habitat', 'voice_notes')
+  const images = await legacyIdbGetAll<LegacyImageRecord>('habitat', 'image_notes')
+
+  if (voices.length === 0 && images.length === 0) {
+    localStorage.setItem(MIGRATION_KEY, '1')
+    return
+  }
+
+  for (const v of voices) {
+    const bytes = new Uint8Array(await v.blob.arrayBuffer())
+    await blobAdapter.put(v.id, bytes)
+    await db.createVoiceNote({
+      id: v.id,
+      mime_type: v.mimeType,
+      duration: v.duration,
+      created_at: v.created_at,
+    })
+  }
+
+  for (const img of images) {
+    const bytes = new Uint8Array(await img.blob.arrayBuffer())
+    await blobAdapter.put(img.id, bytes)
+    await db.createImageNote({
+      id: img.id,
+      mime_type: img.mimeType,
+      filename: img.filename,
+      created_at: img.created_at,
+    })
+  }
+
+  localStorage.setItem(MIGRATION_KEY, '1')
 }
 
-export async function idbPut(store: string, value: object): Promise<void> {
-  const db = await openDB()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(store, 'readwrite')
-    tx.objectStore(store).put(value)
-    tx.oncomplete = () => resolve()
-    tx.onerror = () => reject(tx.error)
-  })
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+async function hydrateVoice(row: VoiceNoteRow): Promise<VoiceNote> {
+  const bytes = await blobAdapter.get(row.id)
+  const blob = bytes ? new Blob([bytes.slice()], { type: row.mime_type }) : new Blob()
+  return {
+    id: row.id,
+    blob,
+    mimeType: row.mime_type,
+    duration: row.duration,
+    created_at: row.created_at,
+    url: URL.createObjectURL(blob),
+  }
 }
 
-export async function idbDelete(store: string, id: string): Promise<void> {
-  const db = await openDB()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(store, 'readwrite')
-    tx.objectStore(store).delete(id)
-    tx.oncomplete = () => resolve()
-    tx.onerror = () => reject(tx.error)
-  })
+async function hydrateImage(row: ImageNoteRow): Promise<ImageNote> {
+  const bytes = await blobAdapter.get(row.id)
+  const blob = bytes ? new Blob([bytes.slice()], { type: row.mime_type }) : new Blob()
+  return {
+    id: row.id,
+    blob,
+    mimeType: row.mime_type,
+    filename: row.filename,
+    created_at: row.created_at,
+    url: URL.createObjectURL(blob),
+  }
 }
-
-export { IMAGE_STORE, VOICE_STORE }
 
 // ─── Composable ───────────────────────────────────────────────────────────────
 
@@ -114,13 +183,12 @@ export function useJotsStore() {
   })
 
   async function loadAll() {
+    await runBlobMigration(db)
     ;[scribbles.value, todos.value] = await Promise.all([db.getScribbles(), db.getTodos()])
-    const storedVoice = await idbGetAll<Omit<VoiceNote, 'url'>>(VOICE_STORE)
-    storedVoice.sort((a, b) => b.created_at.localeCompare(a.created_at))
-    voiceNotes.value = storedVoice.map((n) => ({ ...n, url: URL.createObjectURL(n.blob) }))
-    const storedImages = await idbGetAll<Omit<ImageNote, 'url'>>(IMAGE_STORE)
-    storedImages.sort((a, b) => b.created_at.localeCompare(a.created_at))
-    imageNotes.value = storedImages.map((n) => ({ ...n, url: URL.createObjectURL(n.blob) }))
+
+    const [voiceRows, imageRows] = await Promise.all([db.getVoiceNotes(), db.getImageNotes()])
+    voiceNotes.value = await Promise.all(voiceRows.map(hydrateVoice))
+    imageNotes.value = await Promise.all(imageRows.map(hydrateImage))
   }
 
   async function refreshScribbles() {
@@ -128,24 +196,40 @@ export function useJotsStore() {
   }
 
   async function addVoiceNote(note: Omit<VoiceNote, 'url'>): Promise<void> {
-    await idbPut(VOICE_STORE, note)
+    const bytes = new Uint8Array(await note.blob.arrayBuffer())
+    await blobAdapter.put(note.id, bytes)
+    await db.createVoiceNote({
+      id: note.id,
+      mime_type: note.mimeType,
+      duration: note.duration,
+      created_at: note.created_at,
+    })
     voiceNotes.value.unshift({ ...note, url: URL.createObjectURL(note.blob) })
   }
 
   async function deleteVoiceNote(note: VoiceNote): Promise<void> {
     if (note.url) URL.revokeObjectURL(note.url)
-    await idbDelete(VOICE_STORE, note.id)
+    await blobAdapter.delete(note.id)
+    await db.deleteVoiceNote(note.id)
     voiceNotes.value = voiceNotes.value.filter((n) => n.id !== note.id)
   }
 
   async function addImageNote(note: Omit<ImageNote, 'url'>, objectUrl: string): Promise<void> {
-    await idbPut(IMAGE_STORE, note)
+    const bytes = new Uint8Array(await note.blob.arrayBuffer())
+    await blobAdapter.put(note.id, bytes)
+    await db.createImageNote({
+      id: note.id,
+      mime_type: note.mimeType,
+      filename: note.filename,
+      created_at: note.created_at,
+    })
     imageNotes.value.unshift({ ...note, url: objectUrl })
   }
 
   async function deleteImageNote(note: ImageNote): Promise<void> {
     if (note.url) URL.revokeObjectURL(note.url)
-    await idbDelete(IMAGE_STORE, note.id)
+    await blobAdapter.delete(note.id)
+    await db.deleteImageNote(note.id)
     imageNotes.value = imageNotes.value.filter((n) => n.id !== note.id)
   }
 

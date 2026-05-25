@@ -120,6 +120,20 @@ export interface Scribble {
   updated_at: string
 }
 
+export interface VoiceNoteRow {
+  id: string
+  mime_type: string
+  duration: number
+  created_at: string
+}
+
+export interface ImageNoteRow {
+  id: string
+  mime_type: string
+  filename: string
+  created_at: string
+}
+
 export interface Reminder {
   id: string
   habit_id: string
@@ -363,6 +377,20 @@ export type WorkerRequest =
   | { id: string; type: 'GET_CONTEXT_TAGS' }
   | { id: string; type: 'GET_ALL_TAGS' }
   | { id: string; type: 'SEARCH_GLOBAL'; payload: { query: string } }
+  | { id: string; type: 'GET_VOICE_NOTES' }
+  | {
+      id: string
+      type: 'CREATE_VOICE_NOTE'
+      payload: Omit<VoiceNoteRow, never>
+    }
+  | { id: string; type: 'DELETE_VOICE_NOTE'; payload: { id: string } }
+  | { id: string; type: 'GET_IMAGE_NOTES' }
+  | {
+      id: string
+      type: 'CREATE_IMAGE_NOTE'
+      payload: Omit<ImageNoteRow, never>
+    }
+  | { id: string; type: 'DELETE_IMAGE_NOTE'; payload: { id: string } }
 
 export type TagSource = 'habit' | 'todo' | 'bored' | 'scribble'
 
@@ -429,16 +457,7 @@ export interface ExportSelection {
   todos: boolean
 }
 
-/**
- * Database adapter interface used by db-shared.ts.
- * Both WorkerDbAdapter (wa-sqlite) and NativeDbAdapter (Capacitor SQLite)
- * implement this interface, allowing all SQL + business logic to be shared.
- */
-export interface DbAdapter {
-  queryAll<T>(sql: string, bind?: unknown[]): Promise<T[]>
-  queryOne<T>(sql: string, bind?: unknown[]): Promise<T | null>
-  exec(sql: string, bind?: unknown[]): Promise<void>
-}
+export type { DbAdapter } from '@palladium/core'
 
 export type WorkerResponse<T = unknown> =
   | { id: string; ok: true; data: T }
