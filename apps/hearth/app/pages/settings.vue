@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import type { AppTheme, ColorMode, NlpTier } from '~/composables/useAppSettings'
+import { SUPPORTED_CURRENCIES } from '~/lib/currency/convert'
 import type { Account, HearthExport } from '~/types/database'
+
+const currencies = SUPPORTED_CURRENCIES
 
 const { settings, set, reset } = useAppSettings()
 const db = useDatabase()
@@ -210,7 +213,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
             aria-label="Home currency"
             @change="set('currency', ($event.target as HTMLSelectElement).value)"
           >
-            <option v-for="c in SUPPORTED_CURRENCIES" :key="c.code" :value="c.code">
+            <option v-for="c in currencies" :key="c.code" :value="c.code">
               {{ c.symbol }} {{ c.code }} — {{ c.name }}
             </option>
           </select>

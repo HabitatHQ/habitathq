@@ -113,3 +113,42 @@ describe('parseAmount — multi-currency', () => {
     expect(r?.currency).toBe('EUR')
   })
 })
+
+describe('parseAmount — INR', () => {
+  it('parses ₹500 as INR', () => {
+    const r = parseAmount('₹500')
+    expect(r?.amount).toBe(500)
+    expect(r?.confidence).toBe('high')
+    expect(r?.currency).toBe('INR')
+  })
+
+  it('parses ₹1,234.56 with comma thousands', () => {
+    const r = parseAmount('₹1,234.56')
+    expect(r?.amount).toBe(1234.56)
+    expect(r?.currency).toBe('INR')
+  })
+
+  it('parses "500 rupees" as INR', () => {
+    const r = parseAmount('500 rupees for chai')
+    expect(r?.amount).toBe(500)
+    expect(r?.currency).toBe('INR')
+  })
+
+  it('parses "1 rupee" as INR', () => {
+    const r = parseAmount('1 rupee')
+    expect(r?.amount).toBe(1)
+    expect(r?.currency).toBe('INR')
+  })
+
+  it('parses "500 INR" as INR', () => {
+    const r = parseAmount('500 INR')
+    expect(r?.amount).toBe(500)
+    expect(r?.currency).toBe('INR')
+  })
+
+  it('parses "₹ 750" with space after symbol', () => {
+    const r = parseAmount('₹ 750 dosa')
+    expect(r?.amount).toBe(750)
+    expect(r?.currency).toBe('INR')
+  })
+})

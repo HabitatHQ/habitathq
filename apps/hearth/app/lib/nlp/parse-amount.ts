@@ -5,10 +5,11 @@ const USD_RE = /\$\s?(\d{1,7}(?:,\d{3})*(?:\.\d{1,2})?)/
 const EUR_RE = /€\s?(\d{1,7}(?:,\d{3})*(?:\.\d{1,2})?)/
 const GBP_RE = /£\s?(\d{1,7}(?:,\d{3})*(?:\.\d{1,2})?)/
 const YEN_RE = /¥\s?(\d{1,9}(?:,\d{3})*)/
+const INR_RE = /₹\s?(\d{1,7}(?:,\d{3})*(?:\.\d{1,2})?)/
 
 // ── Word/code-suffixed amounts ────────────────────────────────────────────
 const AMOUNT_WORDS_RE =
-  /(\d{1,7}(?:,\d{3})*(?:\.\d{1,2})?)\s*(?:dollars?|bucks?|usd|euros?|eur|pounds?|gbp|yen|jpy|cad|aud)/i
+  /(\d{1,7}(?:,\d{3})*(?:\.\d{1,2})?)\s*(?:dollars?|bucks?|usd|euros?|eur|pounds?|gbp|yen|jpy|rupees?|inr|cad|aud)/i
 
 const CURRENCY_WORD_MAP: Record<string, string> = {
   dollar: 'USD',
@@ -24,6 +25,9 @@ const CURRENCY_WORD_MAP: Record<string, string> = {
   gbp: 'GBP',
   yen: 'JPY',
   jpy: 'JPY',
+  rupee: 'INR',
+  rupees: 'INR',
+  inr: 'INR',
   cad: 'CAD',
   aud: 'AUD',
 }
@@ -105,6 +109,17 @@ export function parseAmount(text: string): AmountResult | null {
       confidence: 'high',
       matchedText: yenMatch[0],
       currency: 'JPY',
+    }
+  }
+
+  // 3b. ₹500 style
+  const inrMatch = INR_RE.exec(text)
+  if (inrMatch?.[1]) {
+    return {
+      amount: Number.parseFloat(inrMatch[1].replace(/,/g, '')),
+      confidence: 'high',
+      matchedText: inrMatch[0],
+      currency: 'INR',
     }
   }
 

@@ -71,7 +71,7 @@ export default defineNuxtConfig({
           },
           {
             name: 'Add Expense',
-            url: `${appBaseURL}transactions/add`,
+            url: `${appBaseURL}transactions/quick`,
             description: 'Quickly add a transaction',
           },
           {

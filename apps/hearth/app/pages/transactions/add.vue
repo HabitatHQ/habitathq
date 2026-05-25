@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { SUPPORTED_CURRENCIES } from '~/lib/currency/convert'
 import type { Account, Category, User } from '~/types/database'
 import { formatCurrency } from '~/utils/format'
+
+const currencies = SUPPORTED_CURRENCIES
 
 const db = useDatabase()
 const router = useRouter()
@@ -221,6 +224,16 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
       </button>
     </div>
 
+    <div class="px-4 pt-2 flex justify-end">
+      <NuxtLink
+        to="/transactions/quick"
+        class="text-xs text-primary-400 hover:text-primary-300 transition-colors inline-flex items-center gap-1 min-h-[44px]"
+      >
+        <AppIcon name="bolt" class="w-3.5 h-3.5" />
+        Quick add
+      </NuxtLink>
+    </div>
+
     <div class="flex-1 overflow-y-auto">
 
       <!-- ── Type toggle ─────────────────────────────────────────────────── -->
@@ -337,7 +350,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
             class="flex-1 bg-transparent text-sm text-(--ui-text) focus:outline-none"
             aria-label="Currency"
           >
-            <option v-for="c in SUPPORTED_CURRENCIES" :key="c.code" :value="c.code">
+            <option v-for="c in currencies" :key="c.code" :value="c.code">
               {{ c.symbol }} {{ c.code }}
             </option>
           </select>

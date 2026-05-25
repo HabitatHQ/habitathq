@@ -188,7 +188,7 @@ async function autoSave(card: QuickAddCard) {
 
     toast.add({
       title: `Saved: ${card.merchant || 'Transaction'}`,
-      description: `${transactionAmountPrefix(card.type)}${formatAmount(card.amount)}`,
+      description: `${transactionAmountPrefix(card.type)}${formatAmount(card.amount, cardCurrency)}`,
       color: 'success' as const,
       duration: 5000,
       actions: [
@@ -575,7 +575,14 @@ function categoryLabel(id: string | null): string {
                   card.amountConfidence === 'low' ? 'bg-amber-500/10 px-1.5 py-0.5 rounded' : '',
                 ]"
               >
-                {{ transactionAmountPrefix(card.type) }}{{ formatAmount(card.amount) }}
+                {{ transactionAmountPrefix(card.type) }}{{ formatAmount(card.amount, card.currency || settings.currency) }}
+              </span>
+              <span
+                v-if="card.currency && card.currency !== settings.currency"
+                class="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary-500/10 text-primary-400"
+                aria-label="Currency"
+              >
+                {{ card.currency }}
               </span>
               <span class="text-xs text-(--ui-text-dimmed)">
                 {{ formatDateRelative(card.date) }}

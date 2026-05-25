@@ -366,7 +366,7 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
       </p>
       <div class="flex flex-col sm:flex-row items-center justify-center gap-2 pt-1">
         <NuxtLink
-          to="/transactions/add"
+          to="/transactions/quick"
           class="inline-flex items-center gap-1.5 px-4 py-2.5 bg-primary-500 hover:bg-primary-400 text-white text-sm font-semibold rounded-xl transition-colors min-h-[44px]"
         >
           <AppIcon name="plus" class="w-4 h-4" />
@@ -397,7 +397,7 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
       :style="{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom))' }"
     >
       <NuxtLink
-        to="/transactions/add"
+        to="/transactions/quick"
         class="flex items-center gap-2 bg-primary-500 hover:bg-primary-400 text-white font-semibold rounded-2xl px-5 py-3.5 shadow-lg shadow-primary-500/30 transition-all active:scale-95 min-h-[44px]"
         aria-label="Add transaction"
       >

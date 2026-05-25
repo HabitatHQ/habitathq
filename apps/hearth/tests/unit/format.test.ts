@@ -52,6 +52,12 @@ describe('formatAmount', () => {
   it('formats zero', () => {
     expect(formatAmount(0)).toBe('$0.00')
   })
+
+  it('honours the currency argument', () => {
+    expect(formatAmount(50, 'EUR')).toContain('€')
+    expect(formatAmount(50, 'GBP')).toContain('£')
+    expect(formatAmount(500, 'INR')).toContain('₹')
+  })
 })
 
 // ── splitCurrencyParts ────────────────────────────────────────────────────
@@ -420,6 +426,9 @@ describe('getCurrencySymbol', () => {
   })
   it('returns ¥ for JPY', () => {
     expect(getCurrencySymbol('JPY')).toBe('¥')
+  })
+  it('returns ₹ for INR', () => {
+    expect(getCurrencySymbol('INR')).toBe('₹')
   })
 })
 

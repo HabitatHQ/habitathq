@@ -181,6 +181,44 @@ export const SCHEMA_DDL = `
   );
 `
 
+/**
+ * Insert a default user + account if the DB has none. Idempotent: skips if
+ * either table is already populated, so existing installs are untouched and
+ * running twice on a fresh DB does nothing the second time.
+ */
+export async function seedDefaults(db: DbAdapter): Promise<void> {
+  const existingUser = await db.queryOne<{ id: string }>('SELECT id FROM users LIMIT 1')
+  const existingAccount = await db.queryOne<{ id: string }>('SELECT id FROM accounts LIMIT 1')
+  if (existingUser && existingAccount) return
+
+  const now = new Date().toISOString()
+  let userId = existingUser?.id
+  if (!userId) {
+    userId = crypto.randomUUID()
+    await db.exec(
+      'INSERT INTO users (id, name, role, avatar_emoji, color, is_current, created_at) VALUES (?,?,?,?,?,?,?)',
+      [userId, 'Me', 'owner', '🏠', '#f59e0b', 1, now],
+    )
+  }
+  if (!existingAccount) {
+    await db.exec(
+      'INSERT INTO accounts (id, user_id, name, type, balance, currency, color, icon, is_active, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+      [
+        crypto.randomUUID(),
+        userId,
+        'Cash',
+        'checking',
+        0,
+        'USD',
+        '#f59e0b',
+        'i-lucide-wallet',
+        1,
+        now,
+      ],
+    )
+  }
+}
+
 export async function runMigrations(db: DbAdapter): Promise<void> {
   const rows = await db.queryAll<{ user_version: number }>('PRAGMA user_version')
   const version = rows[0]?.user_version ?? 0
@@ -190,8 +228,13 @@ export async function runMigrations(db: DbAdapter): Promise<void> {
   // Stamp the DB at the current version and skip the upgrade path entirely.
   if (version === 0) {
     await db.exec(`PRAGMA user_version = ${CURRENT_USER_VERSION}`)
+    await seedDefaults(db)
     return
   }
+
+  // Existing installs that pre-dated the seed step but never created a
+  // user/account through UI: backfill the defaults so the app is usable.
+  await seedDefaults(db)
 
   if (version < 1) {
     await db.exec('PRAGMA user_version = 1')

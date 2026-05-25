@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { SUPPORTED_CURRENCIES } from '~/lib/currency/convert'
 import type { Account, Category, User } from '~/types/database'
 import { formatCurrency } from '~/utils/format'
+
+const currencies = SUPPORTED_CURRENCIES
 
 const db = useDatabase()
 const router = useRouter()
@@ -291,7 +294,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
             class="flex-1 bg-transparent text-sm text-(--ui-text) focus:outline-none"
             aria-label="Currency"
           >
-            <option v-for="c in SUPPORTED_CURRENCIES" :key="c.code" :value="c.code">
+            <option v-for="c in currencies" :key="c.code" :value="c.code">
               {{ c.symbol }} {{ c.code }}
             </option>
           </select>
