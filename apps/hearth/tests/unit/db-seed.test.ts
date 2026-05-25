@@ -1,7 +1,7 @@
 import type { DbAdapter } from '@habitathq/db'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
-import { runMigrations, SCHEMA_DDL } from '~/lib/db-schema'
+import { SCHEMA_CONFIG, SCHEMA_DDL } from '~/lib/db-schema'
 
 function nodeAdapter(db: DatabaseSync): DbAdapter {
   return {
@@ -26,24 +26,45 @@ async function freshDb(): Promise<DbAdapter> {
   return adapter
 }
 
-describe('runMigrations — fresh install seed', () => {
+async function runSeedDefaults(adapter: DbAdapter): Promise<void> {
+  const seeds = SCHEMA_CONFIG.seeds
+  if (!seeds) return
+  for (const seed of seeds) {
+    const exec = async <T = Record<string, unknown>>(
+      sql: string,
+      params?: unknown[],
+    ): Promise<T[]> => {
+      if (
+        sql.trim().toUpperCase().startsWith('SELECT') ||
+        sql.trim().toUpperCase().startsWith('PRAGMA')
+      ) {
+        return adapter.queryAll<T>(sql, params)
+      }
+      await adapter.exec(sql, params)
+      return []
+    }
+    await seed.apply(exec)
+  }
+}
+
+describe('SCHEMA_CONFIG seeds — fresh install', () => {
   it('seeds at least one user', async () => {
     const adapter = await freshDb()
-    await runMigrations(adapter)
+    await runSeedDefaults(adapter)
     const users = await adapter.queryAll<{ id: string }>('SELECT id FROM users')
     expect(users.length).toBeGreaterThan(0)
   })
 
   it('seeds at least one account', async () => {
     const adapter = await freshDb()
-    await runMigrations(adapter)
+    await runSeedDefaults(adapter)
     const accounts = await adapter.queryAll<{ id: string }>('SELECT id FROM accounts')
     expect(accounts.length).toBeGreaterThan(0)
   })
 
   it('seeded user is marked is_current = 1', async () => {
     const adapter = await freshDb()
-    await runMigrations(adapter)
+    await runSeedDefaults(adapter)
     const current = await adapter.queryOne<{ id: string }>(
       'SELECT id FROM users WHERE is_current = 1',
     )
@@ -52,8 +73,8 @@ describe('runMigrations — fresh install seed', () => {
 
   it('is idempotent — running twice does not duplicate seed rows', async () => {
     const adapter = await freshDb()
-    await runMigrations(adapter)
-    await runMigrations(adapter)
+    await runSeedDefaults(adapter)
+    await runSeedDefaults(adapter)
     const users = await adapter.queryAll<{ id: string }>('SELECT id FROM users')
     const accounts = await adapter.queryAll<{ id: string }>('SELECT id FROM accounts')
     expect(users.length).toBe(1)
@@ -62,9 +83,8 @@ describe('runMigrations — fresh install seed', () => {
 
   it('does not overwrite existing user/account on an already-populated DB', async () => {
     const adapter = await freshDb()
-    await runMigrations(adapter)
+    await runSeedDefaults(adapter)
     const seededUser = await adapter.queryOne<{ id: string }>('SELECT id FROM users LIMIT 1')
-    // Simulate a user adding a second account manually
     await adapter.exec(
       'INSERT INTO accounts (id, user_id, name, type, balance, currency, color, icon, is_active, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
       [
@@ -80,8 +100,7 @@ describe('runMigrations — fresh install seed', () => {
         new Date().toISOString(),
       ],
     )
-    // Re-running migrations should not wipe the user's added account
-    await runMigrations(adapter)
+    await runSeedDefaults(adapter)
     const accounts = await adapter.queryAll<{ id: string }>('SELECT id FROM accounts')
     expect(accounts.length).toBe(2)
   })

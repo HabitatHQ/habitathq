@@ -42,6 +42,7 @@
     "@habitathq/utils": "workspace:*",
     "@palladium/core": "workspace:*",
     "@palladium/nuxt": "workspace:*",
+    "@palladium/sqlite-browser": "workspace:*",
     "@palladium/sqlite-capacitor": "workspace:*",
     "@capacitor/camera": "^8.1.0",
     "@capacitor/local-notifications": "^8.0.1",
