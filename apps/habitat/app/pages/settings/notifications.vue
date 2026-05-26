@@ -41,7 +41,7 @@ onMounted(() => {
 
     <section class="space-y-2">
       <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Permission</p>
-      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
 
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5 min-w-0">
@@ -83,7 +83,7 @@ onMounted(() => {
 
     <section class="space-y-2">
       <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Testing</p>
-      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
 
         <!-- Test notification -->
         <div class="flex items-center justify-between px-4 py-3.5">
@@ -130,7 +130,7 @@ onMounted(() => {
 
     <section class="space-y-2">
       <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Log</p>
-      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
 
         <!-- Notification log -->
         <div>

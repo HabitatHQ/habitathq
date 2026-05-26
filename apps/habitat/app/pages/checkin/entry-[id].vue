@@ -152,7 +152,7 @@ onMounted(async () => {
 
     <!-- Loading -->
     <div v-if="loading" class="flex items-center justify-center py-12">
-      <AppIcon name="arrow-path" class="w-5 h-5 animate-spin text-slate-600" />
+      <AppIcon name="arrow-path" class="w-5 h-5 animate-spin text-(--ui-text-muted)" />
     </div>
 
     <!-- Not found -->

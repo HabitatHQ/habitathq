@@ -199,7 +199,7 @@ onMounted(async () => {
 
     <!-- Loading -->
     <div v-if="loading" class="flex items-center justify-center py-12">
-      <AppIcon name="arrow-path" class="w-5 h-5 animate-spin text-slate-600" />
+      <AppIcon name="arrow-path" class="w-5 h-5 animate-spin text-(--ui-text-muted)" />
     </div>
 
     <!-- Not found -->
@@ -260,7 +260,7 @@ onMounted(async () => {
       </div>
 
       <!-- ── Add question ───────────────────────────────────────────────────── -->
-      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
         <div class="px-4 pt-3.5 pb-3 flex items-center justify-between cursor-pointer" @click="showAddQuestion = !showAddQuestion">
           <p class="text-xs font-semibold text-(--ui-text-muted)">Add Question</p>
           <UButton
@@ -327,7 +327,7 @@ onMounted(async () => {
       </UCard>
 
       <!-- ── Reminders ─────────────────────────────────────────────────────── -->
-      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
         <div class="px-4 pt-3.5 pb-3 flex items-center justify-between cursor-pointer" @click="showAddReminder = !showAddReminder">
           <p class="text-xs font-semibold text-(--ui-text-muted)">Reminders</p>
           <UButton

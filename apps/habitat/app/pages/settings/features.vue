@@ -109,7 +109,7 @@ async function confirmHealthSetup() {
 
     <section class="space-y-2">
       <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Feature flags</p>
-      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
 
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
@@ -205,7 +205,7 @@ async function confirmHealthSetup() {
     <!-- Pomodoro -->
     <section v-if="appSettings.enableTimer" class="space-y-2">
       <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Pomodoro</p>
-      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
 
         <div class="flex items-center justify-between px-4 py-3.5">
           <p class="text-sm font-medium">Work block</p>

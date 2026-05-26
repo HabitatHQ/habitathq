@@ -1,0 +1,156 @@
+/* Shared animation design system — Emil Kowalski design engineering principles */
+
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+
+  --duration-fast: 160ms;
+  --duration-normal: 250ms;
+  --duration-exit: 200ms;
+}
+
+/* Button press feedback — scale(0.97) on :active */
+.btn-press {
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+.btn-press:active {
+  transform: scale(0.97);
+}
+
+/* Apply press feedback to all Nuxt UI buttons */
+[data-part="base"][data-scope="button"],
+button[class*="UButton"],
+a[class*="UButton"] {
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+[data-part="base"][data-scope="button"]:active,
+button[class*="UButton"]:active,
+a[class*="UButton"]:active {
+  transform: scale(0.97);
+}
+
+/* Stagger entrance — parent adds .stagger-list, children animate in */
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.stagger-list > * {
+  animation: fadeSlideIn 300ms var(--ease-out) both;
+}
+.stagger-list > :nth-child(1) { animation-delay: 0ms; }
+.stagger-list > :nth-child(2) { animation-delay: 50ms; }
+.stagger-list > :nth-child(3) { animation-delay: 100ms; }
+.stagger-list > :nth-child(4) { animation-delay: 150ms; }
+.stagger-list > :nth-child(5) { animation-delay: 200ms; }
+.stagger-list > :nth-child(6) { animation-delay: 250ms; }
+.stagger-list > :nth-child(7) { animation-delay: 300ms; }
+.stagger-list > :nth-child(8) { animation-delay: 350ms; }
+.stagger-list > :nth-child(n + 9) { animation-delay: 0ms; animation-duration: 0ms; opacity: 1; }
+
+/* Sheet backdrop */
+.sheet-backdrop {
+  transition: opacity var(--duration-exit) var(--ease-out);
+}
+.sheet-backdrop-enter {
+  opacity: 0;
+}
+
+/* Sheet slide-up (mobile bottom sheet) */
+.sheet-slide-enter-active,
+.sheet-slide-leave-active {
+  transition: opacity var(--duration-normal) var(--ease-out), transform var(--duration-normal) var(--ease-drawer);
+}
+.sheet-slide-leave-active {
+  transition-duration: var(--duration-exit);
+}
+.sheet-slide-enter-from,
+.sheet-slide-leave-to {
+  opacity: 0;
+  transform: translateY(100%);
+}
+
+/* Sheet scale (centered modal on desktop) */
+.sheet-scale-enter-active,
+.sheet-scale-leave-active {
+  transition: opacity var(--duration-normal) var(--ease-out), transform var(--duration-normal) var(--ease-out);
+}
+.sheet-scale-leave-active {
+  transition-duration: var(--duration-exit);
+}
+.sheet-scale-enter-from,
+.sheet-scale-leave-to {
+  opacity: 0;
+  transform: scale(0.95);
+}
+
+/* Collapsible expand/collapse via grid-template-rows */
+.collapsible-grid {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--duration-normal) var(--ease-out), opacity var(--duration-normal) var(--ease-out);
+  opacity: 0;
+}
+.collapsible-grid[data-open] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.collapsible-grid > * {
+  overflow: hidden;
+}
+
+/* Reduce motion — fewer/gentler animations, not zero */
+@media (prefers-reduced-motion: reduce) {
+  .btn-press:active {
+    transform: none;
+  }
+  .stagger-list > * {
+    animation: none;
+    opacity: 1;
+  }
+  .sheet-slide-enter-active,
+  .sheet-slide-leave-active,
+  .sheet-scale-enter-active,
+  .sheet-scale-leave-active {
+    transition-duration: 0ms;
+  }
+  .collapsible-grid {
+    transition-duration: 0ms;
+  }
+  .animate-pulse {
+    animation: none;
+  }
+  .animate-spin {
+    animation: none;
+  }
+}
+
+html.reduce-motion .btn-press:active {
+  transform: none;
+}
+html.reduce-motion .stagger-list > * {
+  animation: none;
+  opacity: 1;
+}
+html.reduce-motion .sheet-slide-enter-active,
+html.reduce-motion .sheet-slide-leave-active,
+html.reduce-motion .sheet-scale-enter-active,
+html.reduce-motion .sheet-scale-leave-active {
+  transition-duration: 0ms;
+}
+html.reduce-motion .collapsible-grid {
+  transition-duration: 0ms;
+}
+html.reduce-motion .animate-pulse {
+  animation: none;
+}
+html.reduce-motion .animate-spin {
+  animation: none;
+}

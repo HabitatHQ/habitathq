@@ -72,7 +72,7 @@ function resetTabOrder() {
 
     <section class="space-y-2">
       <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Appearance</p>
-      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
 
         <!-- Theme swatches -->
         <div class="flex items-center justify-between px-4 py-3">
@@ -151,7 +151,7 @@ function resetTabOrder() {
 
     <section class="space-y-2">
       <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Layout</p>
-      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
 
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
@@ -191,7 +191,7 @@ function resetTabOrder() {
 
     <section class="space-y-2">
       <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Navigation</p>
-      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
 
         <div class="flex items-center justify-between px-4 py-3">
           <div class="space-y-0.5">
@@ -220,7 +220,7 @@ function resetTabOrder() {
         </button>
       </div>
       <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0' }">
-        <div ref="tabOrderContainerRef" class="divide-y divide-slate-800">
+        <div ref="tabOrderContainerRef" class="divide-y divide-(--ui-border)">
           <div
             v-for="(item, index) in orderedNavItems"
             :key="item.to"
@@ -244,7 +244,7 @@ function resetTabOrder() {
 
     <section class="space-y-2">
       <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Matrix view</p>
-      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
 
         <div class="flex items-center justify-between px-4 py-3">
           <p class="text-sm text-(--ui-text-muted)">Days to show (mobile)</p>
@@ -274,7 +274,7 @@ function resetTabOrder() {
 
     <section class="space-y-2">
       <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Habits page</p>
-      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
 
         <div class="flex items-center justify-between px-4 py-3">
           <div class="space-y-0.5">
@@ -303,7 +303,7 @@ function resetTabOrder() {
 
     <section class="space-y-2">
       <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Today page</p>
-      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
 
         <div class="flex items-center justify-between px-4 py-3">
           <div class="space-y-0.5">
@@ -332,7 +332,7 @@ function resetTabOrder() {
 
     <section class="space-y-2">
       <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Log entries</p>
-      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
 
         <div class="px-4 py-3 pb-4 space-y-2">
           <p class="text-sm font-medium">Input mode</p>

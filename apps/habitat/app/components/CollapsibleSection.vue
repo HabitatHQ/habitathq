@@ -1,36 +1,13 @@
 <script setup lang="ts">
-const props = defineProps<{
+defineProps<{
   label: string
   openLabel?: string
   defaultOpen?: boolean
 }>()
-
-const open = ref(props.defaultOpen ?? false)
-
-const buttonLabel = computed(() => (open.value && props.openLabel ? props.openLabel : props.label))
-const { impact } = useHaptics()
-
-function toggle() {
-  open.value = !open.value
-  void impact('light')
-}
 </script>
 
 <template>
-  <div>
-    <button
-      type="button"
-      class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1.5 transition-colors"
-      @click="toggle"
-    >
-      <AppIcon
-        :name="open ? 'chevron-down' : 'chevron-right'"
-        class="w-3.5 h-3.5"
-      />
-      {{ buttonLabel }}
-    </button>
-    <div v-if="open" class="mt-2">
-      <slot />
-    </div>
-  </div>
+  <AppCollapsible :label="label" :open-label="openLabel" :default-open="defaultOpen">
+    <slot />
+  </AppCollapsible>
 </template>
