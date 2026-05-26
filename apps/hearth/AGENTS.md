@@ -1,132 +1,77 @@
+---
+scope: apps/hearth
+applies_to: "apps/hearth/**"
+last_verified: 2026-05-26
+---
+
 # Hearth — Agent Guide
 
 Family expense tracker + envelope budgeting. Local-first PWA (Nuxt 4 SPA + Capacitor 8). Multi-user household. Self-hostable backend (Rust/Axum + Postgres — phase 2).
 
-## Commands
+> Read root `AGENTS.md` first — shared Nuxt+Capacitor architecture, DB-op pattern, schema migrations, and TypeScript conventions live there.
+
+## Verify
 
 ```bash
-pnpm dev              # Dev server (PWA)
-pnpm build:pwa        # Build PWA
-pnpm build:native     # Build + cap sync
-pnpm check:fix        # Lint + format (run before finishing)
-pnpm typecheck        # TypeScript check
-pnpm test:unit        # Vitest unit tests
-pnpm test:e2e         # Playwright e2e tests
-pnpm test:a11y        # Playwright a11y audit
-pnpm cap:run:ios      # Run on iOS
-pnpm cap:run:android  # Run on Android
+pnpm --filter hearth verify
 ```
-
-## Architecture
-
-**Web**: Pages → `useDatabase()` composable → `database.client.ts` plugin (UUID message bus) → `database.worker.ts` (`BrowserSqliteAdapter` via `@palladium/sqlite-browser`, `opfs-sah-pool` VFS)
-
-**Native**: Same composable → `db-native.ts` (`CapacitorSqliteAdapter` via `@palladium/sqlite-capacitor`, no worker)
-
-Both paths share `WorkerRequest` / `WorkerResponse` message types defined in `app/types/database.ts`. Uses `DbAdapter` / `toDbAdapter` / `toCapacitorDbAdapter` from `@palladium/core`. Schema migrations are managed via Palladium's `SchemaConfig` + `applySchema()`.
 
 ## Offline parity
 
-Native (Capacitor) builds and the PWA (when assets are pre-fetched) work fully offline:
+Native (Capacitor) and the PWA (with assets pre-fetched) work fully offline:
 
 - **Storage**: SQLite (WASM/OPFS on web, Capacitor SQLite on native).
 - **Icons**: Lucide bundled at build time via the `habitat-shared` Nuxt layer.
-- **OCR**: Tesseract `eng.traineddata.gz` (~10 MB) bundled in `public/tessdata/`.
-- **NLP embeddings** (smart categorization): Xenova `all-MiniLM-L6-v2` (~23 MB) + onnxruntime-web wasm (~13 MB) bundled in `public/models/` and `public/onnx-wasm/`.
-- **Reset Database**: Settings → Reset works on native (closes connection, deletes the Capacitor SQLite db, reloads).
-- **JSON import/export**: round-trip both web and native.
+- **OCR**: Tesseract `eng.traineddata.gz` (~10 MB) in `public/tessdata/`.
+- **NLP embeddings**: Xenova `all-MiniLM-L6-v2` (~23 MB) + onnxruntime-web wasm (~13 MB) in `public/models/` + `public/onnx-wasm/`.
+- **Reset DB**: Settings → Reset closes the connection, deletes the Capacitor SQLite db, reloads.
+- **JSON import/export**: round-trips both web and native.
 
-`scripts/fetch-offline-assets.mjs` downloads the binary assets (~46 MB total, gitignored). It runs automatically before `build:native` (`prebuild:native`). For the PWA it stays opt-in (`pnpm fetch:assets`) so casual web visitors don't pay the precache.
+`scripts/fetch-offline-assets.mjs` downloads the ~46 MB binary assets (gitignored). Runs automatically before `build:native` (`prebuild:native`). PWA users opt in via `pnpm fetch:assets`.
 
-## Key Files
+## Schema (`user_version = 9`)
 
-| File | Purpose |
-|------|---------|
-| `app/workers/database.worker.ts` | SQLite WASM engine, full Hearth schema, migrations, message handler |
-| `app/lib/db-native.ts` | Capacitor SQLite mirror (native only) |
-| `app/plugins/database.client.ts` | Worker lifecycle, UUID request/response bus |
-| `app/composables/useDatabase.ts` | All DB operations exposed to pages |
-| `app/composables/useAppSettings.ts` | UI prefs + feature flags (localStorage) |
-| `app/types/database.ts` | All types, `WorkerRequest` union, export/import types |
-| `app/layouts/default.vue` | Header + bottom nav (Dashboard / Transactions / Envelopes / Reports) |
-| `app/utils/format.ts` | Currency formatting, date helpers |
+users, accounts, categories, transactions, envelopes, envelope_periods, iou_splits, savings_goals, chores, applied_defaults, _palladium_seeds.
 
-## Icons
+## Routes
 
-Hearth extends `@habitathq/shared` (Nuxt layer at `libs/habitat-shared`), which auto-imports the cross-app icon registry and `<AppIcon>` wrapper.
+Bottom tabs: Dashboard `/` · Transactions `/transactions` · Envelopes `/envelopes` · Reports `/reports`.
 
-- Use `<AppIcon name="semantic-key" class="…" />` instead of `<UIcon name="i-…">`
-- For `:icon=` props on `UButton`/`UAlert`/etc., use `:icon="resolveIcon('semantic-key')"`
-- Lucide is bundled at build time via `@iconify-json/lucide` so icons render offline (PWA + native)
-- The registry lives in `libs/habitat-utils/src/icons.ts` — add new entries there if a needed icon is missing
+Sub-pages: `/transactions/add` (FAB), `/household` (IOU balances), `/settings` (avatar menu).
 
-## Schema (user_version = 9, managed by Palladium SchemaConfig)
+Pass-through parents: `transactions.vue`, `envelopes.vue`.
 
-**Tables**: users, accounts, categories, transactions, envelopes, envelope_periods, iou_splits, savings_goals, chores, applied_defaults, _palladium_seeds
+## Hearth-specific conventions
 
-## Adding a DB Operation
+### Icons (offline-safe)
 
-1. Add message type to `WorkerRequest` union in `app/types/database.ts`
-2. Implement in `database.worker.ts` (SQL query in the `switch` handler)
-3. Mirror in `db-native.ts` (Capacitor SQLite)
-4. Expose in `useDatabase.ts` via `sendToWorker()`
+Use `<AppIcon name="semantic-key" />` from `@habitathq/shared`, **not** `<UIcon name="i-…">` (semgrep warns). For `:icon=` props on `UButton`/`UAlert`, use `resolveIcon('semantic-key')`. Lucide is bundled at build time. Add missing entries to `libs/habitat-utils/src/icons.ts`.
 
-Schema changes: increment `version` in `SCHEMA_CONFIG` (in `db-schema.ts`), add migration SQL/callback to the `migrations` map. Both worker and native paths use `applySchema(storage, SCHEMA_CONFIG)` automatically.
+### UI colour semantics (always paired with icon/text — never colour alone)
 
-## Navigation
+| Meaning | Class |
+|---------|-------|
+| Income · positive balance · fully-funded envelope | `text-green-*` / `bg-green-*/10` |
+| Warning · envelope < 30% remaining | `text-amber-*` / `bg-amber-*/10` |
+| Overspent · expense accent · negative balance | `text-rose-*` / `bg-rose-*/10` |
+| Transfer · neutral | `text-(--ui-text-muted)` |
 
-Bottom tabs: `Dashboard` (`/`) · `Transactions` (`/transactions`) · `Envelopes` (`/envelopes`) · `Reports` (`/reports`)
+Transaction left stripe (3px): income `border-l-4 border-green-500`, expense `border-l-4 border-(--ui-border-accented)`, transfer `border-l-4 border-dashed border-(--ui-border)`.
 
-Sub-pages (no tab):
-- `/transactions/add` — Add transaction (FAB)
-- `/household` — IOU balances (linked from dashboard widget)
-- `/settings` — App settings (avatar menu in header)
+Envelope bar: green ≥ 30% remaining · amber 10–30% · rose overspent.
 
-Pass-through parent pages (`transactions.vue`, `envelopes.vue`) contain `<NuxtPage />` for nested routing.
+### Other UI rules
 
-## UI Conventions
+- **Financial numbers**: `font-mono`. Large amounts pair `text-2xl font-bold` dollars with `text-sm` cents.
+- **Touch targets**: min 44×44px (`min-h-[44px] min-w-[44px]` or `p-3`).
+- **Safe areas**: header top `calc(0.75rem + env(safe-area-inset-top))`, bottom nav `env(safe-area-inset-bottom)`.
 
-**Color meaning** (must be paired with icon/text, never color alone):
-- `text-green-*` / `bg-green-*/10` — income, positive balance, fully funded envelope
-- `text-amber-*` / `bg-amber-*/10` — warning, envelope < 30% remaining
-- `text-rose-*` / `bg-rose-*/10` — overspent envelope, expense accent, negative balance
-- `text-(--ui-text-muted)` / no stripe — transfer, neutral
+## Testing layout
 
-**Transaction left stripe** (3px left border):
-- Income: `border-l-4 border-green-500`
-- Expense: `border-l-4 border-(--ui-border-accented)` (muted)
-- Transfer: `border-l-4 border-dashed border-(--ui-border)` (neutral)
-
-**Envelope bar**: `<progress>` or `<div>` with animated width. Colors:
-- `bg-green-500` when ≥30% remaining
-- `bg-amber-500` when 10–30% remaining
-- `bg-rose-500` when overspent
-
-**Financial numbers**: `font-mono` class for precision. Large amounts pair `text-2xl font-bold` dollars with `text-sm` cents.
-
-**Touch targets**: Minimum 44×44px on all interactive elements. Use `min-h-[44px] min-w-[44px]` or `p-3` to meet requirement.
-
-**Safe areas**: Header top: `calc(0.75rem + env(safe-area-inset-top))`. Bottom nav: `env(safe-area-inset-bottom)`.
+`tests/unit/` (vitest + happy-dom) · `tests/integration/` (@vue/test-utils + mocked worker) · `tests/e2e/` (Playwright) · `tests/a11y/` (Playwright + `@axe-core/playwright`, 44px target audit).
 
 ## Config
 
-- `nuxt.config.ts` — COOP/COEP headers (required for OPFS/SharedArrayBuffer), `BUILD_TARGET` env for pwa vs native
-- `capacitor.config.ts` — appId `app.hearth.family`, webDir `.output/public`
-- `app/app.config.ts` — Nuxt UI: primary `amber`, neutral `slate`
-- `biome.json` — linter + formatter (single quotes, 2-space indent, 100 char line width)
-
-## Testing (TDD)
-
-Write failing tests first (red), then implement (green).
-
-**Unit tests** (`tests/unit/`): Pure functions (format.ts, date helpers). Use `vitest` + `happy-dom`.
-
-**Integration tests** (`tests/integration/`): DB composable with mocked worker. `@vue/test-utils` + vitest.
-
-**E2E tests** (`tests/e2e/`): Full navigation flow, dashboard render, add transaction form. Playwright.
-
-**A11y tests** (`tests/a11y/`): axe-core on every page, touch target audit (44px), keyboard navigation. Playwright + `@axe-core/playwright`.
-
-## Guardrails
-
-See root `CLAUDE.md` → Guardrails for the mechanically-enforced rules. Hearth-specific: semgrep warns on `<UIcon name=…>` — use `<AppIcon name=…>` instead (see Icons section above).
+- `capacitor.config.ts` — appId `app.hearth.family`, webDir `.output/public`.
+- `app/app.config.ts` — Nuxt UI: primary `amber`, neutral `slate`.
+- `biome.json` — single quotes, 2-space, 100-char.

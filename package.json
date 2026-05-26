@@ -16,6 +16,7 @@
     "test:unit": "pnpm -r test:unit",
     "test": "pnpm -r test",
     "ci": "pnpm -r ci && pnpm lint:deps && pnpm dedupe:check",
+    "verify": "pnpm ci",
     "clean": "pnpm -r clean",
     "lint:semgrep": "semgrep scan --config semgrep.yml --metrics=off --error --severity=ERROR --quiet",
     "lint:semgrep:all": "semgrep scan --config semgrep.yml --metrics=off --quiet apps libs",

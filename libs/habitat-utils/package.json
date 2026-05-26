@@ -17,8 +17,9 @@
   ],
   "scripts": {
     "lint": "biome check src",
-    "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",

@@ -1,0 +1,12 @@
+# Aider configuration — agent picks up AGENTS.md tree on startup.
+# https://aider.chat/docs/config/aider_conf.html
+read:
+  - AGENTS.md
+  - apps/habitat/AGENTS.md
+  - apps/hearth/AGENTS.md
+  - apps/halcyon/AGENTS.md
+  - apps/hephaestus/AGENTS.md
+  - libs/palladium/AGENTS.md
+  - libs/habitat-db/AGENTS.md
+  - libs/habitat-shared/AGENTS.md
+  - libs/habitat-utils/AGENTS.md

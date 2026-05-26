@@ -21,6 +21,7 @@
     "cap:copy": "cap copy",
     "typecheck": "tsgo --noEmit",
     "typecheck:vue": "nuxt typecheck",
+    "typecheck:all": "tsgo --noEmit && nuxt typecheck",
     "lint": "biome lint .",
     "lint:fix": "biome lint --write .",
     "format": "biome format --write .",
@@ -30,7 +31,8 @@
     "test:unit:watch": "vitest",
     "test:e2e": "playwright test",
     "test": "vitest run && playwright test",
-    "ci": "pnpm check && pnpm typecheck && pnpm test:unit"
+    "ci": "pnpm check && pnpm typecheck && pnpm test:unit",
+    "verify": "pnpm ci"
   },
   "dependencies": {
     "@capacitor-community/sqlite": "^8.0.0",

@@ -174,3 +174,30 @@ ci: lint test deny audit
 
 # Pre-release check (includes machete)
 preflight: ci machete typecheck-ts
+
+# ── Per-package verify ────────────────────────────────────────────────────────
+
+# Verify a single package (delegates to its `verify` script)
+verify pkg:
+    pnpm --filter {{pkg}} verify
+
+# ── Toolchain ─────────────────────────────────────────────────────────────────
+
+# Toolchain doctor — reports versions, flags mise.toml mismatches
+doctor:
+    @bash scripts/doctor.sh
+
+# ── Changed-only ──────────────────────────────────────────────────────────────
+
+# Lint files changed vs base ref (default: origin/main)
+lint-changed base="origin/main":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    files=$(git diff --name-only {{base}}...HEAD -- '*.ts' '*.tsx' '*.vue' '*.js' '*.mjs' '*.cjs' '*.json' 2>/dev/null || true)
+    if [[ -z "$files" ]]; then echo "no TS/Vue changes vs {{base}}"; exit 0; fi
+    echo "$files" | tr '\n' '\0' | xargs -0 pnpm exec biome check
+    echo "$files" | tr '\n' '\0' | xargs -0 pnpm lint:semgrep
+
+# Run unit tests only for packages changed vs base ref (pnpm filter syntax)
+test-changed base="origin/main":
+    pnpm --filter "...[{{base}}]" test:unit

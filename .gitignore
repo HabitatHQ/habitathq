@@ -58,6 +58,7 @@ Thumbs.db:encryptable
 .vscode/
 .vs/
 .aider*
+!.aider.conf.yml
 
 # Claude Code — track shared hooks, ignore local settings
 .claude/*

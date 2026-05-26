@@ -1,6 +1,18 @@
+---
+scope: libs/palladium
+applies_to: "libs/palladium/**"
+last_verified: 2026-05-26
+---
+
 # Palladium — Agent Instructions
 
 Local-first sync engine. **Rust backend + TypeScript frontend**, part of habitat-monorepo.
+
+## Verify
+
+```bash
+just lint && just test
+```
 
 ## Layout
 
@@ -49,19 +61,16 @@ just test                             # test TS + Rust
 just ci                               # full CI pipeline
 ```
 
-## Tooling
+## Tooling (palladium-specific)
 
-- **TS lint + format**: Biome (extends root `biome.json` — double quotes, semicolons, stricter rules)
-- **TS tests**: Vitest (workspace at `libs/palladium/vitest.workspace.ts`)
-- **TS base tsconfig**: `libs/palladium/tsconfig.base.json` (packages extend via `../tsconfig.base.json`)
-- **TypeScript**: Strict — `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`
-- **Rust lint**: Clippy with workspace lints (`-D warnings`)
-- **Rust security**: `cargo deny` (`deny.toml`), `cargo audit`, `cargo machete`
-- **Mutation testing**: Stryker (TS) at `libs/palladium/stryker.config.mjs`; cargo-mutants (Rust)
-- **Pre-commit**: `lefthook.yml` at root (biome + clippy + taplo + prettier + semgrep + size + manifest guard)
-- **Toolchain**: `mise.toml` at root (node, pnpm, rust, just, cargo-deny/audit/machete)
-- **Architecture lint**: `dependency-cruiser` enforces `@palladium/core` stays framework-agnostic and adapters don't loop back into core. Config: `.dependency-cruiser.cjs` at root. Run: `pnpm lint:deps`.
-- **Pattern lint**: `semgrep.yml` at root catches `as any`, `@ts-ignore` without reason, stray `console.log`. Run: `pnpm lint:semgrep:all`.
+- **TS base tsconfig**: `libs/palladium/tsconfig.base.json` (sub-packages extend via `../tsconfig.base.json`). Strict — `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`.
+- **TS tests**: Vitest workspace at `libs/palladium/vitest.workspace.ts`.
+- **TS lint + format**: Biome (extends root `biome.json` — double quotes, semicolons, plus `noExplicitAny` + `noDefaultExport` errors).
+- **Rust lint**: Clippy with workspace lints (`-D warnings`).
+- **Rust security**: `cargo deny`, `cargo audit`, `cargo machete`.
+- **Mutation testing**: Stryker (TS) at `libs/palladium/stryker.config.mjs`; `cargo-mutants` (Rust).
+
+Repo-wide tooling (mise, lefthook, dependency-cruiser, semgrep) is documented in root `AGENTS.md`.
 
 ## Key Modules (`@palladium/core`)
 

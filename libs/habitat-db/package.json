@@ -18,7 +18,8 @@
   ],
   "scripts": {
     "lint": "biome check src",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify": "pnpm lint && pnpm typecheck"
   },
   "dependencies": {
     "@palladium/core": "workspace:*",

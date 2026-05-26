@@ -31,7 +31,8 @@
     "test:unit:watch": "vitest",
     "test:e2e": "playwright test",
     "test": "vitest run && playwright test",
-    "ci": "pnpm check && pnpm typecheck && pnpm test:unit"
+    "ci": "pnpm check && pnpm typecheck && pnpm test:unit",
+    "verify": "pnpm ci"
   },
   "dependencies": {
     "@capacitor-community/sqlite": "^8.0.0",

@@ -36,6 +36,7 @@
     "test:a11y:e2e": "playwright test --config playwright.a11y.config.ts",
     "test": "vitest run && playwright test",
     "ci": "pnpm check && pnpm typecheck && pnpm test:unit",
+    "verify": "pnpm ci",
     "screenshot": "node scripts/screenshot.mjs"
   },
   "dependencies": {
