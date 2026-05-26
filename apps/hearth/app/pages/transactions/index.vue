@@ -113,10 +113,8 @@ const FILTER_OPTIONS = [
         <button
           v-for="opt in FILTER_OPTIONS"
           :key="opt.value"
-          class="shrink-0 text-xs px-3 py-1.5 rounded-full border transition-colors min-h-[44px]"
-          :class="filterType === opt.value
-            ? 'bg-primary-500/15 border-primary-500 text-primary-400 font-medium'
-            : 'border-(--ui-border) text-(--ui-text-muted) hover:border-(--ui-border-accented) hover:text-(--ui-text)'"
+          type="button"
+          class="chip-btn shrink-0"
           :aria-pressed="filterType === opt.value"
           @click="filterType = opt.value"
         >

@@ -296,7 +296,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
           <button
             v-if="key && key !== ''"
             type="button"
-            class="flex items-center justify-center h-14 rounded-2xl text-xl font-semibold transition-all active:scale-95 min-h-[44px]"
+            class="flex items-center justify-center h-14 rounded-2xl text-xl font-semibold transition-all btn-press min-h-[44px]"
             :class="key === 'backspace'
               ? 'bg-(--ui-bg-muted) text-(--ui-text-muted) hover:bg-(--ui-bg-elevated)'
               : 'bg-(--ui-bg-muted) text-(--ui-text) hover:bg-(--ui-bg-elevated)'"

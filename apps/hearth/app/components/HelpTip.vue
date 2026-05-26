@@ -43,7 +43,7 @@ function dismiss() {
         <button
           v-if="dismissable"
           type="button"
-          class="block text-[10px] text-(--ui-text-dimmed) hover:text-(--ui-text-muted) underline underline-offset-2 mt-1"
+          class="block text-[10px] text-(--ui-text-dimmed) hover:text-(--ui-text-muted) underline underline-offset-2 mt-1 min-h-[44px] flex items-center"
           @click="dismiss"
         >
           Don't show again

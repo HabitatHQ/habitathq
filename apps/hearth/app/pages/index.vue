@@ -398,7 +398,7 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
     >
       <NuxtLink
         to="/transactions/quick"
-        class="flex items-center gap-2 bg-primary-500 hover:bg-primary-400 text-white font-semibold rounded-2xl px-5 py-3.5 shadow-lg shadow-primary-500/30 transition-all active:scale-95 min-h-[44px]"
+        class="flex items-center gap-2 bg-primary-500 hover:bg-primary-400 text-white font-semibold rounded-2xl px-5 py-3.5 shadow-lg shadow-primary-500/30 transition-all btn-press min-h-[44px]"
         aria-label="Add transaction"
       >
         <AppIcon name="plus" class="w-5 h-5" />

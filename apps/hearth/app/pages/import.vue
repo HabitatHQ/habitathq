@@ -304,7 +304,8 @@ const totalIncome = computed(() =>
     <!-- ── Header ──────────────────────────────────────────────────────────── -->
     <div class="flex items-center justify-between px-4 py-3 border-b border-(--ui-border)">
       <button
-        class="flex items-center justify-center w-10 h-10 rounded-xl text-(--ui-text-muted) hover:text-(--ui-text) transition-colors"
+        type="button"
+        class="icon-btn text-(--ui-text-muted) hover:text-(--ui-text)"
         aria-label="Back"
         @click="step === 'upload' ? router.back() : (step = step === 'preview' ? 'categories' : step === 'categories' ? 'columns' : 'upload')"
       >
