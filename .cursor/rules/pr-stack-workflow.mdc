@@ -30,14 +30,18 @@ git status
 
 If the previous todo's work is not committed and pushed, **you are in violation**. Fix it before proceeding.
 
-## Commit Immediately Rule
+## Commit, Push, and Create PR Rule
 
 > **If you have written code and not committed, you are in violation of this rule.**
+> **If you have pushed a branch and not created a GitHub PR, you are in violation of this rule.**
 
 The moment a PR's implementation is complete and CI passes:
 1. `git add -A`
 2. `git commit` with a conventional commit message
 3. `git push -u origin HEAD`
+4. `gh pr create --title "<conventional commit title>" --base <parent-branch> --body "<summary + test plan>"`
+
+All four steps are **mandatory**. A pushed branch without a GitHub PR is not "done".
 
 Do NOT continue to the next PR. Do NOT "batch" commits.
 
@@ -47,6 +51,7 @@ Even if the user says "implement all of these" or "do everything", each PR's tod
 - A **separate branch**
 - A **separate commit**
 - A **separate push**
+- A **GitHub PR** (via `gh pr create`)
 
 ...before the next todo starts. There are **zero** exceptions.
 
@@ -73,7 +78,7 @@ Examples: `jeel/buttons-pr1`, `jeel/buttons-pr2`, `jeel/auth-pr1`
 ```
 
 ```
-✅ Branch PR-1 → implement → CI passes → commit → push → STOP
-   Branch PR-2 from PR-1 → implement → CI passes → commit → push → STOP
-   Branch PR-3 from PR-2 → implement → CI passes → commit → push → STOP
+✅ Branch PR-1 → implement → CI passes → commit → push → gh pr create → STOP
+   Branch PR-2 from PR-1 → implement → CI passes → commit → push → gh pr create → STOP
+   Branch PR-3 from PR-2 → implement → CI passes → commit → push → gh pr create → STOP
 ```
