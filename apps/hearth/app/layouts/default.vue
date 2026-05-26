@@ -124,25 +124,17 @@ function toggleColorMode() {
       <div class="flex items-center gap-1 ml-auto shrink-0">
 
         <!-- Dark / light toggle -->
-        <UButton
-          :icon="colorMode.value === 'dark' ? resolveIcon('sun') : resolveIcon('moon')"
-          variant="ghost"
-          color="neutral"
-          size="sm"
-          class="min-h-[44px] min-w-[44px]"
-          :aria-label="colorMode.value === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
+        <AppIconButton
+          :icon="colorMode.value === 'dark' ? 'sun' : 'moon'"
+          :label="colorMode.value === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
           @click="toggleColorMode"
         />
 
         <!-- Theme picker -->
         <div class="relative">
-          <UButton
-            :icon="resolveIcon('swatch')"
-            variant="ghost"
-            color="neutral"
-            size="sm"
-            class="min-h-[44px] min-w-[44px]"
-            aria-label="Change theme"
+          <AppIconButton
+            icon="swatch"
+            label="Change theme"
             @click="showThemePicker = !showThemePicker"
           />
           <div v-if="showThemePicker" class="fixed inset-0 z-40" role="button" aria-label="Close theme picker" tabindex="-1" @click="showThemePicker = false" />
