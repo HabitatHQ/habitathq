@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
 @import "./themes.css";
+@import "#shared-css/buttons.css";
+@import "#shared-css/animations.css";
 
 /* ── Dark mode base overrides ─────────────────────────────────────────────
    Deeper background so cards have contrast. Warm-shifted slate-950.
