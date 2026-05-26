@@ -224,7 +224,7 @@ async function confirmImport() {
   if (!importPreview.value) return
   importing.value = true
   try {
-    await db.importJson(importPreview.value)
+    await db.importJson(toRaw(importPreview.value))
     importDone.value = true
     importPreview.value = null
   } finally {
@@ -240,7 +240,8 @@ const jotsExportSel = reactive({ text: true, voice: true, images: true })
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: sequential export pipeline
 async function exportJotsZip() {
-  const { blobAdapter } = await import('~/composables/useJotsStore')
+  const { getBlobAdapter } = await import('~/composables/useJotsStore')
+  const blobAdapter = getBlobAdapter()
   exportingJots.value = true
   try {
     const files: Record<string, Uint8Array> = {}

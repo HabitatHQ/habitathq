@@ -28,9 +28,12 @@ export type JotItem =
 
 // ─── Blob adapter (main-thread IDB for binary data) ──────────────────────────
 
-const blobAdapter = new IDBBlobAdapter('habitat-blobs')
+let _blobAdapter: IDBBlobAdapter | null = null
 
-export { blobAdapter }
+export function getBlobAdapter(): IDBBlobAdapter {
+  if (!_blobAdapter) _blobAdapter = new IDBBlobAdapter('habitat-blobs')
+  return _blobAdapter
+}
 
 // ─── Legacy IDB migration helpers ────────────────────────────────────────────
 
@@ -98,7 +101,7 @@ async function runBlobMigration(db: ReturnType<typeof useDatabase>): Promise<voi
 
   for (const v of voices) {
     const bytes = new Uint8Array(await v.blob.arrayBuffer())
-    await blobAdapter.put(v.id, bytes)
+    await getBlobAdapter().put(v.id, bytes)
     await db.createVoiceNote({
       id: v.id,
       mime_type: v.mimeType,
@@ -109,7 +112,7 @@ async function runBlobMigration(db: ReturnType<typeof useDatabase>): Promise<voi
 
   for (const img of images) {
     const bytes = new Uint8Array(await img.blob.arrayBuffer())
-    await blobAdapter.put(img.id, bytes)
+    await getBlobAdapter().put(img.id, bytes)
     await db.createImageNote({
       id: img.id,
       mime_type: img.mimeType,
@@ -124,7 +127,7 @@ async function runBlobMigration(db: ReturnType<typeof useDatabase>): Promise<voi
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function hydrateVoice(row: VoiceNoteRow): Promise<VoiceNote> {
-  const bytes = await blobAdapter.get(row.id)
+  const bytes = await getBlobAdapter().get(row.id)
   const blob = bytes ? new Blob([bytes.slice()], { type: row.mime_type }) : new Blob()
   return {
     id: row.id,
@@ -137,7 +140,7 @@ async function hydrateVoice(row: VoiceNoteRow): Promise<VoiceNote> {
 }
 
 async function hydrateImage(row: ImageNoteRow): Promise<ImageNote> {
-  const bytes = await blobAdapter.get(row.id)
+  const bytes = await getBlobAdapter().get(row.id)
   const blob = bytes ? new Blob([bytes.slice()], { type: row.mime_type }) : new Blob()
   return {
     id: row.id,
@@ -197,7 +200,7 @@ export function useJotsStore() {
 
   async function addVoiceNote(note: Omit<VoiceNote, 'url'>): Promise<void> {
     const bytes = new Uint8Array(await note.blob.arrayBuffer())
-    await blobAdapter.put(note.id, bytes)
+    await getBlobAdapter().put(note.id, bytes)
     await db.createVoiceNote({
       id: note.id,
       mime_type: note.mimeType,
@@ -209,14 +212,14 @@ export function useJotsStore() {
 
   async function deleteVoiceNote(note: VoiceNote): Promise<void> {
     if (note.url) URL.revokeObjectURL(note.url)
-    await blobAdapter.delete(note.id)
+    await getBlobAdapter().delete(note.id)
     await db.deleteVoiceNote(note.id)
     voiceNotes.value = voiceNotes.value.filter((n) => n.id !== note.id)
   }
 
   async function addImageNote(note: Omit<ImageNote, 'url'>, objectUrl: string): Promise<void> {
     const bytes = new Uint8Array(await note.blob.arrayBuffer())
-    await blobAdapter.put(note.id, bytes)
+    await getBlobAdapter().put(note.id, bytes)
     await db.createImageNote({
       id: note.id,
       mime_type: note.mimeType,
@@ -228,7 +231,7 @@ export function useJotsStore() {
 
   async function deleteImageNote(note: ImageNote): Promise<void> {
     if (note.url) URL.revokeObjectURL(note.url)
-    await blobAdapter.delete(note.id)
+    await getBlobAdapter().delete(note.id)
     await db.deleteImageNote(note.id)
     imageNotes.value = imageNotes.value.filter((n) => n.id !== note.id)
   }
