@@ -1,0 +1,24 @@
+{
+  "name": "palladium-cli",
+  "version": "0.1.0",
+  "description": "Palladium sync engine — npm shim for the Rust CLI binary (npx palladium)",
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "module",
+  "bin": {
+    "palladium": "./src/cli.ts"
+  },
+  "files": ["src", "dist"],
+  "scripts": {
+    "lint": "biome check src",
+    "test": "echo 'no tests'",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
