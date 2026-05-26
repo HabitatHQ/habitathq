@@ -373,7 +373,7 @@ async function deleteAndClose(t: Todo) {
         aria-label="Search todos"
         @click="searchExpanded = true"
       >
-        <AppIcon name="magnifying-glass" class="w-4.5 h-4.5" />
+        <AppIcon name="magnifying-glass" class="w-5 h-5" />
       </button>
       <div
         v-else
@@ -395,7 +395,7 @@ async function deleteAndClose(t: Todo) {
           aria-label="Clear search"
           @click="searchQuery = ''; searchExpanded = false"
         >
-          <AppIcon name="x-mark" class="w-3.5 h-3.5" />
+          <AppIcon name="x-mark" class="w-4 h-4" />
         </button>
       </div>
 
@@ -411,7 +411,7 @@ async function deleteAndClose(t: Todo) {
           aria-label="Sort and filter"
           @click="showSortFilter = !showSortFilter"
         >
-          <AppIcon name="adjustments-horizontal" class="w-4.5 h-4.5" />
+          <AppIcon name="adjustments-horizontal" class="w-5 h-5" />
           <span
             v-if="activeFilterCount > 0"
             class="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-primary-600 text-[10px] text-white flex items-center justify-center font-bold"
@@ -533,7 +533,7 @@ async function deleteAndClose(t: Todo) {
               :class="todo.is_done ? 'border-green-500 bg-green-500' : 'border-(--ui-border-accented) hover:border-(--ui-border-muted)'"
               @click="toggleTodo(todo)"
             >
-              <AppIcon v-if="todo.is_done" name="check" class="w-3.5 h-3.5 text-white" />
+              <AppIcon v-if="todo.is_done" name="check" class="w-4 h-4 text-white" />
               <AppIcon v-else-if="todo.is_recurring" name="arrow-path" class="w-3 h-3 text-(--ui-text-dimmed)" />
             </button>
 

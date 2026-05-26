@@ -176,7 +176,7 @@ const targetFormatted = computed(() => {
             >
               <AppIcon
                 :name="manualMode ? 'adjustments-horizontal' : 'pencil-square'"
-                class="w-3.5 h-3.5 inline-block mr-1 -mt-0.5"
+                class="w-4 h-4 inline-block mr-1 -mt-0.5"
               />
               {{ manualMode ? 'Picker' : 'Type' }}
             </button>

@@ -326,7 +326,7 @@ const oracleHint = computed(() => {
         :style="excludedCategories.includes(cat.id) ? {} : { backgroundColor: cat.color + '33', borderColor: cat.color + '88', color: cat.color }"
         @click="toggleCategory(cat.id); selectionChanged()"
       >
-        <AppIcon :name="cat.icon" class="w-3.5 h-3.5" />
+        <AppIcon :name="cat.icon" class="w-4 h-4" />
         {{ cat.name }}
       </button>
     </div>

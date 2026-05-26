@@ -246,7 +246,7 @@ onMounted(async () => {
               :disabled="deletingQuestion.has(q.id)"
               @click="deleteQuestion(q.id)"
             >
-              <AppIcon name="trash" class="w-3.5 h-3.5" />
+              <AppIcon name="trash" class="w-4 h-4" />
             </button>
           </div>
           <p class="text-xs text-(--ui-text-dimmed) font-mono">

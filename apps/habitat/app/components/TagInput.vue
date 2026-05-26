@@ -175,7 +175,7 @@ function focusInput() {
           v-if="reservedWarning"
           class="px-3 py-2 text-xs text-amber-500 flex items-center gap-1.5"
         >
-          <AppIcon name="exclamation-triangle" class="w-3.5 h-3.5 shrink-0" />
+          <AppIcon name="exclamation-triangle" class="w-4 h-4 shrink-0" />
           Reserved prefix — cannot use <code class="mx-0.5">habitat-*</code> tags
         </div>
         <button

@@ -497,7 +497,7 @@ function onDayClick(date: string) {
       <!-- ── Desktop: Unscheduled sidebar ───────────────────────────────────── -->
       <div v-if="unscheduledTodos.length > 0" class="hidden sm:flex sm:flex-col gap-2 w-48 shrink-0">
         <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) flex items-center gap-1.5">
-          <AppIcon name="inbox" class="w-3.5 h-3.5" />
+          <AppIcon name="inbox" class="w-4 h-4" />
           Unscheduled
           <span class="ml-auto font-mono font-normal normal-case tracking-normal">{{ unscheduledTodos.length }}</span>
         </p>

@@ -2,12 +2,15 @@
 
 :root {
   --btn-min-touch: 44px;
-  --btn-icon-size: 20px;
-  --btn-gap-sm: 4px;
-  --btn-gap-md: 8px;
   --btn-radius-pill: 9999px;
   --btn-radius-default: 12px;
   --btn-radius-lg: 16px;
+
+  /* 4-tier icon sizing (iOS HIG-aligned) */
+  --icon-xs: 12px;  /* w-3 — badges, inline indicators */
+  --icon-sm: 16px;  /* w-4 — nav items, list leading, chevrons */
+  --icon-md: 20px;  /* w-5 — action buttons (icon-only & icon+text) */
+  --icon-lg: 24px;  /* w-6 — decorative, hero, empty states */
 }
 
 /* Minimum 44×44 touch target */

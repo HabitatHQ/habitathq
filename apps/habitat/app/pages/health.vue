@@ -393,7 +393,7 @@ onMounted(load)
                 :disabled="savingWater || waterToday <= 0"
                 @click="setWater(Math.max(0, Math.round(waterToday) - 1))"
               >
-                <AppIcon name="minus" class="w-3.5 h-3.5" />
+                <AppIcon name="minus" class="w-4 h-4" />
               </button>
               <button
                 type="button"
@@ -402,7 +402,7 @@ onMounted(load)
                 :disabled="savingWater || waterToday >= waterGoal"
                 @click="setWater(Math.round(waterToday) + 1)"
               >
-                <AppIcon name="plus" class="w-3.5 h-3.5" />
+                <AppIcon name="plus" class="w-4 h-4" />
               </button>
             </div>
           </div>
@@ -540,7 +540,7 @@ onMounted(load)
                   :aria-label="`Log ${meal.name}`"
                   @click="openMealLog(meal)"
                 >
-                  <AppIcon name="pencil" class="w-3.5 h-3.5" />
+                  <AppIcon name="pencil" class="w-4 h-4" />
                 </button>
               </div>
             </div>

@@ -302,7 +302,7 @@ async function archiveActivity(a: BoredActivity) {
             <AppTextField v-model="catForm.name" placeholder="Category name" class="w-full" />
           </UFormField>
           <p v-if="categoryNameError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
-            <AppIcon name="exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
+            <AppIcon name="exclamation-circle" class="w-4 h-4 flex-shrink-0" />
             {{ categoryNameError }}
           </p>
           <UFormField label="Icon">
@@ -330,7 +330,7 @@ async function archiveActivity(a: BoredActivity) {
             <AppTextField v-model="actForm.title" placeholder="Activity title" class="w-full" />
           </UFormField>
           <p v-if="activityTitleError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
-            <AppIcon name="exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
+            <AppIcon name="exclamation-circle" class="w-4 h-4 flex-shrink-0" />
             {{ activityTitleError }}
           </p>
           <UFormField label="Description">

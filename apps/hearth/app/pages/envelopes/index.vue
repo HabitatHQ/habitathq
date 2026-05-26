@@ -181,7 +181,7 @@ async function confirmDeleteEnvelope() {
           aria-label="Add envelope"
           @click="openAddModal"
         >
-          <AppIcon name="plus" class="w-3.5 h-3.5" />
+          <AppIcon name="plus" class="w-4 h-4" />
           Add
         </button>
       </div>

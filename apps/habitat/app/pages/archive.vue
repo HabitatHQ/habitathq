@@ -115,7 +115,7 @@ onMounted(loadHabits)
     <!-- ── Check-in tab ─────────────────────────────────────────────────────────── -->
     <template v-else>
       <div v-if="loadingCheckins" class="flex items-center gap-2 text-xs text-(--ui-text-dimmed) py-4">
-        <AppIcon name="arrow-path" class="w-3.5 h-3.5 animate-spin" />
+        <AppIcon name="arrow-path" class="w-4 h-4 animate-spin" />
         Loading…
       </div>
       <EmptyState

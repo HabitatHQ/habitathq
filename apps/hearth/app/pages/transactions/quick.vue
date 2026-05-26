@@ -490,14 +490,14 @@ function categoryLabel(id: string | null): string {
             :class="isLowConfidence ? 'ring-1 ring-amber-500/50' : ''"
             @click="reRecord"
           >
-            <AppIcon name="arrow-path" class="w-3.5 h-3.5" />
+            <AppIcon name="arrow-path" class="w-4 h-4" />
             Re-record
           </button>
           <button
             class="flex items-center gap-1 px-3 min-h-[44px] rounded-lg text-xs font-medium text-white bg-primary-500 hover:bg-primary-600 transition-colors"
             @click="confirmSend"
           >
-            <AppIcon name="paper-airplane" class="w-3.5 h-3.5" />
+            <AppIcon name="paper-airplane" class="w-4 h-4" />
             Send
           </button>
           <span
@@ -682,7 +682,7 @@ function categoryLabel(id: string | null): string {
 
             <span class="ml-auto flex items-center gap-1">
               <template v-if="card.saved">
-                <AppIcon name="check-circle" class="w-3.5 h-3.5 text-green-400" />
+                <AppIcon name="check-circle" class="w-4 h-4 text-green-400" />
                 <span class="text-green-400">Saved</span>
               </template>
             </span>

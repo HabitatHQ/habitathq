@@ -202,7 +202,7 @@ onUnmounted(() => {
         >
           <div class="flex items-start gap-2.5">
             <div class="w-6 h-6 rounded-full bg-amber-500/10 flex items-center justify-center mt-0.5 shrink-0">
-              <AppIcon name="pencil" class="w-3.5 h-3.5 text-amber-400" />
+              <AppIcon name="pencil" class="w-4 h-4 text-amber-400" />
             </div>
             <div class="flex-1 min-w-0">
               <div class="flex items-start justify-between gap-2">
@@ -229,7 +229,7 @@ onUnmounted(() => {
               :aria-label="hasLinkedTodo(item.data.id) ? 'View linked TODO' : 'Create TODO for this jot'"
               @click.stop="onJotLinkClick(item)"
             >
-              <AppIcon :name="hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link'" class="w-3.5 h-3.5" />
+              <AppIcon :name="hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link'" class="w-4 h-4" />
             </button>
           </div>
         </li>
@@ -241,7 +241,7 @@ onUnmounted(() => {
         >
           <div class="flex items-center gap-3">
             <div class="w-6 h-6 rounded-full bg-rose-500/10 flex items-center justify-center shrink-0">
-              <AppIcon name="microphone" class="w-3.5 h-3.5 text-rose-400" />
+              <AppIcon name="microphone" class="w-4 h-4 text-rose-400" />
             </div>
             <UButton
               :icon="resolveIcon(currentlyPlaying === item.data.id ? 'pause' : 'play')"
@@ -286,7 +286,7 @@ onUnmounted(() => {
         >
           <div class="flex items-center gap-3">
             <div class="w-6 h-6 rounded-full bg-sky-500/10 flex items-center justify-center shrink-0">
-              <AppIcon name="photo" class="w-3.5 h-3.5 text-sky-400" />
+              <AppIcon name="photo" class="w-4 h-4 text-sky-400" />
             </div>
             <img
               v-if="(item.data as ImageNote).url"
@@ -437,7 +437,7 @@ onUnmounted(() => {
                 :aria-label="hasLinkedTodo(item.data.id) ? 'Linked to todo' : 'Link to todo'"
                 @click="onJotLinkClick(item)"
               >
-                <AppIcon :name="hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link'" class="w-3.5 h-3.5" />
+                <AppIcon :name="hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link'" class="w-4 h-4" />
               </button>
               <UButton
                 :icon="resolveIcon('trash')"

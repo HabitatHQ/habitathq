@@ -77,7 +77,7 @@ onMounted(() => {
         class="flex items-center gap-3 px-4 py-3.5 rounded-2xl bg-(--ui-bg-elevated) hover:bg-(--ui-bg-accented) transition-colors"
       >
         <div class="w-9 h-9 rounded-xl bg-(--ui-bg) flex items-center justify-center shrink-0">
-          <AppIcon :name="s.icon" class="w-4.5 h-4.5 text-(--ui-text-muted)" />
+          <AppIcon :name="s.icon" class="w-5 h-5 text-(--ui-text-muted)" />
         </div>
         <div class="flex-1 min-w-0">
           <p class="text-sm font-medium text-(--ui-text)">{{ s.label }}</p>

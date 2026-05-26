@@ -422,7 +422,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
     <section class="space-y-2">
       <button class="w-full flex items-center justify-between px-1 py-0.5" @click="dragonsOpen = !dragonsOpen">
         <p class="text-xs font-semibold uppercase tracking-wider text-rose-400/70">🐉 Here be dragons</p>
-        <AppIcon :name="dragonsOpen ? 'chevron-up' : 'chevron-down'" class="w-3.5 h-3.5 text-rose-400/50" />
+        <AppIcon :name="dragonsOpen ? 'chevron-up' : 'chevron-down'" class="w-4 h-4 text-rose-400/50" />
       </button>
       <div v-if="dragonsOpen" class="rounded-2xl bg-(--ui-bg-muted) border border-rose-500/20 divide-y divide-(--ui-border) overflow-hidden">
 

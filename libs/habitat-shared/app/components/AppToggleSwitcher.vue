@@ -44,7 +44,7 @@ function select(val: string) {
       :aria-pressed="modelValue === opt.value"
       @click="select(opt.value)"
     >
-      <AppIcon :name="opt.icon" class="w-4.5 h-4.5" />
+      <AppIcon :name="opt.icon" class="w-4 h-4" />
       <span v-if="opt.label" class="ml-1.5 text-sm font-medium">{{ opt.label }}</span>
     </button>
   </div>

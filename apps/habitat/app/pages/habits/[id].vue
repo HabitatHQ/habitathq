@@ -942,7 +942,7 @@ onMounted(() => {
               class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1"
               @click="editForm.show_due_time = !editForm.show_due_time"
             >
-              <AppIcon :name="editForm.show_due_time ? 'chevron-down' : 'chevron-right'" class="w-3.5 h-3.5" />
+              <AppIcon :name="editForm.show_due_time ? 'chevron-down' : 'chevron-right'" class="w-4 h-4" />
               {{ editForm.show_due_time ? 'Remove due time' : 'Add due time' }}
             </button>
             <div v-if="editForm.show_due_time" class="mt-2">
@@ -956,7 +956,7 @@ onMounted(() => {
               class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1"
               @click="editShowAnnotations = !editShowAnnotations"
             >
-              <AppIcon :name="editShowAnnotations ? 'chevron-down' : 'chevron-right'" class="w-3.5 h-3.5" />
+              <AppIcon :name="editShowAnnotations ? 'chevron-down' : 'chevron-right'" class="w-4 h-4" />
               {{ editShowAnnotations ? 'Hide annotations' : editAnnotationEntries.length > 0 ? `Annotations (${editAnnotationEntries.length})` : 'Add annotations' }}
             </button>
             <div v-if="editShowAnnotations" class="mt-2 space-y-1.5">
@@ -965,7 +965,7 @@ onMounted(() => {
                 <span class="text-slate-600 text-xs">:</span>
                 <AppTextField v-model="entry.value" placeholder="value" class="flex-1" />
                 <button class="text-slate-700 hover:text-red-400 transition-colors" @click="removeEditAnnotationEntry(i)">
-                  <AppIcon name="x-mark" class="w-3.5 h-3.5" />
+                  <AppIcon name="x-mark" class="w-4 h-4" />
                 </button>
               </div>
               <button class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1" @click="addEditAnnotationEntry">

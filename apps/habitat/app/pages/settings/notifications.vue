@@ -182,7 +182,7 @@ onMounted(() => {
               :key="i"
               class="flex items-center gap-3 py-2"
             >
-              <AppIcon name="bell" class="w-3.5 h-3.5 shrink-0 text-(--ui-text-dimmed)" />
+              <AppIcon name="bell" class="w-4 h-4 shrink-0 text-(--ui-text-dimmed)" />
               <span class="text-xs text-(--ui-text) min-w-0 truncate grow">{{ n.title }}</span>
               <span class="text-xs font-mono text-(--ui-text-muted) shrink-0">{{ n.when }}</span>
             </li>

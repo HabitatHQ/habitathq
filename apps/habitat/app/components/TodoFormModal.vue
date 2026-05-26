@@ -192,7 +192,7 @@ function jotKindIcon(kind: string | undefined): string {
         <AppTextField v-model="form.title" placeholder="What needs doing?" class="w-full" autofocus />
       </UFormField>
       <p v-if="titleError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
-        <AppIcon name="exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
+        <AppIcon name="exclamation-circle" class="w-4 h-4 flex-shrink-0" />
         {{ titleError }}
       </p>
 
@@ -303,7 +303,7 @@ function jotKindIcon(kind: string | undefined): string {
         class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1.5 transition-colors py-1"
         @click="openJotPicker"
       >
-        <AppIcon name="link" class="w-3.5 h-3.5" />
+        <AppIcon name="link" class="w-4 h-4" />
         Link a jot
       </button>
 
@@ -318,7 +318,7 @@ function jotKindIcon(kind: string | undefined): string {
             class="flex items-center gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-(--ui-bg-elevated) transition-colors"
             @click="selectJot(jot)"
           >
-            <AppIcon :name="jotKindIcon(jot.kind)" class="w-3.5 h-3.5 text-(--ui-text-muted) shrink-0" />
+            <AppIcon :name="jotKindIcon(jot.kind)" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
             <span class="text-sm text-(--ui-text-toned) truncate">{{ jot.label }}</span>
           </li>
         </ul>

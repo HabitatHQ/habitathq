@@ -90,7 +90,7 @@ defineEmits<{
         :disabled="toggling"
         @click="$emit('toggle')"
       >
-        <AppIcon v-if="done" name="check" class="w-3.5 h-3.5 text-white" />
+        <AppIcon v-if="done" name="check" class="w-4 h-4 text-white" />
       </button>
     </template>
 
