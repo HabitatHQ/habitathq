@@ -327,7 +327,7 @@ async function confirmDeleteEnvelope() {
       </div>
       <template #footer>
         <button
-          class="w-full py-3.5 bg-primary-500 hover:bg-primary-400 text-white font-semibold rounded-2xl transition-colors min-h-[52px] disabled:opacity-40 btn-press"
+          class="w-full py-3.5 bg-primary-500 hover:bg-primary-400 text-white font-semibold rounded-2xl transition-colors min-h-[48px] disabled:opacity-40 btn-press"
           :disabled="!modalEnvelope.name || !modalEnvelope.budget_amount"
           @click="saveEnvelope"
         >

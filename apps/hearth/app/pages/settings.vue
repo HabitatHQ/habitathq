@@ -432,7 +432,8 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
           </div>
           <UButton
             size="sm" variant="ghost" color="neutral"
-            :icon="resolveIcon('arrow-path')" :loading="forceReloading" class="shrink-0"
+            :icon="resolveIcon('arrow-path')" :loading="forceReloading" class="shrink-0 min-h-[44px] min-w-[44px]"
+            aria-label="Force reload"
             @click="forceReload"
           />
         </div>
