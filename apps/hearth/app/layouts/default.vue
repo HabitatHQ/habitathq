@@ -121,7 +121,7 @@ function toggleColorMode() {
       </div>
 
       <!-- Right actions -->
-      <div class="flex items-center gap-1 ml-auto shrink-0">
+      <div class="flex items-center gap-0.5 ml-auto shrink-0">
 
         <!-- Dark / light toggle -->
         <AppIconButton
@@ -161,7 +161,7 @@ function toggleColorMode() {
         <!-- Avatar / settings menu -->
         <div class="relative">
           <button
-            class="w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 border-2 min-h-[44px] min-w-[44px]"
+            class="icon-btn rounded-full border-2"
             :class="showAvatarMenu || isActive('/settings')
               ? 'border-primary-500 bg-primary-500/15 text-primary-400'
               : 'border-(--ui-border-accented) text-(--ui-text-muted) hover:border-(--ui-border-accented) hover:text-(--ui-text)'"
