@@ -34,6 +34,11 @@ export default defineNuxtConfig({
   css: ['~/assets/css/main.css'],
 
   vite: {
+    resolve: {
+      alias: {
+        '#shared-css': new URL('./app/assets/css', import.meta.url).pathname,
+      },
+    },
     server: {
       headers: {
         'Cross-Origin-Opener-Policy': 'same-origin',
