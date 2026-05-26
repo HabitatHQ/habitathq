@@ -15,6 +15,8 @@
 @import "@nuxt/ui";
 @import "./themes.css";
 @import "./typography.css";
+@import "#shared-css/buttons.css";
+@import "#shared-css/animations.css";
 
 
 /* ── Dark mode token overrides ────────────────────────────────────────────────
