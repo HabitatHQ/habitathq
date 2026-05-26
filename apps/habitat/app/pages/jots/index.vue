@@ -248,6 +248,8 @@ onUnmounted(() => {
               :color="currentlyPlaying === item.data.id ? 'primary' : 'neutral'"
               :variant="currentlyPlaying === item.data.id ? 'soft' : 'outline'"
               size="sm"
+              :aria-label="currentlyPlaying === item.data.id ? 'Pause voice note' : 'Play voice note'"
+              class="min-h-[44px] min-w-[44px]"
               :ui="{ base: 'rounded-full' }"
               @click="togglePlay(item.data as VoiceNote)"
             />
@@ -260,6 +262,8 @@ onUnmounted(() => {
               color="neutral"
               variant="ghost"
               size="sm"
+              :aria-label="hasLinkedTodo(item.data.id) ? 'Linked to todo' : 'Link to todo'"
+              class="min-h-[44px] min-w-[44px]"
               :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
               @click="onJotLinkClick(item)"
             />
@@ -268,7 +272,8 @@ onUnmounted(() => {
               color="neutral"
               variant="ghost"
               size="sm"
-              class="text-slate-600 hover:text-red-400"
+              aria-label="Delete voice note"
+              class="min-h-[44px] min-w-[44px] text-slate-600 hover:text-red-400"
               @click="handleDeleteVoice(item.data as VoiceNote)"
             />
           </div>
@@ -298,6 +303,8 @@ onUnmounted(() => {
               color="neutral"
               variant="ghost"
               size="sm"
+              :aria-label="hasLinkedTodo(item.data.id) ? 'Linked to todo' : 'Link to todo'"
+              class="min-h-[44px] min-w-[44px]"
               :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
               @click="onJotLinkClick(item)"
             />
@@ -306,7 +313,8 @@ onUnmounted(() => {
               color="neutral"
               variant="ghost"
               size="sm"
-              class="text-slate-600 hover:text-red-400"
+              aria-label="Delete image note"
+              class="min-h-[44px] min-w-[44px] text-slate-600 hover:text-red-400"
               @click="store.deleteImageNote(item.data as ImageNote)"
             />
           </div>
@@ -373,6 +381,8 @@ onUnmounted(() => {
               :color="currentlyPlaying === item.data.id ? 'primary' : 'neutral'"
               :variant="currentlyPlaying === item.data.id ? 'soft' : 'outline'"
               size="xs"
+              :aria-label="currentlyPlaying === item.data.id ? 'Pause voice note' : 'Play voice note'"
+              class="min-h-[44px] min-w-[44px]"
               :ui="{ base: 'rounded-full' }"
               @click.stop="togglePlay(item.data as VoiceNote)"
             />
@@ -382,6 +392,8 @@ onUnmounted(() => {
                 color="neutral"
                 variant="ghost"
                 size="xs"
+                :aria-label="hasLinkedTodo(item.data.id) ? 'Linked to todo' : 'Link to todo'"
+                class="min-h-[44px] min-w-[44px]"
                 :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
                 @click.stop="onJotLinkClick(item)"
               />
@@ -390,7 +402,8 @@ onUnmounted(() => {
                 color="neutral"
                 variant="ghost"
                 size="xs"
-                class="text-slate-600 hover:text-red-400"
+                aria-label="Delete voice note"
+                class="min-h-[44px] min-w-[44px] text-slate-600 hover:text-red-400"
                 @click.stop="handleDeleteVoice(item.data as VoiceNote)"
               />
             </div>
@@ -418,18 +431,21 @@ onUnmounted(() => {
             </div>
             <div class="flex items-center gap-0.5 shrink-0">
               <button
-                class="p-0.5 rounded transition-colors"
+                type="button"
+                class="icon-btn text-(--ui-text-muted)"
                 :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
+                :aria-label="hasLinkedTodo(item.data.id) ? 'Linked to todo' : 'Link to todo'"
                 @click="onJotLinkClick(item)"
               >
-                <AppIcon :name="hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link'" class="w-3 h-3" />
+                <AppIcon :name="hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link'" class="w-3.5 h-3.5" />
               </button>
               <UButton
                 :icon="resolveIcon('trash')"
                 color="neutral"
                 variant="ghost"
                 size="xs"
-                class="text-slate-600 hover:text-red-400 shrink-0"
+                aria-label="Delete image note"
+                class="min-h-[44px] min-w-[44px] text-slate-600 hover:text-red-400 shrink-0"
                 @click="store.deleteImageNote(item.data as ImageNote)"
               />
             </div>

@@ -93,7 +93,7 @@ onUnmounted(() => {
             <button
               v-if="closeable"
               type="button"
-              class="shrink-0 w-8 h-8 flex items-center justify-center rounded-full hover:bg-(--ui-bg-elevated) transition-colors ml-2"
+              class="icon-btn shrink-0 hover:bg-(--ui-bg-elevated) ml-2"
               aria-label="Close"
               @click="handleClose"
             >

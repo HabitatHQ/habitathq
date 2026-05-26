@@ -25,11 +25,12 @@ function select(val: string) {
 </script>
 
 <template>
-  <div class="flex items-center bg-(--ui-bg-elevated) p-1 rounded-lg gap-1">
+  <div class="flex items-center bg-(--ui-bg-elevated) p-1 rounded-lg gap-1" role="group">
     <button
       v-for="opt in options"
       :key="opt.value"
-      class="min-w-[40px] min-h-[40px] px-2.5 flex items-center justify-center rounded-md transition-colors"
+      type="button"
+      class="segment-btn px-2.5 rounded-md"
       :class="modelValue === opt.value
         ? 'bg-(--ui-bg) shadow-sm text-(--ui-text)'
         : 'text-(--ui-text-dimmed) hover:text-(--ui-text-toned)'"

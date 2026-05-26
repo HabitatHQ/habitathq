@@ -174,6 +174,8 @@ onMounted(async () => {
             variant="ghost"
             color="neutral"
             size="sm"
+            aria-label="Check-in settings"
+            class="min-h-[44px] min-w-[44px]"
             :to="`/checkin/${template.id}`"
           />
           <UButton
@@ -181,6 +183,8 @@ onMounted(async () => {
             variant="ghost"
             color="neutral"
             size="sm"
+            aria-label="Previous day"
+            class="min-h-[44px] min-w-[44px]"
             @click="prevDay"
           />
           <UButton
@@ -188,6 +192,8 @@ onMounted(async () => {
             variant="ghost"
             color="neutral"
             size="sm"
+            aria-label="Next day"
+            class="min-h-[44px] min-w-[44px]"
             :disabled="isToday"
             @click="nextDay"
           />

@@ -281,7 +281,8 @@ function jotKindIcon(kind: string | undefined): string {
           size="xs"
           variant="ghost"
           color="neutral"
-          title="Go to Jots"
+          aria-label="Go to Jots"
+          class="min-h-[44px] min-w-[44px]"
           @click="emit('update:open', false); navigateTo('/jots')"
         />
         <UButton
@@ -289,7 +290,8 @@ function jotKindIcon(kind: string | undefined): string {
           size="xs"
           variant="ghost"
           color="error"
-          title="Remove link"
+          aria-label="Remove link"
+          class="min-h-[44px] min-w-[44px]"
           :loading="unlinkingJot"
           @click="unlinkJot"
         />
@@ -324,16 +326,17 @@ function jotKindIcon(kind: string | undefined): string {
     </div>
 
     <div class="flex gap-2 pt-1">
-      <UButton variant="soft" color="neutral" class="flex-1" @click="emit('update:open', false)">Cancel</UButton>
+      <UButton variant="soft" color="neutral" class="flex-1 min-h-[44px]" @click="emit('update:open', false)">Cancel</UButton>
       <UButton
         v-if="editingTodo"
         variant="ghost"
         color="error"
-        class="flex-none"
+        class="flex-none min-h-[44px] min-w-[44px]"
         :icon="resolveIcon('trash')"
+        aria-label="Delete todo"
         @click="emit('delete', editingTodo)"
       />
-      <UButton color="primary" class="flex-1" @click="handleSave">Save</UButton>
+      <UButton color="primary" class="flex-1 min-h-[44px]" @click="handleSave">Save</UButton>
     </div>
     <div class="safe-area-bottom" aria-hidden="true" />
   </AppModal>

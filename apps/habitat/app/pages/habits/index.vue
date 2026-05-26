@@ -252,6 +252,8 @@ onMounted(() => {
           variant="ghost"
           color="neutral"
           size="sm"
+          aria-label="View archived habits"
+          class="min-h-[44px] min-w-[44px]"
         />
         <UButton
           v-if="anyPaused"
@@ -260,7 +262,8 @@ onMounted(() => {
           color="neutral"
           size="sm"
           :loading="pausingAll"
-          title="Resume all habits"
+          aria-label="Resume all habits"
+          class="min-h-[44px] min-w-[44px]"
           @click="resumeAllHabits"
         />
         <UButton
@@ -269,7 +272,8 @@ onMounted(() => {
           variant="ghost"
           color="neutral"
           size="sm"
-          title="Pause all habits"
+          aria-label="Pause all habits"
+          class="min-h-[44px] min-w-[44px]"
           @click="openPauseAll"
         />
         <UButton :icon="resolveIcon('plus')" size="sm" class="min-h-[44px]" @click="isOpen = true">New</UButton>
