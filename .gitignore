@@ -1,6 +1,17 @@
 # Dependencies
 node_modules/
 
+# Rust / Cargo
+target/
+**/*.rs.bk
+
+# cargo-mutants output
+mutants.out/
+mutants.out.old/
+
+# Reports (Rust workflow)
+reports/
+
 # Nuxt / Nitro
 .nuxt/
 .output/
