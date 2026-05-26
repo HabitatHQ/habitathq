@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { DbAdapter } from '@habitathq/db'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
