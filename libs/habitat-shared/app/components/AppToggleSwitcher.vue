@@ -28,7 +28,7 @@ function select(val: string) {
 
 <template>
   <div
-    class="flex items-center bg-(--ui-bg-elevated) p-1 rounded-lg gap-1"
+    class="inline-flex items-stretch bg-(--ui-bg-elevated) rounded-lg p-1 gap-0.5 min-h-[44px]"
     role="group"
     :aria-label="groupLabel"
   >
@@ -36,7 +36,7 @@ function select(val: string) {
       v-for="opt in options"
       :key="opt.value"
       type="button"
-      class="toggle-btn"
+      class="inline-flex items-center justify-center rounded-md px-3 min-w-[36px] transition-all duration-150"
       :class="modelValue === opt.value
         ? 'bg-(--ui-bg) shadow-sm text-(--ui-text)'
         : 'text-(--ui-text-dimmed) hover:text-(--ui-text-toned)'"
@@ -44,7 +44,7 @@ function select(val: string) {
       :aria-pressed="modelValue === opt.value"
       @click="select(opt.value)"
     >
-      <AppIcon :name="opt.icon" class="w-4 h-4" />
+      <AppIcon :name="opt.icon" class="w-4.5 h-4.5" />
       <span v-if="opt.label" class="ml-1.5 text-sm font-medium">{{ opt.label }}</span>
     </button>
   </div>
