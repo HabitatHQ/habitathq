@@ -1,0 +1,34 @@
+---
+description: When implementing a multi-PR plan, commit and branch incrementally — never batch everything at the end
+alwaysApply: true
+---
+
+# PR Stack Discipline
+
+When a plan calls for multiple PRs, **branch and commit as you complete each PR's work**, not after implementing everything.
+
+## Workflow
+
+1. Before starting PR N, create a branch: `git checkout -b <branch-name>`
+2. Implement only that PR's changes
+3. Run CI (`check:fix`, `typecheck`, `test:unit`) to confirm it passes independently
+4. Commit and push immediately
+5. Only then move to PR N+1 (branch from the previous PR's branch if stacked)
+
+## Why
+
+- Changes to the same file across PRs become interleaved and unsplittable if done on one branch
+- The whole point of a PR stack is independent reviewability — that's impossible if everything lands in one giant diff
+- Committing after each PR validates that intermediate states actually compile and pass CI
+
+## Anti-pattern (never do this)
+
+```
+❌ Implement PR 1, 2, 3, 4, 5 all on one branch → try to split commits at the end
+```
+
+```
+✅ Branch PR-1 → implement → commit → push
+   Branch PR-2 from PR-1 → implement → commit → push
+   Branch PR-3 from PR-2 → implement → commit → push
+```
