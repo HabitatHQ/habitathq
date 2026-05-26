@@ -65,93 +65,16 @@
   font-weight: 600;
 }
 
-/* Compact toggle button — icon-only toggles within pill containers */
-.toggle-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 44px;
-  min-width: 44px;
-  padding: 10px;
-  border-radius: 6px;
-  transition: background-color 150ms ease, color 150ms ease;
-}
-
-/* Segmented control item */
-.segment-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-  min-height: var(--btn-min-touch);
-  padding-block: 8px;
-  padding-inline: 12px;
-  border-radius: var(--btn-radius-default);
-  font-size: 0.875rem;
-  font-weight: 500;
-  transition: background-color 150ms ease, color 150ms ease;
-}
-.segment-btn[aria-pressed="true"] {
-  background-color: var(--ui-bg);
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.1);
-  color: var(--ui-text);
-}
-
-/* Primary CTA */
-.cta-primary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--btn-gap-md);
-  min-height: var(--btn-min-touch);
-  padding-inline: 16px;
-  padding-block: 10px;
-  border-radius: var(--btn-radius-default);
-  font-weight: 600;
-  transition: transform var(--duration-fast) var(--ease-out);
-}
-.cta-primary:active {
-  transform: scale(0.97);
-}
-
-/* Soft/muted CTA variant */
-.cta-soft {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--btn-gap-md);
-  min-height: var(--btn-min-touch);
-  padding-inline: 16px;
-  padding-block: 10px;
-  border-radius: var(--btn-radius-default);
-  font-weight: 600;
-  background-color: color-mix(in srgb, var(--ui-primary) 15%, transparent);
-  color: var(--ui-primary);
-  transition: transform var(--duration-fast) var(--ease-out);
-}
-.cta-soft:active {
-  transform: scale(0.97);
-}
-
-/* Force icon centering on Nuxt UI buttons expanded to 44px touch targets */
-[data-slot="base"].min-h-\[44px\].min-w-\[44px\] {
-  justify-content: center;
-  padding: 0;
-}
 
 /* Reduce motion overrides for button animations */
 @media (prefers-reduced-motion: reduce) {
   .icon-btn:active,
-  .chip-btn:active,
-  .cta-primary:active,
-  .cta-soft:active {
+  .chip-btn:active {
     transform: none;
   }
 }
 
 html.reduce-motion .icon-btn:active,
-html.reduce-motion .chip-btn:active,
-html.reduce-motion .cta-primary:active,
-html.reduce-motion .cta-soft:active {
+html.reduce-motion .chip-btn:active {
   transform: none;
 }

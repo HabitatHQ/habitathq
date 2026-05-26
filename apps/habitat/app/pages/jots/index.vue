@@ -226,7 +226,7 @@ onUnmounted(() => {
             <button
               class="shrink-0 self-start mt-0.5 p-1 rounded-lg transition-colors"
               :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
-              :title="hasLinkedTodo(item.data.id) ? 'View linked TODO' : 'Create TODO for this jot'"
+              :aria-label="hasLinkedTodo(item.data.id) ? 'View linked TODO' : 'Create TODO for this jot'"
               @click.stop="onJotLinkClick(item)"
             >
               <AppIcon :name="hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link'" class="w-3.5 h-3.5" />
@@ -495,7 +495,7 @@ onUnmounted(() => {
         <div class="h-full overflow-y-auto p-5 space-y-5">
           <div class="flex items-center justify-between">
             <h3 class="text-base font-semibold">New Jot</h3>
-            <UButton :icon="resolveIcon('x-mark')" variant="ghost" color="neutral" size="sm" aria-label="Close" @click="showPickSheet = false" />
+            <AppIconButton icon="x-mark" label="Close" @click="showPickSheet = false" />
           </div>
           <div class="flex flex-col items-center justify-center pt-8">
             <JotsRing class="hidden sm:flex" @select="onRingSelect" />

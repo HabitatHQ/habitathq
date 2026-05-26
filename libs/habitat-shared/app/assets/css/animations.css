@@ -18,17 +18,6 @@
   transform: scale(0.97);
 }
 
-/* Apply press feedback to all Nuxt UI buttons */
-[data-part="base"][data-scope="button"],
-button[class*="UButton"],
-a[class*="UButton"] {
-  transition: transform var(--duration-fast) var(--ease-out);
-}
-[data-part="base"][data-scope="button"]:active,
-button[class*="UButton"]:active,
-a[class*="UButton"]:active {
-  transform: scale(0.97);
-}
 
 /* Stagger entrance — parent adds .stagger-list, children animate in */
 @keyframes fadeSlideIn {

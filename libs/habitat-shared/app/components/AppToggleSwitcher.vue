@@ -7,8 +7,8 @@ const props = defineProps<{
     label?: string
     ariaLabel?: string
   }[]
-  /** Accessible group label */
-  groupLabel?: string
+  /** Accessible group label (required for screen readers) */
+  groupLabel: string
 }>()
 
 const emit = defineEmits<{

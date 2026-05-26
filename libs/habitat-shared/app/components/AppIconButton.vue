@@ -13,11 +13,14 @@ const props = withDefaults(
     variant?: 'ghost' | 'soft'
     /** Disabled state */
     disabled?: boolean
+    /** Loading state — shows spinner instead of icon */
+    loading?: boolean
   }>(),
   {
     size: 'md',
     variant: 'ghost',
     disabled: false,
+    loading: false,
   },
 )
 
@@ -41,11 +44,12 @@ const variantClass = computed(() => {
   <button
     type="button"
     class="icon-btn text-(--ui-text-muted)"
-    :class="[variantClass, { 'opacity-50 pointer-events-none': disabled }]"
+    :class="[variantClass, { 'opacity-50 pointer-events-none': disabled || loading }]"
     :aria-label="label"
-    :disabled="disabled"
+    :disabled="disabled || loading"
     @click="selectionChanged(); emit('click', $event)"
   >
-    <AppIcon :name="icon" :color="color" :class="iconSize" />
+    <AppIcon v-if="loading" name="loader" :class="[iconSize, 'animate-spin']" />
+    <AppIcon v-else :name="icon" :color="color" :class="iconSize" />
   </button>
 </template>

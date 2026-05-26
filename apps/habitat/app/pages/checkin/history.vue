@@ -220,12 +220,13 @@ function toggleText(id: string) {
     <!-- Header -->
     <header class="flex items-center justify-between">
       <BackNav to="/checkin" label="Check-ins" />
-      <ViewSwitcher
+      <AppToggleSwitcher
         v-model="viewMode"
         :options="[
           { value: 'timeline', icon: 'list-bullet', ariaLabel: 'Timeline view' },
           { value: 'calendar', icon: 'calendar-days', ariaLabel: 'Calendar view' }
         ]"
+        group-label="View mode"
       />
     </header>
 

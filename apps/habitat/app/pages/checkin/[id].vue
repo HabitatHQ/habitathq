@@ -218,15 +218,7 @@ onMounted(async () => {
           <h2 class="text-2xl font-bold leading-tight">{{ template.title }} Configuration</h2>
         </div>
         <div class="flex items-center gap-0.5 mt-1">
-          <UButton
-            :icon="resolveIcon('pencil-square')"
-            variant="ghost"
-            color="neutral"
-            size="sm"
-            aria-label="Edit check-in template"
-            class="min-h-[44px] min-w-[44px]"
-            @click="openEdit"
-          />
+          <AppIconButton icon="pencil-square" label="Edit check-in template" @click="openEdit" />
         </div>
       </header>
 
@@ -358,6 +350,7 @@ onMounted(async () => {
           </div>
           <button
             class="text-slate-700 hover:text-red-400 transition-colors"
+            aria-label="Delete reminder"
             :disabled="deletingReminder.has(r.id)"
             @click="removeReminder(r.id)"
           >
@@ -412,7 +405,7 @@ onMounted(async () => {
     <AppModal v-model="showEdit">
         <div class="flex items-center justify-between">
           <h3 class="font-semibold text-(--ui-text)">Edit Template</h3>
-          <UButton :icon="resolveIcon('x-mark')" variant="ghost" color="neutral" size="sm" @click="showEdit = false" />
+          <AppIconButton icon="x-mark" label="Close" @click="showEdit = false" />
         </div>
 
         <AppTextField v-model="editTitle" placeholder="Name" @keydown.enter="saveEdit" />

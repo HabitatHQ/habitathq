@@ -271,9 +271,9 @@ async function archiveActivity(a: BoredActivity) {
             </div>
           </div>
           <div class="flex items-center gap-1 ml-2 shrink-0">
-            <UButton variant="ghost" color="neutral" size="sm" :icon="resolveIcon('pencil')" :aria-label="`Edit ${act.title}`" class="min-h-[44px] min-w-[44px]" @click="openEditActivity(act)" />
-            <UButton variant="ghost" color="neutral" size="sm" :icon="resolveIcon('archive-box')" :aria-label="`Archive ${act.title}`" class="min-h-[44px] min-w-[44px]" @click="confirmArchiveActivity = act" />
-            <UButton variant="ghost" color="error" size="sm" :icon="resolveIcon('trash')" :aria-label="`Delete ${act.title}`" class="min-h-[44px] min-w-[44px]" @click="confirmDeleteActivity = act" />
+            <AppIconButton icon="pencil" :label="`Edit ${act.title}`" @click="openEditActivity(act)" />
+            <AppIconButton icon="archive-box" :label="`Archive ${act.title}`" @click="confirmArchiveActivity = act" />
+            <AppIconButton icon="trash" class="text-red-500" :label="`Delete ${act.title}`" @click="confirmDeleteActivity = act" />
           </div>
         </div>
         <div v-if="activitiesForCategory(cat.id).length === 0" class="text-xs text-slate-600 px-1">

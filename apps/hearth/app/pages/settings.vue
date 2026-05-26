@@ -175,6 +175,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
             class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
             :class="settings.reduceMotion ? 'bg-primary-500' : 'bg-(--ui-bg-elevated)'"
             role="switch"
+            aria-label="Reduce motion"
             :aria-checked="settings.reduceMotion"
             @click="set('reduceMotion', !settings.reduceMotion)"
           >
@@ -198,6 +199,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
             class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
             :class="settings.stickyNav ? 'bg-primary-500' : 'bg-(--ui-bg-elevated)'"
             role="switch"
+            aria-label="Sticky bottom nav"
             :aria-checked="settings.stickyNav"
             @click="set('stickyNav', !settings.stickyNav)"
           >
@@ -430,12 +432,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
             <p class="text-sm font-medium text-(--ui-text)">Force reload</p>
             <p class="text-xs text-(--ui-text-dimmed)">Unregister service worker, clear JS/CSS caches, and reload. OPFS data is preserved.</p>
           </div>
-          <UButton
-            size="sm" variant="ghost" color="neutral"
-            :icon="resolveIcon('arrow-path')" :loading="forceReloading" class="shrink-0 min-h-[44px] min-w-[44px]"
-            aria-label="Force reload"
-            @click="forceReload"
-          />
+          <AppIconButton icon="arrow-path" :loading="forceReloading" label="Force reload" class="shrink-0" @click="forceReload" />
         </div>
 
         <!-- Reset settings -->

@@ -286,15 +286,7 @@ onMounted(load)
             <AppIcon name="fire" class="w-4 h-4 text-rose-400" />
             <h3 class="text-xs font-semibold text-(--ui-text-muted) uppercase tracking-wide">Steps Today</h3>
           </div>
-          <UButton
-            :icon="resolveIcon('pencil-square')"
-            variant="ghost"
-            color="neutral"
-            size="sm"
-            aria-label="Log steps"
-            class="min-h-[44px] min-w-[44px]"
-            @click="openStepsLog"
-          />
+          <AppIconButton icon="pencil-square" label="Log steps" @click="openStepsLog" />
         </header>
 
         <!-- Odometer -->
@@ -451,15 +443,7 @@ onMounted(load)
             <AppIcon name="moon" class="w-4 h-4 text-indigo-400" />
             <h3 class="text-xs font-semibold text-(--ui-text-muted) uppercase tracking-wide">Sleep Last Night</h3>
           </div>
-          <UButton
-            :icon="resolveIcon('pencil-square')"
-            variant="ghost"
-            color="neutral"
-            size="sm"
-            aria-label="Log sleep"
-            class="min-h-[44px] min-w-[44px]"
-            @click="openSleepLog"
-          />
+          <AppIconButton icon="pencil-square" label="Log sleep" @click="openSleepLog" />
         </header>
 
         <!-- Hours display -->

@@ -255,13 +255,13 @@ onMounted(() => {
         </NuxtLink>
         <AppIconButton
           v-if="anyPaused"
-          :icon="resolveIcon('play')"
+          icon="play"
           label="Resume all habits"
           @click="resumeAllHabits"
         />
         <AppIconButton
           v-if="habits.length > 0"
-          :icon="resolveIcon('pause')"
+          icon="pause"
           label="Pause all habits"
           @click="openPauseAll"
         />

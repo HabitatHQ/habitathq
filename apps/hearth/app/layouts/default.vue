@@ -166,6 +166,7 @@ function toggleColorMode() {
               ? 'border-primary-500 bg-primary-500/15 text-primary-400'
               : 'border-(--ui-border-accented) text-(--ui-text-muted) hover:border-(--ui-border-accented) hover:text-(--ui-text)'"
             aria-label="Account menu"
+            :aria-expanded="showAvatarMenu"
             @click="showAvatarMenu = !showAvatarMenu"
           >
             <AppIcon name="user-circle" class="w-5 h-5" />

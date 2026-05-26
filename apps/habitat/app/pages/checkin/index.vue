@@ -162,7 +162,7 @@ async function createTemplate() {
     <AppModal v-model="showCreate">
         <div class="flex items-center justify-between">
           <h3 class="font-semibold text-(--ui-text)">New Check-in</h3>
-          <UButton :icon="resolveIcon('x-mark')" variant="ghost" color="neutral" size="sm" @click="showCreate = false" />
+          <AppIconButton icon="x-mark" label="Close" @click="showCreate = false" />
         </div>
 
         <!-- Title -->

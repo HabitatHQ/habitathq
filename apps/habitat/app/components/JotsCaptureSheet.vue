@@ -82,10 +82,10 @@ onUnmounted(() => {
   <div class="space-y-4">
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-2">
-        <UButton v-if="imagePreview" :icon="resolveIcon('arrow-left')" variant="ghost" color="neutral" size="sm" aria-label="Back to camera" class="min-h-[44px] min-w-[44px]" @click="cancelPreview" />
+        <AppIconButton v-if="imagePreview" icon="arrow-left" label="Back to camera" @click="cancelPreview" />
         <h3 class="text-base font-semibold">Photograph</h3>
       </div>
-      <UButton :icon="resolveIcon('x-mark')" variant="ghost" color="neutral" size="sm" aria-label="Close camera" class="min-h-[44px] min-w-[44px]" @click="emit('close')" />
+      <AppIconButton icon="x-mark" label="Close camera" @click="emit('close')" />
     </div>
 
     <UAlert

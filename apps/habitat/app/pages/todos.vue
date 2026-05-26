@@ -351,12 +351,13 @@ async function deleteAndClose(t: Todo) {
       <h1 class="text-2xl font-bold">TODOs</h1>
       <div class="flex items-center gap-2">
         <!-- List / Calendar toggle -->
-        <ViewSwitcher
+        <AppToggleSwitcher
           :model-value="calendarView ? 'calendar' : 'list'"
           :options="[
             { value: 'list', icon: 'list-bullet', ariaLabel: 'List view' },
             { value: 'calendar', icon: 'calendar-days', ariaLabel: 'Calendar view' }
           ]"
+          group-label="View mode"
           @update:model-value="v => calendarView = (v === 'calendar')"
         />
         <UButton size="sm" class="min-h-[44px]" :icon="resolveIcon('plus')" @click="openAdd">Add</UButton>
@@ -391,6 +392,7 @@ async function deleteAndClose(t: Todo) {
         />
         <button
           class="w-5 h-5 rounded-full flex items-center justify-center text-(--ui-text-dimmed) hover:text-(--ui-text)"
+          aria-label="Clear search"
           @click="searchQuery = ''; searchExpanded = false"
         >
           <AppIcon name="x-mark" class="w-3.5 h-3.5" />
@@ -675,8 +677,8 @@ async function deleteAndClose(t: Todo) {
 
             <!-- Actions -->
             <div class="flex flex-col gap-1 shrink-0">
-              <UButton variant="ghost" color="neutral" size="sm" :icon="resolveIcon('pencil')" class="min-h-[44px]" aria-label="Edit todo" @click="openEdit(todo)" />
-              <UButton variant="ghost" color="neutral" size="sm" :icon="resolveIcon('archive-box')" class="min-h-[44px]" aria-label="Archive todo" @click="confirmArchiveTodo = todo" />
+              <AppIconButton icon="pencil" label="Edit todo" @click="openEdit(todo)" />
+              <AppIconButton icon="archive-box" label="Archive todo" @click="confirmArchiveTodo = todo" />
             </div>
           </li>
         </ul>
