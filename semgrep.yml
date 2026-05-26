@@ -92,7 +92,7 @@ rules:
   - id: biome-ignore-needs-reason
     message: >-
       biome-ignore comments must include a reason after the rule name
-      (// biome-ignore lint/x/y: <why>). See global CLAUDE.md.
+      (// biome-ignore lint/x/y: <why>). See AGENTS.md / .agents/forbidden.md.
     severity: ERROR
     languages: [typescript, javascript]
     paths:

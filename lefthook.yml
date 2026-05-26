@@ -40,8 +40,8 @@ pre-commit:
       glob: "**/package.json"
       run: |
         # If package.json {dependencies,devDependencies,peerDependencies} diff is
-        # present without a corresponding pnpm-lock.yaml diff, the LLM hand-edited
-        # the manifest. Add deps via `pnpm add` instead (see global CLAUDE.md).
+        # present without a corresponding pnpm-lock.yaml diff, an agent hand-edited
+        # the manifest. Add deps via `pnpm add` instead (see .agents/forbidden.md).
         ok=true
         for f in {staged_files}; do
           if git diff --cached --unified=0 "$f" | grep -qE '^\+\s*"(dependencies|devDependencies|peerDependencies)"|^\+\s*"[@a-zA-Z0-9/_-]+"\s*:\s*"\^?[~]?[0-9]'; then

@@ -47,7 +47,7 @@ pnpm --filter <app> test:unit
 ## Collaboration
 
 1. Ask interactively in batches when designing features.
-2. Be mindful of parallel agents — use git worktrees under `<repo>/.claude/worktrees/<branch>/`.
+2. Be mindful of parallel agents — use git worktrees in `<repo>/.worktrees/<branch>/` (Claude Code uses `.claude/worktrees/`; both are gitignored).
 3. Quote shell args containing `[`, `{`, `*`.
 4. Run `pnpm test:unit` after meaningful changes; `pnpm check:fix` before finishing.
 
@@ -75,6 +75,10 @@ pnpm dedupe:check             # detect duplicate transitive deps
 If you need to suppress a rule, leave an inline comment explaining why
 (`// biome-ignore lint/x/y: <reason>`, `// nosemgrep: <rule-id> -- <reason>`).
 Suppressions without a reason are themselves a lint error.
+
+## Glossary
+
+Overloaded terms (vault, envelope, scribble, SAH-pool, HLC, OPFS, …) live in [`GLOSSARY.md`](GLOSSARY.md). Skim once.
 
 ## Safety classes
 
