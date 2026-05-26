@@ -7,6 +7,10 @@ rules:
       (see apps/habitat/AGENTS.md).
     severity: ERROR
     languages: [typescript, javascript]
+    metadata:
+      fix_hint: "Replace console.error(args) with logError(context, err)"
+      docs: "apps/habitat/AGENTS.md#habitat-specific-conventions"
+      category: "habitat"
     paths:
       include:
         - apps/habitat/app
@@ -22,6 +26,10 @@ rules:
       mocks). See apps/habitat/AGENTS.md → Conventions.
     severity: ERROR
     languages: [typescript]
+    metadata:
+      fix_hint: "Replace db.queryOne(...) with db.queryAll(...) and read [0]"
+      docs: "apps/habitat/AGENTS.md#habitat-specific-conventions"
+      category: "habitat"
     paths:
       include:
         - apps/habitat/app/lib/db-shared.ts
@@ -37,6 +45,10 @@ rules:
       apps/hearth/AGENTS.md → Icons. Keeps icons in the shared offline registry.
     severity: WARNING
     languages: [generic]
+    metadata:
+      fix_hint: "Replace <UIcon name=\"i-foo\" /> with <AppIcon name=\"semantic-key\" />; add the key to libs/habitat-utils/src/icons.ts if missing"
+      docs: "apps/hearth/AGENTS.md#icons-offline-safe"
+      category: "icons"
     paths:
       include:
         - "apps/*/app/**/*.vue"
@@ -51,6 +63,10 @@ rules:
       `as unknown as <SpecificType>` with a // biome-ignore explaining why.
     severity: ERROR
     languages: [typescript]
+    metadata:
+      fix_hint: "Narrow with a type guard, or replace with `as unknown as <SpecificType>` + biome-ignore reason"
+      docs: ".agents/forbidden.md"
+      category: "ts-escape-hatch"
     paths:
       include:
         - apps/
@@ -67,6 +83,10 @@ rules:
       for narrow type-system bridges; prefer a real type. Document why with a comment.
     severity: WARNING
     languages: [typescript]
+    metadata:
+      fix_hint: "Justify with a // biome-ignore lint/suspicious/noExplicitAny: <reason> or refactor to a real type"
+      docs: ".agents/forbidden.md"
+      category: "ts-escape-hatch"
     paths:
       include:
         - apps/
@@ -83,6 +103,10 @@ rules:
       (// @ts-expect-error -- <why>). If you can't explain it, you can't suppress it.
     severity: ERROR
     languages: [typescript]
+    metadata:
+      fix_hint: "Append ' -- <reason>' to the @ts-* comment, or delete the suppression"
+      docs: ".agents/forbidden.md"
+      category: "ts-escape-hatch"
     paths:
       exclude:
         - "**/*.test.ts"
@@ -95,6 +119,10 @@ rules:
       (// biome-ignore lint/x/y: <why>). See AGENTS.md / .agents/forbidden.md.
     severity: ERROR
     languages: [typescript, javascript]
+    metadata:
+      fix_hint: "Append ': <reason>' after the rule name"
+      docs: ".agents/forbidden.md"
+      category: "lint-suppression"
     paths:
       exclude:
         - "**/*.test.ts"
@@ -109,6 +137,10 @@ rules:
       Biome warns; semgrep promotes to error in app/lib code.
     severity: ERROR
     languages: [typescript, javascript]
+    metadata:
+      fix_hint: "Delete the console.log, or use logError/structured logging if needed"
+      docs: ".agents/forbidden.md"
+      category: "diagnostics"
     paths:
       include:
         - apps/
@@ -132,6 +164,10 @@ rules:
       (see apps/habitat/AGENTS.md → Modals).
     severity: WARNING
     languages: [generic]
+    metadata:
+      fix_hint: "Replace <Teleport>...<div fixed inset-0> with <AppModal v-model=\"show\" title=\"…\"> + #footer slot"
+      docs: "apps/habitat/AGENTS.md#habitat-specific-conventions"
+      category: "habitat"
     paths:
       include:
         - "apps/*/app/**/*.vue"
