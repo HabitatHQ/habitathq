@@ -1,0 +1,135 @@
+/* Button design tokens and utility classes — iOS HIG 44pt touch targets */
+
+:root {
+  --btn-min-touch: 44px;
+  --btn-icon-size: 20px;
+  --btn-gap-sm: 4px;
+  --btn-gap-md: 8px;
+  --btn-radius-pill: 9999px;
+  --btn-radius-default: 12px;
+  --btn-radius-lg: 16px;
+}
+
+/* Minimum 44×44 touch target */
+.touch-target {
+  min-height: var(--btn-min-touch);
+  min-width: var(--btn-min-touch);
+}
+
+/* Standardized icon button — 44×44, centered, press feedback */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--btn-min-touch);
+  min-width: var(--btn-min-touch);
+  border-radius: var(--btn-radius-pill);
+  transition: transform var(--duration-fast) var(--ease-out),
+    background-color 150ms ease;
+}
+.icon-btn:active {
+  transform: scale(0.97);
+}
+.icon-btn:focus-visible {
+  outline: 2px solid var(--ui-primary);
+  outline-offset: 2px;
+}
+
+/* Filter chip — pill button with active state */
+.chip-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--btn-gap-sm);
+  min-height: var(--btn-min-touch);
+  padding-inline: 12px;
+  padding-block: 6px;
+  border-radius: var(--btn-radius-pill);
+  border: 1px solid var(--ui-border);
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: transform var(--duration-fast) var(--ease-out),
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+.chip-btn:active {
+  transform: scale(0.97);
+}
+.chip-btn[aria-pressed="true"] {
+  background-color: color-mix(in srgb, var(--ui-primary) 15%, transparent);
+  border-color: var(--ui-primary);
+  color: var(--ui-primary);
+}
+
+/* Segmented control item */
+.segment-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: var(--btn-min-touch);
+  padding-block: 8px;
+  padding-inline: 12px;
+  border-radius: var(--btn-radius-default);
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+.segment-btn[aria-pressed="true"] {
+  background-color: var(--ui-bg);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.1);
+  color: var(--ui-text);
+}
+
+/* Primary CTA */
+.cta-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--btn-gap-md);
+  min-height: var(--btn-min-touch);
+  padding-inline: 16px;
+  padding-block: 10px;
+  border-radius: var(--btn-radius-default);
+  font-weight: 600;
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+.cta-primary:active {
+  transform: scale(0.97);
+}
+
+/* Soft/muted CTA variant */
+.cta-soft {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--btn-gap-md);
+  min-height: var(--btn-min-touch);
+  padding-inline: 16px;
+  padding-block: 10px;
+  border-radius: var(--btn-radius-default);
+  font-weight: 600;
+  background-color: color-mix(in srgb, var(--ui-primary) 15%, transparent);
+  color: var(--ui-primary);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+.cta-soft:active {
+  transform: scale(0.97);
+}
+
+/* Reduce motion overrides for button animations */
+@media (prefers-reduced-motion: reduce) {
+  .icon-btn:active,
+  .chip-btn:active,
+  .cta-primary:active,
+  .cta-soft:active {
+    transform: none;
+  }
+}
+
+html.reduce-motion .icon-btn:active,
+html.reduce-motion .chip-btn:active,
+html.reduce-motion .cta-primary:active,
+html.reduce-motion .cta-soft:active {
+  transform: none;
+}
