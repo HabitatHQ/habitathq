@@ -23,6 +23,7 @@ const emit = defineEmits<{
 }>()
 
 const modelValue = defineModel<boolean>({ default: false })
+const { notification } = useHaptics()
 
 const iconBg = computed(() => {
   if (props.iconColor === 'red') return 'bg-red-500/10'
@@ -37,6 +38,7 @@ const iconText = computed(() => {
 })
 
 function handleConfirm() {
+  void notification('warning')
   emit('confirm')
   modelValue.value = false
 }
