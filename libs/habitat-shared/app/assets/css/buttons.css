@@ -35,21 +35,21 @@
   outline-offset: 2px;
 }
 
-/* Filter chip — pill button with active state */
+/* Filter chip — pill button with active state (visual ~32px, touch target 44px via padding) */
 .chip-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 4px;
   min-height: 44px;
-  padding-inline: 12px;
-  padding-block: 6px;
+  padding-inline: 14px;
+  padding-block: 8px;
   border-radius: 9999px;
   border: 1px solid var(--ui-border);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 500;
   white-space: nowrap;
-  flex-shrink: 0;
+  color: var(--ui-text-muted);
   transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1),
     background-color 150ms ease,
     border-color 150ms ease,
@@ -62,6 +62,7 @@
   background-color: color-mix(in srgb, var(--ui-primary) 15%, transparent);
   border-color: var(--ui-primary);
   color: var(--ui-primary);
+  font-weight: 600;
 }
 
 /* Compact toggle button — icon-only toggles within pill containers */
