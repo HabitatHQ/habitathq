@@ -6,7 +6,7 @@ export default defineAppConfig({
     },
     button: {
       slots: {
-        base: 'btn-press',
+        base: 'btn-press justify-center',
       },
     },
   },
