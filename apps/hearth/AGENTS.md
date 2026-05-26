@@ -19,11 +19,11 @@ pnpm cap:run:android  # Run on Android
 
 ## Architecture
 
-**Web**: Pages → `useDatabase()` composable → `database.client.ts` plugin (UUID message bus) → `database.worker.ts` (SQLite WASM + OPFS)
+**Web**: Pages → `useDatabase()` composable → `database.client.ts` plugin (UUID message bus) → `database.worker.ts` (`BrowserSqliteAdapter` via `@palladium/sqlite-browser`, `opfs-sah-pool` VFS)
 
-**Native**: Same composable → `db-native.ts` (Capacitor SQLite, no worker)
+**Native**: Same composable → `db-native.ts` (`CapacitorSqliteAdapter` via `@palladium/sqlite-capacitor`, no worker)
 
-Both paths share the same `WorkerRequest` / `WorkerResponse` message types defined in `app/types/database.ts`. The SQLite plumbing (`SahPoolAdapter`, `toDbAdapter`, `DbAdapter` type) lives in `@habitathq/db`.
+Both paths share `WorkerRequest` / `WorkerResponse` message types defined in `app/types/database.ts`. Uses `DbAdapter` / `toDbAdapter` / `toCapacitorDbAdapter` from `@palladium/core`. Schema migrations are managed via Palladium's `SchemaConfig` + `applySchema()`.
 
 ## Offline parity
 
@@ -60,9 +60,9 @@ Hearth extends `@habitathq/shared` (Nuxt layer at `libs/habitat-shared`), which 
 - Lucide is bundled at build time via `@iconify-json/lucide` so icons render offline (PWA + native)
 - The registry lives in `libs/habitat-utils/src/icons.ts` — add new entries there if a needed icon is missing
 
-## Schema (user_version = 1)
+## Schema (user_version = 9, managed by Palladium SchemaConfig)
 
-**Tables**: users, accounts, categories, transactions, envelopes, envelope_periods, iou_splits, savings_goals, chores
+**Tables**: users, accounts, categories, transactions, envelopes, envelope_periods, iou_splits, savings_goals, chores, applied_defaults, _palladium_seeds
 
 ## Adding a DB Operation
 
@@ -71,7 +71,7 @@ Hearth extends `@habitathq/shared` (Nuxt layer at `libs/habitat-shared`), which 
 3. Mirror in `db-native.ts` (Capacitor SQLite)
 4. Expose in `useDatabase.ts` via `sendToWorker()`
 
-Schema changes: increment `user_version`, add `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` migration after the `CREATE TABLE` block, mirror in `db-native.ts`.
+Schema changes: increment `version` in `SCHEMA_CONFIG` (in `db-schema.ts`), add migration SQL/callback to the `migrations` map. Both worker and native paths use `applySchema(storage, SCHEMA_CONFIG)` automatically.
 
 ## Navigation
 

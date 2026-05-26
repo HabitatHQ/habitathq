@@ -51,7 +51,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build workspace deps
-        run: pnpm --filter "@palladium/core" build && pnpm --filter "@palladium/nuxt" build
+        run: |
+          pnpm --filter "@palladium/core" build
+          pnpm --filter "@palladium/sqlite-browser" build
+          pnpm --filter "@palladium/sqlite-capacitor" build
+          pnpm --filter "@palladium/nuxt" build
 
       - name: Determine deploy prefix
         id: prefix

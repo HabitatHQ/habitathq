@@ -1,10 +1,10 @@
-import { SahPoolAdapter, toDbAdapter } from '@habitathq/db'
-import * as schema from '~/lib/db-schema'
+import { applySchema, dbg, toDbAdapter } from '@palladium/core'
+import { BrowserSqliteAdapter } from '@palladium/sqlite-browser'
+import { SCHEMA_CONFIG } from '~/lib/db-schema'
 import * as shared from '~/lib/db-shared'
 import type { WorkerRequest, WorkerResponse } from '~/types/database'
 
 await (async () => {
-  // ─── Exclusive lock ───────────────────────────────────────────────────────────
   async function tryAcquireDbLock(): Promise<boolean> {
     for (let attempt = 0; attempt < 3; attempt++) {
       if (attempt > 0) await new Promise((r) => setTimeout(r, 1000))
@@ -15,12 +15,11 @@ await (async () => {
             return Promise.resolve()
           }
           resolve(true)
-          return new Promise(() => {}) // hold until worker terminates
+          return new Promise(() => {})
         })
       })
       if (got) return true
     }
-    // Retries exhausted — steal the stale lock
     return new Promise<boolean>((resolve) => {
       void navigator.locks.request('hearth-db', { steal: true }, (lock) => {
         if (!lock) {
@@ -40,16 +39,19 @@ await (async () => {
   }
 
   try {
-    const storage = new SahPoolAdapter({ directory: '/hearth', filename: '/hearth.db' })
+    dbg('hearth-worker', 'init start')
+    const storage = new BrowserSqliteAdapter({
+      vfs: { type: 'opfs-sah-pool', directory: '/hearth', filename: '/hearth.db' },
+    })
     await storage.open()
 
+    // WAL mode for better concurrent read performance (web only)
+    await storage.exec('PRAGMA journal_mode = WAL')
+
+    await applySchema(storage, SCHEMA_CONFIG)
+
     const adapter = toDbAdapter(storage)
-
-    await adapter.exec('PRAGMA journal_mode = WAL')
-    await adapter.exec(schema.SCHEMA_DDL)
-    await schema.runMigrations(adapter)
-
-    // ─── Message loop ─────────────────────────────────────────────────────────────
+    dbg('hearth-worker', 'init complete')
 
     self.addEventListener('message', async (e: MessageEvent) => {
       const req = e.data as WorkerRequest
@@ -85,8 +87,6 @@ await (async () => {
             break
           }
           default:
-            // shared.dispatch's own default throws on truly unknown types;
-            // void-returning ops legitimately resolve to undefined.
             result = await shared.dispatch(adapter, req)
         }
         self.postMessage({ id: req.id, ok: true, data: result } satisfies WorkerResponse)

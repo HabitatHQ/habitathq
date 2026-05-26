@@ -99,47 +99,6 @@ function handleSave() {
 
 // ── Jot picker ───────────────────────────────────────────────────────────────
 
-const _IDB_NAME = 'habitat'
-const _VOICE_STORE = 'voice_notes'
-const _IMAGE_STORE = 'image_notes'
-let _pickerDb: IDBDatabase | null = null
-
-function _openPickerDb(): Promise<IDBDatabase> {
-  if (_pickerDb) return Promise.resolve(_pickerDb)
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(_IDB_NAME, 2)
-    req.onupgradeneeded = (e) => {
-      const idb = req.result
-      if (e.oldVersion < 1) idb.createObjectStore(_VOICE_STORE, { keyPath: 'id' })
-      if (e.oldVersion < 2) idb.createObjectStore(_IMAGE_STORE, { keyPath: 'id' })
-    }
-    req.onsuccess = () => {
-      _pickerDb = req.result
-      resolve(req.result)
-    }
-    req.onerror = () => reject(req.error)
-  })
-}
-
-async function _idbGetAll<T>(store: string): Promise<T[]> {
-  const idb = await _openPickerDb()
-  return new Promise((resolve, reject) => {
-    const req = idb.transaction(store, 'readonly').objectStore(store).getAll()
-    req.onsuccess = () => resolve(req.result as T[])
-    req.onerror = () => reject(req.error)
-  })
-}
-
-interface _VoiceNoteMin {
-  id: string
-  created_at: string
-  duration: number
-}
-interface _ImageNoteMin {
-  id: string
-  filename: string
-  created_at: string
-}
 interface JotPickerItem {
   kind: 'text' | 'voice' | 'image'
   id: string
@@ -159,8 +118,8 @@ async function openJotPicker() {
   try {
     const [scribbles, voices, images] = await Promise.all([
       db.getScribbles(),
-      _idbGetAll<_VoiceNoteMin>(_VOICE_STORE),
-      _idbGetAll<_ImageNoteMin>(_IMAGE_STORE),
+      db.getVoiceNotes(),
+      db.getImageNotes(),
     ])
     jotPickerItems.value = [
       ...scribbles.map((s) => ({

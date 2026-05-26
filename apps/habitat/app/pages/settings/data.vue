@@ -224,7 +224,7 @@ async function confirmImport() {
   if (!importPreview.value) return
   importing.value = true
   try {
-    await db.importJson(importPreview.value)
+    await db.importJson(toRaw(importPreview.value))
     importDone.value = true
     importPreview.value = null
   } finally {
@@ -234,56 +234,15 @@ async function confirmImport() {
 
 // ─── Jots ZIP export ───────────────────────────────────────────────────────────
 
-interface VoiceNoteRaw {
-  id: string
-  blob: Blob
-  mimeType: string
-  created_at: string
-}
-
-interface ImageNoteRaw {
-  id: string
-  blob: Blob
-  mimeType: string
-  filename: string
-  created_at: string
-}
-
-function openJotsIdb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open('habitat', 2)
-    req.onupgradeneeded = (e) => {
-      const idb = req.result
-      if (e.oldVersion < 1) idb.createObjectStore('voice_notes', { keyPath: 'id' })
-      if (e.oldVersion < 2) idb.createObjectStore('image_notes', { keyPath: 'id' })
-    }
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
-  })
-}
-
-function idbGetAllNotes(idb: IDBDatabase): Promise<VoiceNoteRaw[]> {
-  return new Promise((resolve, reject) => {
-    const req = idb.transaction('voice_notes', 'readonly').objectStore('voice_notes').getAll()
-    req.onsuccess = () => resolve(req.result as VoiceNoteRaw[])
-    req.onerror = () => reject(req.error)
-  })
-}
-
-function idbGetAllImages(idb: IDBDatabase): Promise<ImageNoteRaw[]> {
-  return new Promise((resolve, reject) => {
-    const req = idb.transaction('image_notes', 'readonly').objectStore('image_notes').getAll()
-    req.onsuccess = () => resolve(req.result as ImageNoteRaw[])
-    req.onerror = () => reject(req.error)
-  })
-}
-
 const showJotsExportModal = ref(false)
 const exportingJots = ref(false)
 const jotsExportSel = reactive({ text: true, voice: true, images: true })
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: sequential export pipeline
 async function exportJotsZip() {
+  // Dynamic import avoids IDBBlobAdapter init-order crash in SSR (see e64a6cf)
+  const { getBlobAdapter } = await import('~/composables/useJotsStore')
+  const blobAdapter = getBlobAdapter()
   exportingJots.value = true
   try {
     const files: Record<string, Uint8Array> = {}
@@ -303,23 +262,25 @@ async function exportJotsZip() {
       }
     }
 
-    if (jotsExportSel.voice || jotsExportSel.images) {
-      const idb = await openJotsIdb()
-      if (jotsExportSel.voice) {
-        const notes = await idbGetAllNotes(idb)
-        for (const note of notes) {
-          const ext = note.mimeType.split('/')[1]?.split(';')[0] ?? 'audio'
-          const ts = note.created_at.slice(0, 19).replace(/[:.]/g, '-')
-          files[`voice/${ts}.${ext}`] = new Uint8Array(await note.blob.arrayBuffer())
-        }
+    if (jotsExportSel.voice) {
+      const rows = await db.getVoiceNotes()
+      for (const row of rows) {
+        const bytes = await blobAdapter.get(row.id)
+        if (!bytes) continue
+        const ext = row.mime_type.split('/')[1]?.split(';')[0] ?? 'audio'
+        const ts = row.created_at.slice(0, 19).replace(/[:.]/g, '-')
+        files[`voice/${ts}.${ext}`] = bytes
       }
-      if (jotsExportSel.images) {
-        const images = await idbGetAllImages(idb)
-        for (const img of images) {
-          const ext = img.mimeType.split('/')[1] ?? 'jpg'
-          const ts = img.created_at.slice(0, 19).replace(/[:.]/g, '-')
-          files[`images/${ts}.${ext}`] = new Uint8Array(await img.blob.arrayBuffer())
-        }
+    }
+
+    if (jotsExportSel.images) {
+      const rows = await db.getImageNotes()
+      for (const row of rows) {
+        const bytes = await blobAdapter.get(row.id)
+        if (!bytes) continue
+        const ext = row.mime_type.split('/')[1] ?? 'jpg'
+        const ts = row.created_at.slice(0, 19).replace(/[:.]/g, '-')
+        files[`images/${ts}.${ext}`] = bytes
       }
     }
 
@@ -354,12 +315,20 @@ function clearLocalStorage() {
 }
 
 function clearIdb(): Promise<void> {
-  return new Promise((resolve) => {
-    const req = indexedDB.deleteDatabase('habitat')
-    req.onsuccess = () => resolve()
-    req.onerror = () => resolve()
-    req.onblocked = () => resolve()
-  })
+  return Promise.all([
+    new Promise<void>((resolve) => {
+      const req = indexedDB.deleteDatabase('habitat-blobs')
+      req.onsuccess = () => resolve()
+      req.onerror = () => resolve()
+      req.onblocked = () => resolve()
+    }),
+    new Promise<void>((resolve) => {
+      const req = indexedDB.deleteDatabase('habitat')
+      req.onsuccess = () => resolve()
+      req.onerror = () => resolve()
+      req.onblocked = () => resolve()
+    }),
+  ]).then(() => {})
 }
 
 const showClearModal = ref(false)

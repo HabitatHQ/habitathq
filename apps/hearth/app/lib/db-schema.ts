@@ -1,8 +1,6 @@
+import type { MigrationExec, SchemaConfig, Seed } from '@palladium/core'
 import { MIGRATION_V7_SQL } from '~/lib/migrations/v7-multi-currency'
 import { MIGRATION_V8_SQL } from '~/lib/migrations/v8-icons-lucide'
-import type { DbAdapter } from '~/types/database'
-
-export const CURRENT_USER_VERSION = 8
 
 export const SCHEMA_DDL = `
   CREATE TABLE IF NOT EXISTS users (
@@ -181,93 +179,68 @@ export const SCHEMA_DDL = `
   );
 `
 
-/**
- * Insert a default user + account if the DB has none. Idempotent: skips if
- * either table is already populated, so existing installs are untouched and
- * running twice on a fresh DB does nothing the second time.
- */
-export async function seedDefaults(db: DbAdapter): Promise<void> {
-  const existingUser = await db.queryOne<{ id: string }>('SELECT id FROM users LIMIT 1')
-  const existingAccount = await db.queryOne<{ id: string }>('SELECT id FROM accounts LIMIT 1')
-  if (existingUser && existingAccount) return
+// ─── Default seed: create initial user + account ─────────────────────────────
 
-  const now = new Date().toISOString()
-  let userId = existingUser?.id
-  if (!userId) {
-    userId = crypto.randomUUID()
-    await db.exec(
-      'INSERT INTO users (id, name, role, avatar_emoji, color, is_current, created_at) VALUES (?,?,?,?,?,?,?)',
-      [userId, 'Me', 'owner', '🏠', '#f59e0b', 1, now],
-    )
-  }
-  if (!existingAccount) {
-    await db.exec(
-      'INSERT INTO accounts (id, user_id, name, type, balance, currency, color, icon, is_active, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-      [
-        crypto.randomUUID(),
-        userId,
-        'Cash',
-        'checking',
-        0,
-        'USD',
-        '#f59e0b',
-        'i-lucide-wallet',
-        1,
-        now,
-      ],
-    )
-  }
-}
+const SEEDS: Seed[] = [
+  {
+    key: 'default-user-account',
+    apply: async (exec: MigrationExec) => {
+      const existingUser = await exec<{ id: string }>('SELECT id FROM users LIMIT 1')
+      const existingAccount = await exec<{ id: string }>('SELECT id FROM accounts LIMIT 1')
+      if (existingUser.length > 0 && existingAccount.length > 0) return
 
-export async function runMigrations(db: DbAdapter): Promise<void> {
-  const rows = await db.queryAll<{ user_version: number }>('PRAGMA user_version')
-  const version = rows[0]?.user_version ?? 0
+      const now = new Date().toISOString()
+      let userId = existingUser[0]?.id
+      if (!userId) {
+        userId = crypto.randomUUID()
+        await exec(
+          'INSERT INTO users (id, name, role, avatar_emoji, color, is_current, created_at) VALUES (?,?,?,?,?,?,?)',
+          [userId, 'Me', 'owner', '🏠', '#f59e0b', 1, now],
+        )
+      }
+      if (existingAccount.length === 0) {
+        await exec(
+          'INSERT INTO accounts (id, user_id, name, type, balance, currency, color, icon, is_active, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+          [
+            crypto.randomUUID(),
+            userId,
+            'Cash',
+            'checking',
+            0,
+            'USD',
+            '#f59e0b',
+            'i-lucide-wallet',
+            1,
+            now,
+          ],
+        )
+      }
+    },
+  },
+]
 
-  // Fresh install: SCHEMA_DDL already contains every column added by past
-  // migrations (v7 ALTERs, etc.), so re-running them throws "duplicate column".
-  // Stamp the DB at the current version and skip the upgrade path entirely.
-  if (version === 0) {
-    await db.exec(`PRAGMA user_version = ${CURRENT_USER_VERSION}`)
-    await seedDefaults(db)
-    return
-  }
+// ─── Schema config ───────────────────────────────────────────────────────────
 
-  // Existing installs that pre-dated the seed step but never created a
-  // user/account through UI: backfill the defaults so the app is usable.
-  await seedDefaults(db)
-
-  if (version < 1) {
-    await db.exec('PRAGMA user_version = 1')
-  }
-  if (version < 2) {
-    await db.exec('PRAGMA user_version = 2')
-  }
-  if (version < 3) {
-    // merchant_mappings + index already in SCHEMA_DDL (squashed)
-    await db.exec('PRAGMA user_version = 3')
-  }
-  if (version < 4) {
-    // source column already in SCHEMA_DDL (squashed)
-    await db.exec('PRAGMA user_version = 4')
-  }
-  if (version < 5) {
-    // recurring_patterns already in SCHEMA_DDL (squashed)
-    await db.exec('PRAGMA user_version = 5')
-  }
-  if (version < 6) {
-    // receipt_images already in SCHEMA_DDL (squashed)
-    await db.exec('PRAGMA user_version = 6')
-  }
-  if (version < 7) {
-    for (const sql of MIGRATION_V7_SQL) {
-      await db.exec(sql)
-    }
-    await db.exec('PRAGMA user_version = 7')
-  }
-  if (version < 8) {
-    for (const sql of MIGRATION_V8_SQL) {
-      await db.exec(sql)
-    }
-    await db.exec('PRAGMA user_version = 8')
-  }
+export const SCHEMA_CONFIG: SchemaConfig = {
+  schema: SCHEMA_DDL,
+  version: 9,
+  migrations: {
+    7: MIGRATION_V7_SQL,
+    8: MIGRATION_V8_SQL,
+    9: [
+      async (exec: MigrationExec) => {
+        await exec(
+          'CREATE TABLE IF NOT EXISTS _palladium_seeds (key TEXT PRIMARY KEY, applied_at TEXT NOT NULL)',
+        )
+        const existing = await exec<{ key: string }>('SELECT key FROM applied_defaults')
+        for (const row of existing) {
+          await exec('INSERT OR IGNORE INTO _palladium_seeds (key, applied_at) VALUES (?, ?)', [
+            row.key,
+            new Date().toISOString(),
+          ])
+        }
+      },
+    ],
+  },
+  seeds: SEEDS,
 }

@@ -16,11 +16,13 @@ pnpm cap:run:android  # Run on Android
 
 ## Architecture
 
-**Web**: Pages → `useDatabase()` composable → `database.client.ts` plugin (UUID message bus) → `database.worker.ts` (SQLite WASM + OPFS)
+**Web**: Pages → `useDatabase()` composable → `database.client.ts` plugin (UUID message bus) → `database.worker.ts` (`BrowserSqliteAdapter` via `@palladium/sqlite-browser`, `opfs-sah-pool` VFS)
 
-**Native**: Same composable → `db-native.ts` (Capacitor SQLite, no worker)
+**Native**: Same composable → `db-native.ts` (`CapacitorSqliteAdapter` via `@palladium/sqlite-capacitor`, no worker)
 
-Both paths share the same `WorkerRequest` / `WorkerResponse<T>` message types. The SQLite plumbing (`SahPoolAdapter`, `toDbAdapter`, `DbAdapter` type) lives in `@habitathq/db`.
+Both paths share `WorkerRequest` / `WorkerResponse<T>` message types and use `DbAdapter` / `toDbAdapter` / `toCapacitorDbAdapter` from `@palladium/core`. Schema migrations and seeds are managed via Palladium's `SchemaConfig` + `applySchema()`.
+
+**Blob storage**: Voice and image note binary data is stored in IndexedDB via `IDBBlobAdapter` from `@palladium/core` (DB name: `habitat-blobs`). Metadata (mime type, duration, filename, timestamps) lives in SQLite tables (`voice_notes`, `image_notes`).
 
 ## Key Files
 
@@ -46,12 +48,12 @@ Both paths share the same `WorkerRequest` / `WorkerResponse<T>` message types. T
 | `app/assets/css/typography.css` | Semantic typography classes: `type-timer`, `type-duration`, `type-code`, `type-numeric` |
 | `app/assets/css/themes.css` | Forest / Ocean / Habitat colour themes, sprout logo animation |
 
-## Schema (user_version = 11)
+## Schema (user_version = 19, managed by Palladium SchemaConfig)
 
-habits, completions, habit_schedules, habit_logs, checkin_templates, checkin_questions, checkin_responses, checkin_reminders, scribbles, reminders, bored_categories, bored_activities, todos, applied_defaults
+habits, completions, habit_schedules, habit_logs, checkin_templates, checkin_questions, checkin_responses, checkin_reminders, checkin_completions, scribbles, reminders, bored_categories, bored_activities, todos, voice_notes, image_notes, applied_defaults, _palladium_seeds
 
 Journal entries: localStorage (`journal-YYYY-MM-DD`).
-Voice notes + image notes: IndexedDB (`habitat` DB, version 2).
+Voice/image binary data: `IDBBlobAdapter` (`habitat-blobs` IndexedDB). Metadata in SQLite.
 
 ## Adding a DB Operation
 
@@ -61,7 +63,7 @@ Voice notes + image notes: IndexedDB (`habitat` DB, version 2).
 4. Mirror the same case in `db-native.ts` `dispatchNative` switch
 5. Expose in `useDatabase.ts` via `sendToWorker()`
 
-Schema changes: increment `user_version`, add migration in `runMigrations()` in both `database.worker.ts` and `db-native.ts`.
+Schema changes: increment `version` in `SCHEMA_CONFIG` (in `db-schema.ts`), add migration SQL/callback to the `migrations` map. Both worker and native paths use `applySchema(storage, SCHEMA_CONFIG)` automatically.
 
 ## Pages
 

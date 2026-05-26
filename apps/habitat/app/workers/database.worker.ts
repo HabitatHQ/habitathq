@@ -1,14 +1,10 @@
-import { SahPoolAdapter, toDbAdapter } from '@habitathq/db'
-import * as schema from '~/lib/db-schema'
+import { applySchema, dbg, toDbAdapter } from '@palladium/core'
+import { BrowserSqliteAdapter } from '@palladium/sqlite-browser'
+import { SCHEMA_CONFIG } from '~/lib/db-schema'
 import * as shared from '~/lib/db-shared'
 import type { WorkerRequest, WorkerResponse } from '~/types/database'
 
 await (async () => {
-  // ─── Exclusive lock ───────────────────────────────────────────────────────────
-  // OPFS createSyncAccessHandle only works in dedicated workers. We use Web Locks
-  // to detect when another tab already owns the DB and bail out gracefully.
-  // Retries handle the brief race when COI service-worker or vite-pwa reloads.
-
   async function tryAcquireDbLock(): Promise<boolean> {
     for (let attempt = 0; attempt < 3; attempt++) {
       if (attempt > 0) await new Promise((r) => setTimeout(r, 1000))
@@ -19,7 +15,7 @@ await (async () => {
             return Promise.resolve()
           }
           resolve(true)
-          return new Promise(() => {}) // hold until this worker terminates
+          return new Promise(() => {})
         })
       })
       if (got) return true
@@ -35,16 +31,15 @@ await (async () => {
   }
 
   try {
-    const storage = new SahPoolAdapter({ directory: '/habitat', filename: '/habitat.db' })
+    dbg('habitat-worker', 'init start')
+    const storage = new BrowserSqliteAdapter({
+      vfs: { type: 'opfs-sah-pool', directory: '/habitat', filename: '/habitat.db' },
+    })
     await storage.open()
+    await applySchema(storage, SCHEMA_CONFIG)
 
     const adapter = toDbAdapter(storage)
-
-    await adapter.exec(schema.SCHEMA_DDL)
-    await schema.runMigrations(adapter)
-    await schema.seedDefaults(adapter)
-
-    // ─── Message loop ─────────────────────────────────────────────────────────────
+    dbg('habitat-worker', 'init complete')
 
     self.addEventListener('message', async (e: MessageEvent) => {
       const req = e.data as WorkerRequest
@@ -65,8 +60,6 @@ await (async () => {
             break
           }
           default:
-            // shared.dispatch's own default throws on truly unknown types;
-            // void-returning ops legitimately resolve to undefined.
             result = await shared.dispatch(adapter, req)
         }
         self.postMessage({ id: req.id, ok: true, data: result } satisfies WorkerResponse)

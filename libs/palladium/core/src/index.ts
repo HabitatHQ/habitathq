@@ -11,6 +11,10 @@ export type {
 export { convertBlobBytes } from "./blob-format.js";
 export { BlobHandle } from "./blob-handle.js";
 export { BlobRegistry } from "./blob-registry.js";
+export type { DbAdapter } from "./db-adapter.js";
+export { toCapacitorDbAdapter, toDbAdapter } from "./db-adapter.js";
+export type { LogFn } from "./debug.js";
+export { dbg, disableDebug, enableDebug, isDebugEnabled } from "./debug.js";
 export type { EngineEvents, SyncStatus } from "./engine.js";
 export { createEngine, PalladiumEngine, toError } from "./engine.js";
 export { EventEmitter } from "./event-emitter.js";

@@ -6,15 +6,20 @@
  * Implements TransactableStorageAdapter via the plugin's begin/commit/rollback
  * transaction API.
  *
+ * SQL routing in exec():
+ *   - SELECT / PRAGMA / EXPLAIN -> query()   (returns rows)
+ *   - DML with bind params      -> run()     (INSERT/UPDATE/DELETE)
+ *   - DDL / DML without params  -> execute() (CREATE TABLE, multi-statement)
+ *
  * Usage:
  *   import { SQLiteConnection, CapacitorSQLite } from '@capacitor-community/sqlite';
  *   const conn = new SQLiteConnection(CapacitorSQLite);
  *   const adapter = new CapacitorSqliteAdapter(conn, { dbName: 'myapp' });
- *   const engine = createEngine(adapter);
- *   await engine.init(schema);
+ *   await adapter.open();
  */
 
 import type { StorageAdapter, TransactableStorageAdapter } from "@palladium/core";
+import { dbg } from "@palladium/core";
 import type { SQLiteConnection, SQLiteDBConnection } from "./types.js";
 
 export type { SQLiteConnection, SQLiteDBConnection } from "./types.js";
@@ -31,6 +36,14 @@ function assertIdentifier(name: string): void {
       `Invalid SQL identifier: ${JSON.stringify(name)}. Only [A-Za-z_][A-Za-z0-9_]* is allowed.`,
     );
   }
+}
+
+/** True for statements that return result rows via query(). */
+function isReadStatement(sql: string): boolean {
+  const trimmed = sql.trimStart().toUpperCase();
+  return (
+    trimmed.startsWith("SELECT") || trimmed.startsWith("PRAGMA") || trimmed.startsWith("EXPLAIN")
+  );
 }
 
 export class CapacitorSqliteAdapter implements TransactableStorageAdapter {
@@ -51,6 +64,7 @@ export class CapacitorSqliteAdapter implements TransactableStorageAdapter {
   }
 
   async open(): Promise<void> {
+    dbg("sqlite-capacitor", "open start", { dbName: this.#config.dbName });
     await this.#conn.checkConnectionsConsistency();
     const { dbName, version = 1 } = this.#config;
     const isConn = (await this.#conn.isConnection(dbName, false)).result ?? false;
@@ -60,14 +74,27 @@ export class CapacitorSqliteAdapter implements TransactableStorageAdapter {
       this.#db = await this.#conn.createConnection(dbName, false, "no-encryption", version, false);
     }
     await this.#db.open();
+    dbg("sqlite-capacitor", "open complete", { dbName, reused: isConn });
   }
 
   async exec<T = Record<string, unknown>>(
     sql: string,
     params: readonly unknown[] = [],
   ): Promise<T[]> {
-    const result = await this.#database.query(sql, params as unknown[]);
-    return (result.values ?? []) as T[];
+    if (isReadStatement(sql)) {
+      const result = await this.#database.query(sql, params as unknown[]);
+      return (result.values ?? []) as T[];
+    }
+
+    if (params.length > 0) {
+      dbg("sqlite-capacitor", "exec via run()", { sql: sql.slice(0, 60) });
+      await this.#database.run(sql, params as unknown[], false);
+      return [];
+    }
+
+    dbg("sqlite-capacitor", "exec via execute()", { sql: sql.slice(0, 60) });
+    await this.#database.execute(sql, false);
+    return [];
   }
 
   async put(table: string, _id: string, data: Record<string, unknown>): Promise<void> {
@@ -106,19 +133,35 @@ export class CapacitorSqliteAdapter implements TransactableStorageAdapter {
   }
 
   async transaction<T>(fn: (tx: StorageAdapter) => Promise<T>): Promise<T> {
-    await this.#database.beginTransaction();
+    await this.beginTransaction();
     try {
       const result = await fn(this);
-      await this.#database.commitTransaction();
+      await this.commitTransaction();
       return result;
     } catch (err) {
-      await this.#database.rollbackTransaction();
+      await this.rollbackTransaction();
       throw err;
     }
   }
 
+  async beginTransaction(): Promise<void> {
+    dbg("sqlite-capacitor", "BEGIN");
+    await this.#database.beginTransaction();
+  }
+
+  async commitTransaction(): Promise<void> {
+    dbg("sqlite-capacitor", "COMMIT");
+    await this.#database.commitTransaction();
+  }
+
+  async rollbackTransaction(): Promise<void> {
+    dbg("sqlite-capacitor", "ROLLBACK");
+    await this.#database.rollbackTransaction();
+  }
+
   async close(): Promise<void> {
     if (this.#db !== null) {
+      dbg("sqlite-capacitor", "close", { dbName: this.#config.dbName });
       await this.#conn.closeConnection(this.#config.dbName, false);
       this.#db = null;
     }

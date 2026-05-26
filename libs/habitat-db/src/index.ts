@@ -1,3 +1,7 @@
-export { toCapacitorDbAdapter, toDbAdapter } from './adapter-bridge.js'
+/**
+ * Re-exports from @palladium/core and local modules.
+ * Prefer importing directly from @palladium/core for new code.
+ */
+export type { DbAdapter } from '@palladium/core'
+export { toCapacitorDbAdapter, toDbAdapter } from '@palladium/core'
 export { SahPoolAdapter, type SahPoolConfig } from './sah-pool-adapter.js'
-export type { DbAdapter } from './types.js'
