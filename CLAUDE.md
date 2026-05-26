@@ -40,3 +40,28 @@ pnpm --filter <app> test:unit
 3. Conventional commits: `feat|fix|chore|...(scope): description`
 4. Each app has its own AGENTS.md with app-specific architecture and schema docs.
 5. Install deps from monorepo root (`pnpm install`), never from app subdirs.
+
+## Guardrails (enforced)
+
+These are checked mechanically — pre-commit and in `pnpm ci`. Do not paper
+over a failure; fix the root cause or escalate.
+
+| Tool | Config | What it catches |
+|------|--------|-----------------|
+| Biome | `biome.json` | Formatting, unused imports/vars, `noExplicitAny` (palladium), `noDefaultExport` (palladium) |
+| Semgrep | `semgrep.yml` | `console.error` outside `utils/error.ts`, `db.queryOne` in `db-shared.ts`, `as any`, `@ts-ignore`/`biome-ignore` without reason, stray `console.log`, manual Teleport modals, UIcon usage |
+| dependency-cruiser | `.dependency-cruiser.cjs` | App-to-app imports, palladium core importing framework bindings, cross-binding deps, circular deps, prod code importing tests |
+| pnpm dedupe | `pnpm dedupe:check` | New duplicate transitive deps |
+| lefthook | `lefthook.yml` | Conventional commits, 512KB file size cap, hand-edited `package.json` without lockfile diff |
+
+```bash
+pnpm lint:semgrep <files>     # scan specific files (pre-commit uses this)
+pnpm lint:semgrep:all         # full-repo scan (includes WARNINGs)
+pnpm lint:deps                # architecture rules
+pnpm lint:deps:graph          # render dependency graph SVG
+pnpm dedupe:check             # detect duplicate transitive deps
+```
+
+If you need to suppress a rule, leave an inline comment explaining why
+(`// biome-ignore lint/x/y: <reason>`, `// nosemgrep: <rule-id> -- <reason>`).
+Suppressions without a reason are themselves a lint error.

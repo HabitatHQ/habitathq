@@ -1,0 +1,138 @@
+rules:
+  # ── Habitat-specific ───────────────────────────────────────────────────────
+
+  - id: habitat-use-logError-not-console-error
+    message: >-
+      Use logError(context, err) from ~/utils/error.ts instead of console.error
+      (see apps/habitat/AGENTS.md).
+    severity: ERROR
+    languages: [typescript, javascript]
+    paths:
+      include:
+        - apps/habitat/app
+      exclude:
+        - apps/habitat/app/utils/error.ts
+        - "**/*.test.ts"
+        - "**/__tests__/**"
+    pattern: console.error(...)
+
+  - id: habitat-no-queryOne-in-db-shared
+    message: >-
+      Use db.queryAll in db-shared.ts (tests override db.queryOne with call-counter
+      mocks). See apps/habitat/AGENTS.md → Conventions.
+    severity: ERROR
+    languages: [typescript]
+    paths:
+      include:
+        - apps/habitat/app/lib/db-shared.ts
+    pattern: db.queryOne(...)
+
+  # ── Shared icon registry (cross-app) ───────────────────────────────────────
+  # WARNING-level: existing repo has many UIcon call sites. Pre-commit hook
+  # filters by --severity=ERROR so this only nudges on PR review, not block.
+
+  - id: prefer-AppIcon-over-UIcon-vue
+    message: >-
+      Use <AppIcon name="…" /> instead of <UIcon name="…"> — see
+      apps/hearth/AGENTS.md → Icons. Keeps icons in the shared offline registry.
+    severity: WARNING
+    languages: [generic]
+    paths:
+      include:
+        - "apps/*/app/**/*.vue"
+        - "apps/*/app/**/*.html"
+    pattern-regex: '<UIcon\s+[^>]*name='
+
+  # ── TypeScript escape hatches ──────────────────────────────────────────────
+
+  - id: no-as-any
+    message: >-
+      `as any` defeats TypeScript. Fix the underlying type, or use a narrow
+      `as unknown as <SpecificType>` with a // biome-ignore explaining why.
+    severity: ERROR
+    languages: [typescript]
+    paths:
+      include:
+        - apps/
+        - libs/
+      exclude:
+        - "**/*.test.ts"
+        - "**/__tests__/**"
+        - "**/*.d.ts"
+    pattern: $X as any
+
+  - id: as-unknown-as
+    message: >-
+      `as unknown as T` is a double-cast that bypasses the type checker. Acceptable
+      for narrow type-system bridges; prefer a real type. Document why with a comment.
+    severity: WARNING
+    languages: [typescript]
+    paths:
+      include:
+        - apps/
+        - libs/
+      exclude:
+        - "**/*.test.ts"
+        - "**/__tests__/**"
+        - "**/*.d.ts"
+    pattern: $X as unknown as $T
+
+  - id: ts-ignore-needs-reason
+    message: >-
+      @ts-ignore / @ts-expect-error must be followed by a reason
+      (// @ts-expect-error -- <why>). If you can't explain it, you can't suppress it.
+    severity: ERROR
+    languages: [typescript]
+    paths:
+      exclude:
+        - "**/*.test.ts"
+        - "**/__tests__/**"
+    pattern-regex: '//\s*@ts-(ignore|expect-error)\s*$'
+
+  - id: biome-ignore-needs-reason
+    message: >-
+      biome-ignore comments must include a reason after the rule name
+      (// biome-ignore lint/x/y: <why>). See global CLAUDE.md.
+    severity: ERROR
+    languages: [typescript, javascript]
+    paths:
+      exclude:
+        - "**/*.test.ts"
+        - "**/__tests__/**"
+    pattern-regex: '//\s*biome-ignore\s+[^:\n]+\s*$'
+
+  # ── Stray console statements ───────────────────────────────────────────────
+
+  - id: no-stray-console-log
+    message: >-
+      console.log left in non-test code. Remove it or use a structured logger.
+      Biome warns; semgrep promotes to error in app/lib code.
+    severity: ERROR
+    languages: [typescript, javascript]
+    paths:
+      include:
+        - apps/
+        - libs/
+      exclude:
+        - "**/*.test.ts"
+        - "**/__tests__/**"
+        - "**/*.config.ts"
+        - "**/*.config.js"
+        - "**/*.config.mjs"
+        - "**/scripts/**"
+        - "**/cli-wrapper/**"
+        - "libs/palladium/example-*/**"
+    pattern: console.log(...)
+
+  # ── Modal pattern (Habitat) ────────────────────────────────────────────────
+
+  - id: prefer-AppModal-over-manual-teleport
+    message: >-
+      Use <AppModal v-model title="…"> instead of manual Teleport + fixed overlay
+      (see apps/habitat/AGENTS.md → Modals).
+    severity: WARNING
+    languages: [generic]
+    paths:
+      include:
+        - "apps/*/app/**/*.vue"
+    pattern-regex: '<Teleport[\s\S]{0,200}?fixed\s+inset-0'

@@ -152,3 +152,7 @@ function makeContact(overrides: Partial<Contact> = {}): Contact {
 
 Run tests: `pnpm test:unit`
 Watch mode: `pnpm test:unit:watch`
+
+## Guardrails
+
+See root `CLAUDE.md` → Guardrails for the mechanically-enforced rules (semgrep, dependency-cruiser, `pnpm dedupe:check`, lefthook).

@@ -126,3 +126,7 @@ Write failing tests first (red), then implement (green).
 **E2E tests** (`tests/e2e/`): Full navigation flow, dashboard render, add transaction form. Playwright.
 
 **A11y tests** (`tests/a11y/`): axe-core on every page, touch target audit (44px), keyboard navigation. Playwright + `@axe-core/playwright`.
+
+## Guardrails
+
+See root `CLAUDE.md` → Guardrails for the mechanically-enforced rules. Hearth-specific: semgrep warns on `<UIcon name=…>` — use `<AppIcon name=…>` instead (see Icons section above).

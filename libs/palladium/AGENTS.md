@@ -1,39 +1,67 @@
 # Palladium — Agent Instructions
 
-Local-first sync engine. TypeScript frontend packages, part of habitat-monorepo.
+Local-first sync engine. **Rust backend + TypeScript frontend**, part of habitat-monorepo.
 
 ## Layout
 
 ```
 libs/palladium/
-├── core/             @palladium/core — engine, HLC, SQL, blob adapters
-├── react/            @palladium/react — React hooks
-├── vue/              @palladium/vue — Vue composables
-├── svelte/           @palladium/svelte — Svelte stores
-├── kysely/           @palladium/kysely — Kysely dialect adapter
-├── sqlite-browser/   @palladium/sqlite-browser — WASM/OPFS SQLite
-├── sqlite-capacitor/ @palladium/sqlite-capacitor — Capacitor SQLite
-├── sqlite-node/      @palladium/sqlite-node — Node SQLite
-├── vite-plugin/      @palladium/vite-plugin — Vite plugin
-├── e2e/              E2E tests
-├── example-*/        Example apps (React, Vue, Capacitor)
-└── docs/             Architecture docs
+├── crates/                              ← Rust backend (workspace at monorepo root)
+│   ├── palladium-core/                  shared types (NodeId, Hlc, Op, Change)
+│   ├── palladium-axum/                  Axum router + middleware
+│   ├── palladium-postgres/              Postgres backend + LISTEN/NOTIFY broadcaster
+│   ├── palladium-sqlite/                SQLite server backend
+│   ├── palladium-blobs/                 Blob storage
+│   └── palladium-cli/                   `palladium` CLI (migrations, codegen)
+│
+├── core/             @palladium/core — engine, HLC, SQL, blob adapters, migrations
+├── react/ vue/ svelte/                  framework bindings
+├── kysely/                              Kysely dialect adapter
+├── sqlite-browser/ sqlite-capacitor/    storage adapters
+├── sqlite-node/
+├── nuxt/             @palladium/nuxt — worker-bus utility
+├── vite-plugin/                         COOP/COEP dev headers
+│
+├── notifications-core/                  @palladium/notifications-core + channel adapters
+├── notifications-{browser,capacitor,expo,react,svelte,toast,vue,web-push}/
+│
+├── cli-wrapper/                         palladium-cli npm shim
+├── e2e/                                 end-to-end tests (TS client ↔ Rust server)
+├── example-vue/ example-react/ example-capacitor/
+└── docs/                                architecture docs (DRAFT-ARCH.md, idea.md)
 ```
+
+Rust workspace root is the **monorepo root** (`Cargo.toml`, `Cargo.lock`, `deny.toml`, `.cargo/`).
+Members glob: `libs/palladium/crates/*`.
 
 ## Commands
 
 ```sh
-pnpm --filter @palladium/core test    # Test a single package
-pnpm --filter @palladium/core build   # Build a single package
-pnpm --filter @palladium/core lint    # Lint a single package
+pnpm --filter @palladium/core test    # Test a single TS package
+pnpm --filter @palladium/core build   # Build a single TS package
+pnpm --filter @palladium/core lint    # Lint a single TS package
+
+cargo test -p palladium-core          # Test a single Rust crate
+cargo run -p palladium-cli -- --help
+
+just lint                             # lint TS + Rust
+just test                             # test TS + Rust
+just ci                               # full CI pipeline
 ```
 
 ## Tooling
 
-- **Lint + format**: Biome (extends root biome.json — double quotes, semicolons, stricter rules)
-- **Tests**: Vitest (workspace config at `libs/palladium/vitest.workspace.ts`)
+- **TS lint + format**: Biome (extends root `biome.json` — double quotes, semicolons, stricter rules)
+- **TS tests**: Vitest (workspace at `libs/palladium/vitest.workspace.ts`)
+- **TS base tsconfig**: `libs/palladium/tsconfig.base.json` (packages extend via `../tsconfig.base.json`)
 - **TypeScript**: Strict — `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`
-- **Base tsconfig**: `libs/palladium/tsconfig.base.json` (packages extend via `../tsconfig.base.json`)
+- **Rust lint**: Clippy with workspace lints (`-D warnings`)
+- **Rust security**: `cargo deny` (`deny.toml`), `cargo audit`, `cargo machete`
+- **Mutation testing**: Stryker (TS) at `libs/palladium/stryker.config.mjs`; cargo-mutants (Rust)
+- **Pre-commit**: `lefthook.yml` at root (biome + clippy + taplo + prettier + semgrep + size + manifest guard)
+- **Toolchain**: `mise.toml` at root (node, pnpm, rust, just, cargo-deny/audit/machete)
+- **Architecture lint**: `dependency-cruiser` enforces `@palladium/core` stays framework-agnostic and adapters don't loop back into core. Config: `.dependency-cruiser.cjs` at root. Run: `pnpm lint:deps`.
+- **Pattern lint**: `semgrep.yml` at root catches `as any`, `@ts-ignore` without reason, stray `console.log`. Run: `pnpm lint:semgrep:all`.
 
 ## Key Modules (`@palladium/core`)
 
@@ -51,9 +79,11 @@ pnpm --filter @palladium/core lint    # Lint a single package
 
 - No default exports (`noDefaultExport` is an error in Biome)
 - `import type` for type-only imports (`useImportType` enforced)
-- Commit messages: `type(scope): description` — e.g. `feat(core): add delta model`
+- Rust: no `unsafe_code`, no `unwrap`/`expect`/`panic` in production code (clippy denies)
+- Commit messages: conventional commits — `type(scope): description`
 
 ## Philosophy
+
 - Functions as pure as possible.
 - Layered framework: high-level APIs for productivity, low-level for power.
 - MISU. Type safety.

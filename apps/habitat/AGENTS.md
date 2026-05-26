@@ -93,6 +93,8 @@ Routes: `/`, `/matrix`, `/habits`, `/habits/[id]`, `/health`, `/todos`, `/bored`
 
 **Reduced motion**: guard animations with both `@media (prefers-reduced-motion: reduce)` and `:global(html.reduce-motion)`. JS animations: gate with `isMotionReduced()`.
 
+**Guardrails**: see root `CLAUDE.md` → Guardrails for the mechanically-enforced rules. Habitat-specific semgrep rules: `console.error` outside `utils/error.ts` and `db.queryOne` in `db-shared.ts` are blocking errors.
+
 ## Config
 
 - `nuxt.config.ts` — COOP/COEP headers (required for OPFS/SharedArrayBuffer), conditional PWA via `BUILD_TARGET` env

@@ -15,8 +15,13 @@
     "typecheck": "pnpm -r typecheck",
     "test:unit": "pnpm -r test:unit",
     "test": "pnpm -r test",
-    "ci": "pnpm -r ci",
-    "clean": "pnpm -r clean"
+    "ci": "pnpm -r ci && pnpm lint:deps && pnpm dedupe:check",
+    "clean": "pnpm -r clean",
+    "lint:semgrep": "semgrep scan --config semgrep.yml --metrics=off --error --severity=ERROR --quiet",
+    "lint:semgrep:all": "semgrep scan --config semgrep.yml --metrics=off --quiet apps libs",
+    "lint:deps": "depcruise --config .dependency-cruiser.cjs --output-type err apps libs",
+    "lint:deps:graph": "depcruise --config .dependency-cruiser.cjs --output-type dot apps libs | dot -T svg -o dependency-graph.svg",
+    "dedupe:check": "pnpm dedupe --check"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.11.1",
@@ -24,8 +29,10 @@
     "@playwright/test": "^1.58.2",
     "@typescript/native-preview": "7.0.0-dev.20260501.1",
     "axe-core": "^4.11.1",
+    "dependency-cruiser": "^17.4.2",
     "lefthook": "^2.1.6",
     "playwright-core": "^1.58.2",
+    "prettier": "^3.8.3",
     "typescript": "^6.0.3",
     "vue-tsc": "^3.2.5"
   },
