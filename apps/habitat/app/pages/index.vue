@@ -425,8 +425,17 @@ onMounted(async () => {
 <template>
   <div class="space-y-5">
 
+    <!-- ── Loading skeleton ────────────────────────────────────────────────── -->
+    <div v-if="loading" class="space-y-5 pt-2">
+      <div class="flex flex-col items-center gap-3">
+        <AppSkeleton variant="circle" />
+        <AppSkeleton variant="text" />
+      </div>
+      <AppSkeleton variant="row" :count="3" />
+    </div>
+
     <!-- ── Welcome / empty state ────────────────────────────────────────────── -->
-    <template v-if="!loading && habits.length === 0">
+    <template v-else-if="habits.length === 0">
       <div class="flex flex-col items-center justify-center gap-7 pt-10 pb-4 text-center">
         <div class="relative flex items-center justify-center">
           <div class="absolute w-44 h-44 rounded-full bg-primary-500/10 blur-3xl" />
@@ -481,7 +490,7 @@ onMounted(async () => {
             <circle
               cx="50" cy="50" :r="R"
               fill="none" stroke-width="8"
-              stroke="#22d3ee" stroke-linecap="round"
+              stroke="var(--color-primary-400)" stroke-linecap="round"
               :stroke-dasharray="CIRC"
               :stroke-dashoffset="dashOffset"
               transform="rotate(-90 50 50)"
@@ -694,7 +703,7 @@ onMounted(async () => {
             :to="`/checkin/entry-${ci.template_id}`"
             :completed="ci.is_completed"
           >
-            <AppCardIcon icon="pencil-square" bg-class="bg-primary-500/10" icon-color="#22d3ee" />
+            <AppCardIcon icon="pencil-square" bg-class="bg-primary-500/10" icon-color="var(--color-primary-400)" />
             <div class="flex-1 min-w-0">
               <p class="text-sm font-medium text-(--ui-text) truncate">{{ ci.title }}</p>
               <p class="text-xs text-(--ui-text-dimmed)">{{ ci.response_count }} {{ ci.response_count === 1 ? 'response' : 'responses' }}</p>
@@ -742,7 +751,7 @@ onMounted(async () => {
       :open="logSheetOpen"
       :title="logSheetHabit?.name ?? ''"
       :icon="logSheetHabit?.icon ?? ''"
-      :icon-color="logSheetHabit?.color ?? '#22d3ee'"
+      :icon-color="logSheetHabit?.color ?? 'var(--color-primary-400)'"
       :current="logSheetValue"
       :target="logSheetHabit?.target_value ?? 0"
       :min="0"

@@ -62,6 +62,12 @@ const grouped = computed(() => {
 
 const pendingDeleteId = ref<string | null>(null)
 const pendingDeleteLabel = ref('')
+const showDeleteDialog = computed({
+  get: () => pendingDeleteId.value !== null,
+  set: (v: boolean) => {
+    if (!v) pendingDeleteId.value = null
+  },
+})
 
 function requestDelete(tx: TransactionWithDetails) {
   pendingDeleteId.value = tx.id
@@ -123,25 +129,28 @@ const FILTER_OPTIONS = [
     <div class="flex-1 overflow-y-auto px-4 py-2">
 
       <!-- Loading skeleton -->
-      <div v-if="loading && !transactions.length" class="space-y-1 pt-2">
-        <div v-for="n in 10" :key="n" class="h-14 bg-(--ui-bg-muted) rounded-xl animate-pulse" />
-      </div>
+      <AppSkeleton v-if="loading && !transactions.length" variant="row" :count="10" />
 
       <!-- Empty state -->
-      <div
+      <AppEmptyState
         v-else-if="!filtered.length"
-        class="flex flex-col items-center justify-center py-16 text-center"
+        icon="banknote"
+        title="No transactions found"
+        :description="searchQuery ? 'Try a different search term' : 'Add your first transaction'"
       >
-        <AppIcon name="banknote" class="w-12 h-12 text-(--ui-text-dimmed) mb-4" aria-hidden="true" />
-        <p class="text-(--ui-text-muted) font-medium">No transactions found</p>
-        <p class="text-sm text-(--ui-text-dimmed) mt-1">
-          {{ searchQuery ? 'Try a different search term' : 'Add your first transaction' }}
-        </p>
-      </div>
+        <template v-if="!searchQuery" #actions>
+          <NuxtLink
+            to="/transactions/quick"
+            class="px-4 py-2 bg-primary-500/15 text-primary-400 rounded-xl text-sm font-medium hover:bg-primary-500/20 transition-colors min-h-[44px] inline-flex items-center"
+          >
+            Add transaction
+          </NuxtLink>
+        </template>
+      </AppEmptyState>
 
       <!-- Grouped list -->
       <template v-else>
-        <ol>
+        <ol class="stagger-list">
         <li v-for="[dateLabel, txns] in grouped" :key="dateLabel">
           <p class="text-[11px] uppercase tracking-wider text-(--ui-text-dimmed) font-medium pt-4 pb-2 first:pt-2">
             {{ dateLabel }}
@@ -222,51 +231,26 @@ const FILTER_OPTIONS = [
     >
       <NuxtLink
         to="/transactions/quick"
-        class="flex items-center justify-center w-14 h-14 bg-primary-500 hover:bg-primary-400 text-white rounded-2xl shadow-lg shadow-primary-500/30 transition-all active:scale-95"
+        class="flex items-center gap-2 bg-primary-500 hover:bg-primary-400 text-white font-semibold rounded-2xl px-5 py-3.5 shadow-lg shadow-primary-500/30 transition-all btn-press min-h-[44px]"
         aria-label="Add transaction"
       >
-        <AppIcon name="plus" class="w-6 h-6" />
+        <AppIcon name="plus" class="w-5 h-5" />
+        <span class="text-sm">Add</span>
       </NuxtLink>
     </div>
 
     <!-- ── Delete confirmation dialog ──────────────────────────────────── -->
-    <Teleport to="body">
-      <div
-        v-if="pendingDeleteId"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-        role="alertdialog"
-        aria-modal="true"
-        aria-label="Confirm deletion"
-      >
-        <div class="mx-4 w-full max-w-sm bg-(--ui-bg) rounded-2xl border border-(--ui-border) p-5 space-y-4 shadow-xl">
-          <div class="flex items-start gap-3">
-            <div class="shrink-0 w-10 h-10 rounded-full bg-rose-500/10 flex items-center justify-center">
-              <AppIcon name="trash" class="w-5 h-5 text-rose-400" />
-            </div>
-            <div>
-              <h2 class="text-sm font-semibold text-(--ui-text)">Delete transaction?</h2>
-              <p class="text-xs text-(--ui-text-muted) mt-1">
-                "{{ pendingDeleteLabel }}" will be permanently removed. This cannot be undone.
-              </p>
-            </div>
-          </div>
-          <div class="flex gap-2">
-            <button
-              class="flex-1 py-2.5 rounded-xl text-sm font-medium bg-(--ui-bg-muted) text-(--ui-text-muted) hover:bg-(--ui-bg-elevated) transition-colors min-h-[44px]"
-              @click="cancelDelete"
-            >
-              Cancel
-            </button>
-            <button
-              class="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-rose-500 hover:bg-rose-600 text-white transition-colors min-h-[44px]"
-              @click="confirmDelete"
-            >
-              Delete
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+    <AppConfirmDialog
+      v-model="showDeleteDialog"
+      icon="trash"
+      icon-color="red"
+      title="Delete transaction?"
+      :message="`&quot;${pendingDeleteLabel}&quot; will be permanently removed. This cannot be undone.`"
+      confirm-label="Delete"
+      confirm-color="error"
+      @confirm="confirmDelete"
+      @cancel="cancelDelete"
+    />
 
   </div>
 </template>

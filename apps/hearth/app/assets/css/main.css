@@ -122,6 +122,29 @@ html.theme-transitioning * {
   }
 }
 
+/* Mirror for user-toggled setting (html.reduce-motion class) */
+html.reduce-motion .envelope-bar {
+  animation: none;
+}
+html.reduce-motion .hearth-logo.flame-anim {
+  animation: none;
+}
+html.reduce-motion .voice-pulse {
+  animation: none;
+}
+html.reduce-motion .listening-dots::after {
+  animation: none;
+  content: "...";
+}
+html.reduce-motion .slide-up-enter-active,
+html.reduce-motion .slide-up-leave-active {
+  transition: none;
+}
+html.reduce-motion.theme-transitioning,
+html.reduce-motion.theme-transitioning * {
+  transition: none;
+}
+
 /* ── Voice input pulse ──────────────────────────────────────────────────── */
 @keyframes voice-pulse {
   0%,

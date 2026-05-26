@@ -23,17 +23,24 @@ async function load() {
 
 onMounted(load)
 
-async function settle(balance: IouBalance) {
+const showSettleConfirm = ref(false)
+const pendingSettleBalance = ref<IouBalance | null>(null)
+const settleMessage = ref('')
+
+function requestSettle(balance: IouBalance) {
   const debtor = balance.net_amount > 0 ? balance.to_user_name : balance.from_user_name
   const creditor = balance.net_amount > 0 ? balance.from_user_name : balance.to_user_name
-  if (
-    !confirm(
-      `Settle up between ${debtor} and ${creditor}? This clears the ${formatAmount(Math.abs(balance.net_amount))} balance.`,
-    )
-  )
-    return
+  settleMessage.value = `Settle up between ${debtor} and ${creditor}? This clears the ${formatAmount(Math.abs(balance.net_amount))} balance.`
+  pendingSettleBalance.value = balance
+  showSettleConfirm.value = true
+}
+
+async function confirmSettle() {
+  const balance = pendingSettleBalance.value
+  if (!balance) return
   const key = `${balance.from_user_id}-${balance.to_user_id}`
   settling.value = key
+  pendingSettleBalance.value = null
   try {
     await db.settleIou(balance.from_user_id, balance.to_user_id)
     await load()
@@ -146,13 +153,24 @@ function iOwe(b: IouBalance): boolean {
               : 'bg-(--ui-bg-elevated) hover:bg-(--ui-bg-accented) text-(--ui-text) border-(--ui-border)'"
             :disabled="settling === `${balance.from_user_id}-${balance.to_user_id}`"
             :aria-label="`Settle up with ${balance.net_amount > 0 ? balance.from_user_name : balance.to_user_name}`"
-            @click="settle(balance)"
+            @click="requestSettle(balance)"
           >
             {{ settling === `${balance.from_user_id}-${balance.to_user_id}` ? 'Settling…' : '✓ Settle Up' }}
           </button>
         </li>
       </ul>
     </section>
+
+    <!-- Settle confirmation -->
+    <AppConfirmDialog
+      v-model="showSettleConfirm"
+      icon="check-circle"
+      icon-color="primary"
+      title="Settle up?"
+      :message="settleMessage"
+      confirm-label="Settle"
+      @confirm="confirmSettle"
+    />
 
   </div>
 </template>

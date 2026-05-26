@@ -228,7 +228,7 @@ async function forceReload() {
         <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed)">About</p>
         <AppIcon :name="aboutOpen ? 'chevron-up' : 'chevron-down'" class="w-3.5 h-3.5 text-slate-600" />
       </button>
-      <UCard v-if="aboutOpen" :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+      <UCard v-if="aboutOpen" :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
 
         <div class="flex items-center justify-between px-4 py-3.5">
           <p class="text-sm text-(--ui-text-muted)">App</p>
@@ -322,7 +322,7 @@ async function forceReload() {
         <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed)">Diagnostics</p>
         <AppIcon :name="diagOpen ? 'chevron-up' : 'chevron-down'" class="w-3.5 h-3.5 text-slate-600" />
       </button>
-      <UCard v-if="diagOpen" :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+      <UCard v-if="diagOpen" :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
 
         <!-- Integrity check -->
         <div class="flex items-start justify-between px-4 py-3.5 gap-3">
@@ -537,7 +537,7 @@ async function forceReload() {
         <p class="text-xs font-semibold uppercase tracking-wider text-red-900/70">🐉 Here be dragons</p>
         <AppIcon :name="dragonsOpen ? 'chevron-up' : 'chevron-down'" class="w-3.5 h-3.5 text-red-900/50" />
       </button>
-      <UCard v-if="dragonsOpen" :ui="{ root: 'rounded-2xl ring-1 ring-red-900/30', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+      <UCard v-if="dragonsOpen" :ui="{ root: 'rounded-2xl ring-1 ring-red-900/30', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
 
         <!-- Strict network isolation -->
         <div class="flex items-center justify-between px-4 py-3.5">
@@ -602,7 +602,7 @@ async function forceReload() {
           <div v-else-if="licensesError" class="text-sm text-red-400 py-4">
             Could not load licenses. Only available in production builds.
           </div>
-          <ul v-else class="overflow-y-auto divide-y divide-slate-800 -mx-5 px-5">
+          <ul v-else class="overflow-y-auto divide-y divide-(--ui-border) -mx-5 px-5">
             <li v-for="pkg in licenses" :key="pkg.name" class="py-2.5 flex items-baseline justify-between gap-3">
               <div class="min-w-0">
                 <a

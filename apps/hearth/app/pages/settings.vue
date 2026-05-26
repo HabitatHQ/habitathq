@@ -37,6 +37,11 @@ onMounted(async () => {
   }
 })
 
+const exportError = ref('')
+const importSuccess = ref(false)
+const importError = ref('')
+const showResetConfirm = ref(false)
+
 async function exportJson() {
   try {
     const data = await db.exportJson()
@@ -47,8 +52,9 @@ async function exportJson() {
     a.download = `hearth-export-${new Date().toISOString().slice(0, 10)}.json`
     a.click()
     URL.revokeObjectURL(url)
+    exportError.value = ''
   } catch (e) {
-    alert(`Export failed: ${String(e)}`)
+    exportError.value = `Export failed: ${String(e)}`
   }
 }
 
@@ -59,16 +65,20 @@ async function onImportFile(event: Event) {
     const text = await file.text()
     const data = JSON.parse(text) as HearthExport
     await db.importJson(data)
-    alert('Import successful! Reloading…')
-    location.reload()
+    importSuccess.value = true
+    importError.value = ''
+    setTimeout(() => location.reload(), 1000)
   } catch (e) {
-    alert(`Import failed: ${String(e)}`)
+    importError.value = `Import failed: ${String(e)}`
   }
   if (importFileRef.value) importFileRef.value.value = ''
 }
 
-async function resetDatabase() {
-  if (!confirm('Reset all data? This cannot be undone.')) return
+function requestResetDatabase() {
+  showResetConfirm.value = true
+}
+
+async function confirmResetDatabase() {
   await db.nukeOpfs()
   location.reload()
 }
@@ -442,7 +452,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
         <!-- Nuke database -->
         <button
           class="flex items-center gap-3 w-full px-4 py-3.5 text-left hover:bg-rose-500/5 transition-colors min-h-[44px]"
-          @click="resetDatabase"
+          @click="requestResetDatabase"
         >
           <AppIcon name="trash" class="w-5 h-5 text-rose-400 shrink-0" />
           <div class="space-y-0.5">
@@ -452,5 +462,17 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
         </button>
       </div>
     </section>
+
+    <!-- Reset confirmation -->
+    <AppConfirmDialog
+      v-model="showResetConfirm"
+      icon="exclamation-triangle"
+      icon-color="amber"
+      title="Reset all data?"
+      message="This will permanently delete all transactions, envelopes, and settings. This cannot be undone."
+      confirm-label="Reset Everything"
+      confirm-color="error"
+      @confirm="confirmResetDatabase"
+    />
   </div>
 </template>

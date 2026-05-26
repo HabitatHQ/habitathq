@@ -90,9 +90,18 @@ async function saveEnvelope() {
   await load()
 }
 
-async function deleteEnvelope(id: string) {
-  if (!confirm('Delete this envelope?')) return
-  await db.deleteEnvelope(id)
+const showDeleteConfirm = ref(false)
+const pendingDeleteId = ref<string | null>(null)
+
+function requestDeleteEnvelope(id: string) {
+  pendingDeleteId.value = id
+  showDeleteConfirm.value = true
+}
+
+async function confirmDeleteEnvelope() {
+  if (!pendingDeleteId.value) return
+  await db.deleteEnvelope(pendingDeleteId.value)
+  pendingDeleteId.value = null
   await load()
 }
 </script>
@@ -178,25 +187,27 @@ async function deleteEnvelope(id: string) {
       </div>
 
       <!-- Loading -->
-      <div v-if="loading" class="space-y-3">
-        <div v-for="n in 5" :key="n" class="h-20 bg-(--ui-bg-muted) rounded-2xl animate-pulse" />
-      </div>
+      <AppSkeleton v-if="loading" variant="card" :count="5" />
 
       <!-- Empty -->
-      <div v-else-if="!envelopes.length" class="text-center py-12">
-        <AppIcon name="archive-box" class="w-12 h-12 text-(--ui-text-dimmed) mb-3 mx-auto" aria-hidden="true" />
-        <p class="text-(--ui-text-muted) font-medium">No envelopes yet</p>
-        <p class="text-sm text-(--ui-text-dimmed) mt-1">Create an envelope to start budgeting</p>
-        <button
-          class="mt-4 px-4 py-2 bg-primary-500/15 text-primary-400 rounded-xl text-sm font-medium hover:bg-primary-500/20 transition-colors min-h-[44px]"
-          @click="openAddModal"
-        >
-          Create first envelope
-        </button>
-      </div>
+      <AppEmptyState
+        v-else-if="!envelopes.length"
+        icon="archive-box"
+        title="No envelopes yet"
+        description="Create an envelope to start budgeting"
+      >
+        <template #actions>
+          <button
+            class="px-4 py-2 bg-primary-500/15 text-primary-400 rounded-xl text-sm font-medium hover:bg-primary-500/20 transition-colors min-h-[44px]"
+            @click="openAddModal"
+          >
+            Create first envelope
+          </button>
+        </template>
+      </AppEmptyState>
 
       <!-- Envelope cards -->
-      <ul v-else class="space-y-3">
+      <ul v-else class="space-y-3 stagger-list">
         <li
           v-for="env in sortedEnvelopes"
           :key="env.id"
@@ -238,7 +249,7 @@ async function deleteEnvelope(id: string) {
               <button
                 class="p-2 rounded-lg text-(--ui-text-dimmed) hover:text-rose-400 hover:bg-rose-500/10 transition-colors min-h-[44px] min-w-[44px]"
                 :aria-label="`Delete ${env.name} envelope`"
-                @click="deleteEnvelope(env.id)"
+                @click="requestDeleteEnvelope(env.id)"
               >
                 <AppIcon name="trash" class="w-4 h-4" />
               </button>
@@ -276,93 +287,66 @@ async function deleteEnvelope(id: string) {
       </ul>
     </section>
 
-    <!-- ── Add Envelope modal ──────────────────────────────────────────────── -->
-    <Teleport to="body">
-      <Transition
-        enter-active-class="transition-all duration-200 ease-out"
-        enter-from-class="opacity-0"
-        enter-to-class="opacity-100"
-        leave-active-class="transition-all duration-150 ease-in"
-        leave-from-class="opacity-100"
-        leave-to-class="opacity-0"
-      >
-        <div
-          v-if="showAddModal"
-          class="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
-          role="dialog"
-          aria-modal="true"
-          :aria-label="isEditing ? 'Edit envelope' : 'Add envelope'"
-        >
-          <div
-            class="absolute inset-0 bg-black/50 backdrop-blur-sm"
-            aria-label="Close dialog"
-            role="button"
-            tabindex="-1"
-            @click="showAddModal = false"
+    <!-- ── Add/Edit Envelope modal ──────────────────────────────────────── -->
+    <AppBottomSheet v-model="showAddModal" :title="isEditing ? 'Edit Envelope' : 'New Envelope'" max-width="lg">
+      <div class="space-y-3">
+        <div class="flex items-center gap-3 px-3 py-2 bg-(--ui-bg-muted) rounded-xl min-h-[52px]">
+          <label class="text-sm text-(--ui-text-muted) w-16 shrink-0" for="env-icon">Icon</label>
+          <input
+            id="env-icon"
+            v-model="modalEnvelope.icon"
+            type="text"
+            maxlength="2"
+            class="bg-transparent text-xl w-10 focus:outline-none text-center"
           />
-          <div
-            class="relative w-full max-w-lg bg-(--ui-bg) rounded-t-2xl sm:rounded-2xl border-t sm:border border-(--ui-border) p-6 space-y-4 shadow-xl"
-          >
-            <div class="flex items-center justify-between">
-              <h2 class="text-lg font-semibold">{{ isEditing ? 'Edit Envelope' : 'New Envelope' }}</h2>
-              <button
-                type="button"
-                class="min-h-[44px] min-w-[44px] flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text)"
-                aria-label="Close"
-                @click="showAddModal = false"
-              >
-                <AppIcon name="x-mark" class="w-5 h-5" />
-              </button>
-            </div>
-
-            <div class="space-y-3">
-              <div class="flex items-center gap-3 px-3 py-2 bg-(--ui-bg-muted) rounded-xl min-h-[52px]">
-                <label class="text-sm text-(--ui-text-muted) w-16 shrink-0" for="env-icon">Icon</label>
-                <input
-                  id="env-icon"
-                  v-model="modalEnvelope.icon"
-                  type="text"
-                  maxlength="2"
-                  class="bg-transparent text-xl w-10 focus:outline-none text-center"
-                />
-              </div>
-              <div class="flex items-center gap-3 px-3 py-2 bg-(--ui-bg-muted) rounded-xl min-h-[52px]">
-                <label class="text-sm text-(--ui-text-muted) w-16 shrink-0" for="env-name">Name</label>
-                <input
-                  id="env-name"
-                  v-model="modalEnvelope.name"
-                  type="text"
-                  placeholder="e.g. Groceries"
-                  class="flex-1 bg-transparent text-sm text-(--ui-text) placeholder:text-(--ui-text-dimmed) focus:outline-none"
-                />
-              </div>
-              <div class="flex items-center gap-3 px-3 py-2 bg-(--ui-bg-muted) rounded-xl min-h-[52px]">
-                <label class="text-sm text-(--ui-text-muted) w-16 shrink-0" for="env-budget">Budget</label>
-                <span class="text-sm text-(--ui-text-muted)">$</span>
-                <input
-                  id="env-budget"
-                  v-model="modalEnvelope.budget_amount"
-                  type="number"
-                  step="10"
-                  min="0"
-                  placeholder="500"
-                  class="flex-1 bg-transparent text-sm text-(--ui-text) placeholder:text-(--ui-text-dimmed) focus:outline-none font-mono"
-                />
-                <span class="text-sm text-(--ui-text-muted)">/mo</span>
-              </div>
-            </div>
-
-            <button
-              class="w-full py-3.5 bg-primary-500 hover:bg-primary-400 text-white font-semibold rounded-2xl transition-colors min-h-[52px] disabled:opacity-40"
-              :disabled="!modalEnvelope.name || !modalEnvelope.budget_amount"
-              @click="saveEnvelope"
-            >
-              {{ isEditing ? 'Save Changes' : 'Create Envelope' }}
-            </button>
-          </div>
         </div>
-      </Transition>
-    </Teleport>
+        <div class="flex items-center gap-3 px-3 py-2 bg-(--ui-bg-muted) rounded-xl min-h-[52px]">
+          <label class="text-sm text-(--ui-text-muted) w-16 shrink-0" for="env-name">Name</label>
+          <input
+            id="env-name"
+            v-model="modalEnvelope.name"
+            type="text"
+            placeholder="e.g. Groceries"
+            class="flex-1 bg-transparent text-sm text-(--ui-text) placeholder:text-(--ui-text-dimmed) focus:outline-none"
+          />
+        </div>
+        <div class="flex items-center gap-3 px-3 py-2 bg-(--ui-bg-muted) rounded-xl min-h-[52px]">
+          <label class="text-sm text-(--ui-text-muted) w-16 shrink-0" for="env-budget">Budget</label>
+          <span class="text-sm text-(--ui-text-muted)">$</span>
+          <input
+            id="env-budget"
+            v-model="modalEnvelope.budget_amount"
+            type="number"
+            step="10"
+            min="0"
+            placeholder="500"
+            class="flex-1 bg-transparent text-sm text-(--ui-text) placeholder:text-(--ui-text-dimmed) focus:outline-none font-mono"
+          />
+          <span class="text-sm text-(--ui-text-muted)">/mo</span>
+        </div>
+      </div>
+      <template #footer>
+        <button
+          class="w-full py-3.5 bg-primary-500 hover:bg-primary-400 text-white font-semibold rounded-2xl transition-colors min-h-[52px] disabled:opacity-40 btn-press"
+          :disabled="!modalEnvelope.name || !modalEnvelope.budget_amount"
+          @click="saveEnvelope"
+        >
+          {{ isEditing ? 'Save Changes' : 'Create Envelope' }}
+        </button>
+      </template>
+    </AppBottomSheet>
+
+    <!-- ── Delete confirmation ──────────────────────────────────────────── -->
+    <AppConfirmDialog
+      v-model="showDeleteConfirm"
+      icon="trash"
+      icon-color="red"
+      title="Delete envelope?"
+      message="This envelope and its budget will be permanently removed."
+      confirm-label="Delete"
+      confirm-color="error"
+      @confirm="confirmDeleteEnvelope"
+    />
 
   </div>
 </template>

@@ -460,7 +460,7 @@ async function nukeOpfs(reload: boolean) {
 
     <section class="space-y-2">
       <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Export & Import</p>
-      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
 
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
@@ -525,7 +525,7 @@ async function nukeOpfs(reload: boolean) {
 
     <section class="space-y-2">
       <p class="text-xs font-semibold uppercase tracking-wider text-red-900/70 px-1">Danger zone</p>
-      <UCard :ui="{ root: 'rounded-2xl ring-1 ring-red-900/30', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+      <UCard :ui="{ root: 'rounded-2xl ring-1 ring-red-900/30', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
 
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
@@ -581,7 +581,7 @@ async function nukeOpfs(reload: boolean) {
           <div class="space-y-3">
             <div v-for="group in EXPORT_GROUPS" :key="group.label" class="space-y-1.5">
               <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed)">{{ group.label }}</p>
-              <div class="border border-(--ui-border) rounded-xl divide-y divide-slate-800 overflow-hidden">
+              <div class="border border-(--ui-border) rounded-xl divide-y divide-(--ui-border) overflow-hidden">
                 <label
                   v-for="item in group.items"
                   :key="item.key"
@@ -755,7 +755,7 @@ async function nukeOpfs(reload: boolean) {
             </div>
           </div>
 
-          <div class="space-y-1 border border-(--ui-border) rounded-xl divide-y divide-slate-800 overflow-hidden">
+          <div class="space-y-1 border border-(--ui-border) rounded-xl divide-y divide-(--ui-border) overflow-hidden">
             <label
               v-for="item in clearItems"
               :key="item.key"

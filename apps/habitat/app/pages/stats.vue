@@ -262,8 +262,8 @@ onMounted(load)
     <UCard :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-3' }">
       <p class="text-xs font-semibold text-(--ui-text-muted)">Daily Completion</p>
 
-      <div v-if="loading" class="flex items-center justify-center py-6">
-        <p class="text-xs text-slate-600">Loading…</p>
+      <div v-if="loading" class="py-4">
+        <AppSkeleton variant="chart" height="120px" />
       </div>
       <div v-else-if="!totalHabits" class="flex items-center justify-center py-6">
         <p class="text-xs text-slate-600">No habits yet</p>

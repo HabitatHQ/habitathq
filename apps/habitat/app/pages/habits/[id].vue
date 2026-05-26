@@ -643,7 +643,7 @@ onMounted(() => {
       </UCard>
 
       <!-- ── Reminders ───────────────────────────────────────────────────────── -->
-      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }">
+      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
         <div class="px-4 pt-3.5 pb-3 flex items-center justify-between">
           <p class="text-xs font-semibold text-(--ui-text-muted)">Reminders</p>
           <UButton
@@ -772,7 +772,7 @@ onMounted(() => {
       <!-- Unified Log History -->
       <UCard
         v-if="habit.type === 'BOOLEAN' ? recentLog.length : recentHabitLogs.length"
-        :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-slate-800' }"
+        :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }"
       >
         <div class="px-4 pt-3 pb-2 flex items-center justify-between">
           <p class="text-xs font-semibold text-(--ui-text-muted)">Log History</p>

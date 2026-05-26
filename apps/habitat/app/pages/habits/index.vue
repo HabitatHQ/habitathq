@@ -283,7 +283,7 @@ onMounted(() => {
       description="Tap New to create your first habit."
     />
 
-    <ul v-else class="space-y-2">
+    <ul v-else class="space-y-2 stagger-list">
       <AppCard
         v-for="habit in habits"
         :key="habit.id"
