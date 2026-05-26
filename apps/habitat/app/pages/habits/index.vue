@@ -245,35 +245,24 @@ onMounted(() => {
   <div class="space-y-5">
     <header class="flex items-center justify-between">
       <h2 class="text-2xl font-bold">Habits</h2>
-      <div class="flex items-center gap-2">
-        <UButton
+      <div class="flex items-center gap-1">
+        <NuxtLink
           to="/archive"
-          :icon="resolveIcon('archive-box')"
-          variant="ghost"
-          color="neutral"
-          size="sm"
+          class="icon-btn text-(--ui-text-muted) hover:bg-(--ui-bg-elevated)/50"
           aria-label="View archived habits"
-          class="min-h-[44px] min-w-[44px]"
-        />
-        <UButton
+        >
+          <AppIcon :name="resolveIcon('archive-box')" class="w-5 h-5" />
+        </NuxtLink>
+        <AppIconButton
           v-if="anyPaused"
           :icon="resolveIcon('play')"
-          variant="ghost"
-          color="neutral"
-          size="sm"
-          :loading="pausingAll"
-          aria-label="Resume all habits"
-          class="min-h-[44px] min-w-[44px]"
+          label="Resume all habits"
           @click="resumeAllHabits"
         />
-        <UButton
+        <AppIconButton
           v-if="habits.length > 0"
           :icon="resolveIcon('pause')"
-          variant="ghost"
-          color="neutral"
-          size="sm"
-          aria-label="Pause all habits"
-          class="min-h-[44px] min-w-[44px]"
+          label="Pause all habits"
           @click="openPauseAll"
         />
         <UButton :icon="resolveIcon('plus')" size="sm" class="min-h-[44px]" @click="isOpen = true">New</UButton>
