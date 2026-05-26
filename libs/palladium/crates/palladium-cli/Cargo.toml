@@ -1,0 +1,36 @@
+[package]
+name = "palladium-cli"
+version = "0.1.0"
+description = "Palladium sync engine — CLI binary (migrate/generate/inspect/dev)"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "palladium"
+path = "src/main.rs"
+
+[features]
+default = ["clap", "tokio-rt"]
+clap = ["dep:clap"]
+tokio-rt = ["tokio/rt-multi-thread"]
+
+[dependencies]
+palladium-core = { path = "../palladium-core" }
+palladium-sqlite = { path = "../palladium-sqlite" }
+palladium-axum = { path = "../palladium-axum" }
+tokio = { workspace = true }
+axum = { workspace = true }
+clap = { workspace = true, optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+toml = { workspace = true }

@@ -1,0 +1,40 @@
+[package]
+name = "palladium-core"
+version = "0.1.0"
+description = "Palladium sync engine — core primitives, types, and delta model"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+criterion = { workspace = true }
+uuid = { workspace = true }
+toml = { workspace = true }
+
+[[bench]]
+name = "hlc"
+harness = false
+
+[[bench]]
+name = "serde"
+harness = false
+
+[features]
+default = []
+openapi = ["dep:utoipa"]
+postgres = ["dep:sqlx"]
+sqlite = ["dep:sqlx"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+sqlx = { workspace = true, optional = true }
+utoipa = { workspace = true, optional = true }
