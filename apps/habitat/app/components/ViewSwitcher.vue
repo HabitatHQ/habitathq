@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const props = defineProps<{
+defineProps<{
   modelValue: string
   options: {
     value: string
@@ -9,37 +9,17 @@ const props = defineProps<{
   }[]
 }>()
 
-const emit = defineEmits<{
+defineEmits<{
   'update:modelValue': [value: string]
   change: [value: string]
 }>()
-
-const { selectionChanged } = useHaptics()
-
-function select(val: string) {
-  if (props.modelValue === val) return
-  emit('update:modelValue', val)
-  emit('change', val)
-  void selectionChanged()
-}
 </script>
 
 <template>
-  <div class="flex items-center bg-(--ui-bg-elevated) p-1 rounded-lg gap-1" role="group">
-    <button
-      v-for="opt in options"
-      :key="opt.value"
-      type="button"
-      class="segment-btn px-2.5 rounded-md"
-      :class="modelValue === opt.value
-        ? 'bg-(--ui-bg) shadow-sm text-(--ui-text)'
-        : 'text-(--ui-text-dimmed) hover:text-(--ui-text-toned)'"
-      :aria-label="opt.ariaLabel || opt.label"
-      :aria-pressed="modelValue === opt.value"
-      @click="select(opt.value)"
-    >
-      <AppIcon :name="opt.icon" class="w-4 h-4" />
-      <span v-if="opt.label" class="ml-1.5 text-sm font-medium">{{ opt.label }}</span>
-    </button>
-  </div>
+  <AppToggleSwitcher
+    :model-value="modelValue"
+    :options="options"
+    @update:model-value="$emit('update:modelValue', $event)"
+    @change="$emit('change', $event)"
+  />
 </template>
