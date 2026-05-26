@@ -21,9 +21,11 @@ const props = withDefaults(
   },
 )
 
-defineEmits<{
+const emit = defineEmits<{
   click: [event: MouseEvent]
 }>()
+
+const { selectionChanged } = useHaptics()
 
 const iconSize = computed(() => (props.size === 'sm' ? 'w-4 h-4' : 'w-5 h-5'))
 
@@ -42,7 +44,7 @@ const variantClass = computed(() => {
     :class="[variantClass, { 'opacity-50 pointer-events-none': disabled }]"
     :aria-label="label"
     :disabled="disabled"
-    @click="$emit('click', $event)"
+    @click="selectionChanged(); emit('click', $event)"
   >
     <AppIcon :name="icon" :color="color" :class="iconSize" />
   </button>
