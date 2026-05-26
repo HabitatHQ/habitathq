@@ -65,10 +65,10 @@ function handleCancel() {
         </div>
       </div>
       <div class="flex justify-end gap-2">
-        <UButton variant="ghost" color="neutral" @click="handleCancel">
+        <UButton variant="ghost" color="neutral" class="min-h-[44px]" @click="handleCancel">
           {{ cancelLabel }}
         </UButton>
-        <UButton :color="(confirmColor as any)" class="btn-press" @click="handleConfirm">
+        <UButton :color="(confirmColor as any)" class="min-h-[44px] btn-press" @click="handleConfirm">
           {{ confirmLabel }}
         </UButton>
       </div>

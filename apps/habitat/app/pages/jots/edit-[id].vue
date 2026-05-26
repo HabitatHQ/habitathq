@@ -102,6 +102,8 @@ onMounted(() => {
           color="error"
           variant="ghost"
           size="sm"
+          aria-label="Delete jot"
+          class="min-h-[44px] min-w-[44px]"
           @click="showDeleteConfirm = true"
         />
         <UButton :loading="saving" :disabled="saving || !canSave" size="sm" @click="save">Save</UButton>
@@ -153,7 +155,7 @@ onMounted(() => {
           <div v-for="(val, key) in textForm.annotations" :key="key" class="flex items-center gap-2">
             <span class="text-[11px] text-(--ui-text-dimmed) font-mono shrink-0">{{ key }}</span>
             <span class="text-[11px] text-(--ui-text-muted) flex-1 min-w-0 truncate">{{ val }}</span>
-            <UButton :icon="resolveIcon('x-mark')" color="neutral" variant="ghost" size="sm" class="text-slate-600 hover:text-red-400 shrink-0" @click="removeAnnot(String(key))" />
+            <UButton :icon="resolveIcon('x-mark')" color="neutral" variant="ghost" size="sm" aria-label="Remove annotation" class="min-h-[44px] min-w-[44px] text-slate-600 hover:text-red-400 shrink-0" @click="removeAnnot(String(key))" />
           </div>
           <div class="flex items-center gap-1.5">
             <AppTextField v-model="newAnnotKey" placeholder="key" variant="outline" class="flex-1" @keydown="(e: KeyboardEvent) => e.key === 'Enter' && commitAnnot()" />

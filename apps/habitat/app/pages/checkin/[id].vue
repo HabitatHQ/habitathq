@@ -223,6 +223,8 @@ onMounted(async () => {
             variant="ghost"
             color="neutral"
             size="sm"
+            aria-label="Edit check-in template"
+            class="min-h-[44px] min-w-[44px]"
             @click="openEdit"
           />
         </div>
@@ -246,7 +248,9 @@ onMounted(async () => {
           <div class="flex items-start justify-between gap-2">
             <p class="text-sm font-medium text-(--ui-text) leading-snug">{{ q.prompt }}</p>
             <button
-              class="flex-shrink-0 text-slate-700 hover:text-red-400 transition-colors mt-0.5"
+              type="button"
+              class="icon-btn flex-shrink-0 text-slate-700 hover:text-red-400"
+              aria-label="Delete question"
               :disabled="deletingQuestion.has(q.id)"
               @click="deleteQuestion(q.id)"
             >
@@ -268,6 +272,8 @@ onMounted(async () => {
             variant="ghost"
             color="neutral"
             :icon="resolveIcon(showAddQuestion ? 'chevron-up' : 'plus')"
+            :aria-label="showAddQuestion ? 'Collapse add question' : 'Expand add question'"
+            class="min-h-[44px] min-w-[44px]"
             @click.stop="showAddQuestion = !showAddQuestion"
           />
         </div>
@@ -335,6 +341,8 @@ onMounted(async () => {
             variant="ghost"
             color="neutral"
             :icon="resolveIcon(showAddReminder ? 'chevron-up' : 'plus')"
+            :aria-label="showAddReminder ? 'Collapse reminders' : 'Add reminder'"
+            class="min-h-[44px] min-w-[44px]"
             @click.stop="showAddReminder = !showAddReminder"
           />
         </div>

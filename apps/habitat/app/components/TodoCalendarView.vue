@@ -292,12 +292,16 @@ function onDayClick(date: string) {
           <!-- Prev / label / Next -->
           <div class="flex-1 flex items-center justify-center gap-1">
             <button
-              class="p-1.5 rounded-lg hover:bg-(--ui-bg-elevated) text-(--ui-text-toned) transition-colors"
+              type="button"
+              class="icon-btn hover:bg-(--ui-bg-elevated) text-(--ui-text-toned)"
+              aria-label="Previous period"
               @click="prevPeriod"
             ><AppIcon name="chevron-left" class="w-4 h-4" /></button>
             <span class="text-sm font-semibold text-(--ui-text) text-center w-40 shrink-0">{{ periodLabel }}</span>
             <button
-              class="p-1.5 rounded-lg hover:bg-(--ui-bg-elevated) text-(--ui-text-toned) transition-colors"
+              type="button"
+              class="icon-btn hover:bg-(--ui-bg-elevated) text-(--ui-text-toned)"
+              aria-label="Next period"
               @click="nextPeriod"
             ><AppIcon name="chevron-right" class="w-4 h-4" /></button>
           </div>
@@ -535,7 +539,9 @@ function onDayClick(date: string) {
                 @click="openDayCreate"
               >Add</UButton>
               <button
-                class="p-1.5 rounded-lg hover:bg-(--ui-bg-elevated) text-(--ui-text-dimmed) transition-colors"
+                type="button"
+                class="icon-btn hover:bg-(--ui-bg-elevated) text-(--ui-text-dimmed)"
+                aria-label="Close day panel"
                 @click="selectedDay = null"
               ><AppIcon name="x-mark" class="w-4 h-4" /></button>
             </div>
