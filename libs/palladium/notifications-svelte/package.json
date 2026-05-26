@@ -1,0 +1,38 @@
+{
+  "name": "@palladium/notifications-svelte",
+  "version": "0.1.0",
+  "description": "Palladium notifications — Svelte stores",
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "lint": "biome check src",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "svelte": ">=4"
+  },
+  "dependencies": {
+    "@palladium/notifications-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@testing-library/svelte": "^5.2.0",
+    "happy-dom": "^20.8.3",
+    "svelte": "^4.2.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}

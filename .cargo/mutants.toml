@@ -1,0 +1,23 @@
+# cargo-mutants configuration
+# Docs: https://mutants.rs/configuration.html
+
+# Exclude files that are scaffolding, infrastructure, or require external
+# resources that are not available in a normal `cargo mutants` run.
+exclude_globs = [
+  # CLI entry-point: main() and run_dev()/run_migrate() delegate to library
+  # functions. Testing them requires a running process or a live filesystem,
+  # neither of which is available to cargo-mutants.
+  "crates/palladium-cli/src/main.rs",
+
+  # PostgreSQL store: all ChangeStore methods require a live Postgres instance
+  # (integration tests are gated behind DATABASE_URL / feature = "integration-tests").
+  # Mutations here always survive locally; they are verified in CI with a real DB.
+  "crates/palladium-postgres/src/store.rs",
+
+  # Criterion harness files are not part of the production code path.
+  "crates/*/benches/**",
+]
+
+# SQLite in-memory tests spin up an async runtime and a SQLite DB; give each
+# mutant extra time before marking it as timed-out rather than missed.
+timeout_multiplier = 3.0
