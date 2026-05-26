@@ -134,7 +134,7 @@ describe("CapacitorSqliteAdapter", () => {
       expect(mockDb.execute).toHaveBeenCalledWith("DELETE FROM tasks", false);
     });
 
-    it("routes PRAGMA SET without params to execute()", async () => {
+    it("routes PRAGMA SET without params to query()", async () => {
       await adapter.exec("PRAGMA user_version = 5");
       expect(mockDb.query).toHaveBeenCalled();
     });

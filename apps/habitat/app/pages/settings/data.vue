@@ -240,6 +240,7 @@ const jotsExportSel = reactive({ text: true, voice: true, images: true })
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: sequential export pipeline
 async function exportJotsZip() {
+  // Dynamic import avoids IDBBlobAdapter init-order crash in SSR (see e64a6cf)
   const { getBlobAdapter } = await import('~/composables/useJotsStore')
   const blobAdapter = getBlobAdapter()
   exportingJots.value = true
@@ -314,12 +315,20 @@ function clearLocalStorage() {
 }
 
 function clearIdb(): Promise<void> {
-  return new Promise((resolve) => {
-    const req = indexedDB.deleteDatabase('habitat-blobs')
-    req.onsuccess = () => resolve()
-    req.onerror = () => resolve()
-    req.onblocked = () => resolve()
-  })
+  return Promise.all([
+    new Promise<void>((resolve) => {
+      const req = indexedDB.deleteDatabase('habitat-blobs')
+      req.onsuccess = () => resolve()
+      req.onerror = () => resolve()
+      req.onblocked = () => resolve()
+    }),
+    new Promise<void>((resolve) => {
+      const req = indexedDB.deleteDatabase('habitat')
+      req.onsuccess = () => resolve()
+      req.onerror = () => resolve()
+      req.onblocked = () => resolve()
+    }),
+  ]).then(() => {})
 }
 
 const showClearModal = ref(false)

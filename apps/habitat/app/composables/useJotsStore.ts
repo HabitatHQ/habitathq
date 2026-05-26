@@ -55,10 +55,26 @@ interface LegacyImageRecord {
   created_at: string
 }
 
+async function legacyIdbExists(dbName: string): Promise<boolean> {
+  if (typeof indexedDB.databases === 'function') {
+    const dbs = await indexedDB.databases()
+    return dbs.some((d) => d.name === dbName)
+  }
+  // Firefox <126 lacks databases(); fall through to open-based check
+  return true
+}
+
 function legacyIdbGetAll<T>(dbName: string, storeName: string): Promise<T[]> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(dbName, 2)
     req.onupgradeneeded = (e) => {
+      if (e.oldVersion === 0) {
+        // DB didn't exist before this open — abort to avoid creating an orphan
+        req.result.close()
+        req.transaction?.abort()
+        resolve([])
+        return
+      }
       const db = req.result
       if (e.oldVersion < 1 && !db.objectStoreNames.contains('voice_notes'))
         db.createObjectStore('voice_notes', { keyPath: 'id' })
@@ -91,11 +107,18 @@ async function runBlobMigration(db: ReturnType<typeof useDatabase>): Promise<voi
   if (typeof window === 'undefined') return
   if (localStorage.getItem(MIGRATION_KEY) === '1') return
 
+  // Skip migration entirely for fresh users who never had the legacy IDB
+  if (!(await legacyIdbExists('habitat'))) {
+    localStorage.setItem(MIGRATION_KEY, '1')
+    return
+  }
+
   const voices = await legacyIdbGetAll<LegacyVoiceRecord>('habitat', 'voice_notes')
   const images = await legacyIdbGetAll<LegacyImageRecord>('habitat', 'image_notes')
 
   if (voices.length === 0 && images.length === 0) {
     localStorage.setItem(MIGRATION_KEY, '1')
+    indexedDB.deleteDatabase('habitat')
     return
   }
 
@@ -122,6 +145,7 @@ async function runBlobMigration(db: ReturnType<typeof useDatabase>): Promise<voi
   }
 
   localStorage.setItem(MIGRATION_KEY, '1')
+  indexedDB.deleteDatabase('habitat')
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

@@ -828,6 +828,90 @@ describe('getAllTags — scribbles CTE', () => {
   })
 })
 
+// ─── Voice / Image note CRUD ─────────────────────────────────────────────────
+
+describe('createVoiceNote', () => {
+  it('uses INSERT OR IGNORE', async () => {
+    const db = new MockDbAdapter()
+    await shared.dispatch(db, {
+      type: 'CREATE_VOICE_NOTE',
+      payload: { id: 'v1', mime_type: 'audio/webm', duration: 5.2, created_at: '2025-01-01T00:00:00Z' },
+    })
+    const insert = db.calls.find(c => c.method === 'exec' && c.sql.includes('voice_notes'))!
+    expect(insert.sql).toContain('INSERT OR IGNORE')
+    expect(insert.bind).toEqual(['v1', 'audio/webm', 5.2, '2025-01-01T00:00:00Z'])
+  })
+})
+
+describe('createImageNote', () => {
+  it('uses INSERT OR IGNORE', async () => {
+    const db = new MockDbAdapter()
+    await shared.dispatch(db, {
+      type: 'CREATE_IMAGE_NOTE',
+      payload: { id: 'i1', mime_type: 'image/jpeg', filename: 'photo.jpg', created_at: '2025-01-01T00:00:00Z' },
+    })
+    const insert = db.calls.find(c => c.method === 'exec' && c.sql.includes('image_notes'))!
+    expect(insert.sql).toContain('INSERT OR IGNORE')
+    expect(insert.bind).toEqual(['i1', 'image/jpeg', 'photo.jpg', '2025-01-01T00:00:00Z'])
+  })
+})
+
+describe('getVoiceNotes', () => {
+  it('queries voice_notes ordered by created_at DESC', async () => {
+    const db = new MockDbAdapter()
+    db.setRows('FROM voice_notes', [
+      { id: 'v1', mime_type: 'audio/webm', duration: 5, created_at: '2025-01-01' },
+    ])
+    const result = await shared.dispatch(db, { type: 'GET_VOICE_NOTES' })
+    expect(result).toHaveLength(1)
+    const sql = db.calls.find(c => c.sql.includes('voice_notes'))!.sql
+    expect(sql).toContain('ORDER BY created_at DESC')
+  })
+})
+
+describe('getImageNotes', () => {
+  it('queries image_notes ordered by created_at DESC', async () => {
+    const db = new MockDbAdapter()
+    db.setRows('FROM image_notes', [
+      { id: 'i1', mime_type: 'image/png', filename: 'pic.png', created_at: '2025-01-01' },
+    ])
+    const result = await shared.dispatch(db, { type: 'GET_IMAGE_NOTES' })
+    expect(result).toHaveLength(1)
+    const sql = db.calls.find(c => c.sql.includes('image_notes'))!.sql
+    expect(sql).toContain('ORDER BY created_at DESC')
+  })
+})
+
+describe('deleteVoiceNote', () => {
+  it('deletes by id', async () => {
+    const db = new MockDbAdapter()
+    await shared.dispatch(db, { type: 'DELETE_VOICE_NOTE', payload: { id: 'v1' } })
+    const del = db.calls.find(c => c.sql.includes('DELETE FROM voice_notes'))!
+    expect(del.bind).toEqual(['v1'])
+  })
+})
+
+describe('deleteImageNote', () => {
+  it('deletes by id', async () => {
+    const db = new MockDbAdapter()
+    await shared.dispatch(db, { type: 'DELETE_IMAGE_NOTE', payload: { id: 'i1' } })
+    const del = db.calls.find(c => c.sql.includes('DELETE FROM image_notes'))!
+    expect(del.bind).toEqual(['i1'])
+  })
+})
+
+// ─── clearAppliedDefaults ────────────────────────────────────────────────────
+
+describe('clearAppliedDefaults', () => {
+  it('deletes from both applied_defaults and _palladium_seeds', async () => {
+    const db = new MockDbAdapter()
+    await shared.clearAppliedDefaults(db)
+    const sqls = db.calls.filter(c => c.method === 'exec').map(c => c.sql)
+    expect(sqls).toContainEqual('DELETE FROM applied_defaults')
+    expect(sqls).toContainEqual('DELETE FROM _palladium_seeds')
+  })
+})
+
 // ─── importJson: habits INSERT includes why column ───────────────────────────
 
 describe('importJson — why column', () => {

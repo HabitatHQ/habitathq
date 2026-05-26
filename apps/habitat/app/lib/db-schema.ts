@@ -623,8 +623,8 @@ export const SCHEMA_CONFIG: SchemaConfig = {
     15: [
       async (exec: MigrationExec) => {
         for (const [key, cls] of ICON_MAP) {
-          await exec(`UPDATE habits SET icon = '${key}' WHERE icon = '${cls}'`)
-          await exec(`UPDATE bored_categories SET icon = '${key}' WHERE icon = '${cls}'`)
+          await exec('UPDATE habits SET icon = ? WHERE icon = ?', [key, cls])
+          await exec('UPDATE bored_categories SET icon = ? WHERE icon = ?', [key, cls])
         }
       },
     ],

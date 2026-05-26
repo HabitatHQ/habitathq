@@ -1365,6 +1365,8 @@ export async function isDefaultApplied(db: DbAdapter, key: string): Promise<bool
   return rows.length > 0
 }
 
+// App-level default flags (e.g. check-in template seeding). Distinct from
+// Palladium's _palladium_seeds which tracks SchemaConfig seeds.
 export async function markDefaultApplied(db: DbAdapter, key: string): Promise<null> {
   await db.exec('INSERT OR IGNORE INTO applied_defaults (key, applied_at) VALUES (?, ?)', [
     key,
@@ -1375,6 +1377,7 @@ export async function markDefaultApplied(db: DbAdapter, key: string): Promise<nu
 
 export async function clearAppliedDefaults(db: DbAdapter): Promise<null> {
   await db.exec('DELETE FROM applied_defaults')
+  await db.exec('DELETE FROM _palladium_seeds')
   return null
 }
 
@@ -2022,7 +2025,7 @@ async function getVoiceNotes(db: DbAdapter): Promise<VoiceNoteRow[]> {
 
 async function createVoiceNote(db: DbAdapter, p: VoiceNoteRow): Promise<VoiceNoteRow> {
   await db.exec(
-    'INSERT INTO voice_notes (id, mime_type, duration, created_at) VALUES (?, ?, ?, ?)',
+    'INSERT OR IGNORE INTO voice_notes (id, mime_type, duration, created_at) VALUES (?, ?, ?, ?)',
     [p.id, p.mime_type, p.duration, p.created_at],
   )
   return p
@@ -2039,7 +2042,7 @@ async function getImageNotes(db: DbAdapter): Promise<ImageNoteRow[]> {
 
 async function createImageNote(db: DbAdapter, p: ImageNoteRow): Promise<ImageNoteRow> {
   await db.exec(
-    'INSERT INTO image_notes (id, mime_type, filename, created_at) VALUES (?, ?, ?, ?)',
+    'INSERT OR IGNORE INTO image_notes (id, mime_type, filename, created_at) VALUES (?, ?, ?, ?)',
     [p.id, p.mime_type, p.filename, p.created_at],
   )
   return p
