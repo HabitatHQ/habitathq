@@ -4,5 +4,10 @@ export default defineAppConfig({
       primary: 'amber',
       neutral: 'slate',
     },
+    button: {
+      slots: {
+        base: 'btn-press justify-center',
+      },
+    },
   },
 })

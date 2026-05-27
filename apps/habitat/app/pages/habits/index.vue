@@ -245,31 +245,24 @@ onMounted(() => {
   <div class="space-y-5">
     <header class="flex items-center justify-between">
       <h2 class="text-2xl font-bold">Habits</h2>
-      <div class="flex items-center gap-2">
-        <UButton
+      <div class="flex items-center gap-1">
+        <NuxtLink
           to="/archive"
-          :icon="resolveIcon('archive-box')"
-          variant="ghost"
-          color="neutral"
-          size="sm"
-        />
-        <UButton
+          class="icon-btn text-(--ui-text-muted) hover:bg-(--ui-bg-elevated)/50"
+          aria-label="View archived habits"
+        >
+          <AppIcon :name="resolveIcon('archive-box')" class="w-5 h-5" />
+        </NuxtLink>
+        <AppIconButton
           v-if="anyPaused"
-          :icon="resolveIcon('play')"
-          variant="ghost"
-          color="neutral"
-          size="sm"
-          :loading="pausingAll"
-          title="Resume all habits"
+          icon="play"
+          label="Resume all habits"
           @click="resumeAllHabits"
         />
-        <UButton
+        <AppIconButton
           v-if="habits.length > 0"
-          :icon="resolveIcon('pause')"
-          variant="ghost"
-          color="neutral"
-          size="sm"
-          title="Pause all habits"
+          icon="pause"
+          label="Pause all habits"
           @click="openPauseAll"
         />
         <UButton :icon="resolveIcon('plus')" size="sm" class="min-h-[44px]" @click="isOpen = true">New</UButton>
@@ -362,7 +355,7 @@ onMounted(() => {
         <AppTextField v-model="form.name" placeholder="e.g. Morning run" class="w-full" autofocus />
       </UFormField>
       <p v-if="nameError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
-        <AppIcon name="exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
+        <AppIcon name="exclamation-circle" class="w-4 h-4 flex-shrink-0" />
         {{ nameError }}
       </p>
 
@@ -458,7 +451,7 @@ onMounted(() => {
             class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1"
             @click="form.show_due_time = !form.show_due_time"
           >
-            <AppIcon :name="form.show_due_time ? 'chevron-down' : 'chevron-right'" class="w-3.5 h-3.5" />
+            <AppIcon :name="form.show_due_time ? 'chevron-down' : 'chevron-right'" class="w-4 h-4" />
             {{ form.show_due_time ? 'Remove due time' : 'Add due time' }}
           </button>
           <div v-if="form.show_due_time" class="mt-2">
@@ -472,7 +465,7 @@ onMounted(() => {
             class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1"
             @click="showAnnotations = !showAnnotations"
           >
-            <AppIcon :name="showAnnotations ? 'chevron-down' : 'chevron-right'" class="w-3.5 h-3.5" />
+            <AppIcon :name="showAnnotations ? 'chevron-down' : 'chevron-right'" class="w-4 h-4" />
             {{ showAnnotations ? 'Hide annotations' : annotationEntries.length > 0 ? `Annotations (${annotationEntries.length})` : 'Add annotations' }}
           </button>
           <div v-if="showAnnotations" class="mt-2 space-y-1.5">
@@ -496,7 +489,7 @@ onMounted(() => {
             class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1"
             @click="showAddReminder = !showAddReminder"
           >
-            <AppIcon :name="showAddReminder ? 'chevron-down' : 'chevron-right'" class="w-3.5 h-3.5" />
+            <AppIcon :name="showAddReminder ? 'chevron-down' : 'chevron-right'" class="w-4 h-4" />
             {{ showAddReminder ? 'Hide reminders' : pendingReminders.length > 0 ? `Reminders (${pendingReminders.length})` : 'Add reminders' }}
           </button>
           <div v-if="showAddReminder" class="mt-2 space-y-2">
@@ -506,7 +499,7 @@ onMounted(() => {
               :key="i"
               class="flex items-center gap-2"
             >
-              <AppIcon name="bell" class="w-3.5 h-3.5 text-(--ui-text-dimmed) shrink-0" />
+              <AppIcon name="bell" class="w-4 h-4 text-(--ui-text-dimmed) shrink-0" />
               <span class="text-sm type-duration text-(--ui-text-toned)">{{ r.time }}</span>
               <span class="text-xs text-(--ui-text-dimmed)">
                 {{ r.days.length ? r.days.map(d => HABIT_DAY_LABELS[d]).join(' ') : 'Every day' }}

@@ -1,4 +1,7 @@
 import { getRegistryIconifyNames } from '@habitathq/utils'
+import { createResolver } from '@nuxt/kit'
+
+const { resolve } = createResolver(import.meta.url)
 
 /**
  * Shared Nuxt layer for all Habitat apps.
@@ -20,7 +23,6 @@ export default defineNuxtConfig({
 
   compatibilityDate: '2025-01-01',
 
-  // COOP/COEP required for SharedArrayBuffer (SQLite WASM OPFS persistence).
   routeRules: {
     '/**': {
       headers: {
@@ -31,7 +33,11 @@ export default defineNuxtConfig({
     },
   },
 
-  css: ['~/assets/css/main.css'],
+  css: [
+    resolve('./app/assets/css/safe-area.css'),
+    resolve('./app/assets/css/animations.css'),
+    resolve('./app/assets/css/buttons.css'),
+  ],
 
   vite: {
     server: {

@@ -181,7 +181,7 @@ async function confirmDeleteEnvelope() {
           aria-label="Add envelope"
           @click="openAddModal"
         >
-          <AppIcon name="plus" class="w-3.5 h-3.5" />
+          <AppIcon name="plus" class="w-4 h-4" />
           Add
         </button>
       </div>
@@ -327,7 +327,7 @@ async function confirmDeleteEnvelope() {
       </div>
       <template #footer>
         <button
-          class="w-full py-3.5 bg-primary-500 hover:bg-primary-400 text-white font-semibold rounded-2xl transition-colors min-h-[52px] disabled:opacity-40 btn-press"
+          class="w-full py-3.5 bg-primary-500 hover:bg-primary-400 text-white font-semibold rounded-2xl transition-colors min-h-[48px] disabled:opacity-40 btn-press"
           :disabled="!modalEnvelope.name || !modalEnvelope.budget_amount"
           @click="saveEnvelope"
         >

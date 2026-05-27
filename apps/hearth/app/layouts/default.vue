@@ -121,28 +121,20 @@ function toggleColorMode() {
       </div>
 
       <!-- Right actions -->
-      <div class="flex items-center gap-1 ml-auto shrink-0">
+      <div class="flex items-center gap-0.5 ml-auto shrink-0">
 
         <!-- Dark / light toggle -->
-        <UButton
-          :icon="colorMode.value === 'dark' ? resolveIcon('sun') : resolveIcon('moon')"
-          variant="ghost"
-          color="neutral"
-          size="sm"
-          class="min-h-[44px] min-w-[44px]"
-          :aria-label="colorMode.value === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
+        <AppIconButton
+          :icon="colorMode.value === 'dark' ? 'sun' : 'moon'"
+          :label="colorMode.value === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
           @click="toggleColorMode"
         />
 
         <!-- Theme picker -->
         <div class="relative">
-          <UButton
-            :icon="resolveIcon('swatch')"
-            variant="ghost"
-            color="neutral"
-            size="sm"
-            class="min-h-[44px] min-w-[44px]"
-            aria-label="Change theme"
+          <AppIconButton
+            icon="swatch"
+            label="Change theme"
             @click="showThemePicker = !showThemePicker"
           />
           <div v-if="showThemePicker" class="fixed inset-0 z-40" role="button" aria-label="Close theme picker" tabindex="-1" @click="showThemePicker = false" />
@@ -169,11 +161,12 @@ function toggleColorMode() {
         <!-- Avatar / settings menu -->
         <div class="relative">
           <button
-            class="w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 border-2 min-h-[44px] min-w-[44px]"
+            class="icon-btn rounded-full border-2"
             :class="showAvatarMenu || isActive('/settings')
               ? 'border-primary-500 bg-primary-500/15 text-primary-400'
               : 'border-(--ui-border-accented) text-(--ui-text-muted) hover:border-(--ui-border-accented) hover:text-(--ui-text)'"
             aria-label="Account menu"
+            :aria-expanded="showAvatarMenu"
             @click="showAvatarMenu = !showAvatarMenu"
           >
             <AppIcon name="user-circle" class="w-5 h-5" />

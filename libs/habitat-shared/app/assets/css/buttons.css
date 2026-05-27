@@ -1,0 +1,83 @@
+/* Button design tokens and utility classes — iOS HIG 44pt touch targets */
+
+:root {
+  --btn-min-touch: 44px;
+  --btn-radius-pill: 9999px;
+  --btn-radius-default: 12px;
+  --btn-radius-lg: 16px;
+
+  /* 4-tier icon sizing (iOS HIG-aligned) */
+  --icon-xs: 12px;  /* w-3 — badges, inline indicators */
+  --icon-sm: 16px;  /* w-4 — nav items, list leading, chevrons */
+  --icon-md: 20px;  /* w-5 — action buttons (icon-only & icon+text) */
+  --icon-lg: 24px;  /* w-6 — decorative, hero, empty states */
+}
+
+/* Minimum 44×44 touch target */
+.touch-target {
+  min-height: var(--btn-min-touch);
+  min-width: var(--btn-min-touch);
+}
+
+/* Standardized icon button — 44×44, centered, press feedback */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--btn-min-touch);
+  min-width: var(--btn-min-touch);
+  border-radius: var(--btn-radius-pill);
+  transition: transform var(--duration-fast) var(--ease-out),
+    background-color 150ms ease;
+}
+.icon-btn:active {
+  transform: scale(0.97);
+}
+.icon-btn:focus-visible {
+  outline: 2px solid var(--ui-primary);
+  outline-offset: 2px;
+}
+
+/* Filter chip — pill button with active state (visual ~32px, touch target 44px via padding) */
+.chip-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 44px;
+  padding-inline: 14px;
+  padding-block: 8px;
+  border-radius: 9999px;
+  border: 1px solid var(--ui-border);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--ui-text-muted);
+  transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1),
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+.chip-btn:active {
+  transform: scale(0.97);
+}
+.chip-btn[aria-pressed="true"] {
+  background-color: color-mix(in srgb, var(--ui-primary) 15%, transparent);
+  border-color: var(--ui-primary);
+  color: var(--ui-primary);
+  font-weight: 600;
+}
+
+
+/* Reduce motion overrides for button animations */
+@media (prefers-reduced-motion: reduce) {
+  .icon-btn:active,
+  .chip-btn:active {
+    transform: none;
+  }
+}
+
+html.reduce-motion .icon-btn:active,
+html.reduce-motion .chip-btn:active {
+  transform: none;
+}

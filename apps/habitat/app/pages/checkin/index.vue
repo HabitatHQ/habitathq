@@ -162,7 +162,7 @@ async function createTemplate() {
     <AppModal v-model="showCreate">
         <div class="flex items-center justify-between">
           <h3 class="font-semibold text-(--ui-text)">New Check-in</h3>
-          <UButton :icon="resolveIcon('x-mark')" variant="ghost" color="neutral" size="sm" @click="showCreate = false" />
+          <AppIconButton icon="x-mark" label="Close" @click="showCreate = false" />
         </div>
 
         <!-- Title -->
@@ -173,7 +173,7 @@ async function createTemplate() {
           @keydown.enter="createTemplate"
         />
         <p v-if="newTitleError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
-          <AppIcon name="exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
+          <AppIcon name="exclamation-circle" class="w-4 h-4 flex-shrink-0" />
           {{ newTitleError }}
         </p>
 

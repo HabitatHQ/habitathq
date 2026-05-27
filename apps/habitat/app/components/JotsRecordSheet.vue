@@ -201,7 +201,7 @@ onUnmounted(() => {
   <div class="space-y-4">
     <div class="flex items-center justify-between">
       <h3 class="text-base font-semibold">Voice Recording</h3>
-      <UButton :icon="resolveIcon('x-mark')" variant="ghost" color="neutral" size="sm" :disabled="isRecording" @click="handleClose" />
+      <AppIconButton icon="x-mark" label="Close recording" :disabled="isRecording" @click="handleClose" />
     </div>
 
     <UAlert

@@ -7,6 +7,8 @@ const props = defineProps<{
     label?: string
     ariaLabel?: string
   }[]
+  /** Accessible group label (required for screen readers) */
+  groupLabel: string
 }>()
 
 const emit = defineEmits<{
@@ -25,11 +27,16 @@ function select(val: string) {
 </script>
 
 <template>
-  <div class="flex items-center bg-(--ui-bg-elevated) p-1 rounded-lg gap-1">
+  <div
+    class="inline-flex items-stretch bg-(--ui-bg-elevated) rounded-lg p-1 gap-0.5 min-h-[44px]"
+    role="group"
+    :aria-label="groupLabel"
+  >
     <button
       v-for="opt in options"
       :key="opt.value"
-      class="min-w-[40px] min-h-[40px] px-2.5 flex items-center justify-center rounded-md transition-colors"
+      type="button"
+      class="inline-flex items-center justify-center rounded-md px-3 min-w-[36px] transition-all duration-150"
       :class="modelValue === opt.value
         ? 'bg-(--ui-bg) shadow-sm text-(--ui-text)'
         : 'text-(--ui-text-dimmed) hover:text-(--ui-text-toned)'"

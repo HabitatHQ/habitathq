@@ -175,6 +175,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
             class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
             :class="settings.reduceMotion ? 'bg-primary-500' : 'bg-(--ui-bg-elevated)'"
             role="switch"
+            aria-label="Reduce motion"
             :aria-checked="settings.reduceMotion"
             @click="set('reduceMotion', !settings.reduceMotion)"
           >
@@ -198,6 +199,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
             class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
             :class="settings.stickyNav ? 'bg-primary-500' : 'bg-(--ui-bg-elevated)'"
             role="switch"
+            aria-label="Sticky bottom nav"
             :aria-checked="settings.stickyNav"
             @click="set('stickyNav', !settings.stickyNav)"
           >
@@ -420,7 +422,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
     <section class="space-y-2">
       <button class="w-full flex items-center justify-between px-1 py-0.5" @click="dragonsOpen = !dragonsOpen">
         <p class="text-xs font-semibold uppercase tracking-wider text-rose-400/70">🐉 Here be dragons</p>
-        <AppIcon :name="dragonsOpen ? 'chevron-up' : 'chevron-down'" class="w-3.5 h-3.5 text-rose-400/50" />
+        <AppIcon :name="dragonsOpen ? 'chevron-up' : 'chevron-down'" class="w-4 h-4 text-rose-400/50" />
       </button>
       <div v-if="dragonsOpen" class="rounded-2xl bg-(--ui-bg-muted) border border-rose-500/20 divide-y divide-(--ui-border) overflow-hidden">
 
@@ -430,11 +432,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
             <p class="text-sm font-medium text-(--ui-text)">Force reload</p>
             <p class="text-xs text-(--ui-text-dimmed)">Unregister service worker, clear JS/CSS caches, and reload. OPFS data is preserved.</p>
           </div>
-          <UButton
-            size="sm" variant="ghost" color="neutral"
-            :icon="resolveIcon('arrow-path')" :loading="forceReloading" class="shrink-0"
-            @click="forceReload"
-          />
+          <AppIconButton icon="arrow-path" :loading="forceReloading" label="Force reload" class="shrink-0" @click="forceReload" />
         </div>
 
         <!-- Reset settings -->

@@ -176,7 +176,7 @@ const targetFormatted = computed(() => {
             >
               <AppIcon
                 :name="manualMode ? 'adjustments-horizontal' : 'pencil-square'"
-                class="w-3.5 h-3.5 inline-block mr-1 -mt-0.5"
+                class="w-4 h-4 inline-block mr-1 -mt-0.5"
               />
               {{ manualMode ? 'Picker' : 'Type' }}
             </button>
@@ -193,16 +193,16 @@ const targetFormatted = computed(() => {
 
           <!-- Picker mode -->
           <div v-if="!manualMode" class="flex items-center justify-center gap-4 py-1">
-            <!-- Minus button -->
             <button
-              class="w-10 h-10 rounded-full bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) hover:bg-(--ui-bg-accented) transition-colors active:scale-90 disable-text-select"
+              type="button"
+              class="icon-btn bg-(--ui-bg-elevated) border border-(--ui-border) text-(--ui-text-muted) hover:text-(--ui-text) hover:bg-(--ui-bg-accented) disable-text-select"
               :class="{ 'opacity-30 pointer-events-none': pickerValue <= min }"
+              aria-label="Decrease value"
               @click="quickAdjust(-1)"
             >
               <AppIcon name="minus" class="w-4 h-4" />
             </button>
 
-            <!-- Scroll picker -->
             <div class="w-44">
               <ScrollPicker
                 v-model="pickerValue"
@@ -214,10 +214,11 @@ const targetFormatted = computed(() => {
               />
             </div>
 
-            <!-- Plus button -->
             <button
-              class="w-10 h-10 rounded-full bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) hover:bg-(--ui-bg-accented) transition-colors active:scale-90 disable-text-select"
+              type="button"
+              class="icon-btn bg-(--ui-bg-elevated) border border-(--ui-border) text-(--ui-text-muted) hover:text-(--ui-text) hover:bg-(--ui-bg-accented) disable-text-select"
               :class="{ 'opacity-30 pointer-events-none': pickerValue >= max }"
+              aria-label="Increase value"
               @click="quickAdjust(1)"
             >
               <AppIcon name="plus" class="w-4 h-4" />

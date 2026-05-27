@@ -4,6 +4,11 @@ export default defineAppConfig({
       primary: 'cyan',
       neutral: 'slate',
     },
+    button: {
+      slots: {
+        base: 'btn-press justify-center',
+      },
+    },
   },
   icon: {
     mode: 'svg',

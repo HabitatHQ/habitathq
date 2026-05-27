@@ -17,6 +17,7 @@ const props = withDefaults(
 
 const modelValue = defineModel<boolean>({ default: false })
 const slots = useSlots()
+const { impact } = useHaptics()
 
 const maxWidthClass = computed(() => {
   const map = { sm: 'sm:max-w-sm', md: 'sm:max-w-md', lg: 'sm:max-w-lg' }
@@ -36,6 +37,7 @@ function handleClose() {
 watch(modelValue, (open) => {
   if (open) {
     document.body.style.overflow = 'hidden'
+    void impact('light')
   } else {
     document.body.style.overflow = ''
   }
@@ -91,7 +93,7 @@ onUnmounted(() => {
             <button
               v-if="closeable"
               type="button"
-              class="shrink-0 w-8 h-8 flex items-center justify-center rounded-full hover:bg-(--ui-bg-elevated) transition-colors ml-2"
+              class="icon-btn shrink-0 hover:bg-(--ui-bg-elevated) ml-2"
               aria-label="Close"
               @click="handleClose"
             >

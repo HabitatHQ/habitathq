@@ -88,7 +88,7 @@ onMounted(() => void loadTags())
         >
           <AppIcon
             :name="annotExpanded ? 'chevron-down' : 'tag'"
-            class="w-3.5 h-3.5"
+            class="w-4 h-4"
           />
           <span v-if="annotationCount > 0">{{ annotationCount }} annotation{{ annotationCount !== 1 ? 's' : '' }}</span>
           <span v-else>{{ annotExpanded ? 'Hide annotations' : 'Add annotations' }}</span>

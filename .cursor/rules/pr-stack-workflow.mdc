@@ -9,11 +9,59 @@ When a plan calls for multiple PRs, **branch and commit as you complete each PR'
 
 ## Workflow
 
-1. Before starting PR N, create a branch: `git checkout -b <branch-name>`
-2. Implement only that PR's changes
-3. Run CI (`check:fix`, `typecheck`, `test:unit`) to confirm it passes independently
+1. Before starting PR N, create a branch: `git checkout -b jeel/<scope>-pr<N>`
+2. Implement **only** that PR's changes
+3. Run CI: `pnpm check:fix && pnpm typecheck && pnpm test:unit`
 4. Commit and push immediately
 5. Only then move to PR N+1 (branch from the previous PR's branch if stacked)
+
+## HARD STOP — Verification Checkpoint
+
+**Before marking ANY todo as `in_progress`, execute this self-check:**
+
+```bash
+# 1. Is the previous PR committed and pushed?
+git log --oneline -1
+git status
+
+# 2. Verify clean working tree — no uncommitted changes
+# If `git status` shows ANYTHING other than "nothing to commit, working tree clean" → STOP and commit first
+```
+
+If the previous todo's work is not committed and pushed, **you are in violation**. Fix it before proceeding.
+
+## Commit, Push, and Create PR Rule
+
+> **If you have written code and not committed, you are in violation of this rule.**
+> **If you have pushed a branch and not created a GitHub PR, you are in violation of this rule.**
+
+The moment a PR's implementation is complete and CI passes:
+1. `git add -A`
+2. `git commit` with a conventional commit message
+3. `git push -u origin HEAD`
+4. `gh pr create --title "<conventional commit title>" --base <parent-branch> --body "<summary + test plan>"`
+
+All four steps are **mandatory**. A pushed branch without a GitHub PR is not "done".
+
+Do NOT continue to the next PR. Do NOT "batch" commits.
+
+## No Batching Escape Hatch
+
+Even if the user says "implement all of these" or "do everything", each PR's todo MUST result in:
+- A **separate branch**
+- A **separate commit**
+- A **separate push**
+- A **GitHub PR** (via `gh pr create`)
+
+...before the next todo starts. There are **zero** exceptions.
+
+## Branch Naming Convention
+
+```
+jeel/<scope>-pr<N>
+```
+
+Examples: `jeel/buttons-pr1`, `jeel/buttons-pr2`, `jeel/auth-pr1`
 
 ## Why
 
@@ -21,14 +69,16 @@ When a plan calls for multiple PRs, **branch and commit as you complete each PR'
 - The whole point of a PR stack is independent reviewability — that's impossible if everything lands in one giant diff
 - Committing after each PR validates that intermediate states actually compile and pass CI
 
-## Anti-pattern (never do this)
+## Anti-pattern (NEVER do this)
 
 ```
 ❌ Implement PR 1, 2, 3, 4, 5 all on one branch → try to split commits at the end
+❌ "I'll commit everything at the end"
+❌ "Let me just finish this next PR too before committing"
 ```
 
 ```
-✅ Branch PR-1 → implement → commit → push
-   Branch PR-2 from PR-1 → implement → commit → push
-   Branch PR-3 from PR-2 → implement → commit → push
+✅ Branch PR-1 → implement → CI passes → commit → push → gh pr create → STOP
+   Branch PR-2 from PR-1 → implement → CI passes → commit → push → gh pr create → STOP
+   Branch PR-3 from PR-2 → implement → CI passes → commit → push → gh pr create → STOP
 ```

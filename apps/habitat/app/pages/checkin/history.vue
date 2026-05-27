@@ -220,12 +220,13 @@ function toggleText(id: string) {
     <!-- Header -->
     <header class="flex items-center justify-between">
       <BackNav to="/checkin" label="Check-ins" />
-      <ViewSwitcher
+      <AppToggleSwitcher
         v-model="viewMode"
         :options="[
           { value: 'timeline', icon: 'list-bullet', ariaLabel: 'Timeline view' },
           { value: 'calendar', icon: 'calendar-days', ariaLabel: 'Calendar view' }
         ]"
+        group-label="View mode"
       />
     </header>
 
@@ -238,14 +239,14 @@ function toggleText(id: string) {
       <div class="bg-(--ui-bg-muted) border border-(--ui-border)/60 rounded-xl p-4">
         <!-- Calendar Header -->
         <div class="flex items-center justify-between mb-4">
-          <button @click="prevMonth" class="p-1.5 hover:bg-(--ui-bg-elevated) rounded-lg transition-colors">
-            <AppIcon name="chevron-left" class="w-4 h-4 text-(--ui-text-toned)" />
+          <button type="button" class="icon-btn hover:bg-(--ui-bg-elevated) text-(--ui-text-toned)" aria-label="Previous month" @click="prevMonth">
+            <AppIcon name="chevron-left" class="w-4 h-4" />
           </button>
           <span class="font-semibold text-(--ui-text)">
             {{ calendarMonthDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) }}
           </span>
-          <button @click="nextMonth" class="p-1.5 hover:bg-(--ui-bg-elevated) rounded-lg transition-colors">
-            <AppIcon name="chevron-right" class="w-4 h-4 text-(--ui-text-toned)" />
+          <button type="button" class="icon-btn hover:bg-(--ui-bg-elevated) text-(--ui-text-toned)" aria-label="Next month" @click="nextMonth">
+            <AppIcon name="chevron-right" class="w-4 h-4" />
           </button>
         </div>
         

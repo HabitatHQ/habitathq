@@ -753,7 +753,7 @@ function toggleColorMode() {
           : undefined"
       >
         <span class="text-xs text-(--ui-text-muted) flex items-center gap-1.5">
-          <AppIcon name="arrows-right-left" class="w-3.5 h-3.5" />
+          <AppIcon name="arrows-right-left" class="w-4 h-4" />
           Drag to reorder tabs
         </span>
         <button

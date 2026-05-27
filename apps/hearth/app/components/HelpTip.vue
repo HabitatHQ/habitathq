@@ -31,7 +31,7 @@ function dismiss() {
       <summary
         class="inline-flex items-center gap-1.5 text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) transition-colors min-h-[44px] cursor-pointer list-none [&::-webkit-details-marker]:hidden"
       >
-        <AppIcon name="question-mark-circle" class="w-3.5 h-3.5 shrink-0" />
+        <AppIcon name="question-mark-circle" class="w-4 h-4 shrink-0" />
         <span class="underline underline-offset-2 decoration-dotted">
           <slot name="label">What's this?</slot>
         </span>
@@ -43,7 +43,7 @@ function dismiss() {
         <button
           v-if="dismissable"
           type="button"
-          class="block text-[10px] text-(--ui-text-dimmed) hover:text-(--ui-text-muted) underline underline-offset-2 mt-1"
+          class="block text-[10px] text-(--ui-text-dimmed) hover:text-(--ui-text-muted) underline underline-offset-2 mt-1 min-h-[44px] flex items-center"
           @click="dismiss"
         >
           Don't show again

@@ -229,7 +229,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
         to="/transactions/quick"
         class="text-xs text-primary-400 hover:text-primary-300 transition-colors inline-flex items-center gap-1 min-h-[44px]"
       >
-        <AppIcon name="bolt" class="w-3.5 h-3.5" />
+        <AppIcon name="bolt" class="w-4 h-4" />
         Quick add
       </NuxtLink>
     </div>
@@ -296,7 +296,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
           <button
             v-if="key && key !== ''"
             type="button"
-            class="flex items-center justify-center h-14 rounded-2xl text-xl font-semibold transition-all active:scale-95 min-h-[44px]"
+            class="flex items-center justify-center h-14 rounded-2xl text-xl font-semibold transition-all btn-press min-h-[44px]"
             :class="key === 'backspace'
               ? 'bg-(--ui-bg-muted) text-(--ui-text-muted) hover:bg-(--ui-bg-elevated)'
               : 'bg-(--ui-bg-muted) text-(--ui-text) hover:bg-(--ui-bg-elevated)'"
@@ -361,7 +361,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
           v-if="isForeignCurrency && amountNum && exchangeRate"
           class="flex items-center gap-2 px-4 py-1.5 text-xs text-(--ui-text-muted) bg-(--ui-bg-muted) rounded-xl"
         >
-          <AppIcon name="arrow-path" class="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+          <AppIcon name="arrow-path" class="w-4 h-4 shrink-0" aria-hidden="true" />
           <span>1 {{ form.currency }} = {{ exchangeRate.toFixed(4) }} {{ homeCurrency }}</span>
           <span class="ml-auto font-mono">≈ {{ formatAmount(Math.abs(homeEquiv ?? 0), homeCurrency) }}</span>
         </div>

@@ -310,7 +310,7 @@ onMounted(() => {
                   </div>
                 </div>
                 <button class="w-7 h-7 rounded-full border-2 flex-shrink-0 flex items-center justify-center bg-primary-500 border-primary-500">
-                  <AppIcon name="check" class="w-3.5 h-3.5 text-white" />
+                  <AppIcon name="check" class="w-4 h-4 text-white" />
                 </button>
               </div>
 

@@ -600,7 +600,7 @@ async function nukeOpfs(reload: boolean) {
               :key="err"
               class="text-xs text-red-400 flex items-center gap-1.5"
             >
-              <AppIcon name="exclamation-circle" class="w-3.5 h-3.5 shrink-0" />
+              <AppIcon name="exclamation-circle" class="w-4 h-4 shrink-0" />
               {{ err }}
             </li>
           </ul>

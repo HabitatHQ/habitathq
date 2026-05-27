@@ -218,13 +218,7 @@ onMounted(async () => {
           <h2 class="text-2xl font-bold leading-tight">{{ template.title }} Configuration</h2>
         </div>
         <div class="flex items-center gap-0.5 mt-1">
-          <UButton
-            :icon="resolveIcon('pencil-square')"
-            variant="ghost"
-            color="neutral"
-            size="sm"
-            @click="openEdit"
-          />
+          <AppIconButton icon="pencil-square" label="Edit check-in template" @click="openEdit" />
         </div>
       </header>
 
@@ -246,11 +240,13 @@ onMounted(async () => {
           <div class="flex items-start justify-between gap-2">
             <p class="text-sm font-medium text-(--ui-text) leading-snug">{{ q.prompt }}</p>
             <button
-              class="flex-shrink-0 text-slate-700 hover:text-red-400 transition-colors mt-0.5"
+              type="button"
+              class="icon-btn flex-shrink-0 text-slate-700 hover:text-red-400"
+              aria-label="Delete question"
               :disabled="deletingQuestion.has(q.id)"
               @click="deleteQuestion(q.id)"
             >
-              <AppIcon name="trash" class="w-3.5 h-3.5" />
+              <AppIcon name="trash" class="w-4 h-4" />
             </button>
           </div>
           <p class="text-xs text-(--ui-text-dimmed) font-mono">
@@ -268,6 +264,8 @@ onMounted(async () => {
             variant="ghost"
             color="neutral"
             :icon="resolveIcon(showAddQuestion ? 'chevron-up' : 'plus')"
+            :aria-label="showAddQuestion ? 'Collapse add question' : 'Expand add question'"
+            class="min-h-[44px] min-w-[44px]"
             @click.stop="showAddQuestion = !showAddQuestion"
           />
         </div>
@@ -335,6 +333,8 @@ onMounted(async () => {
             variant="ghost"
             color="neutral"
             :icon="resolveIcon(showAddReminder ? 'chevron-up' : 'plus')"
+            :aria-label="showAddReminder ? 'Collapse reminders' : 'Add reminder'"
+            class="min-h-[44px] min-w-[44px]"
             @click.stop="showAddReminder = !showAddReminder"
           />
         </div>
@@ -350,6 +350,7 @@ onMounted(async () => {
           </div>
           <button
             class="text-slate-700 hover:text-red-400 transition-colors"
+            aria-label="Delete reminder"
             :disabled="deletingReminder.has(r.id)"
             @click="removeReminder(r.id)"
           >
@@ -404,7 +405,7 @@ onMounted(async () => {
     <AppModal v-model="showEdit">
         <div class="flex items-center justify-between">
           <h3 class="font-semibold text-(--ui-text)">Edit Template</h3>
-          <UButton :icon="resolveIcon('x-mark')" variant="ghost" color="neutral" size="sm" @click="showEdit = false" />
+          <AppIconButton icon="x-mark" label="Close" @click="showEdit = false" />
         </div>
 
         <AppTextField v-model="editTitle" placeholder="Name" @keydown.enter="saveEdit" />

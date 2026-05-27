@@ -401,7 +401,8 @@ function categoryLabel(id: string | null): string {
     <!-- ── Header ──────────────────────────────────────────────────────────── -->
     <div class="flex items-center justify-between px-4 py-3 border-b border-(--ui-border)">
       <button
-        class="flex items-center justify-center w-10 h-10 rounded-xl text-(--ui-text-muted) hover:text-(--ui-text) transition-colors"
+        type="button"
+        class="icon-btn text-(--ui-text-muted) hover:text-(--ui-text)"
         aria-label="Back"
         @click="router.back()"
       >
@@ -419,7 +420,8 @@ function categoryLabel(id: string | null): string {
     <!-- ── Input bar ───────────────────────────────────────────────────────── -->
     <div class="flex items-center gap-2 px-4 py-3 border-b border-(--ui-border)">
       <button
-        class="flex items-center justify-center w-10 h-10 rounded-xl text-(--ui-text-muted) hover:text-(--ui-text) hover:bg-(--ui-bg-muted) transition-colors"
+        type="button"
+        class="icon-btn text-(--ui-text-muted) hover:text-(--ui-text) hover:bg-(--ui-bg-muted)"
         :disabled="scanningReceipt"
         aria-label="Scan receipt"
         @click="scanReceipt"
@@ -440,7 +442,8 @@ function categoryLabel(id: string | null): string {
       />
       <button
         v-if="speech.isSupported.value"
-        class="flex items-center justify-center w-10 h-10 rounded-xl transition-colors"
+        type="button"
+        class="icon-btn transition-colors"
         :class="
           speech.isListening.value
             ? 'text-rose-400 bg-rose-500/10 voice-pulse'
@@ -452,7 +455,8 @@ function categoryLabel(id: string | null): string {
         <AppIcon name="microphone" class="w-5 h-5" />
       </button>
       <button
-        class="flex items-center justify-center w-10 h-10 rounded-xl text-primary-400 hover:bg-primary-500/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+        type="button"
+        class="icon-btn text-primary-400 hover:bg-primary-500/10 disabled:opacity-30 disabled:cursor-not-allowed"
         :disabled="!inputText.trim() || isProcessing"
         aria-label="Parse and save"
         @click="handleSubmit"
@@ -486,14 +490,14 @@ function categoryLabel(id: string | null): string {
             :class="isLowConfidence ? 'ring-1 ring-amber-500/50' : ''"
             @click="reRecord"
           >
-            <AppIcon name="arrow-path" class="w-3.5 h-3.5" />
+            <AppIcon name="arrow-path" class="w-4 h-4" />
             Re-record
           </button>
           <button
             class="flex items-center gap-1 px-3 min-h-[44px] rounded-lg text-xs font-medium text-white bg-primary-500 hover:bg-primary-600 transition-colors"
             @click="confirmSend"
           >
-            <AppIcon name="paper-airplane" class="w-3.5 h-3.5" />
+            <AppIcon name="paper-airplane" class="w-4 h-4" />
             Send
           </button>
           <span
@@ -678,7 +682,7 @@ function categoryLabel(id: string | null): string {
 
             <span class="ml-auto flex items-center gap-1">
               <template v-if="card.saved">
-                <AppIcon name="check-circle" class="w-3.5 h-3.5 text-green-400" />
+                <AppIcon name="check-circle" class="w-4 h-4 text-green-400" />
                 <span class="text-green-400">Saved</span>
               </template>
             </span>

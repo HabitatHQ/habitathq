@@ -42,7 +42,7 @@ function toggle() {
     >
       <AppIcon
         :name="isOpen ? 'chevron-down' : 'chevron-right'"
-        class="w-3.5 h-3.5 transition-transform"
+        class="w-4 h-4 transition-transform"
       />
       {{ buttonLabel }}
     </button>

@@ -18,7 +18,7 @@ const model = defineModel<string>({ required: true })
       <AppIcon
         v-if="model === color.value"
         name="check"
-        class="w-3.5 h-3.5 text-white drop-shadow-sm"
+        class="w-4 h-4 text-white drop-shadow-sm"
       />
     </button>
   </div>

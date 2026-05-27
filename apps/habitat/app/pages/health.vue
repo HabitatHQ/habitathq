@@ -286,13 +286,7 @@ onMounted(load)
             <AppIcon name="fire" class="w-4 h-4 text-rose-400" />
             <h3 class="text-xs font-semibold text-(--ui-text-muted) uppercase tracking-wide">Steps Today</h3>
           </div>
-          <UButton
-            :icon="resolveIcon('pencil-square')"
-            variant="ghost"
-            color="neutral"
-            size="sm"
-            @click="openStepsLog"
-          />
+          <AppIconButton icon="pencil-square" label="Log steps" @click="openStepsLog" />
         </header>
 
         <!-- Odometer -->
@@ -393,18 +387,22 @@ onMounted(load)
             </span>
             <div class="flex items-center gap-1">
               <button
-                class="w-7 h-7 rounded-lg bg-(--ui-bg-elevated) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) disabled:opacity-30 transition-colors"
+                type="button"
+                class="icon-btn bg-(--ui-bg-elevated) text-(--ui-text-muted) hover:text-(--ui-text) disabled:opacity-30"
+                aria-label="Decrease water"
                 :disabled="savingWater || waterToday <= 0"
                 @click="setWater(Math.max(0, Math.round(waterToday) - 1))"
               >
-                <AppIcon name="minus" class="w-3.5 h-3.5" />
+                <AppIcon name="minus" class="w-4 h-4" />
               </button>
               <button
-                class="w-7 h-7 rounded-lg bg-(--ui-bg-elevated) flex items-center justify-center text-(--ui-text-muted) hover:text-sky-400 disabled:opacity-30 transition-colors"
+                type="button"
+                class="icon-btn bg-(--ui-bg-elevated) text-(--ui-text-muted) hover:text-sky-400 disabled:opacity-30"
+                aria-label="Increase water"
                 :disabled="savingWater || waterToday >= waterGoal"
                 @click="setWater(Math.round(waterToday) + 1)"
               >
-                <AppIcon name="plus" class="w-3.5 h-3.5" />
+                <AppIcon name="plus" class="w-4 h-4" />
               </button>
             </div>
           </div>
@@ -415,10 +413,12 @@ onMounted(load)
           <button
             v-for="i in waterGoal"
             :key="i"
-            class="w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-200 active:scale-90"
+            type="button"
+            class="touch-target w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-200 btn-press"
             :class="i <= waterToday
               ? 'bg-sky-500/20 border border-sky-500/50 text-sky-400'
               : 'bg-(--ui-bg-elevated) border border-(--ui-border-accented) text-slate-700'"
+            :aria-label="`Set water to ${i} glass${i > 1 ? 'es' : ''}`"
             :disabled="savingWater"
             @click="setWater(i === Math.round(waterToday) ? i - 1 : i)"
           >
@@ -443,13 +443,7 @@ onMounted(load)
             <AppIcon name="moon" class="w-4 h-4 text-indigo-400" />
             <h3 class="text-xs font-semibold text-(--ui-text-muted) uppercase tracking-wide">Sleep Last Night</h3>
           </div>
-          <UButton
-            :icon="resolveIcon('pencil-square')"
-            variant="ghost"
-            color="neutral"
-            size="sm"
-            @click="openSleepLog"
-          />
+          <AppIconButton icon="pencil-square" label="Log sleep" @click="openSleepLog" />
         </header>
 
         <!-- Hours display -->
@@ -541,10 +535,12 @@ onMounted(load)
                   <span class="text-xs text-slate-600"> / {{ meal.target_value }} kcal</span>
                 </div>
                 <button
-                  class="w-7 h-7 rounded-lg bg-(--ui-bg-elevated) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors"
+                  type="button"
+                  class="icon-btn bg-(--ui-bg-elevated) text-(--ui-text-muted) hover:text-(--ui-text)"
+                  :aria-label="`Log ${meal.name}`"
                   @click="openMealLog(meal)"
                 >
-                  <AppIcon name="pencil" class="w-3.5 h-3.5" />
+                  <AppIcon name="pencil" class="w-4 h-4" />
                 </button>
               </div>
             </div>

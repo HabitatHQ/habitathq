@@ -1,14 +1,21 @@
 /**
- * Habitat-specific haptics — respects the app's enableHaptics setting.
- * Uses usePlatform from the shared layer for native detection.
+ * Shared haptic feedback composable — no-ops on web, respects caller's enabled flag.
+ *
+ * Usage (basic — defaults to enabled on native):
+ *   const { impact, selectionChanged } = useHaptics()
+ *
+ * Usage (with app-specific setting):
+ *   const { settings } = useAppSettings()
+ *   const enabled = computed(() => settings.value.enableHaptics)
+ *   const { impact } = useHaptics({ enabled })
  */
-export function useHaptics() {
-  const { settings } = useAppSettings()
+export function useHaptics(options?: { enabled?: Ref<boolean> | ComputedRef<boolean> }) {
   const { isNative } = usePlatform()
 
   function isDisabled(): boolean {
     if (!isNative.value) return true
-    return settings.value.enableHaptics === false
+    if (options?.enabled && !options.enabled.value) return true
+    return false
   }
 
   async function impact(style: 'light' | 'medium' | 'heavy' = 'medium') {

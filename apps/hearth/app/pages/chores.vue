@@ -169,10 +169,8 @@ const COLORS = [
       <button
         v-for="f in (['all', 'daily', 'weekly', 'monthly'] as const)"
         :key="f"
-        class="shrink-0 text-xs px-3 py-1.5 rounded-full border transition-colors min-h-[44px]"
-        :class="filterFreq === f
-          ? 'bg-primary-500/15 border-primary-500 text-primary-400 font-medium'
-          : 'border-(--ui-border) text-(--ui-text-muted) hover:border-(--ui-border-accented) hover:text-(--ui-text)'"
+        type="button"
+        class="chip-btn"
         :aria-pressed="filterFreq === f"
         @click="filterFreq = f"
       >
@@ -269,24 +267,8 @@ const COLORS = [
 
         <!-- Edit / Delete (show on hover) -->
         <div class="flex gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
-          <UButton
-            :icon="resolveIcon('pencil-square')"
-            variant="ghost"
-            color="neutral"
-            size="xs"
-            class="min-h-[44px] min-w-[44px]"
-            :aria-label="`Edit ${chore.name}`"
-            @click="openEdit(chore)"
-          />
-          <UButton
-            :icon="resolveIcon('trash')"
-            variant="ghost"
-            color="error"
-            size="xs"
-            class="min-h-[44px] min-w-[44px]"
-            :aria-label="`Delete ${chore.name}`"
-            @click="requestDeleteChore(chore.id)"
-          />
+          <AppIconButton icon="pencil-square" :label="`Edit ${chore.name}`" @click="openEdit(chore)" />
+          <AppIconButton icon="trash" class="text-red-500" :label="`Delete ${chore.name}`" @click="requestDeleteChore(chore.id)" />
         </div>
       </li>
     </ul>
@@ -321,10 +303,12 @@ const COLORS = [
           <button
             v-for="f in (['daily', 'weekly', 'monthly'] as const)"
             :key="f"
-            class="flex-1 py-2 rounded-xl text-sm font-medium transition-colors min-h-[44px]"
+            type="button"
+            class="inline-flex items-center justify-center flex-1 min-h-[44px] py-2 px-3 rounded-xl text-sm font-medium transition-colors"
             :class="form.frequency === f
-              ? 'bg-primary-500 text-white'
+              ? 'bg-primary-500/15 text-primary-400 border border-primary-500/30'
               : 'bg-(--ui-bg-muted) text-(--ui-text-muted) hover:bg-(--ui-bg-elevated)'"
+            :aria-pressed="form.frequency === f"
             @click="form.frequency = f"
           >
             {{ FREQ_LABELS[f] }}
@@ -339,10 +323,12 @@ const COLORS = [
           <button
             v-for="s in (['household', 'personal'] as const)"
             :key="s"
-            class="flex-1 py-2 rounded-xl text-sm font-medium transition-colors capitalize min-h-[44px]"
+            type="button"
+            class="inline-flex items-center justify-center flex-1 min-h-[44px] py-2 px-3 rounded-xl text-sm font-medium capitalize transition-colors"
             :class="form.scope === s
-              ? 'bg-primary-500 text-white'
+              ? 'bg-primary-500/15 text-primary-400 border border-primary-500/30'
               : 'bg-(--ui-bg-muted) text-(--ui-text-muted) hover:bg-(--ui-bg-elevated)'"
+            :aria-pressed="form.scope === s"
             @click="form.scope = s"
           >
             {{ s }}
@@ -355,10 +341,12 @@ const COLORS = [
         <label class="text-sm font-medium text-(--ui-text-muted)">Assign to</label>
         <div class="flex gap-2 flex-wrap" role="group" aria-label="Assignee">
           <button
-            class="px-3 py-2 rounded-xl text-sm font-medium transition-colors min-h-[44px]"
+            type="button"
+            class="inline-flex items-center justify-center min-h-[44px] py-2 px-3 rounded-xl text-sm font-medium transition-colors"
             :class="form.assigned_to === null
-              ? 'bg-primary-500 text-white'
+              ? 'bg-primary-500/15 text-primary-400 border border-primary-500/30'
               : 'bg-(--ui-bg-muted) text-(--ui-text-muted) hover:bg-(--ui-bg-elevated)'"
+            :aria-pressed="form.assigned_to === null"
             @click="form.assigned_to = null"
           >
             Anyone
@@ -366,10 +354,12 @@ const COLORS = [
           <button
             v-for="u in users"
             :key="u.id"
-            class="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-colors min-h-[44px]"
+            type="button"
+            class="inline-flex items-center justify-center gap-1.5 min-h-[44px] py-2 px-3 rounded-xl text-sm font-medium transition-colors"
             :class="form.assigned_to === u.id
-              ? 'bg-primary-500 text-white'
+              ? 'bg-primary-500/15 text-primary-400 border border-primary-500/30'
               : 'bg-(--ui-bg-muted) text-(--ui-text-muted) hover:bg-(--ui-bg-elevated)'"
+            :aria-pressed="form.assigned_to === u.id"
             @click="form.assigned_to = u.id"
           >
             <span>{{ u.avatar_emoji }}</span>

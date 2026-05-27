@@ -1,0 +1,51 @@
+---
+description: iOS accessibility and touch-target standards for Capacitor hybrid apps
+alwaysApply: true
+---
+
+# iOS Accessibility Standards
+
+These rules apply to all Habitat monorepo apps (Nuxt 4 SPA + Capacitor 8). They encode Apple HIG requirements and WCAG 2.2 Level AAA touch-target standards.
+
+## Touch Targets
+
+- **All** interactive elements (buttons, links, toggles, checkboxes, chips) must have a minimum touch area of **44×44px**.
+- Use `min-h-[44px] min-w-[44px]`, the `.touch-target` utility, or the `.icon-btn` class.
+- If the visual element is smaller (e.g., a 24px checkbox), expand the hit area with padding — the *tappable region* must still be 44×44.
+- Exceptions: inline text links within paragraphs (exempt per WCAG 2.5.8).
+
+## Accessible Labels
+
+- **Every** icon-only button must have an `aria-label` describing its action (e.g., `aria-label="Delete habit"`).
+- Never use `title` as the sole accessible name — it is not reliably announced by VoiceOver.
+- Buttons with visible text do not need `aria-label` (the text *is* the label).
+- Dynamic labels: include context (e.g., `` :aria-label="`Mark ${habit.name} complete`" ``).
+
+## Semantic Elements
+
+- Use `<button>` for actions, `<a>`/`<NuxtLink>` for navigation. Never use `<div @click>` for either.
+- Use `role="button"` only on non-semantic elements that cannot be replaced with `<button>`.
+- List items: `<ul>/<ol>` + `<li>`. If items are navigable, wrap content in `<a>`/`<NuxtLink>` inside the `<li>`.
+
+## Segmented Controls and Toggles
+
+- Container: `role="group"` + `aria-label="<group purpose>"`.
+- Each segment: `aria-pressed="true|false"` (not `aria-selected` unless it's a tablist).
+- Toggle switches: `role="switch"` + `aria-checked` + `aria-label`.
+
+## Modals and Sheets
+
+- Always: `role="dialog"`, `aria-modal="true"`, `aria-label` or `aria-labelledby`.
+- Trap focus inside the modal while open.
+- Return focus to the trigger element on close.
+
+## Motion and Haptics
+
+- Gate CSS animations with `@media (prefers-reduced-motion: reduce)` and `html.reduce-motion`.
+- Provide haptic feedback (`useHaptics`) on meaningful state changes: toggle, destructive confirm, navigation.
+- Never use haptics for decorative/continuous animations.
+
+## Testing
+
+- Run `pnpm test:a11y` (axe-core + 44px audit) after any interactive element changes.
+- Icon-only buttons without `aria-label` must fail lint/test — treat as a build error.

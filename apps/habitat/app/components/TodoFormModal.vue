@@ -192,7 +192,7 @@ function jotKindIcon(kind: string | undefined): string {
         <AppTextField v-model="form.title" placeholder="What needs doing?" class="w-full" autofocus />
       </UFormField>
       <p v-if="titleError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
-        <AppIcon name="exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
+        <AppIcon name="exclamation-circle" class="w-4 h-4 flex-shrink-0" />
         {{ titleError }}
       </p>
 
@@ -281,7 +281,8 @@ function jotKindIcon(kind: string | undefined): string {
           size="xs"
           variant="ghost"
           color="neutral"
-          title="Go to Jots"
+          aria-label="Go to Jots"
+          class="min-h-[44px] min-w-[44px]"
           @click="emit('update:open', false); navigateTo('/jots')"
         />
         <UButton
@@ -289,7 +290,8 @@ function jotKindIcon(kind: string | undefined): string {
           size="xs"
           variant="ghost"
           color="error"
-          title="Remove link"
+          aria-label="Remove link"
+          class="min-h-[44px] min-w-[44px]"
           :loading="unlinkingJot"
           @click="unlinkJot"
         />
@@ -301,7 +303,7 @@ function jotKindIcon(kind: string | undefined): string {
         class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1.5 transition-colors py-1"
         @click="openJotPicker"
       >
-        <AppIcon name="link" class="w-3.5 h-3.5" />
+        <AppIcon name="link" class="w-4 h-4" />
         Link a jot
       </button>
 
@@ -316,7 +318,7 @@ function jotKindIcon(kind: string | undefined): string {
             class="flex items-center gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-(--ui-bg-elevated) transition-colors"
             @click="selectJot(jot)"
           >
-            <AppIcon :name="jotKindIcon(jot.kind)" class="w-3.5 h-3.5 text-(--ui-text-muted) shrink-0" />
+            <AppIcon :name="jotKindIcon(jot.kind)" class="w-4 h-4 text-(--ui-text-muted) shrink-0" />
             <span class="text-sm text-(--ui-text-toned) truncate">{{ jot.label }}</span>
           </li>
         </ul>
@@ -324,16 +326,17 @@ function jotKindIcon(kind: string | undefined): string {
     </div>
 
     <div class="flex gap-2 pt-1">
-      <UButton variant="soft" color="neutral" class="flex-1" @click="emit('update:open', false)">Cancel</UButton>
+      <UButton variant="soft" color="neutral" class="flex-1 min-h-[44px]" @click="emit('update:open', false)">Cancel</UButton>
       <UButton
         v-if="editingTodo"
         variant="ghost"
         color="error"
-        class="flex-none"
+        class="flex-none min-h-[44px] min-w-[44px]"
         :icon="resolveIcon('trash')"
+        aria-label="Delete todo"
         @click="emit('delete', editingTodo)"
       />
-      <UButton color="primary" class="flex-1" @click="handleSave">Save</UButton>
+      <UButton color="primary" class="flex-1 min-h-[44px]" @click="handleSave">Save</UButton>
     </div>
     <div class="safe-area-bottom" aria-hidden="true" />
   </AppModal>

@@ -221,6 +221,8 @@ async function archiveActivity(a: BoredActivity) {
             color="neutral"
             size="sm"
             :icon="resolveIcon('pencil')"
+            :aria-label="`Edit ${cat.name} category`"
+            class="min-h-[44px] min-w-[44px]"
             @click="openEditCategory(cat)"
           />
           <UButton
@@ -229,6 +231,8 @@ async function archiveActivity(a: BoredActivity) {
             color="error"
             size="sm"
             :icon="resolveIcon('trash')"
+            :aria-label="`Delete ${cat.name} category`"
+            class="min-h-[44px] min-w-[44px]"
             @click="confirmDeleteCategory = cat"
           />
           <UButton
@@ -236,6 +240,8 @@ async function archiveActivity(a: BoredActivity) {
             color="neutral"
             size="sm"
             :icon="resolveIcon('plus')"
+            :aria-label="`Add activity to ${cat.name}`"
+            class="min-h-[44px] min-w-[44px]"
             @click="openAddActivity(cat.id)"
           />
         </div>
@@ -265,9 +271,9 @@ async function archiveActivity(a: BoredActivity) {
             </div>
           </div>
           <div class="flex items-center gap-1 ml-2 shrink-0">
-            <UButton variant="ghost" color="neutral" size="sm" :icon="resolveIcon('pencil')" @click="openEditActivity(act)" />
-            <UButton variant="ghost" color="neutral" size="sm" :icon="resolveIcon('archive-box')" @click="confirmArchiveActivity = act" />
-            <UButton variant="ghost" color="error" size="sm" :icon="resolveIcon('trash')" @click="confirmDeleteActivity = act" />
+            <AppIconButton icon="pencil" :label="`Edit ${act.title}`" @click="openEditActivity(act)" />
+            <AppIconButton icon="archive-box" :label="`Archive ${act.title}`" @click="confirmArchiveActivity = act" />
+            <AppIconButton icon="trash" class="text-red-500" :label="`Delete ${act.title}`" @click="confirmDeleteActivity = act" />
           </div>
         </div>
         <div v-if="activitiesForCategory(cat.id).length === 0" class="text-xs text-slate-600 px-1">
@@ -296,7 +302,7 @@ async function archiveActivity(a: BoredActivity) {
             <AppTextField v-model="catForm.name" placeholder="Category name" class="w-full" />
           </UFormField>
           <p v-if="categoryNameError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
-            <AppIcon name="exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
+            <AppIcon name="exclamation-circle" class="w-4 h-4 flex-shrink-0" />
             {{ categoryNameError }}
           </p>
           <UFormField label="Icon">
@@ -324,7 +330,7 @@ async function archiveActivity(a: BoredActivity) {
             <AppTextField v-model="actForm.title" placeholder="Activity title" class="w-full" />
           </UFormField>
           <p v-if="activityTitleError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
-            <AppIcon name="exclamation-circle" class="w-3.5 h-3.5 flex-shrink-0" />
+            <AppIcon name="exclamation-circle" class="w-4 h-4 flex-shrink-0" />
             {{ activityTitleError }}
           </p>
           <UFormField label="Description">

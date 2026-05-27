@@ -257,7 +257,7 @@ onMounted(() => {
               class="w-6 h-6 rounded-full shrink-0 flex items-center justify-center"
               :style="{ backgroundColor: habit.color + '33' }"
             >
-              <AppIcon :name="habit.icon" :color="habit.color" class="w-3.5 h-3.5" />
+              <AppIcon :name="habit.icon" :color="habit.color" class="w-4 h-4" />
             </div>
             <span class="text-xs font-medium text-(--ui-text) truncate">{{ habit.name }}</span>
           </div>
@@ -278,7 +278,7 @@ onMounted(() => {
               :disabled="toggling.has(`${habit.id}:${date}`)"
               @click="toggle(habit, date)"
             >
-              <AppIcon v-if="isDone(habit, date)" name="check" class="w-3.5 h-3.5 text-white" />
+              <AppIcon v-if="isDone(habit, date)" name="check" class="w-4 h-4 text-white" />
             </button>
 
             <!-- NUMERIC / LIMIT -->
