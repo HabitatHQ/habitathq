@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PalladiumEngine } from "../engine.js";
 import type { SchemaConfig } from "../migration.js";
 import { sql } from "../sql.js";
-import { hlcToAfterCursor, SyncTransport, type WireChange } from "../sync.js";
+import { hlcToAfterCursor, SyncTransport, type WireChange, type WireOp } from "../sync.js";
 
 interface Schema {
   notes: { id: string; title: string; updated_at: number };
@@ -385,5 +385,154 @@ describe("SyncTransport — lifecycle", () => {
     const cursor = hlcToAfterCursor({ wallMs: 1, counter: 0, nodeId: ALICE });
     expect(cursor).toHaveLength(64);
     expect(cursor).toMatch(/^[0-9a-f_]+$/);
+  });
+});
+
+interface OutboxRow {
+  change_id: string;
+  hlc_wall_ms: number;
+  hlc_counter: number;
+  hlc_node_id: string;
+  ops: string;
+  created_at: number;
+}
+
+async function outboxRows(db: PalladiumEngine<Schema>): Promise<OutboxRow[]> {
+  return db.adapter.exec<OutboxRow>(
+    "SELECT change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, created_at FROM _sync_pending_changes ORDER BY hlc_wall_ms, hlc_counter",
+    [],
+  );
+}
+
+describe("SyncTransport — durable outbox", () => {
+  it("successful POST removes the change from the outbox", async () => {
+    const db = await makeEngine(ALICE);
+    const { fetch } = makeFakeFetch((call) => {
+      if (call.init?.method === "POST") return jsonResponse({}, 201);
+      return jsonResponse([]);
+    });
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await transport.start();
+    await db.insert("notes", { id: "n1", title: "a", updated_at: 1 });
+    await Promise.resolve();
+    await transport.stop();
+
+    const rows = await outboxRows(db);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("non-OK POST leaves the change in the outbox; engine status is 'error'", async () => {
+    const db = await makeEngine(ALICE);
+    const { fetch } = makeFakeFetch((call) => {
+      if (call.init?.method === "POST") return new Response("nope", { status: 500 });
+      return jsonResponse([]);
+    });
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await transport.start();
+    await db.insert("notes", { id: "n1", title: "a", updated_at: 1 });
+    await Promise.resolve();
+    await transport.stop();
+
+    const rows = await outboxRows(db);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.change_id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+    expect(rows[0]?.hlc_node_id).toBe(ALICE);
+    expect(db.getSyncStatus()).toBe("error");
+  });
+
+  it("network failure (fetch throws) leaves the change in the outbox; status is 'offline'", async () => {
+    const db = await makeEngine(ALICE);
+    const fetch: typeof globalThis.fetch = async (input, init) => {
+      if (init?.method === "POST") throw new Error("net::ERR_INTERNET_DISCONNECTED");
+      void input;
+      return jsonResponse([]);
+    };
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await transport.start();
+    await db.insert("notes", { id: "n1", title: "a", updated_at: 1 });
+    await Promise.resolve();
+    await transport.stop();
+
+    expect(await outboxRows(db)).toHaveLength(1);
+    expect(db.getSyncStatus()).toBe("offline");
+  });
+
+  it("pending change survives a transport restart and drains on next start()", async () => {
+    const db = await makeEngine(ALICE);
+
+    // First transport: server rejects, change ends up in outbox.
+    {
+      const { fetch } = makeFakeFetch((call) => {
+        if (call.init?.method === "POST") return new Response("nope", { status: 500 });
+        return jsonResponse([]);
+      });
+      const t = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+      await t.start();
+      await db.insert("notes", { id: "n1", title: "queued", updated_at: 1 });
+      await Promise.resolve();
+      await t.stop();
+    }
+    expect(await outboxRows(db)).toHaveLength(1);
+
+    // Second transport: server now accepting; drain on start clears the outbox.
+    {
+      const posted: WireChange[] = [];
+      const { fetch } = makeFakeFetch((call) => {
+        if (call.init?.method === "POST") {
+          posted.push(JSON.parse(String(call.init.body)) as WireChange);
+          return jsonResponse({}, 201);
+        }
+        return jsonResponse([]);
+      });
+      const t = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+      await t.start(); // drainOutbox runs here
+      await t.stop();
+
+      expect(posted).toHaveLength(1);
+      expect(posted[0]?.ops[0]).toMatchObject({ row_id: "n1" });
+    }
+    expect(await outboxRows(db)).toHaveLength(0);
+  });
+
+  it("drainOutbox stops at the first failure to preserve ordering", async () => {
+    const db = await makeEngine(ALICE);
+
+    // Queue two changes against a failing server.
+    {
+      const { fetch } = makeFakeFetch((call) => {
+        if (call.init?.method === "POST") return new Response("nope", { status: 500 });
+        return jsonResponse([]);
+      });
+      const t = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+      await t.start();
+      await db.insert("notes", { id: "n1", title: "first", updated_at: 1 });
+      await Promise.resolve();
+      await db.insert("notes", { id: "n2", title: "second", updated_at: 2 });
+      await Promise.resolve();
+      await t.stop();
+    }
+    expect(await outboxRows(db)).toHaveLength(2);
+
+    // Now: server accepts the first, rejects the second.
+    {
+      let postsSeen = 0;
+      const { fetch } = makeFakeFetch((call) => {
+        if (call.init?.method === "POST") {
+          postsSeen += 1;
+          return postsSeen === 1 ? jsonResponse({}, 201) : new Response("no", { status: 500 });
+        }
+        return jsonResponse([]);
+      });
+      const t = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+      await t.start();
+      await t.stop();
+      // Drain stopped after the second POST failed; first row gone, second still queued.
+      const rows = await outboxRows(db);
+      expect(rows).toHaveLength(1);
+      const parsedOps = JSON.parse(rows[0]?.ops ?? "[]") as WireOp[];
+      expect(parsedOps[0]).toMatchObject({ row_id: "n2" });
+    }
   });
 });

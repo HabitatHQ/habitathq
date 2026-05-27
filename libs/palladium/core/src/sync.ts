@@ -4,11 +4,14 @@
  *
  * Lifecycle
  * ─────────
- * `await transport.start()` hydrates the local store from the server (full
- * `GET /v1/changes`), then schedules a periodic poll that applies new remote
- * changes via `engine.applyRemote()`. While the transport is running, any
- * local `engine.tx()` fires a `"changes:local"` event that the transport
- * batches into a single `POST /v1/changes`.
+ * `await transport.start()` creates a `_sync_pending_changes` outbox table if
+ * missing, drains any pending rows left from a previous session, hydrates the
+ * local store from the server (full `GET /v1/changes`), then schedules a
+ * periodic poll that applies new remote changes via `engine.applyRemote()`.
+ * While the transport is running, any local `engine.tx()` fires a
+ * `"changes:local"` event; the transport writes the change to the outbox,
+ * attempts a `POST /v1/changes`, and deletes the outbox row on success. Each
+ * poll cycle also re-attempts any outbox rows that are still pending.
  *
  * `await transport.stop()` clears the poll timer and unsubscribes from the
  * engine event bus. The transport can be restarted (idempotently).
@@ -20,7 +23,7 @@
  * columns). One engine update with N patched columns becomes N wire ops.
  */
 
-import type { PalladiumEngine } from "./engine.js";
+import type { PalladiumEngine, SyncStatus } from "./engine.js";
 import type { Hlc } from "./hlc.js";
 import type { SchemaMap } from "./tx.js";
 
@@ -79,6 +82,49 @@ export interface SyncTransportOptions {
   /** Override `fetch` for tests. */
   readonly fetch?: typeof globalThis.fetch;
 }
+
+// ── Outbox table ───────────────────────────────────────────────────────────
+
+const OUTBOX_TABLE = "_sync_pending_changes";
+
+/**
+ * Idempotent DDL for the durable outbox. Creates the table only if missing,
+ * so it's safe to run on every transport start without versioning.
+ */
+const OUTBOX_DDL = `CREATE TABLE IF NOT EXISTS ${OUTBOX_TABLE} (
+  change_id TEXT PRIMARY KEY,
+  hlc_wall_ms INTEGER NOT NULL,
+  hlc_counter INTEGER NOT NULL,
+  hlc_node_id TEXT NOT NULL,
+  ops TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+)`;
+
+interface OutboxRow {
+  change_id: string;
+  hlc_wall_ms: number;
+  hlc_counter: number;
+  hlc_node_id: string;
+  /** JSON-encoded array of `WireOp`. */
+  ops: string;
+  created_at: number;
+}
+
+function rowToChange(row: OutboxRow): WireChange {
+  return {
+    id: row.change_id,
+    hlc: { wallMs: row.hlc_wall_ms, counter: row.hlc_counter, nodeId: row.hlc_node_id },
+    ops: JSON.parse(row.ops) as WireOp[],
+  };
+}
+
+type PostOutcome = "ok" | "rejected" | "offline";
+
+const POST_OUTCOME_TO_STATUS: Record<PostOutcome, SyncStatus> = {
+  ok: "idle",
+  rejected: "error",
+  offline: "offline",
+};
 
 // ── Engine ↔ wire conversion ───────────────────────────────────────────────
 
@@ -174,16 +220,54 @@ export class SyncTransport<S extends SchemaMap> {
     this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
   }
 
-  /** Hydrate from server, then start polling. Idempotent. */
+  /**
+   * Provision the outbox table, drain any pending rows from previous
+   * sessions, hydrate from server, then start polling. Idempotent.
+   */
   async start(): Promise<void> {
     if (this.#pollHandle !== null) return;
+    await this.#engine.adapter.exec(OUTBOX_DDL, []);
+    await this.#drainOutbox();
     this.#unsubscribeLocal = this.#engine.on("changes:local", (payload) => {
       void this.#postLocal(payload.ops as ReadonlyArray<EngineOp>);
     });
     await this.#poll();
     this.#pollHandle = setInterval(() => {
-      void this.#poll();
+      void this.#tick();
     }, this.#pollIntervalMs);
+  }
+
+  /** One periodic step: drain the outbox, then poll. */
+  async #tick(): Promise<void> {
+    await this.#drainOutbox();
+    await this.#poll();
+  }
+
+  /** Re-attempt every row currently in `_sync_pending_changes`, oldest first. */
+  async #drainOutbox(): Promise<void> {
+    const rows = await this.#engine.adapter.exec<OutboxRow>(
+      `SELECT change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, created_at
+         FROM ${OUTBOX_TABLE}
+         ORDER BY hlc_wall_ms ASC, hlc_counter ASC, change_id ASC`,
+      [],
+    );
+    if (rows.length === 0) return;
+    this.#engine.setStatus("syncing");
+    let lastOutcome: PostOutcome = "ok";
+    for (const row of rows) {
+      const outcome = await this.#tryPost(rowToChange(row));
+      lastOutcome = outcome;
+      if (outcome === "ok") {
+        await this.#engine.adapter.exec(`DELETE FROM ${OUTBOX_TABLE} WHERE change_id = ?`, [
+          row.change_id,
+        ]);
+      } else {
+        // Stop after first failure — preserves ordering and avoids hammering
+        // a server that's clearly not accepting writes right now.
+        break;
+      }
+    }
+    this.#engine.setStatus(POST_OUTCOME_TO_STATUS[lastOutcome]);
   }
 
   /** Stop polling and unsubscribe from engine events. Idempotent. */
@@ -198,7 +282,11 @@ export class SyncTransport<S extends SchemaMap> {
     }
   }
 
-  /** Post one batched Change for the just-committed local ops. */
+  /**
+   * Persist + post one batched Change. The change is written to
+   * `_sync_pending_changes` first so it survives a reload if the POST fails
+   * or the page is closed mid-flight; the outbox row is deleted on success.
+   */
   async #postLocal(ops: ReadonlyArray<EngineOp>): Promise<void> {
     const wireOps = ops.flatMap(engineOpToWire);
     if (wireOps.length === 0) return;
@@ -207,16 +295,49 @@ export class SyncTransport<S extends SchemaMap> {
       hlc: this.#engine.nextSendHlc(),
       ops: wireOps,
     };
+
+    // Durable outbox first, then attempt the post. Order matters: a crash
+    // between INSERT and fetch leaves the row in place, ready for retry on
+    // next start().
+    await this.#engine.adapter.exec(
+      `INSERT INTO ${OUTBOX_TABLE} (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        change.id,
+        change.hlc.wallMs,
+        change.hlc.counter,
+        change.hlc.nodeId,
+        JSON.stringify(change.ops),
+        Date.now(),
+      ],
+    );
+
     this.#engine.setStatus("syncing");
+    const outcome = await this.#tryPost(change);
+    if (outcome === "ok") {
+      await this.#engine.adapter.exec(`DELETE FROM ${OUTBOX_TABLE} WHERE change_id = ?`, [
+        change.id,
+      ]);
+    }
+    this.#engine.setStatus(POST_OUTCOME_TO_STATUS[outcome]);
+  }
+
+  /**
+   * Attempt a single POST.
+   * - "ok": 2xx response
+   * - "rejected": fetch returned a non-2xx (server reachable, request rejected)
+   * - "offline": fetch threw (network down, DNS, CORS, etc.)
+   */
+  async #tryPost(change: WireChange): Promise<PostOutcome> {
     try {
       const res = await this.#fetch(`${this.#serverUrl}/v1/changes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(change),
       });
-      this.#engine.setStatus(res.ok ? "idle" : "error");
+      return res.ok ? "ok" : "rejected";
     } catch {
-      this.#engine.setStatus("offline");
+      return "offline";
     }
   }
 
