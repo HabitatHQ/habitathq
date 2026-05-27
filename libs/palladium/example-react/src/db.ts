@@ -30,9 +30,11 @@ export interface NoteRow {
 
 export type NotesSchema = { notes: NoteRow };
 
-const MIGRATIONS = [
-  "CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, updated_at INTEGER NOT NULL)",
-];
+const SCHEMA = {
+  version: 1,
+  schema:
+    "CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, updated_at INTEGER NOT NULL)",
+};
 
 // ── Server wire types (mirrors Rust serialization) ─────────────────────────
 //
@@ -81,8 +83,6 @@ function hlcSortKey(hlc: Hlc): string {
 
 export class NotesEngine extends PalladiumEngine<NotesSchema> {
   readonly #serverUrl: string;
-  /** UUID-formatted node identifier (read from URL `?node=` param). */
-  readonly #nodeId: string;
 
   #cursor: string | null = null;
   /** True while applying remote changes — suppresses re-posting to server. */
@@ -94,13 +94,12 @@ export class NotesEngine extends PalladiumEngine<NotesSchema> {
   #pollHandle: ReturnType<typeof setInterval> | null = null;
 
   constructor(serverUrl: string, nodeId: string) {
-    super(new BrowserSqliteAdapter({ vfs: { type: "memory" } }), MIGRATIONS);
+    super(new BrowserSqliteAdapter({ vfs: { type: "memory" } }), { nodeId });
     this.#serverUrl = serverUrl;
-    this.#nodeId = nodeId;
   }
 
   override async init(): Promise<void> {
-    await super.init(); // opens adapter, runs migrations
+    await super.init(SCHEMA); // opens adapter, runs the notes-table migration
     // Hydrate local state from the server before the first render.
     await this.#poll();
     this.#pollHandle = setInterval(() => {
@@ -165,7 +164,7 @@ export class NotesEngine extends PalladiumEngine<NotesSchema> {
   async #postChange(ops: ServerOp[]): Promise<void> {
     const change: ServerChange = {
       id: crypto.randomUUID(),
-      hlc: { wallMs: Date.now(), counter: 0, nodeId: this.#nodeId },
+      hlc: this.nextSendHlc(),
       ops,
     };
     this.setStatus("syncing");
@@ -204,9 +203,13 @@ export class NotesEngine extends PalladiumEngine<NotesSchema> {
 
         // After the initial full hydration, skip our own changes: we already
         // applied them locally and posting them again would be redundant.
-        if (this.#initialLoadDone && change.hlc.nodeId === this.#nodeId) {
+        if (this.#initialLoadDone && change.hlc.nodeId === this.nodeId) {
+          // Skip our own changes once initial hydration is complete.
           continue;
         }
+
+        // Apply the remote HLC so future local sends are causally later than it.
+        this.receiveHlc(change.hlc);
 
         // Apply via the engine's public API so live queries are notified.
         this.#applyingRemote = true;

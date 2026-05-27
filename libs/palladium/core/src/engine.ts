@@ -11,6 +11,8 @@ import type { BlobAdapter } from "./blob-adapter.js";
 import { BlobHandle } from "./blob-handle.js";
 import { BlobRegistry } from "./blob-registry.js";
 import { EventEmitter } from "./event-emitter.js";
+import type { Hlc } from "./hlc.js";
+import { createHlc, recvHlc, sendHlc } from "./hlc.js";
 import { LiveQuery } from "./live-query.js";
 import { MemoryBlobAdapter } from "./memory-blob-adapter.js";
 import type { SchemaConfig } from "./migration.js";
@@ -28,8 +30,20 @@ export interface EngineEvents {
   error: Error;
 }
 
+export interface PalladiumEngineOptions {
+  readonly blobAdapter?: BlobAdapter;
+  /**
+   * Stable node identifier for HLC stamping. Defaults to a fresh `crypto.randomUUID()`.
+   *
+   * Apps that need their HLCs to survive reloads should persist this string
+   * (localStorage, SQLite, etc.) and pass it on every engine construction.
+   */
+  readonly nodeId?: string;
+}
+
 export class PalladiumEngine<S extends SchemaMap> {
   readonly adapter: StorageAdapter;
+  readonly nodeId: string;
   protected readonly emitter = new EventEmitter<EngineEvents>();
   protected status: SyncStatus = "idle";
   readonly #liveQueries = new Set<LiveQuery>();
@@ -37,9 +51,53 @@ export class PalladiumEngine<S extends SchemaMap> {
   /** High-level blob storage API. */
   readonly blobs: BlobHandle;
 
-  constructor(adapter: StorageAdapter, blobAdapter?: BlobAdapter) {
+  /**
+   * Current HLC, lazily initialised on first send/receive. Tracked in-memory only —
+   * if the engine restarts and the wall clock has gone backwards, the next HLC
+   * may not be strictly greater than ones we issued before the restart. A
+   * follow-up commit will persist this to SQLite.
+   */
+  #currentHlc: Hlc | null = null;
+
+  constructor(adapter: StorageAdapter, options?: PalladiumEngineOptions | BlobAdapter) {
     this.adapter = adapter;
-    this.blobs = new BlobHandle(blobAdapter ?? new MemoryBlobAdapter(), this.#blobRegistry);
+    // Back-compat shim: previous signature was (adapter, blobAdapter?). Detect
+    // a bare BlobAdapter by the absence of nodeId/blobAdapter keys.
+    const opts: PalladiumEngineOptions =
+      options && "get" in options && typeof options.get === "function"
+        ? { blobAdapter: options as BlobAdapter }
+        : ((options as PalladiumEngineOptions | undefined) ?? {});
+    this.nodeId = opts.nodeId ?? crypto.randomUUID();
+    this.blobs = new BlobHandle(opts.blobAdapter ?? new MemoryBlobAdapter(), this.#blobRegistry);
+  }
+
+  /**
+   * Advance the engine's HLC for a *send* (local mutation about to be
+   * propagated to the server). Counter increments on same-millisecond bursts;
+   * `wallMs` advances when the OS clock ticks. The returned HLC is strictly
+   * greater than any HLC this engine has issued or received.
+   */
+  protected nextSendHlc(): Hlc {
+    this.#currentHlc =
+      this.#currentHlc === null ? createHlc(this.nodeId) : sendHlc(this.#currentHlc);
+    return this.#currentHlc;
+  }
+
+  /**
+   * Advance the engine's HLC after *receiving* a remote HLC. Preserves the
+   * causality invariant that future local sends will be strictly greater than
+   * any HLC observed (local or remote).
+   */
+  protected receiveHlc(remote: Hlc): void {
+    this.#currentHlc =
+      this.#currentHlc === null
+        ? recvHlc(createHlc(this.nodeId), remote)
+        : recvHlc(this.#currentHlc, remote);
+  }
+
+  /** Most-recently-issued HLC, or `null` if the engine has not yet stamped anything. */
+  get currentHlc(): Hlc | null {
+    return this.#currentHlc;
   }
 
   /**
@@ -198,12 +256,12 @@ export class PalladiumEngine<S extends SchemaMap> {
   }
 }
 
-/** Factory — create a PalladiumEngine with the given adapter and optional blob adapter. */
+/** Factory — create a `PalladiumEngine` with the given adapter and options. */
 export function createEngine<S extends SchemaMap>(
   adapter: StorageAdapter,
-  blobAdapter?: BlobAdapter,
+  options?: PalladiumEngineOptions | BlobAdapter,
 ): PalladiumEngine<S> {
-  return new PalladiumEngine<S>(adapter, blobAdapter);
+  return new PalladiumEngine<S>(adapter, options);
 }
 
 /** Coerces an unknown thrown value to an `Error` instance. */

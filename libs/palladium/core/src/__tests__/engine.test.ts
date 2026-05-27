@@ -1,6 +1,7 @@
 import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { describe, expect, it, vi } from "vitest";
-import { createEngine } from "../engine.js";
+import { createEngine, PalladiumEngine } from "../engine.js";
+import { compareHlc, createHlc } from "../hlc.js";
 import type { SchemaConfig } from "../migration.js";
 import { sql } from "../sql.js";
 
@@ -277,5 +278,93 @@ describe("createEngine (SQLite)", () => {
 
     const rows = await db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks WHERE id = ${"s1"}`);
     expect(rows[0]?.name).toBe("seeded");
+  });
+});
+
+// Subclass that exposes the protected HLC helpers so they can be unit-tested
+// without a transport layer.
+class TestEngine extends PalladiumEngine<Schema> {
+  next(): ReturnType<TestEngine["nextSendHlc"]> {
+    return this.nextSendHlc();
+  }
+  recv(remote: Parameters<TestEngine["receiveHlc"]>[0]): void {
+    this.receiveHlc(remote);
+  }
+}
+
+describe("PalladiumEngine HLC stamping", () => {
+  function makeTestEngine(nodeId?: string): TestEngine {
+    return new TestEngine(new NodeSqliteAdapter({ vfs: { type: "memory" } }), { nodeId });
+  }
+
+  it("nodeId defaults to a fresh UUID when not provided", () => {
+    const a = makeTestEngine();
+    const b = makeTestEngine();
+    expect(a.nodeId).not.toBe(b.nodeId);
+    expect(a.nodeId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  });
+
+  it("nodeId is preserved when provided", () => {
+    const nodeId = "00000000-0000-0000-0000-0000000000aa";
+    const db = makeTestEngine(nodeId);
+    expect(db.nodeId).toBe(nodeId);
+  });
+
+  it("currentHlc starts as null until the first send/receive", () => {
+    const db = makeTestEngine();
+    expect(db.currentHlc).toBeNull();
+  });
+
+  it("nextSendHlc carries the engine's nodeId", () => {
+    const nodeId = "00000000-0000-0000-0000-0000000000bb";
+    const db = makeTestEngine(nodeId);
+    const hlc = db.next();
+    expect(hlc.nodeId).toBe(nodeId);
+  });
+
+  it("consecutive nextSendHlc calls in the same millisecond increment the counter", () => {
+    const db = makeTestEngine();
+    // Freeze Date.now so both calls land in the same ms.
+    const fixed = 1_700_000_000_000;
+    vi.spyOn(Date, "now").mockReturnValue(fixed);
+    try {
+      const a = db.next();
+      const b = db.next();
+      expect(b.wallMs).toBe(a.wallMs);
+      expect(b.counter).toBeGreaterThan(a.counter);
+      expect(compareHlc(a, b)).toBeLessThan(0);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("nextSendHlc resets counter to 0 when wall-clock advances", () => {
+    const db = makeTestEngine();
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const a = db.next();
+      now.mockReturnValue(1_700_000_000_500); // 500ms later
+      const b = db.next();
+      expect(b.wallMs).toBe(1_700_000_000_500);
+      expect(b.counter).toBe(0);
+      expect(compareHlc(a, b)).toBeLessThan(0);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("receiveHlc lifts currentHlc past a future remote HLC", () => {
+    const db = makeTestEngine();
+    vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const remote = createHlc("ff000000-0000-0000-0000-000000000001");
+      const future = { ...remote, wallMs: remote.wallMs + 10_000, counter: 5 };
+      db.recv(future);
+      const next = db.next();
+      // Strictly greater than the remote HLC we just saw.
+      expect(compareHlc(next, future)).toBeGreaterThan(0);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 });

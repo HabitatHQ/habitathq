@@ -15,7 +15,7 @@ export type { DbAdapter } from "./db-adapter.js";
 export { toCapacitorDbAdapter, toDbAdapter } from "./db-adapter.js";
 export type { LogFn } from "./debug.js";
 export { dbg, disableDebug, enableDebug, isDebugEnabled } from "./debug.js";
-export type { EngineEvents, SyncStatus } from "./engine.js";
+export type { EngineEvents, PalladiumEngineOptions, SyncStatus } from "./engine.js";
 export { createEngine, PalladiumEngine, toError } from "./engine.js";
 export { EventEmitter } from "./event-emitter.js";
 export type { Hlc } from "./hlc.js";
