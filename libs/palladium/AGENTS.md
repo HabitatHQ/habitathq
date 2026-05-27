@@ -46,6 +46,47 @@ libs/palladium/
 Rust workspace root is the **monorepo root** (`Cargo.toml`, `Cargo.lock`, `deny.toml`, `.cargo/`).
 Members glob: `libs/palladium/crates/*`.
 
+## Architecture
+
+```
+┌──────────────────────── client (browser / capacitor) ────────────────────────┐
+│                                                                              │
+│  app code                                                                    │
+│    │                                                                         │
+│    ▼                                                                         │
+│  framework binding  ─ @palladium/{react,vue,svelte,nuxt}                     │
+│    │                                                                         │
+│    ▼                                                                         │
+│  @palladium/core    ─ PalladiumEngine, HLC, TxBuilder, LiveQuery,            │
+│    │                  applySchema, BlobRegistry, EventEmitter                │
+│    │                                                                         │
+│    ├─► storage adapter   @palladium/sqlite-{browser,capacitor,node}          │
+│    │     (DbAdapter via toDbAdapter / toCapacitorDbAdapter)                  │
+│    │                                                                         │
+│    └─► blob adapter      IDBBlobAdapter | LocalStorageBlobAdapter |          │
+│                          MemoryBlobAdapter                                   │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                       │   HTTP (Ops + Changes, JSON)
+                                       ▼
+┌──────────────────────── server (Rust) ───────────────────────────────────────┐
+│                                                                              │
+│  palladium-axum         ─ router, middleware, OpenAPI, CATS contract tests   │
+│    │                                                                         │
+│    ▼                                                                         │
+│  backend trait          ─ palladium-core::Backend                            │
+│    │                                                                         │
+│    ├─► palladium-postgres  ─ Postgres + LISTEN/NOTIFY broadcaster            │
+│    └─► palladium-sqlite    ─ embedded SQLite backend                         │
+│                                                                              │
+│  palladium-blobs        ─ blob storage (object store backed)                 │
+│  palladium-cli          ─ migrations, codegen                                │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+Ops/Changes flow client → server via HTTP; server broadcasts inserts to other connected clients via the backend's pub/sub (LISTEN/NOTIFY on Postgres). Each side keeps an HLC so concurrent ops merge deterministically.
+
 ## Commands
 
 ```sh

@@ -131,3 +131,40 @@ For nested routes, the parent (e.g. `contacts.vue`, `transactions.vue`) contains
 ### Required headers
 
 `nuxt.config.ts` must set COOP `same-origin` + COEP `require-corp` (OPFS / SharedArrayBuffer). PWA vs native is gated by `BUILD_TARGET`.
+
+## Testing layout
+
+Each app uses this layout (create directories as needed; missing ones mean that test class isn't written yet):
+
+| Path | Runner | What goes here |
+|------|--------|----------------|
+| `tests/unit/` | Vitest + happy-dom | Pure functions, helpers, parsers. Fast, isolated. |
+| `tests/integration/` | Vitest + `@vue/test-utils` | Composables / components with a mocked worker. |
+| `tests/e2e/` | Playwright | Full navigation flows, dashboard render, form submission. |
+| `tests/a11y/` | Playwright + `@axe-core/playwright` | axe-core per page, 44 × 44 px touch-target audit, keyboard nav. |
+
+Current adoption: hearth + halcyon follow the full layout; habitat has `tests/unit/` + some a11y; hephaestus is pre-tests. Prefer Red/Green TDD — write the failing test in the lowest tier that proves the bug, then implement.
+
+For Rust crates under `libs/palladium/crates/`, follow standard `#[cfg(test)] mod tests` + `tests/` integration-test directories. Mutation tests via `cargo-mutants`.
+
+## Watch modes (long edit loops)
+
+```bash
+pnpm --filter <app> test:unit:watch    # Vitest watch
+pnpm --filter <app> dev                # Nuxt HMR
+cargo watch -x 'check -p <crate>'      # Rust incremental (requires cargo-watch)
+cargo watch -x 'test -p <crate>'       # Rust test loop
+pnpm exec biome check --write .        # one-shot lint+format
+```
+
+## CI
+
+GitHub Actions workflows live in `.github/workflows/`:
+
+| Workflow | Trigger | What runs |
+|----------|---------|-----------|
+| `ci.yml` | push to `main`, every PR | Per-app matrix (habitat, hearth, halcyon, hephaestus): `pnpm install --frozen-lockfile`, build palladium deps, then `pnpm --filter <app> ci`. Plus root `pnpm lint:deps`, `pnpm dedupe:check`, Rust workspace lint/test. |
+| `build-android.yml` | manual (`workflow_dispatch`) | Builds an Android APK for the chosen app. |
+| `deploy.yml` | push to `main` (paths under `apps/**`), manual | Deploys PWA builds to GitHub Pages. |
+
+A local `pnpm --filter <app> verify` + `pnpm lint:deps` + `pnpm dedupe:check` should approximate CI green. If CI fails on something a local run didn't catch, that's a guardrail gap — file it.
