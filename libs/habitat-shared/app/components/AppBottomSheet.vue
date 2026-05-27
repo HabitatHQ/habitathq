@@ -19,6 +19,9 @@ const modelValue = defineModel<boolean>({ default: false })
 const slots = useSlots()
 const { impact } = useHaptics()
 
+const sheetRef = ref<HTMLElement | null>(null)
+let triggerElement: HTMLElement | null = null
+
 const maxWidthClass = computed(() => {
   const map = { sm: 'sm:max-w-sm', md: 'sm:max-w-md', lg: 'sm:max-w-lg' }
   return map[props.maxWidth]
@@ -34,12 +37,43 @@ function handleClose() {
   modelValue.value = false
 }
 
-watch(modelValue, (open) => {
+function handleKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && !props.persistent) {
+    e.stopPropagation()
+    modelValue.value = false
+    return
+  }
+
+  if (e.key !== 'Tab' || !sheetRef.value) return
+  const focusable = sheetRef.value.querySelectorAll<HTMLElement>(
+    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  )
+  if (focusable.length === 0) return
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault()
+    last.focus()
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault()
+    first.focus()
+  }
+}
+
+watch(modelValue, async (open) => {
   if (open) {
+    triggerElement = document.activeElement as HTMLElement | null
     document.body.style.overflow = 'hidden'
     void impact('light')
+    await nextTick()
+    const firstFocusable = sheetRef.value?.querySelector<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    )
+    firstFocusable?.focus()
   } else {
     document.body.style.overflow = ''
+    triggerElement?.focus()
+    triggerElement = null
   }
 })
 
@@ -58,11 +92,13 @@ onUnmounted(() => {
     >
       <div
         v-if="modelValue"
+        ref="sheetRef"
         class="fixed inset-0 z-50 flex justify-center"
         :class="variant === 'sheet' ? 'items-end sm:items-center' : 'items-center'"
         role="dialog"
         aria-modal="true"
         :aria-label="title"
+        @keydown="handleKeydown"
       >
         <!-- Backdrop -->
         <div

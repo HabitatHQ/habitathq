@@ -16,16 +16,24 @@ const todayLogs = ref<HabitLog[]>([])
 const weekLogs = ref<HabitLog[]>([])
 const loading = ref(true)
 
+const loadError = ref<string | null>(null)
+
 async function load() {
-  const [h, tl, wl] = await Promise.all([
-    db.getHabits(),
-    db.getHabitLogsForDate(today),
-    db.getHabitLogsForDateRange(sevenDaysAgo, today),
-  ])
-  habits.value = h.filter((habit) => habit.tags.includes('habitat-health'))
-  todayLogs.value = tl.filter((l) => habits.value.some((h) => h.id === l.habit_id))
-  weekLogs.value = wl.filter((l) => habits.value.some((h) => h.id === l.habit_id))
-  loading.value = false
+  try {
+    const [h, tl, wl] = await Promise.all([
+      db.getHabits(),
+      db.getHabitLogsForDate(today),
+      db.getHabitLogsForDateRange(sevenDaysAgo, today),
+    ])
+    habits.value = h.filter((habit) => habit.tags.includes('habitat-health'))
+    todayLogs.value = tl.filter((l) => habits.value.some((h) => h.id === l.habit_id))
+    weekLogs.value = wl.filter((l) => habits.value.some((h) => h.id === l.habit_id))
+    loadError.value = null
+  } catch (e) {
+    loadError.value = logError('[health/load]', e)
+  } finally {
+    loading.value = false
+  }
 }
 
 async function refreshLogs() {
@@ -262,9 +270,26 @@ onMounted(load)
       <h2 class="text-2xl font-bold">Health</h2>
     </header>
 
+    <!-- Loading -->
+    <div v-if="loading" class="space-y-3 pt-2">
+      <AppSkeleton variant="row" :count="3" />
+    </div>
+
+    <!-- Error -->
+    <EmptyState
+      v-else-if="loadError"
+      icon="exclamation-triangle"
+      title="Couldn't load health data"
+      :description="loadError"
+    >
+      <template #actions>
+        <UButton @click="loading = true; load()">Try again</UButton>
+      </template>
+    </EmptyState>
+
     <!-- Empty state -->
     <div
-      v-if="!loading && habits.length === 0"
+      v-else-if="habits.length === 0"
       class="flex flex-col items-center justify-center gap-4 py-12 text-center"
     >
       <div class="w-16 h-16 rounded-full bg-(--ui-bg-elevated) flex items-center justify-center">
@@ -277,7 +302,7 @@ onMounted(load)
       <UButton to="/settings" variant="soft" color="neutral" size="sm">Open Settings</UButton>
     </div>
 
-    <template v-else-if="!loading">
+    <template v-else>
 
       <!-- ── Steps ────────────────────────────────────────────────────────────── -->
       <UCard v-if="stepsHabit" :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-4' }">

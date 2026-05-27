@@ -391,6 +391,7 @@ export type WorkerRequest =
       payload: Omit<ImageNoteRow, never>
     }
   | { id: string; type: 'DELETE_IMAGE_NOTE'; payload: { id: string } }
+  | { id: string; type: 'DELETE_ALL_MEDIA_NOTES'; payload: null }
 
 export type TagSource = 'habit' | 'todo' | 'bored' | 'scribble'
 

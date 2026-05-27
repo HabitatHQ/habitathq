@@ -2012,6 +2012,8 @@ export async function dispatch(db: DbAdapter, req: WorkerRequestBody): Promise<u
       return createImageNote(db, req.payload)
     case 'DELETE_IMAGE_NOTE':
       return deleteImageNote(db, req.payload.id)
+    case 'DELETE_ALL_MEDIA_NOTES':
+      return deleteAllMediaNotes(db)
     default:
       return undefined
   }
@@ -2050,5 +2052,11 @@ async function createImageNote(db: DbAdapter, p: ImageNoteRow): Promise<ImageNot
 
 async function deleteImageNote(db: DbAdapter, id: string): Promise<null> {
   await db.exec('DELETE FROM image_notes WHERE id = ?', [id])
+  return null
+}
+
+async function deleteAllMediaNotes(db: DbAdapter): Promise<null> {
+  await db.exec('DELETE FROM voice_notes')
+  await db.exec('DELETE FROM image_notes')
   return null
 }

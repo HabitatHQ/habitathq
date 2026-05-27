@@ -1,6 +1,26 @@
 <script setup lang="ts">
 const db = useDatabase()
+const toast = useToast()
 const { settings: appSettings, set: setAppSetting } = useAppSettings()
+
+function toggleFeature(key: Parameters<typeof setAppSetting>[0], value: boolean) {
+  setAppSetting(key, value)
+  if (value) return
+
+  const messages: Partial<Record<string, string>> = {
+    enableJournalling: 'Check-in and Jots tabs hidden. Re-enable anytime in Settings.',
+    enableTodos: appSettings.value.enableBored
+      ? 'TODOs tab hidden. This also hides the Bored tab.'
+      : 'TODOs tab hidden. Re-enable anytime in Settings.',
+    enableBored: 'Bored tab hidden. Re-enable anytime in Settings.',
+  }
+  const msg = messages[key]
+  if (msg) toast.add({ title: msg, color: 'neutral', duration: 4000 })
+
+  if (key === 'enableTodos' && appSettings.value.enableBored) {
+    setAppSetting('enableBored', false)
+  }
+}
 
 // ── Health setup ────────────────────────────────────────────────────────────
 
@@ -118,7 +138,7 @@ async function confirmHealthSetup() {
           </div>
           <USwitch
             :model-value="appSettings.enableJournalling"
-            @update:model-value="setAppSetting('enableJournalling', $event)"
+            @update:model-value="toggleFeature('enableJournalling', $event)"
           />
         </div>
 
@@ -140,7 +160,7 @@ async function confirmHealthSetup() {
           </div>
           <USwitch
             :model-value="appSettings.enableTodos"
-            @update:model-value="setAppSetting('enableTodos', $event)"
+            @update:model-value="toggleFeature('enableTodos', $event)"
           />
         </div>
 
@@ -151,7 +171,7 @@ async function confirmHealthSetup() {
           </div>
           <USwitch
             :model-value="appSettings.enableBored"
-            @update:model-value="setAppSetting('enableBored', $event)"
+            @update:model-value="toggleFeature('enableBored', $event)"
           />
         </div>
 

@@ -86,9 +86,11 @@ function prevStep() {
 async function skipSetup() {
   void impact('medium')
 
-  // Default sane configuration for users who skip (Standard Habitat + Onboarded)
   patchSettings({
     hasCompletedOnboarding: true,
+    enableBored: false,
+    enableContextFilter: false,
+    enableHealth: false,
   })
 
   await navigateTo('/', { replace: true })

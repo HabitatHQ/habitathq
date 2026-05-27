@@ -2,9 +2,11 @@
 import type { HabitWithSchedule } from '~/types/database'
 
 const db = useDatabase()
+const toast = useToast()
 const { settings } = useAppSettings()
 const { anyActive, matchesContext } = useContextFilter()
 const habits = ref<HabitWithSchedule[]>([])
+const loading = ref(true)
 const isOpen = useBoolModalQuery('create')
 const saving = ref(false)
 const scheduleError = ref<string | null>(null)
@@ -146,10 +148,40 @@ watch(
   },
 )
 
+const loadError = ref<string | null>(null)
+
+const toggling = reactive(new Set<string>())
+const { impact } = useHaptics()
+
 async function loadHabits() {
-  const [h, comps] = await Promise.all([db.getHabits(), db.getCompletionsForDate(today)])
-  habits.value = h
-  todayCompletionHabitIds.value = new Set(comps.map((c) => c.habit_id))
+  try {
+    const [h, comps] = await Promise.all([db.getHabits(), db.getCompletionsForDate(today)])
+    habits.value = h
+    todayCompletionHabitIds.value = new Set(comps.map((c) => c.habit_id))
+    loadError.value = null
+  } catch (e) {
+    loadError.value = logError('[habits/load]', e)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function quickToggle(habit: HabitWithSchedule, event: Event) {
+  event.preventDefault()
+  event.stopPropagation()
+  if (toggling.has(habit.id)) return
+  toggling.add(habit.id)
+  try {
+    await db.toggleCompletion(habit.id, today)
+    const comps = await db.getCompletionsForDate(today)
+    todayCompletionHabitIds.value = new Set(comps.map((c) => c.habit_id))
+    await impact('medium')
+  } catch (e) {
+    logError('[habits/quickToggle]', e)
+    toast.add({ title: "Couldn't save — try again", color: 'error', duration: 3000 })
+  } finally {
+    toggling.delete(habit.id)
+  }
 }
 
 async function handleCreate() {
@@ -203,8 +235,18 @@ async function handleCreate() {
         .scheduleAll()
         .catch((e) => logError('[scheduleAll]', e))
     }
+    const createdName = form.name.trim()
     await loadHabits()
     closeModal()
+    toast.add({
+      title: `"${createdName}" created`,
+      color: 'success',
+      duration: 5000,
+      actions:
+        habits.value.length === 1
+          ? [{ label: 'Complete it now', onClick: () => navigateTo('/') }]
+          : [],
+    })
   } finally {
     saving.value = false
   }
@@ -269,8 +311,25 @@ onMounted(() => {
       </div>
     </header>
 
+    <!-- Loading -->
+    <div v-if="loading" class="space-y-2 pt-2">
+      <AppSkeleton variant="row" :count="3" />
+    </div>
+
+    <!-- Error -->
     <EmptyState
-      v-if="habits.length === 0"
+      v-else-if="loadError"
+      icon="exclamation-triangle"
+      title="Couldn't load habits"
+      :description="loadError"
+    >
+      <template #actions>
+        <UButton @click="loading = true; loadHabits()">Try again</UButton>
+      </template>
+    </EmptyState>
+
+    <EmptyState
+      v-else-if="habits.length === 0"
       icon="clipboard-document-list"
       title="No habits yet"
       description="Tap New to create your first habit."
@@ -322,6 +381,18 @@ onMounted(() => {
             >{{ key }}: {{ val }}</span>
           </div>
         </div>
+        <button
+          v-if="habit.type === 'BOOLEAN'"
+          class="w-7 h-7 min-w-[44px] min-h-[44px] rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all duration-200"
+          :class="todayCompletionHabitIds.has(habit.id)
+            ? 'bg-primary-500 border-primary-500'
+            : 'border-(--ui-border-accented) bg-transparent'"
+          :disabled="toggling.has(habit.id)"
+          :aria-label="todayCompletionHabitIds.has(habit.id) ? `Mark ${habit.name} incomplete` : `Mark ${habit.name} complete`"
+          @click="quickToggle(habit, $event)"
+        >
+          <AppIcon v-if="todayCompletionHabitIds.has(habit.id)" name="check" class="w-4 h-4 text-white" />
+        </button>
         <AppIcon name="chevron-right" class="w-4 h-4 text-(--ui-text-dimmed) flex-shrink-0" />
       </AppCard>
     </ul>

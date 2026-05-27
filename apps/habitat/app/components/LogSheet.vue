@@ -131,7 +131,14 @@ const targetFormatted = computed(() => {
 </script>
 
 <template>
-  <div v-if="open" class="fixed inset-0 z-50 flex items-end justify-center">
+  <div
+    v-if="open"
+    class="fixed inset-0 z-50 flex items-end justify-center"
+    role="dialog"
+    aria-modal="true"
+    :aria-label="title ? `Log ${title}` : 'Log value'"
+    @keydown.escape="closeSheet"
+  >
     <!-- Backdrop -->
     <Transition name="fade">
       <div v-if="sheetVisible" class="modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm" @click="closeSheet" />
@@ -172,6 +179,7 @@ const targetFormatted = computed(() => {
               :class="manualMode
                 ? 'bg-(--ui-bg-elevated) text-primary-400 hover:bg-(--ui-bg-accented)'
                 : 'bg-(--ui-bg-elevated) text-(--ui-text-dimmed) hover:text-(--ui-text-toned)'"
+              :aria-label="manualMode ? 'Switch to picker' : 'Switch to manual input'"
               @click="manualMode ? switchToPicker() : switchToManual()"
             >
               <AppIcon

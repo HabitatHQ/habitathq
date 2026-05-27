@@ -315,20 +315,24 @@ const oracleHint = computed(() => {
     </div>
 
     <!-- Category chips -->
-    <div v-if="categories.length" class="flex gap-2 flex-wrap">
-      <button
-        v-for="cat in categories"
-        :key="cat.id"
-        class="flex items-center gap-1.5 px-3 py-2.5 min-h-[44px] rounded-full text-sm font-medium transition-colors border"
-        :class="excludedCategories.includes(cat.id)
-          ? 'border-(--ui-border-accented) text-(--ui-text-dimmed) bg-(--ui-bg-muted)'
-          : 'border-transparent text-white'"
-        :style="excludedCategories.includes(cat.id) ? {} : { backgroundColor: cat.color + '33', borderColor: cat.color + '88', color: cat.color }"
-        @click="toggleCategory(cat.id); selectionChanged()"
-      >
-        <AppIcon :name="cat.icon" class="w-4 h-4" />
-        {{ cat.name }}
-      </button>
+    <div v-if="categories.length" class="space-y-1.5">
+      <p class="text-[10px] font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Tap to exclude</p>
+      <div class="flex gap-2 flex-wrap">
+        <button
+          v-for="cat in categories"
+          :key="cat.id"
+          class="flex items-center gap-1.5 px-3 py-2.5 min-h-[44px] rounded-full text-sm font-medium transition-colors border"
+          :class="excludedCategories.includes(cat.id)
+            ? 'border-(--ui-border-accented) text-(--ui-text-dimmed) bg-(--ui-bg-muted) opacity-50'
+            : 'border-transparent text-white'"
+          :style="excludedCategories.includes(cat.id) ? {} : { backgroundColor: cat.color + '33', borderColor: cat.color + '88', color: cat.color }"
+          :aria-pressed="!excludedCategories.includes(cat.id)"
+          @click="toggleCategory(cat.id); selectionChanged()"
+        >
+          <AppIcon :name="cat.icon" class="w-4 h-4" />
+          <span :class="{ 'line-through': excludedCategories.includes(cat.id) }">{{ cat.name }}</span>
+        </button>
+      </div>
     </div>
 
     <!-- Oracle -->

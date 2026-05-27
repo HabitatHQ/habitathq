@@ -38,6 +38,7 @@ const logs = ref<HabitLog[]>([])
 const weekCompletions = ref<Completion[]>([])
 const weekLogs = ref<HabitLog[]>([])
 const loading = ref(true)
+const loadError = ref<string | null>(null)
 const toggling = reactive(new Set<string>())
 const flashing = reactive(new Set<string>())
 const logging = reactive(new Set<string>())
@@ -77,6 +78,20 @@ async function toggleTodoLocal(todo: Todo) {
     await db.toggleTodo(todo.id)
     todoToggledIds.add(todo.id)
     await impact('light')
+    toast.add({
+      title: `"${todo.title}" done`,
+      color: 'success',
+      duration: 4000,
+      actions: [
+        {
+          label: 'Undo',
+          onClick: async () => {
+            await db.toggleTodo(todo.id)
+            todoToggledIds.delete(todo.id)
+          },
+        },
+      ],
+    })
   } finally {
     todoToggling.delete(todo.id)
   }
@@ -219,26 +234,32 @@ async function loadVoiceCount() {
 }
 
 async function load() {
-  const [h, c, l, wc, wl, ci, sc, td] = await Promise.all([
-    db.getHabits(),
-    db.getCompletionsForDate(today),
-    db.getHabitLogsForDate(today),
-    db.getCompletionsForDateRange(weekStart, today),
-    db.getHabitLogsForDateRange(weekStart, today),
-    db.getCheckinSummaryForDate(today),
-    db.getScribblesForDate(today),
-    db.getTodos(),
-  ])
-  habits.value = h
-  completions.value = c
-  logs.value = l
-  weekCompletions.value = wc
-  weekLogs.value = wl
-  todayCheckins.value = ci.filter((s) => s.response_count > 0 || s.is_completed)
-  todayScribbles.value = sc
-  todos.value = td
-  loading.value = false
-  void loadVoiceCount()
+  try {
+    const [h, c, l, wc, wl, ci, sc, td] = await Promise.all([
+      db.getHabits(),
+      db.getCompletionsForDate(today),
+      db.getHabitLogsForDate(today),
+      db.getCompletionsForDateRange(weekStart, today),
+      db.getHabitLogsForDateRange(weekStart, today),
+      db.getCheckinSummaryForDate(today),
+      db.getScribblesForDate(today),
+      db.getTodos(),
+    ])
+    habits.value = h
+    completions.value = c
+    logs.value = l
+    weekCompletions.value = wc
+    weekLogs.value = wl
+    todayCheckins.value = ci.filter((s) => s.response_count > 0 || s.is_completed)
+    todayScribbles.value = sc
+    todos.value = td
+    loadError.value = null
+    void loadVoiceCount()
+  } catch (e) {
+    loadError.value = logError('[today/load]', e)
+  } finally {
+    loading.value = false
+  }
 }
 
 // ─── Filtering ────────────────────────────────────────────────────────────────
@@ -325,7 +346,6 @@ async function toggle(habit: HabitWithSchedule) {
       flashing.add(habit.id)
       setTimeout(() => flashing.delete(habit.id), 400)
     }
-    // Undo toast when marking done
     if (!wasCompleted) {
       toast.add({
         title: `"${habit.name}" completed`,
@@ -343,6 +363,9 @@ async function toggle(habit: HabitWithSchedule) {
         ],
       })
     }
+  } catch (e) {
+    logError('[today/toggle]', e)
+    toast.add({ title: "Couldn't save — try again", color: 'error', duration: 3000 })
   } finally {
     toggling.delete(habit.id)
   }
@@ -434,6 +457,18 @@ onMounted(async () => {
       <AppSkeleton variant="row" :count="3" />
     </div>
 
+    <!-- ── Load error ────────────────────────────────────────────────────────── -->
+    <EmptyState
+      v-else-if="loadError"
+      icon="exclamation-triangle"
+      title="Couldn't load your day"
+      :description="loadError"
+    >
+      <template #actions>
+        <UButton @click="loading = true; load()">Try again</UButton>
+      </template>
+    </EmptyState>
+
     <!-- ── Welcome / empty state ────────────────────────────────────────────── -->
     <template v-else-if="habits.length === 0">
       <div class="flex flex-col items-center justify-center gap-7 pt-10 pb-4 text-center">
@@ -467,7 +502,7 @@ onMounted(async () => {
             Private, offline, and flexible habit tracking. Let's get started.
           </p>
         </div>
-        <UButton to="/habits" size="lg" :icon="resolveIcon('plus')" class="px-8">
+        <UButton to="/habits?modal=create" size="lg" :icon="resolveIcon('plus')" class="px-8">
           Create My First Habit
         </UButton>
       </div>
@@ -509,8 +544,16 @@ onMounted(async () => {
         </p>
       </div>
 
+      <!-- No habits scheduled today -->
+      <p
+        v-if="visibleHabits.length === 0 && habits.length > 0"
+        class="text-center text-sm text-(--ui-text-dimmed) py-4"
+      >
+        No habits scheduled today — enjoy your rest.
+      </p>
+
       <!-- ── Habit list ───────────────────────────────────────────────────────── -->
-      <ul class="space-y-2">
+      <ul v-if="visibleHabits.length > 0" class="space-y-2">
         <template v-for="(habit, i) in sortedHabits" :key="habit.id">
           <!-- "Others" section label — inserted before first non-matching habit -->
           <li v-if="anyActive && i === contextHabits.length && otherHabits.length > 0" class="list-none pt-1 pb-0.5" aria-hidden="true">

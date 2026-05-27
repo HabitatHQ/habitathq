@@ -15,14 +15,22 @@ const template = ref<CheckinTemplate | null>(null)
 const questions = ref<CheckinQuestion[]>([])
 const loading = ref(true)
 
+const loadError = ref<string | null>(null)
+
 async function loadTemplate() {
-  const [tmpl, qs] = await Promise.all([
-    db.getCheckinTemplate(templateId.value),
-    db.getCheckinQuestions(templateId.value),
-  ])
-  template.value = tmpl
-  questions.value = qs
-  loading.value = false
+  try {
+    const [tmpl, qs] = await Promise.all([
+      db.getCheckinTemplate(templateId.value),
+      db.getCheckinQuestions(templateId.value),
+    ])
+    template.value = tmpl
+    questions.value = qs
+    loadError.value = null
+  } catch (e) {
+    loadError.value = logError('[checkin-entry/load]', e)
+  } finally {
+    loading.value = false
+  }
 }
 
 // ─── Date navigation ──────────────────────────────────────────────────────────
@@ -64,9 +72,12 @@ const savedIndicator = reactive<Record<string, boolean>>({})
 const savedTimers: Record<string, ReturnType<typeof setTimeout>> = {}
 
 async function loadResponses() {
-  const list = await db.getCheckinResponses(templateId.value, dateKey.value)
+  const [list, summary] = await Promise.all([
+    db.getCheckinResponses(templateId.value, dateKey.value),
+    db.getCheckinSummaryForDate(dateKey.value),
+  ])
   responses.value = new Map(list.map((r) => [r.question_id, r]))
-  // Sync text inputs
+  isCompleted.value = summary.some((s) => s.template_id === templateId.value && s.is_completed)
   for (const q of questions.value) {
     const r = responses.value.get(q.id)
     if (r?.value_text == null) delete textValues[q.id]
@@ -74,11 +85,22 @@ async function loadResponses() {
   }
 }
 
-watch(dateKey, async () => {
-  if (saveTimer) {
+let pendingQuestionId: string | null = null
+
+async function flushPendingSave() {
+  if (saveTimer && pendingQuestionId) {
     clearTimeout(saveTimer)
     saveTimer = null
+    const val = textValues[pendingQuestionId]
+    if (val != null) {
+      await setResponse(pendingQuestionId, null, val.trim() || null)
+    }
+    pendingQuestionId = null
   }
+}
+
+watch(dateKey, async () => {
+  await flushPendingSave()
   await loadResponses()
 })
 
@@ -93,8 +115,10 @@ async function setResponse(
 
 function onText(question_id: string, val: string) {
   textValues[question_id] = val
+  pendingQuestionId = question_id
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(async () => {
+    pendingQuestionId = null
     await setResponse(question_id, null, val.trim() || null)
     savedIndicator[question_id] = true
     if (savedTimers[question_id]) clearTimeout(savedTimers[question_id])
@@ -124,17 +148,28 @@ async function onBoolean(question_id: string, val: number) {
 }
 
 onUnmounted(() => {
-  if (saveTimer) clearTimeout(saveTimer)
+  void flushPendingSave()
 })
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
 
+const isCompleted = ref(false)
+const completing = ref(false)
+
 async function handleDone() {
-  if (template.value) {
+  if (!template.value || completing.value) return
+  completing.value = true
+  try {
+    await flushPendingSave()
     await db.toggleCheckinCompletion(template.value.id, dateKey.value)
+    isCompleted.value = !isCompleted.value
+    if (isCompleted.value) {
+      void notification('success')
+      router.back()
+    }
+  } finally {
+    completing.value = false
   }
-  void notification('success')
-  router.back()
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
@@ -298,17 +333,19 @@ onMounted(async () => {
       </div>
 
       <!-- Done Button -->
-      <div class="mt-8 pt-4 pb-12 flex justify-center">
+      <div v-if="questions.length > 0" class="mt-8 pt-4 pb-12 flex justify-center">
         <div class="w-full max-w-2xl mx-auto">
           <UButton
             block
             size="lg"
-            color="primary"
+            :color="isCompleted ? 'success' : 'primary'"
             variant="solid"
             class="shadow-xl"
+            :icon="isCompleted ? resolveIcon('check') : undefined"
+            :loading="completing"
             @click="handleDone"
           >
-            Complete Check-in
+            {{ isCompleted ? 'Completed' : 'Complete Check-in' }}
           </UButton>
         </div>
       </div>

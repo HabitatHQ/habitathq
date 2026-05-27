@@ -73,6 +73,8 @@ const calendarView = computed({
 const toast = useToast()
 
 const todos = ref<Todo[]>([])
+const loading = ref(true)
+const loadError = ref<string | null>(null)
 const boredCategories = ref<BoredCategory[]>([])
 const filter = ref<'all' | 'active' | 'done'>('all')
 const showModal = useBoolModalQuery('add')
@@ -156,12 +158,23 @@ const processedTodos = computed(() => {
 })
 
 async function load() {
-  ;[todos.value, boredCategories.value] = await Promise.all([
-    db.getTodos(),
-    db.getBoredCategories(),
-  ])
-  void loadTags()
+  try {
+    ;[todos.value, boredCategories.value] = await Promise.all([
+      db.getTodos(),
+      db.getBoredCategories(),
+    ])
+    loadError.value = null
+    void loadTags()
+  } catch (e) {
+    loadError.value = logError('[todos/load]', e)
+  } finally {
+    loading.value = false
+  }
 }
+
+const isFiltered = computed(
+  () => searchQuery.value.trim() !== '' || filterTags.value.length > 0 || filter.value !== 'all',
+)
 
 onMounted(async () => {
   await load()
@@ -498,8 +511,25 @@ async function deleteAndClose(t: Todo) {
       @toggle="toggleTodo"
     />
 
+    <!-- Loading -->
+    <div v-if="loading" class="space-y-2 pt-2">
+      <AppSkeleton variant="row" :count="4" />
+    </div>
+
+    <!-- Error -->
+    <EmptyState
+      v-else-if="loadError"
+      icon="exclamation-triangle"
+      title="Couldn't load todos"
+      :description="loadError"
+    >
+      <template #actions>
+        <UButton @click="loading = true; load()">Try again</UButton>
+      </template>
+    </EmptyState>
+
     <!-- Sections (list view) -->
-    <template v-if="!calendarView">
+    <template v-if="!loading && !loadError && !calendarView">
     <template v-for="section in filteredSections" :key="section.key">
       <section class="space-y-2">
         <header class="flex items-center justify-between">
@@ -687,8 +717,8 @@ async function deleteAndClose(t: Todo) {
 
     <!-- Empty state -->
     <div v-if="filteredSections.length === 0" class="text-center py-12 text-(--ui-text-dimmed)">
-      <AppIcon name="check-circle" class="w-12 h-12 mx-auto mb-3 opacity-30" />
-      <p>No todos yet. Tap + to add one.</p>
+      <AppIcon :name="isFiltered ? 'magnifying-glass' : 'check-circle'" class="w-12 h-12 mx-auto mb-3 opacity-30" />
+      <p>{{ isFiltered ? 'No matching todos' : 'No todos yet. Tap + to add one.' }}</p>
     </div>
 
     </template><!-- end list view -->
