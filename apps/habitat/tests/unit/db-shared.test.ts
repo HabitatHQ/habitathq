@@ -900,6 +900,18 @@ describe('deleteImageNote', () => {
   })
 })
 
+// ─── deleteAllMediaNotes ─────────────────────────────────────────────────────
+
+describe('deleteAllMediaNotes', () => {
+  it('deletes from both voice_notes and image_notes', async () => {
+    const db = new MockDbAdapter()
+    await shared.dispatch(db, { type: 'DELETE_ALL_MEDIA_NOTES', payload: null })
+    const sqls = db.calls.filter(c => c.method === 'exec').map(c => c.sql)
+    expect(sqls).toContainEqual('DELETE FROM voice_notes')
+    expect(sqls).toContainEqual('DELETE FROM image_notes')
+  })
+})
+
 // ─── clearAppliedDefaults ────────────────────────────────────────────────────
 
 describe('clearAppliedDefaults', () => {
