@@ -25,9 +25,23 @@ import { TxBuilder } from "./tx.js";
 
 export type SyncStatus = "idle" | "syncing" | "error" | "offline";
 
+export interface ChangesLocal<S extends SchemaMap = SchemaMap> {
+  /** The ops as they came out of the `tx()` builder, in order. */
+  readonly ops: ReadonlyArray<Op<S>>;
+  /** Lowercased table names touched by `ops`, deduped. */
+  readonly touchedTables: ReadonlyArray<string>;
+}
+
 export interface EngineEvents {
   "sync:status": SyncStatus;
   error: Error;
+  /**
+   * Fired after a local `tx()` commits successfully. Suppressed while the
+   * engine is applying remote ops via `applyRemote()`. Subscribers (sync
+   * transport, audit logs, etc.) get the full batch with the original engine
+   * `Op` shape — wire-format conversion is the subscriber's job.
+   */
+  "changes:local": ChangesLocal;
 }
 
 export interface PalladiumEngineOptions {
@@ -77,7 +91,7 @@ export class PalladiumEngine<S extends SchemaMap> {
    * `wallMs` advances when the OS clock ticks. The returned HLC is strictly
    * greater than any HLC this engine has issued or received.
    */
-  protected nextSendHlc(): Hlc {
+  nextSendHlc(): Hlc {
     this.#currentHlc =
       this.#currentHlc === null ? createHlc(this.nodeId) : sendHlc(this.#currentHlc);
     return this.#currentHlc;
@@ -88,7 +102,7 @@ export class PalladiumEngine<S extends SchemaMap> {
    * causality invariant that future local sends will be strictly greater than
    * any HLC observed (local or remote).
    */
-  protected receiveHlc(remote: Hlc): void {
+  receiveHlc(remote: Hlc): void {
     this.#currentHlc =
       this.#currentHlc === null
         ? recvHlc(createHlc(this.nodeId), remote)
@@ -113,6 +127,9 @@ export class PalladiumEngine<S extends SchemaMap> {
       await applySchema(this.adapter, schema);
     }
   }
+
+  /** Suppresses `"changes:local"` while remote ops are being applied. */
+  #suppressLocalEmit = false;
 
   /** Execute a batch of mutations, wrapped in a transaction when supported. */
   async tx(callback: (t: TxBuilder<S>) => void): Promise<void> {
@@ -141,6 +158,39 @@ export class PalladiumEngine<S extends SchemaMap> {
     }
 
     await this.#notifyLiveQueries([...touchedTables]);
+
+    if (!this.#suppressLocalEmit && ops.length > 0) {
+      this.emitter.emit("changes:local", {
+        ops: ops as ReadonlyArray<Op<SchemaMap>>,
+        touchedTables: [...touchedTables],
+      });
+    }
+  }
+
+  /**
+   * Apply ops received from a remote peer. Runs through the normal `tx()`
+   * path (so live queries refresh) but suppresses the `"changes:local"` event
+   * — sync transports need this to avoid re-emitting a change they just
+   * downloaded.
+   */
+  async applyRemote(ops: ReadonlyArray<Op<S>>): Promise<void> {
+    if (ops.length === 0) return;
+    this.#suppressLocalEmit = true;
+    try {
+      await this.tx((t) => {
+        for (const op of ops) {
+          if (op.type === "insert") {
+            t.insert(op.table, op.data);
+          } else if (op.type === "update") {
+            t.update(op.table, op.id, op.patch);
+          } else {
+            t.delete(op.table, op.id);
+          }
+        }
+      });
+    } finally {
+      this.#suppressLocalEmit = false;
+    }
   }
 
   /** Shorthand for single-row insert. */

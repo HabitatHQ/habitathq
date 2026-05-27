@@ -281,20 +281,11 @@ describe("createEngine (SQLite)", () => {
   });
 });
 
-// Subclass that exposes the protected HLC helpers so they can be unit-tested
-// without a transport layer.
-class TestEngine extends PalladiumEngine<Schema> {
-  next(): ReturnType<TestEngine["nextSendHlc"]> {
-    return this.nextSendHlc();
-  }
-  recv(remote: Parameters<TestEngine["receiveHlc"]>[0]): void {
-    this.receiveHlc(remote);
-  }
-}
-
 describe("PalladiumEngine HLC stamping", () => {
-  function makeTestEngine(nodeId?: string): TestEngine {
-    return new TestEngine(new NodeSqliteAdapter({ vfs: { type: "memory" } }), { nodeId });
+  function makeTestEngine(nodeId?: string): PalladiumEngine<Schema> {
+    return new PalladiumEngine<Schema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }), {
+      nodeId,
+    });
   }
 
   it("nodeId defaults to a fresh UUID when not provided", () => {
@@ -318,7 +309,7 @@ describe("PalladiumEngine HLC stamping", () => {
   it("nextSendHlc carries the engine's nodeId", () => {
     const nodeId = "00000000-0000-0000-0000-0000000000bb";
     const db = makeTestEngine(nodeId);
-    const hlc = db.next();
+    const hlc = db.nextSendHlc();
     expect(hlc.nodeId).toBe(nodeId);
   });
 
@@ -328,8 +319,8 @@ describe("PalladiumEngine HLC stamping", () => {
     const fixed = 1_700_000_000_000;
     vi.spyOn(Date, "now").mockReturnValue(fixed);
     try {
-      const a = db.next();
-      const b = db.next();
+      const a = db.nextSendHlc();
+      const b = db.nextSendHlc();
       expect(b.wallMs).toBe(a.wallMs);
       expect(b.counter).toBeGreaterThan(a.counter);
       expect(compareHlc(a, b)).toBeLessThan(0);
@@ -342,9 +333,9 @@ describe("PalladiumEngine HLC stamping", () => {
     const db = makeTestEngine();
     const now = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
-      const a = db.next();
+      const a = db.nextSendHlc();
       now.mockReturnValue(1_700_000_000_500); // 500ms later
-      const b = db.next();
+      const b = db.nextSendHlc();
       expect(b.wallMs).toBe(1_700_000_000_500);
       expect(b.counter).toBe(0);
       expect(compareHlc(a, b)).toBeLessThan(0);
@@ -359,12 +350,96 @@ describe("PalladiumEngine HLC stamping", () => {
     try {
       const remote = createHlc("ff000000-0000-0000-0000-000000000001");
       const future = { ...remote, wallMs: remote.wallMs + 10_000, counter: 5 };
-      db.recv(future);
-      const next = db.next();
+      db.receiveHlc(future);
+      const next = db.nextSendHlc();
       // Strictly greater than the remote HLC we just saw.
       expect(compareHlc(next, future)).toBeGreaterThan(0);
     } finally {
       vi.restoreAllMocks();
     }
+  });
+});
+
+describe("PalladiumEngine changes:local + applyRemote", () => {
+  function makeDbWithSchema(nodeId?: string): PalladiumEngine<Schema> {
+    return new PalladiumEngine<Schema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }), {
+      nodeId,
+    });
+  }
+
+  it("changes:local fires after a successful local tx with the original ops", async () => {
+    const db = makeDbWithSchema();
+    await db.init(SCHEMA);
+
+    const cb = vi.fn();
+    db.on("changes:local", cb);
+
+    await db.tx((t) => {
+      t.insert("tasks", { id: "t1", name: "a", done: 0 });
+      t.insert("tasks", { id: "t2", name: "b", done: 0 });
+    });
+
+    expect(cb).toHaveBeenCalledOnce();
+    const payload = cb.mock.calls[0]?.[0] as { ops: unknown[]; touchedTables: string[] };
+    expect(payload.ops).toHaveLength(2);
+    expect(payload.touchedTables).toEqual(["tasks"]);
+  });
+
+  it("changes:local does NOT fire when applyRemote applies ops", async () => {
+    const db = makeDbWithSchema();
+    await db.init(SCHEMA);
+
+    const cb = vi.fn();
+    db.on("changes:local", cb);
+
+    await db.applyRemote([
+      { type: "insert", table: "tasks", id: "t1", data: { id: "t1", name: "remote", done: 0 } },
+    ]);
+
+    expect(cb).not.toHaveBeenCalled();
+  });
+
+  it("applyRemote still notifies live queries on touched tables", async () => {
+    const db = makeDbWithSchema();
+    await db.init(SCHEMA);
+
+    const lq = db.liveQuery<Schema["tasks"]>(sql`SELECT * FROM tasks`);
+    const lqCb = vi.fn();
+    lq.on("change", lqCb);
+
+    await db.applyRemote([
+      { type: "insert", table: "tasks", id: "t1", data: { id: "t1", name: "remote", done: 0 } },
+    ]);
+
+    expect(lqCb).toHaveBeenCalledOnce();
+  });
+
+  it("applyRemote([]) is a no-op", async () => {
+    const db = makeDbWithSchema();
+    await db.init(SCHEMA);
+
+    const cb = vi.fn();
+    db.on("changes:local", cb);
+    await db.applyRemote([]);
+
+    expect(cb).not.toHaveBeenCalled();
+    const rows = await db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks`);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("changes:local payload carries touchedTables for multi-table tx", async () => {
+    const db = makeDbWithSchema();
+    await db.init(SCHEMA);
+
+    const cb = vi.fn();
+    db.on("changes:local", cb);
+
+    await db.tx((t) => {
+      t.insert("tasks", { id: "t1", name: "a", done: 0 });
+      t.insert("comments", { id: "c1", body: "x" });
+    });
+
+    const payload = cb.mock.calls[0]?.[0] as { touchedTables: string[] };
+    expect(payload.touchedTables.sort()).toEqual(["comments", "tasks"]);
   });
 });

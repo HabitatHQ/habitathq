@@ -15,7 +15,12 @@ export type { DbAdapter } from "./db-adapter.js";
 export { toCapacitorDbAdapter, toDbAdapter } from "./db-adapter.js";
 export type { LogFn } from "./debug.js";
 export { dbg, disableDebug, enableDebug, isDebugEnabled } from "./debug.js";
-export type { EngineEvents, PalladiumEngineOptions, SyncStatus } from "./engine.js";
+export type {
+  ChangesLocal,
+  EngineEvents,
+  PalladiumEngineOptions,
+  SyncStatus,
+} from "./engine.js";
 export { createEngine, PalladiumEngine, toError } from "./engine.js";
 export { EventEmitter } from "./event-emitter.js";
 export type { Hlc } from "./hlc.js";
@@ -30,6 +35,15 @@ export type { SqlQuery } from "./sql.js";
 export { sql } from "./sql.js";
 export type { SqlValue, StorageAdapter, TransactableStorageAdapter } from "./storage.js";
 export { isTransactable } from "./storage.js";
+export type {
+  DeleteWireOp,
+  InsertWireOp,
+  SyncTransportOptions,
+  UpdateWireOp,
+  WireChange,
+  WireOp,
+} from "./sync.js";
+export { hlcToAfterCursor, SyncTransport } from "./sync.js";
 export type { DeleteOp, InsertOp, Op, SchemaMap, UpdateOp } from "./tx.js";
 export { TxBuilder } from "./tx.js";
 export { generateUlid } from "./ulid.js";
