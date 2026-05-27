@@ -4,7 +4,7 @@
 
 import { randomUUID } from "node:crypto";
 import { beforeEach, describe, expect, it } from "vitest";
-import { PalladiumClient, hlcToAfterCursor } from "../client.js";
+import { hlcToAfterCursor, PalladiumClient } from "../client.js";
 import { insertOp, makeChange, makeHlc } from "../helpers.js";
 
 const client = new PalladiumClient();
@@ -38,7 +38,7 @@ describe("POST /v1/changes", () => {
 
   it("accepts a change with multiple ops", async () => {
     const nodeId = randomUUID();
-    const hlc = makeHlc({ node_id: nodeId });
+    const hlc = makeHlc({ nodeId });
     // Op::Update uses { col, value } not { data }; Op::Delete has no data field.
     const change = makeChange({
       hlc,
@@ -72,22 +72,22 @@ describe("GET /v1/changes", () => {
     // id is a UUID string
     expect(typeof first?.id).toBe("string");
     expect(first?.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
-    // hlc has millis, counter, node_id
-    expect(typeof first?.hlc.millis).toBe("number");
+    // hlc has wallMs, counter, nodeId (matches @palladium/core Hlc)
+    expect(typeof first?.hlc.wallMs).toBe("number");
     expect(typeof first?.hlc.counter).toBe("number");
-    expect(typeof first?.hlc.node_id).toBe("string");
+    expect(typeof first?.hlc.nodeId).toBe("string");
     // ops is an array
     expect(Array.isArray(first?.ops)).toBe(true);
   });
 
   it("cursor pagination returns only newer changes", async () => {
     // Post a change and capture its HLC as cursor.
-    const pivot = makeChange({ hlc: makeHlc({ millis: Date.now() }) });
+    const pivot = makeChange({ hlc: makeHlc({ wallMs: Date.now() }) });
     await client.postChange(pivot);
     const cursor = hlcToAfterCursor(pivot.hlc);
 
     // Post another change after the cursor.
-    const later = makeChange({ hlc: makeHlc({ millis: pivot.hlc.millis + 1 }) });
+    const later = makeChange({ hlc: makeHlc({ wallMs: pivot.hlc.wallMs + 1 }) });
     await client.postChange(later);
 
     const after = await client.getChanges(cursor);

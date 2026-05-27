@@ -14,7 +14,7 @@
  *   the state survives page reloads.
  */
 
-import type { StorageAdapter } from "@palladium/core";
+import type { Hlc, StorageAdapter } from "@palladium/core";
 import { PalladiumEngine } from "@palladium/core";
 import { BrowserSqliteAdapter } from "@palladium/sqlite-browser";
 
@@ -35,13 +35,10 @@ const MIGRATIONS = [
 ];
 
 // ── Server wire types (mirrors Rust serialization) ─────────────────────────
-
-interface ServerHlc {
-  millis: number;
-  counter: number;
-  /** UUID string, e.g. "550e8400-e29b-41d4-a716-446655440000". */
-  node_id: string;
-}
+//
+// The Hlc wire shape matches `@palladium/core`'s `Hlc` exactly because the
+// Rust side uses `#[serde(rename = ...)]` to project to camelCase
+// (`wallMs`, `counter`, `nodeId`). No bridge type needed.
 
 interface InsertOp {
   op: "insert";
@@ -68,16 +65,16 @@ type ServerOp = InsertOp | UpdateOp | DeleteOp;
 
 interface ServerChange {
   id: string;
-  hlc: ServerHlc;
+  hlc: Hlc;
   ops: ServerOp[];
 }
 
 /** Produce the lexicographic sort key used as a pagination cursor. */
-function hlcSortKey(hlc: ServerHlc): string {
-  const millis = hlc.millis.toString().padStart(20, "0");
+function hlcSortKey(hlc: Hlc): string {
+  const wallMs = hlc.wallMs.toString().padStart(20, "0");
   const counter = hlc.counter.toString().padStart(10, "0");
-  const nodeId = hlc.node_id.replace(/-/g, "").padStart(32, "0");
-  return `${millis}_${counter}_${nodeId}`;
+  const nodeId = hlc.nodeId.replace(/-/g, "").padStart(32, "0");
+  return `${wallMs}_${counter}_${nodeId}`;
 }
 
 // ── Engine ─────────────────────────────────────────────────────────────────
@@ -168,7 +165,7 @@ export class NotesEngine extends PalladiumEngine<NotesSchema> {
   async #postChange(ops: ServerOp[]): Promise<void> {
     const change: ServerChange = {
       id: crypto.randomUUID(),
-      hlc: { millis: Date.now(), counter: 0, node_id: this.#nodeId },
+      hlc: { wallMs: Date.now(), counter: 0, nodeId: this.#nodeId },
       ops,
     };
     this.setStatus("syncing");
@@ -207,7 +204,7 @@ export class NotesEngine extends PalladiumEngine<NotesSchema> {
 
         // After the initial full hydration, skip our own changes: we already
         // applied them locally and posting them again would be redundant.
-        if (this.#initialLoadDone && change.hlc.node_id === this.#nodeId) {
+        if (this.#initialLoadDone && change.hlc.nodeId === this.#nodeId) {
           continue;
         }
 

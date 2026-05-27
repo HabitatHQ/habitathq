@@ -214,6 +214,12 @@ fn now_utc_iso8601() -> String {
 }
 
 /// Convert a count of days since the Unix epoch to `(year, month, day)`.
+//
+// Variable names (`doe` = day-of-era, `doy` = day-of-year, `yoe` = year-of-era,
+// `mp` = month-prime) follow Howard Hinnant's "days_from_civil" reference
+// algorithm. Renaming for clippy::similar_names would diverge from the canonical
+// presentation and make it harder to audit against the source.
+#[allow(clippy::similar_names)]
 const fn days_to_ymd(days: u64) -> (u64, u64, u64) {
     // Shift epoch from 1970-01-01 to 0001-03-01 for simpler leap-year math.
     let z = days + 719_468;

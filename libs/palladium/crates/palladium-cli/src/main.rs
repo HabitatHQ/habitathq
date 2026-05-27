@@ -131,6 +131,10 @@ async fn run_inspect(db_url: &str, limit: usize) -> Result<()> {
     Ok(())
 }
 
+// Borderline (26/25) — the function is a thin orchestrator (parse URL, open
+// store, build router, bind socket, log). Splitting yields one-call helpers
+// per branch, which is less readable than the linear flow.
+#[allow(clippy::cognitive_complexity)]
 async fn run_dev(db_url: &str, port: u16, extra_instances: &[InstanceArg]) -> Result<()> {
     // If --instance flags were provided, log them (future: open all and serve).
     for inst in extra_instances {

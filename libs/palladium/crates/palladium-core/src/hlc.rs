@@ -24,10 +24,16 @@ use crate::NodeId;
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Hlc {
     /// Wall-clock milliseconds since Unix epoch (never decreases).
+    ///
+    /// Serialised as `wallMs` to match `@palladium/core`'s TS Hlc shape.
+    #[serde(rename = "wallMs")]
     millis: u64,
     /// Logical counter; incremented when wall time is unchanged.
     counter: u32,
     /// Node identifier — breaks ties deterministically.
+    ///
+    /// Serialised as `nodeId` to match `@palladium/core`'s TS Hlc shape.
+    #[serde(rename = "nodeId")]
     node_id: NodeId,
 }
 

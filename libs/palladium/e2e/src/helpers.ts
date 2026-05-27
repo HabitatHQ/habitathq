@@ -1,14 +1,15 @@
 /** Test-data builders for E2E specs. */
 
 import { randomUUID } from "node:crypto";
-import type { ServerChange, ServerHlc, ServerOp } from "./client.js";
+import type { Hlc } from "@palladium/core";
+import type { ServerChange, ServerOp } from "./client.js";
 
-/** Create a minimal valid `ServerHlc`. */
-export function makeHlc(overrides: Partial<ServerHlc> = {}): ServerHlc {
+/** Create a minimal valid [`Hlc`]. */
+export function makeHlc(overrides: Partial<Hlc> = {}): Hlc {
   return {
-    millis: Date.now(),
+    wallMs: Date.now(),
     counter: 0,
-    node_id: randomUUID(),
+    nodeId: randomUUID(),
     ...overrides,
   };
 }

@@ -1,21 +1,15 @@
 /**
  * Typed HTTP client for the Palladium sync-engine REST API.
  *
- * The Rust server serialises `Hlc` as `{ millis, counter, node_id }` while the
- * TypeScript `@palladium/core` package uses `{ wallMs, counter, nodeId }`.
- * `coreHlcToServer` bridges the two representations.
+ * Wire-format note: the Rust server and `@palladium/core` agree on Hlc field
+ * names (`wallMs`, `counter`, `nodeId`) — Rust uses `#[serde(rename = ...)]`
+ * to project its internal snake_case fields to the camelCase wire shape.
  */
 
-import type { Hlc as CoreHlc } from "@palladium/core";
+import type { Hlc } from "@palladium/core";
 import { E2E_BASE_URL } from "./setup/server.js";
 
 // ── Server-side wire types ──────────────────────────────────────────────────
-
-export interface ServerHlc {
-  readonly millis: number;
-  readonly counter: number;
-  readonly node_id: string; // hyphenated UUID
-}
 
 export type ServerOp =
   | {
@@ -35,25 +29,20 @@ export type ServerOp =
 
 export interface ServerChange {
   readonly id: string; // UUID
-  readonly hlc: ServerHlc;
+  readonly hlc: Hlc;
   readonly ops: ServerOp[];
 }
 
 // ── Conversion helpers ──────────────────────────────────────────────────────
 
-/** Convert a `@palladium/core` `Hlc` to the server wire format. */
-export function coreHlcToServer(hlc: CoreHlc): ServerHlc {
-  return { millis: hlc.wallMs, counter: hlc.counter, node_id: hlc.nodeId };
-}
-
 /**
- * Encode a `ServerHlc` as the HLC sort-key cursor expected by `?after=`.
+ * Encode an [`Hlc`] as the lexicographic sort-key cursor expected by `?after=`.
  *
- * Format: `{millis:020}_{counter:010}_{node_id_hex:032x}`
+ * Format: `{wallMs:020}_{counter:010}_{nodeIdHex:032x}`
  */
-export function hlcToAfterCursor(hlc: ServerHlc): string {
-  const nodeHex = hlc.node_id.replaceAll("-", "").padStart(32, "0");
-  const millis = String(hlc.millis).padStart(20, "0");
+export function hlcToAfterCursor(hlc: Hlc): string {
+  const nodeHex = hlc.nodeId.replaceAll("-", "").padStart(32, "0");
+  const millis = String(hlc.wallMs).padStart(20, "0");
   const counter = String(hlc.counter).padStart(10, "0");
   return `${millis}_${counter}_${nodeHex}`;
 }
