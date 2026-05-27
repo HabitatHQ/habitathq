@@ -383,7 +383,7 @@ onMounted(() => {
         </div>
         <button
           v-if="habit.type === 'BOOLEAN'"
-          class="w-7 h-7 min-w-[44px] min-h-[44px] rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all duration-200"
+          class="relative w-7 h-7 rounded-full border-2 shrink-0 flex items-center justify-center transition-all duration-200 after:absolute after:inset-[-8px] after:content-['']"
           :class="todayCompletionHabitIds.has(habit.id)
             ? 'bg-primary-500 border-primary-500'
             : 'border-(--ui-border-accented) bg-transparent'"
