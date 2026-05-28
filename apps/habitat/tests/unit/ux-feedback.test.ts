@@ -156,6 +156,7 @@ const mockDb = {
   deleteAllScribbles: vi.fn(),
   deleteAllTodos: vi.fn(),
   deleteAllBoredData: vi.fn(),
+  deleteAllMediaNotes: vi.fn(),
   clearAppliedDefaults: vi.fn(),
 }
 g['useDatabase'] = () => mockDb
@@ -166,6 +167,7 @@ import TodosPage from '~/pages/todos.vue'
 import HabitDetailPage from '~/pages/habits/[id].vue'
 import CheckinDetailPage from '~/pages/checkin/[id].vue'
 import SettingsDataPage from '~/pages/settings/data.vue'
+import SettingsFeaturesPage from '~/pages/settings/features.vue'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 const sampleAct = {
@@ -260,6 +262,7 @@ beforeEach(() => {
   mockDb.deleteAllScribbles.mockResolvedValue(undefined)
   mockDb.deleteAllTodos.mockResolvedValue(undefined)
   mockDb.deleteAllBoredData.mockResolvedValue(undefined)
+  mockDb.deleteAllMediaNotes.mockResolvedValue(undefined)
   mockDb.clearAppliedDefaults.mockResolvedValue(undefined)
   mockDb.exportJsonData.mockResolvedValue({})
   mockDb.exportDb.mockResolvedValue(new Uint8Array())
@@ -508,5 +511,74 @@ describe('settings/data.vue — clearAppData (issue 9)', () => {
     ;(state['clearSelection'] as Record<string, unknown>)['voiceNotes'] = false
     await (state['clearAppData'] as () => Promise<void>)()
     expect(mockToastAdd).not.toHaveBeenCalled()
+  })
+
+  it('calls deleteAllMediaNotes when voiceNotes is selected', async () => {
+    const wrapper = shallowMount(SettingsDataPage)
+    await flushPromises()
+    const state = ss(wrapper)
+    ;(state['clearSelection'] as Record<string, unknown>)['voiceNotes'] = true
+    await (state['clearAppData'] as () => Promise<void>)()
+    expect(mockDb.deleteAllMediaNotes).toHaveBeenCalled()
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Issue 10 — settings/features.vue › toggleFeature
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('settings/features.vue — toggleFeature (issue 10)', () => {
+  it('shows neutral toast when disabling Journalling', async () => {
+    const wrapper = shallowMount(SettingsFeaturesPage)
+    await flushPromises()
+    const state = ss(wrapper)
+    ;(state['toggleFeature'] as (key: string, value: boolean) => void)('enableJournalling', false)
+    expect(mockToastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ color: 'neutral', title: expect.stringContaining('Check-in and Jots') }),
+    )
+  })
+
+  it('shows neutral toast when disabling Bored', async () => {
+    const wrapper = shallowMount(SettingsFeaturesPage)
+    await flushPromises()
+    const state = ss(wrapper)
+    ;(state['toggleFeature'] as (key: string, value: boolean) => void)('enableBored', false)
+    expect(mockToastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ color: 'neutral', title: expect.stringContaining('Bored tab hidden') }),
+    )
+  })
+
+  it('does not show toast when enabling a feature', async () => {
+    const wrapper = shallowMount(SettingsFeaturesPage)
+    await flushPromises()
+    const state = ss(wrapper)
+    ;(state['toggleFeature'] as (key: string, value: boolean) => void)('enableJournalling', true)
+    expect(mockToastAdd).not.toHaveBeenCalled()
+  })
+
+  it('mentions Bored cascade when disabling TODOs while Bored is enabled', async () => {
+    const wrapper = shallowMount(SettingsFeaturesPage)
+    await flushPromises()
+    const state = ss(wrapper)
+    ;(state['appSettings'] as Record<string, unknown>).enableBored = true
+    ;(state['toggleFeature'] as (key: string, value: boolean) => void)('enableTodos', false)
+    expect(mockToastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ title: expect.stringContaining('also hides the Bored tab') }),
+    )
+    expect(state['setAppSetting'] as ReturnType<typeof vi.fn>).toHaveBeenCalledWith('enableBored', false)
+  })
+
+  it('shows simple TODOs toast when Bored is already disabled', async () => {
+    const wrapper = shallowMount(SettingsFeaturesPage)
+    await flushPromises()
+    const state = ss(wrapper)
+    ;(state['appSettings'] as Record<string, unknown>).enableBored = false
+    ;(state['toggleFeature'] as (key: string, value: boolean) => void)('enableTodos', false)
+    expect(mockToastAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ title: expect.stringContaining('TODOs tab hidden') }),
+    )
+    expect(mockToastAdd).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: expect.stringContaining('also hides') }),
+    )
   })
 })

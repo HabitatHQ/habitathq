@@ -404,7 +404,10 @@ async function clearAppData() {
     if (clearSelection.appliedDefaults) ops.push(db.clearAppliedDefaults())
     await Promise.all(ops)
     if (clearSelection.checkinEntries) clearLocalStorage()
-    if (clearSelection.voiceNotes) await clearIdb()
+    if (clearSelection.voiceNotes) {
+      await clearIdb()
+      await db.deleteAllMediaNotes()
+    }
     if (clearSelection.habits) localStorage.removeItem('habitat-has-data')
     showClearModal.value = false
   } catch (err) {

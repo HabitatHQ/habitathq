@@ -83,11 +83,12 @@ defineEmits<{
     <!-- BOOLEAN: toggle button -->
     <template v-if="habit.type === 'BOOLEAN'">
       <button
-        class="w-7 h-7 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all duration-200"
+        class="relative w-7 h-7 rounded-full border-2 shrink-0 flex items-center justify-center transition-all duration-200 after:absolute after:inset-[-8px] after:content-['']"
         :class="done
           ? 'bg-primary-500 border-primary-500'
           : 'border-(--ui-border-accented) hover:border-(--ui-border-accented) bg-transparent'"
         :disabled="toggling"
+        :aria-label="done ? `Mark ${habit.name} incomplete` : `Mark ${habit.name} complete`"
         @click="$emit('toggle')"
       >
         <AppIcon v-if="done" name="check" class="w-4 h-4 text-white" />

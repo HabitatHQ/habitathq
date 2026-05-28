@@ -11,14 +11,22 @@ const loading = ref(true)
 
 const todaySummary = ref<Map<string, { count: number; completed: boolean }>>(new Map())
 
+const loadError = ref<string | null>(null)
+
 async function loadTemplates() {
-  templates.value = await db.getCheckinTemplates()
-  const today = toLocalDateKey(new Date())
-  const summary = await db.getCheckinSummaryForDate(today)
-  todaySummary.value = new Map(
-    summary.map((s) => [s.template_id, { count: s.response_count, completed: s.is_completed }]),
-  )
-  loading.value = false
+  try {
+    templates.value = await db.getCheckinTemplates()
+    const today = toLocalDateKey(new Date())
+    const summary = await db.getCheckinSummaryForDate(today)
+    todaySummary.value = new Map(
+      summary.map((s) => [s.template_id, { count: s.response_count, completed: s.is_completed }]),
+    )
+    loadError.value = null
+  } catch (e) {
+    loadError.value = logError('[checkin/load]', e)
+  } finally {
+    loading.value = false
+  }
 }
 
 function isCompleted(t: CheckinTemplate) {
@@ -87,6 +95,7 @@ async function createTemplate() {
     templates.value.push(t)
     showCreate.value = false
     toast.add({ title: 'Check-in created', color: 'success', duration: 2000 })
+    await navigateTo(`/checkin/${t.id}`)
   } finally {
     creating.value = false
   }
@@ -154,8 +163,14 @@ async function createTemplate() {
         v-if="templates.length === 0"
         icon="pencil-square"
         title="No check-ins yet"
-        description="Create one to get started."
-      />
+        description="Track your mood, energy, or anything you want to reflect on."
+      >
+        <template #actions>
+          <UButton @click="openCreate" :icon="resolveIcon('plus')">
+            Create Check-in
+          </UButton>
+        </template>
+      </EmptyState>
     </div>
 
     <!-- ── Create modal ─────────────────────────────────────────────────────── -->

@@ -84,17 +84,24 @@ const habits = ref<HabitWithSchedule[]>([])
 const completions = ref<Completion[]>([])
 const habitLogs = ref<HabitLog[]>([])
 const loading = ref(true)
+const loadError = ref<string | null>(null)
 
 async function load() {
-  const [h, c, l] = await Promise.all([
-    db.getHabits(),
-    db.getCompletionsForDateRange(thirtyDaysAgo, today),
-    db.getHabitLogsForDateRange(thirtyDaysAgo, today),
-  ])
-  habits.value = h
-  completions.value = c
-  habitLogs.value = l
-  loading.value = false
+  try {
+    const [h, c, l] = await Promise.all([
+      db.getHabits(),
+      db.getCompletionsForDateRange(thirtyDaysAgo, today),
+      db.getHabitLogsForDateRange(thirtyDaysAgo, today),
+    ])
+    habits.value = h
+    completions.value = c
+    habitLogs.value = l
+    loadError.value = null
+  } catch (e) {
+    loadError.value = logError('[matrix/load]', e)
+  } finally {
+    loading.value = false
+  }
 }
 
 // ─── State helpers ────────────────────────────────────────────────────────────
@@ -212,9 +219,14 @@ onMounted(() => {
       </div>
     </header>
 
+    <!-- ── Loading skeleton ─────────────────────────────────────────────────── -->
+    <div v-if="loading" class="space-y-3 pt-2">
+      <AppSkeleton variant="row" :count="4" />
+    </div>
+
     <!-- ── Empty habits state ─────────────────────────────────────────────────── -->
     <div
-      v-if="!loading && habits.length === 0"
+      v-else-if="habits.length === 0"
       class="flex flex-col items-center justify-center gap-4 py-8 text-center"
     >
       <AppIcon name="table-cells" class="w-10 h-10 text-(--ui-text-dimmed) opacity-30" />
@@ -226,7 +238,7 @@ onMounted(() => {
     </div>
 
     <!-- ── Habit grid ─────────────────────────────────────────────────────────── -->
-    <div v-else-if="!loading" class="overflow-x-auto -mx-4 px-4">
+    <div v-else class="overflow-x-auto -mx-4 px-4">
       <div class="min-w-max">
 
         <!-- Header row -->

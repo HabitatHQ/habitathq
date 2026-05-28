@@ -254,5 +254,7 @@ export function useDatabase() {
       sendToWorker({ type: 'CREATE_IMAGE_NOTE', payload: p }),
     deleteImageNote: (id: string): Promise<null> =>
       sendToWorker({ type: 'DELETE_IMAGE_NOTE', payload: { id } }),
+    deleteAllMediaNotes: (): Promise<null> =>
+      sendToWorker({ type: 'DELETE_ALL_MEDIA_NOTES', payload: null }),
   }
 }
