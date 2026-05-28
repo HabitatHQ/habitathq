@@ -122,6 +122,7 @@ export interface Scribble {
 
 export interface VoiceNoteRow {
   id: string
+  title: string
   mime_type: string
   duration: number
   created_at: string

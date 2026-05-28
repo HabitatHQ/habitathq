@@ -123,6 +123,7 @@ function stopRecording() {
 // ─── Save ─────────────────────────────────────────────────────────────────────
 
 const saving = ref(false)
+const voiceTitle = ref('')
 
 async function saveRecording() {
   if (chunks.length === 0 || saving.value) return
@@ -133,6 +134,7 @@ async function saveRecording() {
     const id = crypto.randomUUID()
     await store.addVoiceNote({
       id,
+      title: voiceTitle.value.trim(),
       blob,
       mimeType,
       duration: recordDuration.value,
@@ -248,9 +250,16 @@ onUnmounted(() => {
         </p>
       </div>
 
-      <div v-if="!isRecording && recordDuration > 0" class="flex gap-3 pt-2">
-        <UButton variant="soft" color="neutral" @click="handleClose">Discard</UButton>
-        <UButton :loading="saving" @click="saveRecording">Save Recording</UButton>
+      <div v-if="!isRecording && recordDuration > 0" class="w-full space-y-3 pt-2">
+        <AppTextField
+          v-model="voiceTitle"
+          placeholder="Name this recording…"
+          class="w-full"
+        />
+        <div class="flex gap-3 justify-center">
+          <UButton variant="soft" color="neutral" @click="handleClose">Discard</UButton>
+          <UButton :loading="saving" @click="saveRecording">Save Recording</UButton>
+        </div>
       </div>
     </div>
 

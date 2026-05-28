@@ -835,11 +835,11 @@ describe('createVoiceNote', () => {
     const db = new MockDbAdapter()
     await shared.dispatch(db, {
       type: 'CREATE_VOICE_NOTE',
-      payload: { id: 'v1', mime_type: 'audio/webm', duration: 5.2, created_at: '2025-01-01T00:00:00Z' },
+      payload: { id: 'v1', title: '', mime_type: 'audio/webm', duration: 5.2, created_at: '2025-01-01T00:00:00Z' },
     })
     const insert = db.calls.find(c => c.method === 'exec' && c.sql.includes('voice_notes'))!
     expect(insert.sql).toContain('INSERT OR IGNORE')
-    expect(insert.bind).toEqual(['v1', 'audio/webm', 5.2, '2025-01-01T00:00:00Z'])
+    expect(insert.bind).toEqual(['v1', '', 'audio/webm', 5.2, '2025-01-01T00:00:00Z'])
   })
 })
 

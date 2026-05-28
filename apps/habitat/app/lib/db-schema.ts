@@ -202,6 +202,7 @@ export const SCHEMA_DDL = `
 
   CREATE TABLE IF NOT EXISTS voice_notes (
     id         TEXT PRIMARY KEY,
+    title      TEXT NOT NULL DEFAULT '',
     mime_type  TEXT NOT NULL,
     duration   REAL NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
@@ -564,7 +565,7 @@ const SEEDS: Seed[] = [
 
 export const SCHEMA_CONFIG: SchemaConfig = {
   schema: SCHEMA_DDL,
-  version: 19,
+  version: 20,
   migrations: {
     11: [
       `CREATE TABLE IF NOT EXISTS bored_categories (
@@ -656,6 +657,7 @@ export const SCHEMA_CONFIG: SchemaConfig = {
         filename TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
       )`,
     ],
+    20: [`ALTER TABLE voice_notes ADD COLUMN title TEXT NOT NULL DEFAULT ''`],
   },
   seeds: SEEDS,
 }
