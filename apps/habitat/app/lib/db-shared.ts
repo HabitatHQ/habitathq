@@ -2027,10 +2027,10 @@ async function getVoiceNotes(db: DbAdapter): Promise<VoiceNoteRow[]> {
 
 async function createVoiceNote(db: DbAdapter, p: VoiceNoteRow): Promise<VoiceNoteRow> {
   await db.exec(
-    'INSERT OR IGNORE INTO voice_notes (id, mime_type, duration, created_at) VALUES (?, ?, ?, ?)',
-    [p.id, p.mime_type, p.duration, p.created_at],
+    'INSERT OR IGNORE INTO voice_notes (id, title, mime_type, duration, created_at) VALUES (?, ?, ?, ?, ?)',
+    [p.id, p.title ?? '', p.mime_type, p.duration, p.created_at],
   )
-  return p
+  return { ...p, title: p.title ?? '' }
 }
 
 async function deleteVoiceNote(db: DbAdapter, id: string): Promise<null> {

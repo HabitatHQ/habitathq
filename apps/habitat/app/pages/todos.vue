@@ -88,12 +88,45 @@ const route = useRoute()
 const highlightedTodoId = ref<string | null>(null)
 
 // ── Search, sort & filter ─────────────────────────────────────────────────────
+
+interface TodoFilterDefaults {
+  status: 'all' | 'active' | 'done'
+  sortBy: 'priority' | 'due_date' | 'created' | 'title'
+  sortDir: 'asc' | 'desc'
+  tags: string[]
+}
+
+const TODOS_FILTER_KEY = 'todos-filter-defaults'
+const TODOS_HARDCODED: TodoFilterDefaults = {
+  status: 'all',
+  sortBy: 'priority',
+  sortDir: 'asc',
+  tags: [],
+}
+
+function readTodoDefaults(): TodoFilterDefaults {
+  try {
+    const raw = localStorage.getItem(TODOS_FILTER_KEY)
+    if (!raw) return { ...TODOS_HARDCODED }
+    return { ...TODOS_HARDCODED, ...JSON.parse(raw) } as TodoFilterDefaults
+  } catch {
+    return { ...TODOS_HARDCODED }
+  }
+}
+
+const todoSavedDefaults = ref(readTodoDefaults())
+
 const searchQuery = ref('')
 const searchExpanded = ref(false)
-const sortBy = ref<'priority' | 'due_date' | 'created' | 'title'>('priority')
-const sortDir = ref<'asc' | 'desc'>('asc')
-const filterTags = ref<string[]>([])
+const sortBy = ref<'priority' | 'due_date' | 'created' | 'title'>(todoSavedDefaults.value.sortBy)
+const sortDir = ref<'asc' | 'desc'>(todoSavedDefaults.value.sortDir)
+const filterTags = ref<string[]>([...todoSavedDefaults.value.tags])
 const showSortFilter = ref(false)
+
+{
+  const saved = todoSavedDefaults.value
+  filter.value = saved.status
+}
 
 const todoTags = computed(() => {
   const seen = new Set<string>()
@@ -112,11 +145,30 @@ function toggleFilterTag(tag: string) {
 }
 
 const activeFilterCount = computed(() => {
-  let count = filterTags.value.length
-  if (filter.value !== 'all') count++
-  if (sortBy.value !== 'priority') count++
+  const d = todoSavedDefaults.value
+  let count = 0
+  if (filter.value !== d.status) count++
+  if (sortBy.value !== d.sortBy) count++
+  if (sortDir.value !== d.sortDir) count++
+  const dTagSet = new Set(d.tags)
+  const curTagSet = new Set(filterTags.value)
+  if (curTagSet.size !== dTagSet.size || [...curTagSet].some((t) => !dTagSet.has(t))) count++
   return count
 })
+
+const canMakeDefaultTodos = computed(() => activeFilterCount.value > 0)
+
+function makeDefaultTodos() {
+  const defaults: TodoFilterDefaults = {
+    status: filter.value,
+    sortBy: sortBy.value,
+    sortDir: sortDir.value,
+    tags: [...filterTags.value],
+  }
+  localStorage.setItem(TODOS_FILTER_KEY, JSON.stringify(defaults))
+  todoSavedDefaults.value = defaults
+  void selectionChanged()
+}
 
 const processedTodos = computed(() => {
   let list = todos.value.filter((t) => !t.archived_at)
@@ -414,6 +466,12 @@ async function deleteAndClose(t: Todo) {
 
       <div class="flex-1" />
 
+      <button
+        v-if="canMakeDefaultTodos"
+        class="text-[11px] text-primary-400 hover:text-primary-300 whitespace-nowrap min-h-[44px] px-1"
+        @click="makeDefaultTodos"
+      >Make default</button>
+
       <!-- Filter -->
       <div class="relative">
         <button
@@ -495,7 +553,7 @@ async function deleteAndClose(t: Todo) {
           <button
             v-if="activeFilterCount > 0"
             class="w-full text-[11px] text-(--ui-text-dimmed) hover:text-(--ui-text-muted) pt-1 border-t border-(--ui-border)/50"
-            @click="filter = 'all'; sortBy = 'priority'; sortDir = 'asc'; filterTags = []; selectionChanged()"
+            @click="filter = todoSavedDefaults.status; sortBy = todoSavedDefaults.sortBy; sortDir = todoSavedDefaults.sortDir; filterTags = [...todoSavedDefaults.tags]; selectionChanged()"
           >Reset all filters</button>
         </div>
       </div>

@@ -5,6 +5,7 @@ import type { ImageNoteRow, Scribble, Todo, VoiceNoteRow } from '~/types/databas
 
 export interface VoiceNote {
   id: string
+  title: string
   blob: Blob
   mimeType: string
   duration: number
@@ -127,6 +128,7 @@ async function runBlobMigration(db: ReturnType<typeof useDatabase>): Promise<voi
     await getBlobAdapter().put(v.id, bytes)
     await db.createVoiceNote({
       id: v.id,
+      title: '',
       mime_type: v.mimeType,
       duration: v.duration,
       created_at: v.created_at,
@@ -155,6 +157,7 @@ async function hydrateVoice(row: VoiceNoteRow): Promise<VoiceNote> {
   const blob = bytes ? new Blob([bytes.slice()], { type: row.mime_type }) : new Blob()
   return {
     id: row.id,
+    title: row.title ?? '',
     blob,
     mimeType: row.mime_type,
     duration: row.duration,
@@ -227,6 +230,7 @@ export function useJotsStore() {
     await getBlobAdapter().put(note.id, bytes)
     await db.createVoiceNote({
       id: note.id,
+      title: note.title,
       mime_type: note.mimeType,
       duration: note.duration,
       created_at: note.created_at,
