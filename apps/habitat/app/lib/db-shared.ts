@@ -964,6 +964,20 @@ export async function deleteAllScribbles(db: DbAdapter): Promise<null> {
   return null
 }
 
+export async function getRecentSharedScribbles(
+  db: DbAdapter,
+  daysBack: number = 7,
+): Promise<Scribble[]> {
+  const cutoff = new Date(Date.now() - daysBack * 86_400_000).toISOString()
+  const rows = await db.queryAll<Record<string, unknown>>(
+    `SELECT * FROM scribbles
+     WHERE tags LIKE '%"shared/%' AND created_at >= ?
+     ORDER BY created_at DESC`,
+    [cutoff],
+  )
+  return rows.map(parseScribble)
+}
+
 // ─── Reminders ────────────────────────────────────────────────────────────────
 
 export async function getAllReminders(db: DbAdapter): Promise<Reminder[]> {
@@ -1914,6 +1928,8 @@ export async function dispatch(db: DbAdapter, req: WorkerRequestBody): Promise<u
       return deleteScribble(db, req.payload.id)
     case 'DELETE_ALL_SCRIBBLES':
       return deleteAllScribbles(db)
+    case 'GET_RECENT_SHARED_SCRIBBLES':
+      return getRecentSharedScribbles(db, req.payload.days_back)
     case 'GET_ALL_REMINDERS':
       return getAllReminders(db)
     case 'GET_REMINDERS_FOR_HABIT':

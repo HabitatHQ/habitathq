@@ -256,5 +256,7 @@ export function useDatabase() {
       sendToWorker({ type: 'DELETE_IMAGE_NOTE', payload: { id } }),
     deleteAllMediaNotes: (): Promise<null> =>
       sendToWorker({ type: 'DELETE_ALL_MEDIA_NOTES', payload: null }),
+    getRecentSharedScribbles: (daysBack: number = 7): Promise<Scribble[]> =>
+      sendToWorker({ type: 'GET_RECENT_SHARED_SCRIBBLES', payload: { days_back: daysBack } }),
   }
 }

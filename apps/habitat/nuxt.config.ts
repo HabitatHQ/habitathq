@@ -118,6 +118,15 @@ export default defineNuxtConfig({
             label: 'Habitat on desktop',
           },
         ],
+        share_target: {
+          action: `${appBaseURL}_share`,
+          method: 'GET',
+          params: {
+            title: 'title',
+            text: 'text',
+            url: 'url',
+          },
+        },
         shortcuts: [
           {
             name: 'Today',
@@ -173,6 +182,11 @@ export default defineNuxtConfig({
     },
     optimizeDeps: {
       exclude: ['@sqlite.org/sqlite-wasm'], // prevents esbuild from breaking WASM dynamic import
+    },
+    build: {
+      rollupOptions: {
+        external: ['@capgo/capacitor-share-target'],
+      },
     },
     worker: {
       format: 'es', // worker bundle must be ES module for sqlite-wasm's dynamic imports

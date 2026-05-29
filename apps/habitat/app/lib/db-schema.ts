@@ -657,7 +657,14 @@ export const SCHEMA_CONFIG: SchemaConfig = {
         filename TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
       )`,
     ],
-    20: [`ALTER TABLE voice_notes ADD COLUMN title TEXT NOT NULL DEFAULT ''`],
+    20: [
+      async (exec: MigrationExec) => {
+        const cols = await exec<{ name: string }>("PRAGMA table_info('voice_notes')")
+        if (!cols.some((c) => c.name === 'title')) {
+          await exec("ALTER TABLE voice_notes ADD COLUMN title TEXT NOT NULL DEFAULT ''")
+        }
+      },
+    ],
   },
   seeds: SEEDS,
 }
