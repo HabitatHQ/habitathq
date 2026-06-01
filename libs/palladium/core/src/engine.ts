@@ -32,7 +32,7 @@ export interface ChangesLocal<S extends SchemaMap = SchemaMap> {
   readonly touchedTables: ReadonlyArray<string>;
 }
 
-export interface EngineEvents {
+export interface EngineEvents<S extends SchemaMap = SchemaMap> {
   "sync:status": SyncStatus;
   error: Error;
   /**
@@ -41,7 +41,7 @@ export interface EngineEvents {
    * transport, audit logs, etc.) get the full batch with the original engine
    * `Op` shape — wire-format conversion is the subscriber's job.
    */
-  "changes:local": ChangesLocal;
+  "changes:local": ChangesLocal<S>;
 }
 
 export interface PalladiumEngineOptions {
@@ -58,7 +58,7 @@ export interface PalladiumEngineOptions {
 export class PalladiumEngine<S extends SchemaMap> {
   readonly adapter: StorageAdapter;
   readonly nodeId: string;
-  protected readonly emitter = new EventEmitter<EngineEvents>();
+  protected readonly emitter = new EventEmitter<EngineEvents<S>>();
   protected status: SyncStatus = "idle";
   readonly #liveQueries = new Set<LiveQuery>();
   readonly #blobRegistry = new BlobRegistry();
@@ -161,7 +161,7 @@ export class PalladiumEngine<S extends SchemaMap> {
 
     if (!this.#suppressLocalEmit && ops.length > 0) {
       this.emitter.emit("changes:local", {
-        ops: ops as ReadonlyArray<Op<SchemaMap>>,
+        ops,
         touchedTables: [...touchedTables],
       });
     }
@@ -239,9 +239,9 @@ export class PalladiumEngine<S extends SchemaMap> {
   }
 
   /** Subscribe to engine events. */
-  on<K extends keyof EngineEvents>(
+  on<K extends keyof EngineEvents<S>>(
     event: K,
-    listener: (payload: EngineEvents[K]) => void,
+    listener: (payload: EngineEvents<S>[K]) => void,
   ): () => void {
     // Cast through unknown to bridge the Listener<T> conditional type.
     return this.emitter.on(event, listener as unknown as Parameters<typeof this.emitter.on<K>>[1]);

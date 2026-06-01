@@ -14,29 +14,29 @@
  */
 
 /** A row type keyed by table name. Each value is a row type (plain object). */
-export type SchemaMap = object;
+export type SchemaMap = Record<string, Record<string, unknown>>;
 
-export type InsertOp<S extends SchemaMap, K extends keyof S> = {
+export type InsertOp<S extends SchemaMap, K extends keyof S & string> = {
   readonly type: "insert";
   readonly table: K;
   readonly id: string;
   readonly data: S[K];
 };
 
-export type UpdateOp<S extends SchemaMap, K extends keyof S> = {
+export type UpdateOp<S extends SchemaMap, K extends keyof S & string> = {
   readonly type: "update";
   readonly table: K;
   readonly id: string;
   readonly patch: Partial<S[K]>;
 };
 
-export type DeleteOp<S extends SchemaMap, K extends keyof S> = {
+export type DeleteOp<S extends SchemaMap, K extends keyof S & string> = {
   readonly type: "delete";
   readonly table: K;
   readonly id: string;
 };
 
-export type Op<S extends SchemaMap = SchemaMap, K extends keyof S = keyof S> =
+export type Op<S extends SchemaMap = SchemaMap, K extends keyof S & string = keyof S & string> =
   | InsertOp<S, K>
   | UpdateOp<S, K>
   | DeleteOp<S, K>;
