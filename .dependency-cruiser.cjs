@@ -105,6 +105,8 @@ module.exports = {
         'libs/palladium/example-',
         'libs/palladium/e2e',
         'libs/palladium/crates',
+        'android/app/src/main/assets',
+        'ios/App/App/public',
       ],
     },
     includeOnly: '^(apps|libs)/',

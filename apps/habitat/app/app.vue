@@ -8,6 +8,7 @@ const { scheduleAll, registerNativeListeners, requestAllPermissions, refreshAllS
   useNotifications()
 const { settings } = useAppSettings()
 const { syncStatusBar } = useStatusBar()
+const { checkPendingShares } = useShareIngest()
 
 // ── Apply theme + reduce-motion class to <html> reactively ───────────────────
 onMounted(() => {
@@ -37,9 +38,11 @@ onMounted(async () => {
     if (document.visibilityState === 'visible') {
       refreshAllStatuses().catch((e) => logError('[refreshAllStatuses]', e))
       scheduleAll().catch((e) => logError('[scheduleAll]', e))
+      checkPendingShares().catch((e) => logError('[checkPendingShares]', e))
     }
   })
   registerNativeListeners().catch((e) => logError('[registerNativeListeners]', e))
+  checkPendingShares().catch((e) => logError('[checkPendingShares]', e))
 
   // ── 1b. First-launch permission prompt (native only) ────────────────────
   if (isNative && !localStorage.getItem(ONBOARDED_KEY)) {

@@ -393,6 +393,7 @@ export type WorkerRequest =
     }
   | { id: string; type: 'DELETE_IMAGE_NOTE'; payload: { id: string } }
   | { id: string; type: 'DELETE_ALL_MEDIA_NOTES'; payload: null }
+  | { id: string; type: 'GET_RECENT_SHARED_SCRIBBLES'; payload: { days_back: number } }
 
 export type TagSource = 'habit' | 'todo' | 'bored' | 'scribble'
 

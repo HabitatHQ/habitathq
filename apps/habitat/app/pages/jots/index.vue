@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ImageNote, JotItem, VoiceNote } from '~/composables/useJotsStore'
+import type { Scribble } from '~/types/database'
 import { toLocalDateKey } from '~/utils/format'
 import type { JotSection } from '~/utils/jots-helpers'
 import { groupJotsByDate, groupJotsByTags } from '~/utils/jots-helpers'
@@ -9,6 +10,30 @@ const { settings: appSettings } = useAppSettings()
 const { selectionChanged } = useHaptics()
 const store = useJotsStore()
 const { timeline, todoByJotId, todos } = store
+const db = useDatabase()
+
+// ─── Recently bookmarked ──────────────────────────────────────────────────────
+
+const recentShared = ref<Scribble[]>([])
+const dismissedIds = ref<Set<string>>(new Set())
+
+const visibleBookmarks = computed(() =>
+  recentShared.value.filter((s) => !dismissedIds.value.has(s.id)),
+)
+
+async function loadRecentShared() {
+  recentShared.value = await db.getRecentSharedScribbles(7)
+}
+
+function dismissBookmark(id: string) {
+  dismissedIds.value = new Set([...dismissedIds.value, id])
+}
+
+function getBookmarkIcon(scribble: Scribble): string {
+  if (scribble.tags.some((t) => t === 'shared/url')) return 'link'
+  if (scribble.tags.some((t) => t === 'shared/image')) return 'photo'
+  return 'document-text'
+}
 
 // ─── View mode ────────────────────────────────────────────────────────────────
 
@@ -244,6 +269,7 @@ function onRingSelect(type: 'text' | 'voice' | 'image') {
 onMounted(async () => {
   gridView.value = localStorage.getItem('jots-view') === 'grid'
   await store.loadAll()
+  await loadRecentShared()
 })
 
 watch(gridView, (v) => localStorage.setItem('jots-view', v ? 'grid' : 'list'))
@@ -387,6 +413,40 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <!-- Recently bookmarked -->
+    <section v-if="visibleBookmarks.length > 0" class="space-y-2">
+      <h3 class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed)">Recently bookmarked</h3>
+      <div class="flex gap-2.5 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-none">
+        <div
+          v-for="item in visibleBookmarks"
+          :key="item.id"
+          class="flex-shrink-0 w-56 p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border) cursor-pointer active:opacity-70 transition-opacity"
+          @click="navigateTo(`/jots/edit-${item.id}`)"
+        >
+          <div class="flex items-start gap-2">
+            <div class="w-6 h-6 rounded-full bg-primary-500/10 flex items-center justify-center mt-0.5 shrink-0">
+              <AppIcon :name="getBookmarkIcon(item)" class="w-3.5 h-3.5 text-primary-400" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="text-xs font-medium text-(--ui-text) line-clamp-2 leading-snug">{{ item.title || item.content.slice(0, 50) || 'Untitled' }}</p>
+              <p class="text-[10px] text-(--ui-text-dimmed) mt-1">{{ timeAgo(item.created_at) }}</p>
+            </div>
+            <button
+              class="shrink-0 p-1 rounded-lg text-(--ui-text-dimmed) hover:text-(--ui-text) min-h-[44px] min-w-[44px] flex items-center justify-center -mr-1 -mt-1"
+              aria-label="Dismiss from recently bookmarked"
+              @click.stop="dismissBookmark(item.id)"
+            >
+              <AppIcon name="x-mark" class="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <p
+            v-if="item.annotations['source_url']"
+            class="text-[10px] text-primary-400/70 mt-1.5 truncate"
+          >{{ item.annotations['source_url'] }}</p>
+        </div>
+      </div>
+    </section>
+
     <!-- Empty state — full ring inline (no jots at all) -->
     <section
       v-if="timeline.length === 0"
@@ -430,7 +490,10 @@ onUnmounted(() => {
                 </div>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-start justify-between gap-2">
-                    <p class="font-medium text-sm text-(--ui-text) leading-snug">{{ previewTitle(item.data) }}</p>
+                    <p
+                      class="text-sm text-(--ui-text) leading-snug"
+                      :class="{ 'font-medium': item.data.title }"
+                    >{{ previewTitle(item.data) }}</p>
                     <span class="text-[11px] text-slate-600 shrink-0 mt-0.5">{{ timeAgo(item.data.updated_at) }}</span>
                   </div>
                   <p v-if="previewBody(item.data)" class="text-xs text-(--ui-text-dimmed) mt-0.5 line-clamp-2">{{ previewBody(item.data) }}</p>
@@ -561,7 +624,10 @@ onUnmounted(() => {
               <div class="flex">
                 <div class="w-[3px] shrink-0 rounded-l-2xl bg-gradient-to-b from-amber-500/80 to-amber-600/30" />
                 <div class="p-3 flex flex-col gap-2 min-w-0 flex-1">
-                  <p class="font-semibold text-sm text-(--ui-text) leading-snug line-clamp-2">{{ previewTitle(item.data) }}</p>
+                  <p
+                    class="text-sm text-(--ui-text) leading-snug line-clamp-2"
+                    :class="{ 'font-semibold': item.data.title }"
+                  >{{ previewTitle(item.data) }}</p>
                   <p v-if="gridBody(item.data)" class="text-xs text-(--ui-text-dimmed) line-clamp-6 leading-relaxed">{{ gridBody(item.data) }}</p>
                   <div class="flex items-end justify-between gap-1 mt-auto pt-1">
                     <div class="flex flex-wrap gap-1 min-w-0">

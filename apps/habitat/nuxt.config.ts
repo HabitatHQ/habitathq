@@ -118,6 +118,15 @@ export default defineNuxtConfig({
             label: 'Habitat on desktop',
           },
         ],
+        share_target: {
+          action: `${appBaseURL}_share`,
+          method: 'GET',
+          params: {
+            title: 'title',
+            text: 'text',
+            url: 'url',
+          },
+        },
         shortcuts: [
           {
             name: 'Today',
