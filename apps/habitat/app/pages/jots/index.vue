@@ -490,7 +490,10 @@ onUnmounted(() => {
                 </div>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-start justify-between gap-2">
-                    <p class="font-medium text-sm text-(--ui-text) leading-snug">{{ previewTitle(item.data) }}</p>
+                    <p
+                      class="text-sm text-(--ui-text) leading-snug"
+                      :class="{ 'font-medium': item.data.title }"
+                    >{{ previewTitle(item.data) }}</p>
                     <span class="text-[11px] text-slate-600 shrink-0 mt-0.5">{{ timeAgo(item.data.updated_at) }}</span>
                   </div>
                   <p v-if="previewBody(item.data)" class="text-xs text-(--ui-text-dimmed) mt-0.5 line-clamp-2">{{ previewBody(item.data) }}</p>
@@ -621,7 +624,10 @@ onUnmounted(() => {
               <div class="flex">
                 <div class="w-[3px] shrink-0 rounded-l-2xl bg-gradient-to-b from-amber-500/80 to-amber-600/30" />
                 <div class="p-3 flex flex-col gap-2 min-w-0 flex-1">
-                  <p class="font-semibold text-sm text-(--ui-text) leading-snug line-clamp-2">{{ previewTitle(item.data) }}</p>
+                  <p
+                    class="text-sm text-(--ui-text) leading-snug line-clamp-2"
+                    :class="{ 'font-semibold': item.data.title }"
+                  >{{ previewTitle(item.data) }}</p>
                   <p v-if="gridBody(item.data)" class="text-xs text-(--ui-text-dimmed) line-clamp-6 leading-relaxed">{{ gridBody(item.data) }}</p>
                   <div class="flex items-end justify-between gap-1 mt-auto pt-1">
                     <div class="flex flex-wrap gap-1 min-w-0">

@@ -3,8 +3,6 @@ import { getBlobAdapter } from '~/composables/useJotsStore'
 import type { Scribble } from '~/types/database'
 import { getShareTag, isShareTag } from '~/utils/share-helpers'
 
-export { getShareTag, isShareTag }
-
 export interface SharedItem {
   type: 'url' | 'text' | 'image'
   url?: string | undefined
@@ -56,11 +54,9 @@ export function useShareIngest() {
   }
 
   async function ingestText(item: SharedItem): Promise<Scribble> {
-    const text = item.text || ''
-    const title = item.title || text.slice(0, 50) || 'Shared clipping'
     return db.createScribble({
-      title,
-      content: text,
+      title: item.title ?? '',
+      content: item.text ?? '',
       tags: [getShareTag('text')],
       annotations: {},
     })
@@ -100,63 +96,30 @@ export function useShareIngest() {
   async function checkPendingShares(): Promise<void> {
     if (!import.meta.client) return
 
-    if (isNative.value) {
-      await checkNativeShares()
-    } else {
-      checkPwaShares()
-    }
-  }
-
-  async function checkNativeShares(): Promise<void> {
-    try {
-      const { CapacitorShareTarget } = await import('@capgo/capacitor-share-target')
-      const result = await CapacitorShareTarget.getShareData()
-      if (result?.items && result.items.length > 0) {
-        const items: SharedItem[] = result.items.map((i) => ({
-          type: (i.type as SharedItem['type']) || 'text',
-          url: i.url,
-          text: i.text,
-          title: i.title,
-          path: i.uri || i.path,
-          filename: i.name || i.filename,
-        }))
-        await ingestAll(items)
-        await CapacitorShareTarget.clearShareData()
-      }
-    } catch {
-      // Plugin not available or no shared data — expected on web
-      await checkAppGroupShares()
-    }
-  }
-
-  async function checkAppGroupShares(): Promise<void> {
+    // PWA shares land at /_share via the manifest share_target — nothing to poll.
+    // Android shares are routed by MainActivity directly to /_share — nothing to poll.
+    // iOS share-extension drops items in the App Group UserDefaults, mirrored to
+    // Capacitor Preferences under "share-target-data" — drain that here.
+    if (!isNative.value) return
     if (!Capacitor.isNativePlatform()) return
-    // Fallback: read directly from App Group UserDefaults (iOS) via Preferences
-    try {
-      const { Preferences } = await import('@capacitor/preferences')
-      const { value } = await Preferences.get({ key: 'share-target-data' })
-      if (!value) return
-      const parsed = JSON.parse(value) as Array<Record<string, string | undefined>>
-      const items: SharedItem[] = parsed.map((i) => ({
-        type: (i['type'] as SharedItem['type']) || 'text',
-        url: i['url'],
-        text: i['text'],
-        title: i['title'],
-        path: i['path'],
-        filename: i['filename'],
-      }))
-      if (items.length > 0) {
-        await ingestAll(items)
-        await Preferences.remove({ key: 'share-target-data' })
-      }
-    } catch {
-      // Preferences not available
-    }
-  }
 
-  function checkPwaShares(): void {
-    // PWA shares are handled by the /_share page route
-    // This is a no-op here; the page handles ingest on mount
+    const { Preferences } = await import('@capacitor/preferences')
+    const { value } = await Preferences.get({ key: 'share-target-data' })
+    if (!value) return
+
+    const parsed = JSON.parse(value) as Array<Record<string, string | undefined>>
+    const items: SharedItem[] = parsed.map((i) => ({
+      type: (i['type'] as SharedItem['type']) || 'text',
+      url: i['url'],
+      text: i['text'],
+      title: i['title'],
+      path: i['path'],
+      filename: i['filename'],
+    }))
+    if (items.length > 0) {
+      await ingestAll(items)
+      await Preferences.remove({ key: 'share-target-data' })
+    }
   }
 
   async function ingestFromPwaParams(params: {

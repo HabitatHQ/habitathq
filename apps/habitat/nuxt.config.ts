@@ -183,11 +183,6 @@ export default defineNuxtConfig({
     optimizeDeps: {
       exclude: ['@sqlite.org/sqlite-wasm'], // prevents esbuild from breaking WASM dynamic import
     },
-    build: {
-      rollupOptions: {
-        external: ['@capgo/capacitor-share-target'],
-      },
-    },
     worker: {
       format: 'es', // worker bundle must be ES module for sqlite-wasm's dynamic imports
     },

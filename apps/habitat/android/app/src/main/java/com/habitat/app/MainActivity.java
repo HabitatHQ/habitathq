@@ -25,12 +25,10 @@ public class MainActivity extends BridgeActivity {
     public void onResume() {
         super.onResume();
         if (pendingShareUrl != null) {
-            final String url = pendingShareUrl;
+            final String path = pendingShareUrl;
             pendingShareUrl = null;
             getBridge().getWebView().postDelayed(() -> {
-                getBridge().getWebView().evaluateJavascript(
-                    "window.location.href = '" + url + "';", null
-                );
+                getBridge().getWebView().loadUrl("https://localhost" + path);
             }, 600);
         }
     }

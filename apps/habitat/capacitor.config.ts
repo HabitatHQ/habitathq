@@ -23,9 +23,6 @@ const config: CapacitorConfig = {
       smallIcon: 'ic_notification',
       iconColor: '#3b82f6',
     },
-    CapacitorShareTarget: {
-      appGroupId: 'group.com.habitat.app',
-    },
   },
 }
 
