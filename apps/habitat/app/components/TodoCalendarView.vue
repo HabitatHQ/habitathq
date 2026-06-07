@@ -516,97 +516,65 @@ function onDayClick(date: string) {
 
     </div>
 
-    <!-- ── Day detail panel (bottom sheet) ────────────────────────────────── -->
-    <Transition name="panel-up">
-      <div v-if="selectedDay" class="fixed inset-0 z-50">
-        <div class="modal-backdrop absolute inset-0 bg-black/50 backdrop-blur-sm" @click="selectedDay = null" />
-        <div class="absolute inset-x-0 bottom-0 bg-(--ui-bg-muted) border-t border-(--ui-border-accented) rounded-t-2xl max-h-[72dvh] flex flex-col">
+    <!-- ── Day detail sheet ─────────────────────────────────────────────────── -->
+    <AppBottomSheet
+      :model-value="selectedDay !== null"
+      :title="selectedDayLabel"
+      @update:model-value="(v: boolean) => { if (!v) selectedDay = null }"
+    >
+      <template #title>
+        <div class="flex items-center gap-2 w-full">
+          <h3 class="font-semibold text-(--ui-text) flex-1 min-w-0 truncate">{{ selectedDayLabel }}</h3>
+          <UButton
+            size="xs"
+            variant="soft"
+            color="primary"
+            :icon="resolveIcon('plus')"
+            @click="openDayCreate"
+          >Add</UButton>
+        </div>
+      </template>
 
-          <!-- Drag handle -->
-          <div class="flex justify-center pt-2.5 pb-0 shrink-0">
-            <div class="w-10 h-1 rounded-full bg-(--ui-bg-accented)" />
-          </div>
-
-          <!-- Panel header -->
-          <div class="flex items-center justify-between px-4 py-3 border-b border-(--ui-border)/60 shrink-0">
-            <h3 class="font-semibold text-(--ui-text)">{{ selectedDayLabel }}</h3>
-            <div class="flex items-center gap-2">
-              <UButton
-                size="xs"
-                variant="soft"
-                color="primary"
-                :icon="resolveIcon('plus')"
-                @click="openDayCreate"
-              >Add</UButton>
-              <button
-                type="button"
-                class="icon-btn hover:bg-(--ui-bg-elevated) text-(--ui-text-dimmed)"
-                aria-label="Close day panel"
-                @click="selectedDay = null"
-              ><AppIcon name="x-mark" class="w-4 h-4" /></button>
+      <!-- Todo list (full-bleed dividers within the sheet's padding) -->
+      <div class="-mx-5 divide-y divide-(--ui-border)/50">
+        <div
+          v-for="todo in selectedDayTodos"
+          :key="todo.id"
+          class="flex items-start gap-3 px-5 py-3"
+        >
+          <div class="w-1 self-stretch rounded-full shrink-0 mt-0.5" :class="priorityBarClass(todo.priority)" />
+          <button
+            class="mt-0.5 shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors"
+            :class="todo.is_done ? 'border-green-500 bg-green-500' : 'border-(--ui-border-accented) hover:border-primary-400'"
+            @click="emit('toggle', todo)"
+          >
+            <AppIcon v-if="todo.is_done" name="check" class="w-3 h-3 text-white" />
+          </button>
+          <div class="flex-1 min-w-0">
+            <p
+              class="text-sm font-medium leading-snug"
+              :class="todo.is_done ? 'line-through text-(--ui-text-dimmed)' : ''"
+            >{{ todo.title }}</p>
+            <div v-if="todo.description || todo.estimated_minutes" class="flex items-center gap-2 mt-0.5">
+              <p v-if="todo.description" class="text-xs text-(--ui-text-dimmed) truncate">{{ todo.description }}</p>
+              <span v-if="todo.estimated_minutes" class="text-xs text-(--ui-text-dimmed) shrink-0">{{ todo.estimated_minutes }}m</span>
             </div>
           </div>
+          <UButton variant="ghost" color="neutral" size="xs" :icon="resolveIcon('pencil')" @click="emit('edit', todo)" />
+        </div>
 
-          <!-- Todo list -->
-          <div class="flex-1 overflow-y-auto overscroll-contain divide-y divide-(--ui-border)/50">
-            <div
-              v-for="todo in selectedDayTodos"
-              :key="todo.id"
-              class="flex items-start gap-3 px-4 py-3"
-            >
-              <div class="w-1 self-stretch rounded-full shrink-0 mt-0.5" :class="priorityBarClass(todo.priority)" />
-              <button
-                class="mt-0.5 shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors"
-                :class="todo.is_done ? 'border-green-500 bg-green-500' : 'border-(--ui-border-accented) hover:border-primary-400'"
-                @click="emit('toggle', todo)"
-              >
-                <AppIcon v-if="todo.is_done" name="check" class="w-3 h-3 text-white" />
-              </button>
-              <div class="flex-1 min-w-0">
-                <p
-                  class="text-sm font-medium leading-snug"
-                  :class="todo.is_done ? 'line-through text-(--ui-text-dimmed)' : ''"
-                >{{ todo.title }}</p>
-                <div v-if="todo.description || todo.estimated_minutes" class="flex items-center gap-2 mt-0.5">
-                  <p v-if="todo.description" class="text-xs text-(--ui-text-dimmed) truncate">{{ todo.description }}</p>
-                  <span v-if="todo.estimated_minutes" class="text-xs text-(--ui-text-dimmed) shrink-0">{{ todo.estimated_minutes }}m</span>
-                </div>
-              </div>
-              <UButton variant="ghost" color="neutral" size="xs" :icon="resolveIcon('pencil')" @click="emit('edit', todo)" />
-            </div>
-
-            <!-- Empty state -->
-            <div v-if="selectedDayTodos.length === 0" class="flex flex-col items-center gap-3 py-10 text-(--ui-text-dimmed)">
-              <p class="text-sm">No TODOs for this day.</p>
-              <UButton size="sm" variant="soft" color="primary" :icon="resolveIcon('plus')" @click="openDayCreate">
-                Add one
-              </UButton>
-            </div>
-          </div>
-
-          <!-- Safe-area spacer -->
-          <div class="safe-area-bottom shrink-0" />
+        <!-- Empty state -->
+        <div v-if="selectedDayTodos.length === 0" class="flex flex-col items-center gap-3 py-10 text-(--ui-text-dimmed)">
+          <p class="text-sm">No TODOs for this day.</p>
+          <UButton size="sm" variant="soft" color="primary" :icon="resolveIcon('plus')" @click="openDayCreate">
+            Add one
+          </UButton>
         </div>
       </div>
-    </Transition>
+    </AppBottomSheet>
   </div>
 </template>
 
 <style scoped>
-.panel-up-enter-active,
-.panel-up-leave-active {
-  transition: transform 0.24s ease;
-}
-.panel-up-enter-active .absolute.inset-0,
-.panel-up-leave-active .absolute.inset-0 {
-  transition: opacity 0.24s ease;
-}
-.panel-up-enter-from .absolute.inset-x-0,
-.panel-up-leave-to .absolute.inset-x-0 {
-  transform: translateY(100%);
-}
-.panel-up-enter-from .absolute.inset-0,
-.panel-up-leave-to .absolute.inset-0 {
-  opacity: 0;
-}
+/* (day sheet now uses the shared AppBottomSheet) */
 </style>

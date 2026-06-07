@@ -45,9 +45,21 @@ const selectedIndex = computed(() => {
 const containerRef = ref<HTMLElement | null>(null)
 const ITEM_HEIGHT = 52 // px per row — slightly taller for touch comfort
 
+// Live scroll position (px) — drives the continuous 3D wheel transform.
+const scrollTop = ref(0)
+
 let isScrolling = false
 let scrollTimeout: ReturnType<typeof setTimeout> | null = null
+let rafId = 0
 let lastSnappedIndex = -1
+
+// Respect reduced-motion: fall back to a flat list (no 3D tilt).
+function motionReduced(): boolean {
+  if (!import.meta.client) return true
+  if (document.documentElement.classList.contains('reduce-motion')) return true
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+const flat = ref(false)
 
 // Scroll to selected value on mount and when modelValue changes externally
 function scrollToIndex(index: number, behavior: ScrollBehavior = 'auto') {
@@ -56,7 +68,6 @@ function scrollToIndex(index: number, behavior: ScrollBehavior = 'auto') {
   const targetTop = index * ITEM_HEIGHT
   isScrolling = true
   el.scrollTo({ top: targetTop, behavior })
-  // Release scroll lock after animation
   if (scrollTimeout) clearTimeout(scrollTimeout)
   scrollTimeout = setTimeout(
     () => {
@@ -67,11 +78,16 @@ function scrollToIndex(index: number, behavior: ScrollBehavior = 'auto') {
 }
 
 function onScroll() {
-  if (isScrolling) return
   const el = containerRef.value
   if (!el) return
-  const scrollTop = el.scrollTop
-  const index = Math.round(scrollTop / ITEM_HEIGHT)
+  // Track position for the 3D transform (rAF-throttled to one update per frame).
+  if (rafId) cancelAnimationFrame(rafId)
+  rafId = requestAnimationFrame(() => {
+    scrollTop.value = el.scrollTop
+  })
+
+  if (isScrolling) return
+  const index = Math.round(el.scrollTop / ITEM_HEIGHT)
   const clamped = Math.max(0, Math.min(index, options.value.length - 1))
   if (clamped !== lastSnappedIndex) {
     lastSnappedIndex = clamped
@@ -90,20 +106,22 @@ function formatValue(v: number): string {
   return v.toFixed(2)
 }
 
-// Opacity for items at distance from center
-function itemOpacity(index: number): number {
-  const dist = Math.abs(index - selectedIndex.value)
-  if (dist === 0) return 1
-  if (dist === 1) return 0.45
-  if (dist === 2) return 0.22
-  return 0.1
-}
-
-function itemScale(index: number): string {
-  const dist = Math.abs(index - selectedIndex.value)
-  if (dist === 0) return 'scale(1.05)'
-  if (dist === 1) return 'scale(0.92)'
-  return 'scale(0.85)'
+// Continuous iOS-style wheel transform based on distance from the visual centre.
+function itemStyle(i: number): Record<string, string> {
+  const center = scrollTop.value / ITEM_HEIGHT
+  const dist = i - center
+  const ad = Math.abs(dist)
+  const opacity = String(Math.max(0.06, 1 - ad * 0.26))
+  const scale = Math.max(0.78, 1 - ad * 0.05)
+  // Far rows (barely visible) and reduced-motion skip the heavy 3D rotation.
+  if (flat.value || ad > 6) {
+    return { opacity, transform: `scale(${scale})` }
+  }
+  const angle = Math.max(-72, Math.min(72, -dist * 22))
+  return {
+    opacity,
+    transform: `translateZ(${(-ad * 8).toFixed(1)}px) rotateX(${angle.toFixed(1)}deg) scale(${scale})`,
+  }
 }
 
 // Click on an item to select it directly
@@ -118,10 +136,17 @@ function selectItem(index: number) {
 }
 
 onMounted(() => {
+  flat.value = motionReduced()
   nextTick(() => {
     lastSnappedIndex = selectedIndex.value
     scrollToIndex(selectedIndex.value)
+    scrollTop.value = selectedIndex.value * ITEM_HEIGHT
   })
+})
+
+onBeforeUnmount(() => {
+  if (rafId) cancelAnimationFrame(rafId)
+  if (scrollTimeout) clearTimeout(scrollTimeout)
 })
 
 watch(
@@ -137,13 +162,9 @@ watch(
 </script>
 
 <template>
-  <div class="scroll-picker" :style="{ '--item-h': ITEM_HEIGHT + 'px', '--visible': visibleItems }">
+  <div class="scroll-picker" :style="{ '--item-h': `${ITEM_HEIGHT}px`, '--visible': visibleItems }">
     <!-- Scroll container -->
-    <div
-      ref="containerRef"
-      class="scroll-picker__track"
-      @scroll.passive="onScroll"
-    >
+    <div ref="containerRef" class="scroll-picker__track" @scroll.passive="onScroll">
       <!-- Top spacer -->
       <div class="scroll-picker__spacer" />
 
@@ -153,10 +174,7 @@ watch(
         :key="val"
         class="scroll-picker__item"
         :class="{ 'scroll-picker__item--selected': i === selectedIndex }"
-        :style="{
-          opacity: itemOpacity(i),
-          transform: itemScale(i),
-        }"
+        :style="itemStyle(i)"
         @click="selectItem(i)"
       >
         <span class="scroll-picker__value">{{ formatValue(val) }}</span>
@@ -191,6 +209,13 @@ watch(
   overflow-y: auto;
   scroll-snap-type: y mandatory;
   -webkit-overflow-scrolling: touch;
+  /* Constrain the gesture to vertical so a diagonal swipe never drags the sheet
+     sideways, and stop overscroll from chaining to the page behind. */
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+  /* 3D wheel */
+  perspective: 820px;
+  transform-style: preserve-3d;
   /* Hide scrollbar */
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -214,8 +239,8 @@ watch(
   justify-content: center;
   gap: 6px;
   scroll-snap-align: center;
-  transition: opacity 0.12s ease, transform 0.12s ease;
-  will-change: opacity, transform;
+  backface-visibility: hidden;
+  transform-origin: center center;
   cursor: pointer;
 }
 
@@ -225,7 +250,7 @@ watch(
   color: var(--ui-text-dimmed);
   font-variant-numeric: tabular-nums;
   line-height: 1;
-  transition: font-size 0.15s ease, color 0.15s ease, font-weight 0.1s ease;
+  transition: color 0.15s ease, font-weight 0.1s ease;
 }
 
 .scroll-picker__item--selected .scroll-picker__value {
