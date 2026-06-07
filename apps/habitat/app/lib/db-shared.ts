@@ -24,6 +24,7 @@ import {
   parseScribble,
   parseTodo,
 } from '~/lib/db-parsers'
+import { computeStreak, type StreakResult } from '~/lib/streak-engine'
 import type {
   BoredActivity,
   BoredCategory,
@@ -273,70 +274,57 @@ export async function getAllCompletions(db: DbAdapter): Promise<Completion[]> {
 
 // ─── Streaks ──────────────────────────────────────────────────────────────────
 
-function calcStreaks(datesDesc: string[]): { current: number; longest: number } {
-  if (datesDesc.length === 0) return { current: 0, longest: 0 }
-  const today = new Date().toISOString().slice(0, 10)
-  let current = 0
-  let check = today
-  for (const date of datesDesc) {
-    if (date === check) {
-      current++
-      const d = new Date(check)
-      d.setDate(d.getDate() - 1)
-      check = d.toISOString().slice(0, 10)
-    } else if (date < check) {
-      break
-    }
-  }
-  const ascending = [...datesDesc].reverse()
-  let longest = 0
-  let streak = 0
-  let prev: string | null = null
-  for (const date of ascending) {
-    if (prev === null) {
-      streak = 1
-    } else {
-      const prevDate = new Date(prev)
-      prevDate.setDate(prevDate.getDate() + 1)
-      streak = date === prevDate.toISOString().slice(0, 10) ? streak + 1 : 1
-    }
-    longest = Math.max(longest, streak)
-    prev = date
-  }
-  return { current, longest }
-}
+/**
+ * Schedule-aware streak with "never miss twice" grace. Delegates the state logic
+ * to the pure `computeStreak` engine; this function only gathers the habit's
+ * schedule + per-day data from the DB.
+ */
+export async function getStreak(db: DbAdapter, habit_id: string): Promise<StreakResult> {
+  const empty: StreakResult = { current: 0, longest: 0, status: 'broken', saved: 0 }
 
-export async function getStreak(
-  db: DbAdapter,
-  habit_id: string,
-): Promise<{ current: number; longest: number }> {
-  const habitRow = await db.queryOne<Record<string, unknown>>(
+  const habitRows = await db.queryAll<Record<string, unknown>>(
     'SELECT type, target_value FROM habits WHERE id = ?',
     [habit_id],
   )
-  if (!habitRow) return { current: 0, longest: 0 }
-  const type = (habitRow['type'] as string) ?? 'BOOLEAN'
+  const habitRow = habitRows[0]
+  if (!habitRow) return empty
+  const type = ((habitRow['type'] as string) ?? 'BOOLEAN') as 'BOOLEAN' | 'NUMERIC' | 'LIMIT'
   const target = (habitRow['target_value'] as number) ?? 1
+
+  const schedRows = await db.queryAll<Record<string, unknown>>(
+    'SELECT * FROM habit_schedules WHERE habit_id = ?',
+    [habit_id],
+  )
+  const sched = schedRows[0] ? parseHabitSchedule(schedRows[0]) : null
+  const schedule = {
+    type: sched?.schedule_type ?? 'DAILY',
+    daysOfWeek: sched?.days_of_week ?? null,
+    frequencyCount: sched?.frequency_count ?? null,
+    startDate: sched?.start_date ?? null,
+  }
+  const today = new Date().toISOString().slice(0, 10)
 
   if (type === 'BOOLEAN') {
     const rows = await db.queryAll<Record<string, unknown>>(
-      'SELECT date FROM completions WHERE habit_id = ? ORDER BY date DESC',
+      'SELECT date FROM completions WHERE habit_id = ?',
       [habit_id],
     )
-    return calcStreaks(rows.map((r) => r['date'] as string))
+    return computeStreak({
+      type,
+      target,
+      schedule,
+      completions: new Set(rows.map((r) => r['date'] as string)),
+      today,
+    })
   }
-  if (type === 'NUMERIC') {
-    const rows = await db.queryAll<Record<string, unknown>>(
-      'SELECT date FROM habit_logs WHERE habit_id = ? GROUP BY date HAVING SUM(value) >= ? ORDER BY date DESC',
-      [habit_id, target],
-    )
-    return calcStreaks(rows.map((r) => r['date'] as string))
-  }
+
   const rows = await db.queryAll<Record<string, unknown>>(
-    'SELECT date FROM habit_logs WHERE habit_id = ? GROUP BY date HAVING SUM(value) <= ? ORDER BY date DESC',
-    [habit_id, target],
+    'SELECT date, SUM(value) AS total FROM habit_logs WHERE habit_id = ? GROUP BY date',
+    [habit_id],
   )
-  return calcStreaks(rows.map((r) => r['date'] as string))
+  const sums = new Map<string, number>()
+  for (const r of rows) sums.set(r['date'] as string, Number(r['total'] ?? 0))
+  return computeStreak({ type, target, schedule, sums, today })
 }
 
 // ─── Habit logs ───────────────────────────────────────────────────────────────
