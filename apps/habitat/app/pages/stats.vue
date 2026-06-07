@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computeStreak, type StreakInput } from '~/lib/streak-engine'
+import { computeStreak, growthStage, type StreakInput } from '~/lib/streak-engine'
 import type { Completion, HabitLog, HabitWithSchedule } from '~/types/database'
 
 const db = useDatabase()
@@ -120,6 +120,31 @@ function streakInputFor(h: HabitWithSchedule): StreakInput {
 const streaks = computed(() => habits.value.map((h) => computeStreak(streakInputFor(h))))
 const bestStreak = computed(() => Math.max(0, ...streaks.value.map((s) => s.longest)))
 const recoveryTotal = computed(() => streaks.value.reduce((sum, s) => sum + s.saved, 0))
+
+// ─── Garden ─────────────────────────────────────────────────────────────────────
+
+const gardenPlants = computed(() =>
+  habits.value.map((h, i) => ({
+    id: h.id,
+    name: h.name,
+    color: h.color,
+    streak: streaks.value[i]?.current ?? 0,
+    status: streaks.value[i]?.status ?? ('broken' as const),
+  })),
+)
+
+const gardenMeta = computed(() => {
+  const blooming = gardenPlants.value.filter((p) => growthStage(p.streak, p.status) === 6).length
+  const nurturing = gardenPlants.value.filter((p) => p.status === 'at_risk').length
+  const parts = [`${totalHabits.value} habit${totalHabits.value === 1 ? '' : 's'}`]
+  if (blooming) parts.push(`${blooming} blooming`)
+  if (nurturing) parts.push(`${nurturing} need nurturing`)
+  return parts.join(' · ')
+})
+
+function openHabit(id: string) {
+  void navigateTo(`/habits/${id}`)
+}
 
 const avgCompletion = computed(() => {
   if (!habits.value.length) return 0
@@ -281,6 +306,16 @@ onMounted(load)
       <AppIcon name="activity" class="w-3.5 h-3.5 inline-block -mt-0.5" />
       Bounced back {{ recoveryTotal }}× — never miss twice
     </p>
+
+    <!-- ── Garden ────────────────────────────────────────────────────────────── -->
+    <UCard
+      v-if="totalHabits > 0"
+      :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-1' }"
+    >
+      <p class="text-sm font-semibold text-(--ui-text)">Your garden</p>
+      <p class="text-xs text-(--ui-text-dimmed)">{{ gardenMeta }}</p>
+      <HabitGarden :plants="gardenPlants" @open="openHabit" />
+    </UCard>
 
     <!-- ── Heatmap ───────────────────────────────────────────────────────────── -->
     <UCard :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-3' }">

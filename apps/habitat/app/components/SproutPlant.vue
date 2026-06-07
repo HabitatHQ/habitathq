@@ -10,7 +10,7 @@
  *
  * Pure presentational: the parent supplies streak + status from the streak engine.
  */
-import type { StreakStatus } from '~/lib/streak-engine'
+import { growthStage, type StreakStatus } from '~/lib/streak-engine'
 
 const props = withDefaults(
   defineProps<{
@@ -26,16 +26,9 @@ const props = withDefaults(
   { color: 'currentColor', size: 80, animate: true },
 )
 
-const THRESHOLDS = [1, 3, 7, 14, 21, 30] as const
 const STAGE_NAMES = ['dormant', 'seed', 'sprout', 'sapling', 'leafy', 'budding', 'bloom'] as const
 
-const stage = computed(() => {
-  if (props.status === 'broken' || props.streak < 1) return 0
-  // THRESHOLDS is ascending, so the stage is the count of thresholds reached (1–6).
-  let s = 0
-  for (const t of THRESHOLDS) if (props.streak >= t) s++
-  return s
-})
+const stage = computed(() => growthStage(props.streak, props.status))
 
 // Which part-ids are present at each stage (cumulative). Drives enter-animation.
 const PARTS_BY_STAGE: Record<number, string[]> = {

@@ -207,6 +207,20 @@ export function computeStreak(input: StreakInput): StreakResult {
   return runMachine(buildSequence(input))
 }
 
+/** Streak lengths at which the sprout advances a growth stage (1‑indexed stages). */
+export const GROWTH_THRESHOLDS = [1, 3, 7, 14, 21, 30] as const
+
+/**
+ * Growth stage (0–6) for a streak: 0 = dormant/seed (broken or no streak),
+ * 1 = seed … 6 = bloom. Shared by SproutPlant and the garden.
+ */
+export function growthStage(streak: number, status: StreakStatus): number {
+  if (status === 'broken' || streak < 1) return 0
+  let s = 0
+  for (const t of GROWTH_THRESHOLDS) if (streak >= t) s++
+  return s
+}
+
 export interface CompletionWindow {
   /** Number of scheduled (closed) days in the window. */
   scheduled: number
