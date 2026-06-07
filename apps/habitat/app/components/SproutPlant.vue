@@ -26,7 +26,7 @@ const props = withDefaults(
   { color: 'currentColor', size: 80, animate: true },
 )
 
-const THRESHOLDS = [1, 3, 7, 14, 30, 60] as const
+const THRESHOLDS = [1, 3, 7, 14, 21, 30] as const
 const STAGE_NAMES = ['dormant', 'seed', 'sprout', 'sapling', 'leafy', 'budding', 'bloom'] as const
 
 const stage = computed(() => {

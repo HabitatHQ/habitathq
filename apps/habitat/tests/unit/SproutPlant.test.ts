@@ -52,14 +52,14 @@ describe('SproutPlant — stage rendering', () => {
     expect(html).not.toContain(BUD)
   })
 
-  it('day 30 shows the bud', () => {
-    const html = render(30, 'active').html()
+  it('day 21 shows the bud', () => {
+    const html = render(21, 'active').html()
     expect(html).toContain(BUD)
     expect(html).not.toContain(DAISY_EYE)
   })
 
-  it('day 60 shows the daisy bloom (not the bud)', () => {
-    const html = render(60, 'active').html()
+  it('day 30 shows the daisy bloom (not the bud)', () => {
+    const html = render(30, 'active').html()
     expect(html).toContain(DAISY_EYE)
     expect(html).not.toContain(BUD)
   })
