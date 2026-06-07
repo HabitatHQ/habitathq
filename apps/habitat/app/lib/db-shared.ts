@@ -280,7 +280,15 @@ export async function getAllCompletions(db: DbAdapter): Promise<Completion[]> {
  * schedule + per-day data from the DB.
  */
 export async function getStreak(db: DbAdapter, habit_id: string): Promise<StreakResult> {
-  const empty: StreakResult = { current: 0, longest: 0, status: 'broken', saved: 0 }
+  const empty: StreakResult = {
+    current: 0,
+    longest: 0,
+    status: 'active',
+    thawProgress: 0,
+    plantLevel: 0,
+    daisies: 0,
+    thawed: 0,
+  }
 
   const habitRows = await db.queryAll<Record<string, unknown>>(
     'SELECT type, target_value FROM habits WHERE id = ?',

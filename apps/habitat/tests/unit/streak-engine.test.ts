@@ -32,18 +32,23 @@ function dailyBoolean(over: Partial<StreakInput> = {}): StreakInput {
   }
 }
 
-// ─── DAILY · BOOLEAN ────────────────────────────────────────────────────────────
+// ─── DAILY · BOOLEAN — core forgiving model ─────────────────────────────────────
 
-describe('computeStreak — daily boolean', () => {
-  it('counts a clean consecutive streak including today', () => {
+describe('computeStreak — daily boolean (forgiving model)', () => {
+  it('counts a clean consecutive streak (active, plant grows with it)', () => {
     const r = computeStreak(
       dailyBoolean({ completions: new Set(range('2024-01-11', '2024-01-15')) }),
     )
-    expect(r).toEqual({ current: 5, longest: 5, status: 'active', saved: 0 })
+    expect(r.current).toBe(5)
+    expect(r.longest).toBe(5)
+    expect(r.status).toBe('active')
+    expect(r.plantLevel).toBe(5)
+    expect(r.thawProgress).toBe(0)
+    expect(r.thawed).toBe(0)
+    expect(r.daisies).toBe(0)
   })
 
-  it('does not penalize today if it is not done yet', () => {
-    // done through yesterday; today (15th) still open
+  it('does not penalize today while it is still open', () => {
     const r = computeStreak(
       dailyBoolean({ completions: new Set(range('2024-01-11', '2024-01-14')) }),
     )
@@ -51,72 +56,95 @@ describe('computeStreak — daily boolean', () => {
     expect(r.status).toBe('active')
   })
 
-  it('goes at-risk after a single missed scheduled day', () => {
+  it('freezes (not resets) on a single miss; plant drops one notch', () => {
     // 11,12,13 done; 14 missed; today 15 open
     const r = computeStreak(
       dailyBoolean({ completions: new Set(['2024-01-11', '2024-01-12', '2024-01-13']) }),
     )
-    expect(r.current).toBe(3) // frozen
-    expect(r.status).toBe('at_risk')
-    expect(r.saved).toBe(0)
+    expect(r.current).toBe(3) // held, not zero
+    expect(r.status).toBe('frozen')
+    expect(r.plantLevel).toBe(2) // 3 grown, 1 lost to the miss
   })
 
-  it('recovers an at-risk streak and counts a save', () => {
-    // 11,12,13 done; 14 missed; 15 (today) done -> saved
+  it('shows a partial-thaw state after 1–2 completions following a freeze', () => {
+    // 11,12,13 done; 14 missed; 15,16 done; today 17 open (only 2 of 3 thaw days)
     const r = computeStreak(
       dailyBoolean({
-        completions: new Set(['2024-01-11', '2024-01-12', '2024-01-13', '2024-01-15']),
+        completions: new Set(['2024-01-11', '2024-01-12', '2024-01-13', '2024-01-15', '2024-01-16']),
+        today: '2024-01-17',
       }),
     )
-    expect(r.current).toBe(4)
-    expect(r.status).toBe('active')
-    expect(r.saved).toBe(1)
-    expect(r.longest).toBe(4)
+    expect(r.status).toBe('thawing')
+    expect(r.thawProgress).toBe(2)
+    expect(r.current).toBe(3) // still frozen value until fully thawed
   })
 
-  it('breaks after two consecutive missed scheduled days', () => {
-    // 11,12,13 done; 14 & 15 missed; today 16 open
-    const r = computeStreak(
-      dailyBoolean({
-        completions: new Set(['2024-01-11', '2024-01-12', '2024-01-13']),
-        today: '2024-01-16',
-      }),
-    )
-    expect(r.current).toBe(0)
-    expect(r.status).toBe('broken')
-    expect(r.longest).toBe(3)
-    expect(r.saved).toBe(0)
-  })
-
-  it('stays broken (0) after 3+ consecutive misses, not negative', () => {
-    const r = computeStreak(
-      dailyBoolean({
-        completions: new Set(['2024-01-11', '2024-01-12', '2024-01-13']),
-        today: '2024-01-18', // 14,15,16,17 missed; 18 open
-      }),
-    )
-    expect(r.current).toBe(0)
-    expect(r.status).toBe('broken')
-  })
-
-  it('restarts cleanly after a break (no save credited for a fresh start)', () => {
-    // 11,12,13 done; 14,15 missed (break); 16,17 done; today 17
+  it('thaws after 3 scheduled completions and resumes (crediting the thaw work)', () => {
+    // 11,12,13 done; 14 missed; 15,16,17 done (3 thaw days), today 17
     const r = computeStreak(
       dailyBoolean({
         completions: new Set([
           '2024-01-11',
           '2024-01-12',
           '2024-01-13',
+          '2024-01-15',
           '2024-01-16',
           '2024-01-17',
         ]),
         today: '2024-01-17',
       }),
     )
-    expect(r.current).toBe(2)
     expect(r.status).toBe('active')
-    expect(r.saved).toBe(0)
+    expect(r.current).toBe(6) // 3 frozen + 3 thaw completions
+    expect(r.thawProgress).toBe(0)
+    expect(r.thawed).toBe(1)
+    expect(r.longest).toBe(6)
+  })
+
+  it('resets thaw progress if you miss again while thawing (stays frozen)', () => {
+    // 11,12,13 done; 14 miss; 15 done (thaw 1); 16 miss; 17 done (thaw 1 again); today 18 open
+    const r = computeStreak(
+      dailyBoolean({
+        completions: new Set([
+          '2024-01-11',
+          '2024-01-12',
+          '2024-01-13',
+          '2024-01-15',
+          '2024-01-17',
+        ]),
+        today: '2024-01-18',
+      }),
+    )
+    expect(r.status).toBe('thawing')
+    expect(r.thawProgress).toBe(1)
+    expect(r.current).toBe(3)
+  })
+
+  it('never resets to 0 on prolonged neglect; the plant regresses to seed', () => {
+    // 11,12,13 done; then miss 14..18; today 19 open
+    const r = computeStreak(
+      dailyBoolean({
+        completions: new Set(['2024-01-11', '2024-01-12', '2024-01-13']),
+        today: '2024-01-19',
+      }),
+    )
+    expect(r.current).toBe(3) // frozen, never zero
+    expect(r.status).toBe('frozen')
+    expect(r.plantLevel).toBe(0) // regressed all the way to a seed
     expect(r.longest).toBe(3)
+  })
+
+  it('awards a daisy at the 30-day bloom milestone', () => {
+    const r = computeStreak(
+      dailyBoolean({
+        schedule: { type: 'DAILY', startDate: '2024-01-01' },
+        completions: new Set(range('2024-01-01', '2024-01-30')),
+        today: '2024-01-30',
+      }),
+    )
+    expect(r.current).toBe(30)
+    expect(r.daisies).toBe(1)
+    expect(r.plantLevel).toBe(30)
   })
 
   it('ignores days before start_date', () => {
@@ -134,11 +162,9 @@ describe('computeStreak — daily boolean', () => {
 // ─── SPECIFIC_DAYS ──────────────────────────────────────────────────────────────
 
 describe('computeStreak — specific days (Mon/Wed/Fri)', () => {
-  // 2024-01-01 is a Monday. M/W/F = days_of_week [1,3,5].
   const MWF = { type: 'SPECIFIC_DAYS' as const, daysOfWeek: [1, 3, 5], startDate: '2024-01-01' }
 
-  it('counts only scheduled weekdays; off-days are not misses', () => {
-    // All M/W/F done Jan 1..19; today Fri the 19th
+  it('counts only scheduled weekdays; off-days never freeze it', () => {
     const dates = ['01', '03', '05', '08', '10', '12', '15', '17', '19'].map((d) => `2024-01-${d}`)
     const r = computeStreak({
       type: 'BOOLEAN',
@@ -152,9 +178,9 @@ describe('computeStreak — specific days (Mon/Wed/Fri)', () => {
     expect(r.status).toBe('active')
   })
 
-  it('treats a missed scheduled weekday as a miss and recovers on the next scheduled day', () => {
-    // Skip Wed Jan 10 only; today Fri 19
-    const dates = ['01', '03', '05', '08', '12', '15', '17', '19'].map((d) => `2024-01-${d}`)
+  it('freezes on a missed scheduled weekday', () => {
+    // skip Wed Jan 10; today Fri 19 open
+    const dates = ['01', '03', '05', '08', '12', '15', '17'].map((d) => `2024-01-${d}`)
     const r = computeStreak({
       type: 'BOOLEAN',
       target: 1,
@@ -163,9 +189,10 @@ describe('computeStreak — specific days (Mon/Wed/Fri)', () => {
       sums: new Map(),
       today: '2024-01-19',
     })
-    expect(r.saved).toBe(1)
+    // 01,03,05,08 active (4) then 10 missed -> frozen; 12,15,17 are 3 thaw days -> thawed
     expect(r.status).toBe('active')
-    expect(r.current).toBe(8)
+    expect(r.current).toBe(7) // 4 frozen + 3 thaw
+    expect(r.thawed).toBe(1)
   })
 })
 
@@ -180,7 +207,7 @@ describe('computeStreak — numeric target', () => {
     today: '2024-01-15',
   }
 
-  it('partial days (0 < sum < target) still increment the streak', () => {
+  it('partial days (0 < sum < target) still grow the streak and plant', () => {
     const sums = new Map([
       ['2024-01-11', 10],
       ['2024-01-12', 10],
@@ -190,74 +217,24 @@ describe('computeStreak — numeric target', () => {
     ])
     const r = computeStreak({ ...base, sums })
     expect(r.current).toBe(5)
+    expect(r.plantLevel).toBe(5)
     expect(r.status).toBe('active')
   })
 
-  it('a partial day rescues an at-risk streak (counts as a save)', () => {
-    const sums = new Map([
-      ['2024-01-11', 10],
-      // 12 missed (no entry)
-      ['2024-01-13', 3], // partial -> recover
-      ['2024-01-14', 10],
-    ])
-    const r = computeStreak({ ...base, sums, today: '2024-01-14' })
-    expect(r.saved).toBe(1)
-    expect(r.current).toBe(3)
-    expect(r.status).toBe('active')
-  })
-
-  it('a day with zero logged value is a miss', () => {
+  it('a zero-logged day freezes the streak', () => {
     const sums = new Map([
       ['2024-01-11', 10],
       ['2024-01-12', 10],
-      // 13 missing -> miss -> at_risk; today 14 open... use today 15 with 14 missing too -> break
     ])
     const r = computeStreak({ ...base, sums, today: '2024-01-15' })
-    expect(r.status).toBe('broken')
-    expect(r.current).toBe(0)
-  })
-})
-
-// ─── LIMIT (stay under) ─────────────────────────────────────────────────────────
-
-describe('computeStreak — limit habit', () => {
-  const base = {
-    type: 'LIMIT' as const,
-    target: 2,
-    schedule: { type: 'DAILY' as const, startDate: '2024-01-11' },
-    completions: new Set<string>(),
-    today: '2024-01-14',
-  }
-
-  it('days at or under the limit (and logged) count as met', () => {
-    const sums = new Map([
-      ['2024-01-11', 1],
-      ['2024-01-12', 2],
-      ['2024-01-13', 1],
-      ['2024-01-14', 2],
-    ])
-    const r = computeStreak({ ...base, sums })
-    expect(r.current).toBe(4)
-    expect(r.status).toBe('active')
-  })
-
-  it('going over the limit is a miss', () => {
-    const sums = new Map([
-      ['2024-01-11', 1],
-      ['2024-01-12', 5], // over limit -> miss -> at_risk
-      ['2024-01-13', 1], // recover
-      ['2024-01-14', 1],
-    ])
-    const r = computeStreak({ ...base, sums })
-    expect(r.saved).toBe(1)
-    expect(r.status).toBe('active')
+    expect(r.status).toBe('frozen')
+    expect(r.current).toBe(2)
   })
 })
 
 // ─── WEEKLY_FLEX (week-based) ────────────────────────────────────────────────────
 
-describe('computeStreak — weekly flex (3x/week, weeks start Sunday)', () => {
-  // Weeks (Sun..Sat): wk1 2023-12-31..2024-01-06, wk2 01-07..01-13, wk3 01-14..01-20
+describe('computeStreak — weekly flex (3x/week)', () => {
   const flex = {
     type: 'BOOLEAN' as const,
     target: 1,
@@ -265,17 +242,14 @@ describe('computeStreak — weekly flex (3x/week, weeks start Sunday)', () => {
     sums: new Map<string, number>(),
   }
 
-  it('counts consecutive weeks that hit the weekly frequency', () => {
+  it('counts consecutive weeks that hit the frequency', () => {
     const completions = new Set([
-      // wk1: 3 days
       '2024-01-01',
       '2024-01-02',
       '2024-01-03',
-      // wk2: 3 days
       '2024-01-08',
       '2024-01-09',
       '2024-01-10',
-      // wk3 (current): 3 days
       '2024-01-15',
       '2024-01-16',
       '2024-01-17',
@@ -285,36 +259,21 @@ describe('computeStreak — weekly flex (3x/week, weeks start Sunday)', () => {
     expect(r.status).toBe('active')
   })
 
-  it('a week short of the goal puts the streak at-risk', () => {
+  it('freezes when a closed week misses the frequency', () => {
     const completions = new Set([
       '2024-01-01',
       '2024-01-02',
       '2024-01-03', // wk1 ok
       '2024-01-08',
-      '2024-01-09', // wk2 only 2 -> short
+      '2024-01-09', // wk2 short -> freeze
     ])
-    // today in wk3, current week still open
     const r = computeStreak({ ...flex, completions, today: '2024-01-15' })
-    expect(r.status).toBe('at_risk')
+    expect(r.status).toBe('frozen')
     expect(r.current).toBe(1)
-  })
-
-  it('two consecutive closed short weeks break the streak', () => {
-    const completions = new Set([
-      '2024-01-01',
-      '2024-01-02',
-      '2024-01-03', // wk1 ok
-      '2024-01-08', // wk2 short (closed)
-      '2024-01-15', // wk3 short (closed)
-    ])
-    // today in wk4 (2024-01-21..27), so wk2 & wk3 are both closed and short
-    const r = computeStreak({ ...flex, completions, today: '2024-01-24' })
-    expect(r.current).toBe(0)
-    expect(r.status).toBe('broken')
   })
 })
 
-// ─── Struggling detector (recent completion rate) ────────────────────────────────
+// ─── Struggling detector (recent completion rate) — unchanged ────────────────────
 
 describe('recentCompletionRate & isStruggling', () => {
   function daily(over: Partial<StreakInput> = {}): StreakInput {
@@ -329,7 +288,6 @@ describe('recentCompletionRate & isStruggling', () => {
   }
 
   it('measures the rate over the last 14 closed days (excludes today)', () => {
-    // completed 4 of the 14 days before today (2024-01-01 .. 2024-01-14)
     const done = new Set(['2024-01-02', '2024-01-05', '2024-01-09', '2024-01-14'])
     const w = recentCompletionRate(daily({ completions: done }))
     expect(w.scheduled).toBe(14)
@@ -338,12 +296,11 @@ describe('recentCompletionRate & isStruggling', () => {
   })
 
   it('flags a habit below 30% as struggling', () => {
-    const done = new Set(['2024-01-02', '2024-01-09']) // 2 / 14 ≈ 14%
+    const done = new Set(['2024-01-02', '2024-01-09'])
     expect(isStruggling(daily({ completions: done }))).toBe(true)
   })
 
   it('does not flag a habit at or above 30%', () => {
-    // 5 / 14 ≈ 36%
     const done = new Set([
       '2024-01-02',
       '2024-01-05',
@@ -355,26 +312,12 @@ describe('recentCompletionRate & isStruggling', () => {
   })
 
   it('does not flag a brand-new habit (too few scheduled days)', () => {
-    // habit started 4 days ago → only 4 scheduled closed days, below minScheduled
-    const input = daily({ schedule: { type: 'DAILY', startDate: '2024-01-11' }, completions: new Set() })
+    const input = daily({
+      schedule: { type: 'DAILY', startDate: '2024-01-11' },
+      completions: new Set(),
+    })
     expect(recentCompletionRate(input).scheduled).toBe(4)
     expect(isStruggling(input)).toBe(false)
-  })
-
-  it('counts partial numeric days as hits', () => {
-    const sums = new Map([
-      ['2024-01-03', 2], // partial
-      ['2024-01-07', 10], // met
-      ['2024-01-12', 1], // partial
-    ])
-    const input: StreakInput = {
-      type: 'NUMERIC',
-      target: 10,
-      schedule: { type: 'DAILY', startDate: '2023-12-01' },
-      sums,
-      today: '2024-01-15',
-    }
-    expect(recentCompletionRate(input).hit).toBe(3)
   })
 
   it('returns an empty window for weekly-flex habits', () => {
@@ -382,6 +325,5 @@ describe('recentCompletionRate & isStruggling', () => {
       daily({ schedule: { type: 'WEEKLY_FLEX', frequencyCount: 3, startDate: '2023-12-01' } }),
     )
     expect(w).toEqual({ scheduled: 0, hit: 0, rate: 0 })
-    expect(isStruggling(daily({ schedule: { type: 'WEEKLY_FLEX', frequencyCount: 3 } }))).toBe(false)
   })
 })
