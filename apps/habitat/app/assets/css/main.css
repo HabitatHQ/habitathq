@@ -69,10 +69,17 @@
 
 /* ── Modal scroll lock ────────────────────────────────────────────────────────
    Prevents the page behind a bottom-sheet modal from scrolling on iOS/Android.
+   `overflow: hidden` stops scrolling; `overscroll-behavior: none` also stops the
+   viewport's rubber-band overscroll (the slight sideways drag-and-bounce seen
+   when scrolling a picker inside the sheet). Set on the root scroller too.
    Uses CSS :has() (Safari 15.4+, Chrome 105+, Firefox 121+).
    ─────────────────────────────────────────────────────────────────────────── */
+html:has(.modal-backdrop) {
+  overscroll-behavior: none;
+}
 body:has(.modal-backdrop) {
   overflow: hidden;
+  overscroll-behavior: none;
 }
 
 /* ── Nav reorder wiggle ──────────────────────────────────────────────────────
