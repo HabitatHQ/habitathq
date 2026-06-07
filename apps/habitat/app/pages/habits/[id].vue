@@ -576,10 +576,18 @@ const logSheetValue = ref(0)
 const loggingToday = ref(false)
 
 function openLogSheet() {
-  const isAbsolute = settings.value.logInputMode === 'absolute'
-  logSheetValue.value = isAbsolute
-    ? habitLogs.value.filter((l) => l.date === todayStr).reduce((s, l) => s + l.value, 0)
-    : 1
+  const h = habit.value
+  if (!h) return
+  const todaySum = habitLogs.value
+    .filter((l) => l.date === todayStr)
+    .reduce((s, l) => s + l.value, 0)
+  logSheetValue.value = suggestedLogValue({
+    logs: habitLogs.value,
+    habitId: h.id,
+    isAbsolute: settings.value.logInputMode === 'absolute',
+    todaySum,
+    target: h.target_value,
+  })
   logSheetOpen.value = true
 }
 
