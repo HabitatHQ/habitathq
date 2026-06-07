@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isStruggling, type StreakInput } from '~/lib/streak-engine'
 import type {
   BoredOracleResult,
   CheckinDaySummary,
@@ -32,11 +33,21 @@ const weekStart = (() => {
   return d.toISOString().slice(0, 10)
 })()
 
+// 15-day window for the struggling-habit detector (needs ~2 weeks of history).
+const histStart = (() => {
+  const d = new Date()
+  d.setDate(d.getDate() - 15)
+  return d.toISOString().slice(0, 10)
+})()
+
 const habits = ref<HabitWithSchedule[]>([])
 const completions = ref<Completion[]>([])
 const logs = ref<HabitLog[]>([])
 const weekCompletions = ref<Completion[]>([])
 const weekLogs = ref<HabitLog[]>([])
+const histCompletions = ref<Completion[]>([])
+const histLogs = ref<HabitLog[]>([])
+const pausingId = ref<string | null>(null)
 const loading = ref(true)
 const loadError = ref<string | null>(null)
 const toggling = reactive(new Set<string>())
@@ -235,12 +246,14 @@ async function loadVoiceCount() {
 
 async function load() {
   try {
-    const [h, c, l, wc, wl, ci, sc, td] = await Promise.all([
+    const [h, c, l, wc, wl, hc, hl, ci, sc, td] = await Promise.all([
       db.getHabits(),
       db.getCompletionsForDate(today),
       db.getHabitLogsForDate(today),
       db.getCompletionsForDateRange(weekStart, today),
       db.getHabitLogsForDateRange(weekStart, today),
+      db.getCompletionsForDateRange(histStart, today),
+      db.getHabitLogsForDateRange(histStart, today),
       db.getCheckinSummaryForDate(today),
       db.getScribblesForDate(today),
       db.getTodos(),
@@ -250,6 +263,8 @@ async function load() {
     logs.value = l
     weekCompletions.value = wc
     weekLogs.value = wl
+    histCompletions.value = hc
+    histLogs.value = hl
     todayCheckins.value = ci.filter((s) => s.response_count > 0 || s.is_completed)
     todayScribbles.value = sc
     todos.value = td
@@ -260,6 +275,60 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+
+// ─── Struggling habits (needs-attention section) ────────────────────────────────
+
+function struggleInput(h: HabitWithSchedule): StreakInput {
+  const sched = h.schedule
+  const schedule = {
+    type: sched?.schedule_type ?? 'DAILY',
+    daysOfWeek: sched?.days_of_week ?? null,
+    frequencyCount: sched?.frequency_count ?? null,
+    startDate: sched?.start_date ?? null,
+  }
+  if (h.type === 'BOOLEAN') {
+    return {
+      type: 'BOOLEAN',
+      target: h.target_value,
+      schedule,
+      completions: new Set(
+        histCompletions.value.filter((c) => c.habit_id === h.id).map((c) => c.date),
+      ),
+      today,
+    }
+  }
+  const sums = new Map<string, number>()
+  for (const log of histLogs.value) {
+    if (log.habit_id === h.id) sums.set(log.date, (sums.get(log.date) ?? 0) + log.value)
+  }
+  return { type: h.type, target: h.target_value, schedule, sums, today }
+}
+
+const strugglingHabits = computed(() =>
+  habits.value.filter(
+    (h) => !(h.paused_until && h.paused_until >= today) && isStruggling(struggleInput(h)),
+  ),
+)
+
+async function pauseStrugglingToday(h: HabitWithSchedule) {
+  if (pausingId.value) return
+  pausingId.value = h.id
+  try {
+    const until = new Date()
+    until.setDate(until.getDate() + 7)
+    await db.pauseHabit(h.id, until.toISOString().slice(0, 10))
+    await load()
+    toast.add({ title: `"${h.name}" paused for a week`, color: 'success', duration: 3000 })
+  } catch (e) {
+    logError('[today/pauseStruggling]', e)
+  } finally {
+    pausingId.value = null
+  }
+}
+
+function editStruggling(h: HabitWithSchedule) {
+  void navigateTo(`/habits/${h.id}`)
 }
 
 // ─── Filtering ────────────────────────────────────────────────────────────────
@@ -575,6 +644,27 @@ onMounted(async () => {
           />
         </template>
       </ul>
+
+      <!-- ── Needs attention (struggling habits) ─────────────────────────────── -->
+      <section
+        v-if="strugglingHabits.length > 0"
+        class="space-y-2"
+        aria-label="Habits that need attention"
+      >
+        <p class="text-xs font-semibold uppercase tracking-wider text-amber-500 px-1">
+          Needs attention
+        </p>
+        <StrugglingNudge
+          v-for="h in strugglingHabits"
+          :key="h.id"
+          :habit="h"
+          show-name
+          :pausing="pausingId === h.id"
+          @pause="pauseStrugglingToday(h)"
+          @edit="editStruggling(h)"
+        />
+      </section>
+
       <!-- ── On your plate (today TODOs) ─────────────────────────────────────── -->
       <section
         v-if="settings.enableTodos && todoTotal > 0"

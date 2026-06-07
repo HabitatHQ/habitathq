@@ -650,41 +650,13 @@ onMounted(() => {
       </div>
 
       <!-- ── Struggling-habit nudge ──────────────────────────────────────────── -->
-      <div
+      <StrugglingNudge
         v-if="struggling"
-        class="flex flex-col gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30"
-      >
-        <div class="flex items-start gap-3">
-          <AppIcon name="heart" class="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
-          <div class="space-y-1 min-w-0">
-            <p class="text-sm font-medium text-amber-200">Struggling with this one lately?</p>
-            <p v-if="habit.why" class="text-sm text-(--ui-text-toned)">
-              Remember why: <span class="italic">“{{ habit.why }}”</span>
-            </p>
-            <p v-else class="text-sm text-(--ui-text-dimmed)">
-              Adding your “why” can help you reconnect with it.
-            </p>
-          </div>
-        </div>
-        <div class="flex gap-2">
-          <UButton
-            v-if="habit.why"
-            size="xs"
-            color="warning"
-            variant="soft"
-            :loading="pausing"
-            @click="pauseStruggling"
-          >
-            Pause for a week
-          </UButton>
-          <template v-else>
-            <UButton size="xs" color="warning" variant="soft" @click="openEdit">Add a why</UButton>
-            <UButton size="xs" color="neutral" variant="ghost" :loading="pausing" @click="pauseStruggling">
-              Pause for a week
-            </UButton>
-          </template>
-        </div>
-      </div>
+        :habit="habit"
+        :pausing="pausing"
+        @pause="pauseStruggling"
+        @edit="openEdit"
+      />
 
       <!-- ── Paused banner ───────────────────────────────────────────────────── -->
       <div
