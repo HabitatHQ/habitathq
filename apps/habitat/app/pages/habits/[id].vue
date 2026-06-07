@@ -443,9 +443,20 @@ async function resumeHabit() {
 }
 
 // ─── Struggling-habit intervention ──────────────────────────────────────────────
-// Low recent completion (<30% over the last 2 weeks) → resurface the "why" + pause.
+// Low recent completion (<30% over the last 2 weeks) → resurface motivation + pause.
+// Hidden once there's activity today, so a fresh win doesn't keep nagging.
+const activeToday = computed(() => {
+  const inp = streakInput.value
+  if (!inp) return false
+  return inp.completions ? inp.completions.has(todayStr) : (inp.sums?.get(todayStr) ?? 0) > 0
+})
+
 const struggling = computed(
-  () => !isPaused.value && streakInput.value != null && isStruggling(streakInput.value),
+  () =>
+    !isPaused.value &&
+    !activeToday.value &&
+    streakInput.value != null &&
+    isStruggling(streakInput.value),
 )
 
 async function pauseStruggling() {

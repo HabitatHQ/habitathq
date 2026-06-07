@@ -305,9 +305,18 @@ function struggleInput(h: HabitWithSchedule): StreakInput {
   return { type: h.type, target: h.target_value, schedule, sums, today }
 }
 
+// Already done/logged today → don't nag, even if the rolling rate is still low.
+function activeTodayHabit(h: HabitWithSchedule): boolean {
+  if (h.type === 'BOOLEAN') return completions.value.some((c) => c.habit_id === h.id)
+  return getTodayLogSum(h.id) > 0
+}
+
 const strugglingHabits = computed(() =>
   habits.value.filter(
-    (h) => !(h.paused_until && h.paused_until >= today) && isStruggling(struggleInput(h)),
+    (h) =>
+      !(h.paused_until && h.paused_until >= today) &&
+      !activeTodayHabit(h) &&
+      isStruggling(struggleInput(h)),
   ),
 )
 
