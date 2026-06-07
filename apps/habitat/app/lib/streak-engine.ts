@@ -20,20 +20,35 @@
  *    until it closes — an incomplete today does not count as a miss.
  */
 
-export type StreakStatus = 'active' | 'at_risk' | 'broken'
+export type StreakStatus = 'active' | 'frozen' | 'thawing'
 
 /** Per-unit classification. `partial` only occurs for NUMERIC habits. */
 export type DayStatus = 'met' | 'partial' | 'missed'
 
+/** Scheduled completions required to thaw a frozen streak. */
+export const THAW_REQUIRED = 3
+/** Streak length that counts as a full bloom (and banks a daisy). */
+export const BLOOM_THRESHOLD = 30
+
 export interface StreakResult {
-  /** Current streak length (days for DAILY/SPECIFIC_DAYS, weeks for WEEKLY_FLEX). */
+  /** Streak count. Never decreases — a miss freezes it instead of resetting. */
   current: number
   /** Longest streak ever reached. */
   longest: number
-  /** State of the current streak. */
+  /** active = growing; frozen = held after a miss; thawing = partway back. */
   status: StreakStatus
-  /** Recovery counter — times an at-risk streak was rescued (never-miss-twice saves). */
-  saved: number
+  /** Scheduled completions logged toward thawing (0…THAW_REQUIRED-1). */
+  thawProgress: number
+  /**
+   * Drives the living plant's growth stage: +1 per completed scheduled unit,
+   * −1 per missed one (floored at 0). Regresses gradually with neglect, while
+   * `current` stays frozen — so the plant fades but the streak is preserved.
+   */
+  plantLevel: number
+  /** Permanent harvest: a daisy at each best 30-day milestone (floor(longest/30)). */
+  daisies: number
+  /** Times a frozen streak was thawed back to life (recovery stat). */
+  thawed: number
 }
 
 export interface StreakSchedule {
@@ -168,37 +183,68 @@ function buildWeekSequence(input: StreakInput): boolean[] {
 
 // ─── State machine ──────────────────────────────────────────────────────────────
 
-function runMachine(seq: boolean[]): StreakResult {
-  let current = 0
-  let longest = 0
-  let saved = 0
-  let status: StreakStatus = 'broken'
-  let atRisk = false
+interface MachineState {
+  current: number
+  longest: number
+  plantLevel: number
+  thawed: number
+  frozen: boolean
+  thawProgress: number
+}
 
-  for (const hit of seq) {
-    if (hit) {
-      if (atRisk) {
-        saved++ // rescued a single miss — never miss twice
-        atRisk = false
-      }
-      current++
-      if (current > longest) longest = current
-      status = 'active'
-    } else if (atRisk) {
-      // second consecutive miss → break
-      current = 0
-      atRisk = false
-      status = 'broken'
-    } else if (current > 0) {
-      // first miss on an active streak → grace
-      atRisk = true
-      status = 'at_risk'
-    } else {
-      status = 'broken'
+function applyHit(s: MachineState): void {
+  s.plantLevel++
+  if (s.frozen) {
+    // Working toward a thaw.
+    s.thawProgress++
+    if (s.thawProgress >= THAW_REQUIRED) {
+      s.current += s.thawProgress // credit the thaw completions back to the streak
+      s.frozen = false
+      s.thawProgress = 0
+      s.thawed++
     }
+  } else {
+    s.current++
+  }
+  if (s.current > s.longest) s.longest = s.current
+}
+
+function applyMiss(s: MachineState): void {
+  // Plant regresses a notch; the streak freezes (never resets).
+  s.plantLevel = Math.max(0, s.plantLevel - 1)
+  if (s.frozen) {
+    s.thawProgress = 0 // missed while thawing — earn it back from scratch
+  } else if (s.current > 0) {
+    s.frozen = true
+    s.thawProgress = 0
+  }
+}
+
+function runMachine(seq: boolean[]): StreakResult {
+  const s: MachineState = {
+    current: 0,
+    longest: 0,
+    plantLevel: 0,
+    thawed: 0,
+    frozen: false,
+    thawProgress: 0,
+  }
+  for (const hit of seq) {
+    if (hit) applyHit(s)
+    else applyMiss(s)
   }
 
-  return { current, longest, status, saved }
+  const { current, longest, plantLevel, thawed, frozen, thawProgress } = s
+  const status: StreakStatus = frozen ? (thawProgress > 0 ? 'thawing' : 'frozen') : 'active'
+  return {
+    current,
+    longest,
+    status,
+    thawProgress,
+    plantLevel,
+    daisies: Math.floor(longest / BLOOM_THRESHOLD),
+    thawed,
+  }
 }
 
 // ─── Public API ─────────────────────────────────────────────────────────────────
@@ -207,17 +253,18 @@ export function computeStreak(input: StreakInput): StreakResult {
   return runMachine(buildSequence(input))
 }
 
-/** Streak lengths at which the sprout advances a growth stage (1‑indexed stages). */
+/** Plant levels at which the sprout advances a growth stage (1‑indexed stages). */
 export const GROWTH_THRESHOLDS = [1, 3, 7, 14, 21, 30] as const
 
 /**
- * Growth stage (0–6) for a streak: 0 = dormant/seed (broken or no streak),
- * 1 = seed … 6 = bloom. Shared by SproutPlant and the garden.
+ * Growth stage (0–6) for a plant level: 0 = seed (no growth), 1 = seed sprout …
+ * 6 = bloom. Driven by `plantLevel` (which regresses with neglect), shared by
+ * SproutPlant and the garden.
  */
-export function growthStage(streak: number, status: StreakStatus): number {
-  if (status === 'broken' || streak < 1) return 0
+export function growthStage(level: number): number {
+  if (level < 1) return 0
   let s = 0
-  for (const t of GROWTH_THRESHOLDS) if (streak >= t) s++
+  for (const t of GROWTH_THRESHOLDS) if (level >= t) s++
   return s
 }
 

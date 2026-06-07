@@ -119,7 +119,8 @@ function streakInputFor(h: HabitWithSchedule): StreakInput {
 
 const streaks = computed(() => habits.value.map((h) => computeStreak(streakInputFor(h))))
 const bestStreak = computed(() => Math.max(0, ...streaks.value.map((s) => s.longest)))
-const recoveryTotal = computed(() => streaks.value.reduce((sum, s) => sum + s.saved, 0))
+const recoveryTotal = computed(() => streaks.value.reduce((sum, s) => sum + s.thawed, 0))
+const daisyTotal = computed(() => streaks.value.reduce((sum, s) => sum + s.daisies, 0))
 
 // ─── Garden ─────────────────────────────────────────────────────────────────────
 
@@ -129,16 +130,17 @@ const gardenPlants = computed(() =>
     name: h.name,
     color: h.color,
     streak: streaks.value[i]?.current ?? 0,
-    status: streaks.value[i]?.status ?? ('broken' as const),
+    level: streaks.value[i]?.plantLevel ?? 0,
+    status: streaks.value[i]?.status ?? ('active' as const),
   })),
 )
 
 const gardenMeta = computed(() => {
-  const blooming = gardenPlants.value.filter((p) => growthStage(p.streak, p.status) === 6).length
-  const nurturing = gardenPlants.value.filter((p) => p.status === 'at_risk').length
+  const blooming = gardenPlants.value.filter((p) => growthStage(p.level) === 6).length
+  const frozen = gardenPlants.value.filter((p) => p.status !== 'active').length
   const parts = [`${totalHabits.value} habit${totalHabits.value === 1 ? '' : 's'}`]
   if (blooming) parts.push(`${blooming} blooming`)
-  if (nurturing) parts.push(`${nurturing} need nurturing`)
+  if (frozen) parts.push(`${frozen} need nurturing`)
   return parts.join(' · ')
 })
 
@@ -300,7 +302,7 @@ onMounted(load)
     <!-- ── Recovery (never miss twice) ──────────────────────────────────────── -->
     <p v-if="recoveryTotal > 0" class="text-center text-xs text-emerald-400 font-medium">
       <AppIcon name="activity" class="w-3.5 h-3.5 inline-block -mt-0.5" />
-      Bounced back {{ recoveryTotal }}× — never miss twice
+      Thawed {{ recoveryTotal }}× — brought back to life
     </p>
 
     <!-- ── Garden ────────────────────────────────────────────────────────────── -->
@@ -308,7 +310,10 @@ onMounted(load)
       v-if="totalHabits > 0"
       :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-1' }"
     >
-      <p class="text-sm font-semibold text-(--ui-text)">Your garden</p>
+      <div class="flex items-center justify-between gap-2">
+        <p class="text-sm font-semibold text-(--ui-text)">Your garden</p>
+        <span v-if="daisyTotal > 0" class="text-xs font-medium text-(--ui-text-dimmed)">🌼 {{ daisyTotal }}</span>
+      </div>
       <p class="text-xs text-(--ui-text-dimmed)">{{ gardenMeta }}</p>
       <HabitGarden :plants="gardenPlants" />
     </UCard>

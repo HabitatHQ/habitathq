@@ -1,12 +1,12 @@
 <script setup lang="ts">
 /**
  * HabitGarden — the Stats "garden": one sprout per habit on a shared ground line,
- * in habit order, each at its own growth stage and in its habit colour. At-risk
- * plants wilt; broken streaks show a faint resting seed. Tapping a plant reveals
- * its name on the soil; tapping again opens the habit. Capped with a "view all".
+ * in habit order, each at its growth stage and habit colour; frozen/thawing
+ * plants show a frosty tint. Tapping a plant reveals its name on the soil.
+ * Capped with a "view all".
  *
- * Reuses the SproutPlant line-art vocabulary (viewBox unit space) but draws every
- * plant in one SVG over a shared ground, which the per-plant component can't do.
+ * Each plant is the shared SproutFigure (same art as the detail page), positioned
+ * over a single shared ground line.
  */
 import { growthStage, type StreakStatus } from '~/lib/streak-engine'
 
@@ -15,12 +15,15 @@ interface GardenPlant {
   name: string
   color: string
   streak: number
+  /** Drives the plant's growth stage (engine plantLevel). */
+  level: number
   status: StreakStatus
 }
 
 const props = withDefaults(defineProps<{ plants: GardenPlant[]; cap?: number }>(), { cap: 8 })
 
-const STAGE_NAMES = ['dormant', 'seed', 'sprout', 'sapling', 'leafy', 'budding', 'bloom'] as const
+const STAGE_NAMES = ['seed', 'seed', 'sprout', 'sapling', 'leafy', 'budding', 'bloom'] as const
+const FROST = '#7dd3fc'
 const W = 412
 const ROW_H = 64
 const BASE = 52 // baseline within a row
@@ -40,7 +43,6 @@ interface Placed extends GardenPlant {
   baseline: number
   hitW: number
   selected: boolean
-  wilt: boolean
 }
 
 const placed = computed<Placed[]>(() => {
@@ -54,13 +56,12 @@ const placed = computed<Placed[]>(() => {
     const n = Math.min(props.cap, v.length - row * props.cap)
     out.push({
       ...p,
-      stage: growthStage(p.streak, p.status),
-      fill: p.status === 'at_risk' ? '#f59e0b' : p.color,
+      stage: growthStage(p.level),
+      fill: p.status === 'active' ? p.color : FROST,
       cx: MARGIN + SPAN * ((idxInRow + 0.5) / n),
       baseline: row * ROW_H + BASE,
       hitW: SPAN / n,
       selected: selectedId.value === p.id,
-      wilt: p.status === 'at_risk',
     })
   }
   return out
@@ -80,8 +81,8 @@ function tap(p: Placed) {
   selectedId.value = selectedId.value === p.id ? null : p.id
 }
 function ariaLabel(p: Placed): string {
-  const risk = p.status === 'at_risk' ? ', at risk' : ''
-  return `${p.name}, ${p.streak}-day streak${risk} (${STAGE_NAMES[p.stage]})`
+  const frost = p.status === 'frozen' ? ', frozen' : p.status === 'thawing' ? ', thawing' : ''
+  return `${p.name}, ${p.streak}-day streak${frost} (${STAGE_NAMES[p.stage]})`
 }
 </script>
 
@@ -134,46 +135,7 @@ function ariaLabel(p: Placed): string {
         />
 
         <g :transform="`translate(${item.cx - 20}, ${item.baseline - 40})`" :style="{ color: item.fill }">
-          <g :class="{ wilt: item.wilt }">
-            <!-- dormant -->
-            <ellipse v-if="item.stage === 0" cx="20" cy="38.5" rx="3.2" ry="2.2" fill="currentColor" />
-
-            <!-- seed (stage 1) -->
-            <template v-else-if="item.stage === 1">
-              <path d="M 20,39 C 17,35 15,35 15,33" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" />
-              <path d="M 20,39 C 23,35 25,35 25,33" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" />
-              <ellipse cx="20" cy="39" rx="2.4" ry="1.8" fill="currentColor" />
-            </template>
-
-            <!-- sprout (stage 2) -->
-            <template v-else-if="item.stage === 2">
-              <line x1="20" y1="40" x2="20" y2="30" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
-              <path d="M 20,30 C 14,29 11,32 13,35 C 15,37 20,33 20,30" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-            </template>
-
-            <!-- sapling+ (stages 3–6) -->
-            <template v-else>
-              <line x1="20" y1="40" x2="20" y2="24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
-              <path d="M 20,24 C 11,23 4,29 8,34 C 11,37 19,30 20,24" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-              <path v-if="item.stage >= 4" d="M 20,24 C 26,20 32,14 30,8 C 28,5 20,13 20,24" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-              <path v-if="item.stage === 5" d="M 17.5,22 C 17.5,17 22.5,17 22.5,22 C 22.5,25 17.5,25 17.5,22 Z" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linejoin="round" />
-              <template v-if="item.stage === 6">
-                <ellipse
-                  v-for="i in 8"
-                  :key="i"
-                  cx="20"
-                  cy="3.4"
-                  rx="1.7"
-                  ry="3"
-                  fill="#ffffff"
-                  stroke="currentColor"
-                  stroke-width="0.7"
-                  :transform="`rotate(${(i - 1) * 45} 20 8)`"
-                />
-                <circle cx="20" cy="8" r="2.2" fill="#fbbf24" stroke="currentColor" stroke-width="0.6" />
-              </template>
-            </template>
-          </g>
+          <SproutFigure :level="item.level" :status="item.status" />
         </g>
 
         <!-- tap-to-reveal: habit name on the soil -->
@@ -211,12 +173,6 @@ function ariaLabel(p: Placed): string {
   outline: 2px solid var(--ui-border-accented);
   outline-offset: 2px;
   border-radius: 8px;
-}
-.wilt {
-  transform: rotate(7deg);
-  transform-box: fill-box;
-  transform-origin: 50% 100%;
-  opacity: 0.72;
 }
 .plant-label {
   font-size: 6.5px;
