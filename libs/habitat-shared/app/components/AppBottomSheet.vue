@@ -60,10 +60,18 @@ function handleKeydown(e: KeyboardEvent) {
   }
 }
 
+// Lock the page behind the sheet: `overflow: hidden` stops scrolling and
+// `overscroll-behavior: none` on the root stops the viewport rubber-band (the
+// slight sideways drag-and-bounce when scrolling a picker inside the sheet).
+function lockScroll(locked: boolean) {
+  document.body.style.overflow = locked ? 'hidden' : ''
+  document.documentElement.style.overscrollBehavior = locked ? 'none' : ''
+}
+
 watch(modelValue, async (open) => {
   if (open) {
     triggerElement = document.activeElement as HTMLElement | null
-    document.body.style.overflow = 'hidden'
+    lockScroll(true)
     void impact('light')
     await nextTick()
     const firstFocusable = sheetRef.value?.querySelector<HTMLElement>(
@@ -71,14 +79,14 @@ watch(modelValue, async (open) => {
     )
     firstFocusable?.focus()
   } else {
-    document.body.style.overflow = ''
+    lockScroll(false)
     triggerElement?.focus()
     triggerElement = null
   }
 })
 
 onUnmounted(() => {
-  document.body.style.overflow = ''
+  lockScroll(false)
 })
 </script>
 
