@@ -49,16 +49,17 @@ describe('HabitGarden', () => {
     expect(w.text()).toContain('Show less')
   })
 
-  it('reveals the name on first tap and opens on the second', async () => {
+  it('toggles the name label on tap (no navigation)', async () => {
     const w = mountGarden([plant({ id: 'a', name: 'Meditate' })])
     expect(w.find('.plant-label').exists()).toBe(false)
 
     await w.get('g.plant').trigger('click')
     expect(w.find('.plant-label').text()).toBe('Meditate')
-    expect(w.emitted('open')).toBeUndefined()
 
+    // Tapping again hides the label and never emits a navigation event.
     await w.get('g.plant').trigger('click')
-    expect(w.emitted('open')?.[0]).toEqual(['a'])
+    expect(w.find('.plant-label').exists()).toBe(false)
+    expect(w.emitted('open')).toBeUndefined()
   })
 
   it('exposes an aria-label per plant', () => {

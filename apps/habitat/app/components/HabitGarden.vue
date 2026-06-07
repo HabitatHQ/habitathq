@@ -19,7 +19,6 @@ interface GardenPlant {
 }
 
 const props = withDefaults(defineProps<{ plants: GardenPlant[]; cap?: number }>(), { cap: 8 })
-const emit = defineEmits<{ open: [id: string] }>()
 
 const STAGE_NAMES = ['dormant', 'seed', 'sprout', 'sapling', 'leafy', 'budding', 'bloom'] as const
 const W = 412
@@ -77,8 +76,8 @@ function groundPath(y: number): string {
 }
 
 function tap(p: Placed) {
-  if (selectedId.value === p.id) emit('open', p.id)
-  else selectedId.value = p.id
+  // Toggle the name label only — the garden is a glanceable overview, not a nav.
+  selectedId.value = selectedId.value === p.id ? null : p.id
 }
 function ariaLabel(p: Placed): string {
   const risk = p.status === 'at_risk' ? ', at risk' : ''
@@ -181,7 +180,7 @@ function ariaLabel(p: Placed): string {
         <text
           v-if="item.selected"
           :x="item.cx"
-          :y="item.baseline + 13"
+          :y="item.baseline + 11"
           text-anchor="middle"
           class="plant-label"
         >
@@ -220,8 +219,10 @@ function ariaLabel(p: Placed): string {
   opacity: 0.72;
 }
 .plant-label {
-  font-size: 9.5px;
-  font-weight: 600;
-  fill: var(--ui-text-toned);
+  font-size: 6.5px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  fill: var(--ui-text-dimmed);
+  opacity: 0.75;
 }
 </style>

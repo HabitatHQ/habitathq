@@ -142,10 +142,6 @@ const gardenMeta = computed(() => {
   return parts.join(' · ')
 })
 
-function openHabit(id: string) {
-  void navigateTo(`/habits/${id}`)
-}
-
 const avgCompletion = computed(() => {
   if (!habits.value.length) return 0
   let done = 0
@@ -314,7 +310,7 @@ onMounted(load)
     >
       <p class="text-sm font-semibold text-(--ui-text)">Your garden</p>
       <p class="text-xs text-(--ui-text-dimmed)">{{ gardenMeta }}</p>
-      <HabitGarden :plants="gardenPlants" @open="openHabit" />
+      <HabitGarden :plants="gardenPlants" />
     </UCard>
 
     <!-- ── Heatmap ───────────────────────────────────────────────────────────── -->
