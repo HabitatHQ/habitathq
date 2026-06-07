@@ -1,3 +1,4 @@
+import type { StreakResult } from '~/lib/streak-engine'
 import { sendToWorker } from '~/plugins/database.client'
 import type {
   BoredActivity,
@@ -46,7 +47,7 @@ export function useDatabase() {
       sendToWorker({ type: 'GET_COMPLETIONS_FOR_HABIT', payload: { habit_id, from, to } }),
     toggleCompletion: (habit_id: string, date: string): Promise<Completion | null> =>
       sendToWorker({ type: 'TOGGLE_COMPLETION', payload: { habit_id, date } }),
-    getStreak: (habit_id: string): Promise<{ current: number; longest: number }> =>
+    getStreak: (habit_id: string): Promise<StreakResult> =>
       sendToWorker({ type: 'GET_STREAK', payload: { habit_id } }),
     getAllCompletions: (): Promise<Completion[]> => sendToWorker({ type: 'GET_ALL_COMPLETIONS' }),
     deleteAllHabits: (): Promise<null> => sendToWorker({ type: 'DELETE_ALL_HABITS' }),

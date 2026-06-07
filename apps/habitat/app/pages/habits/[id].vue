@@ -1,4 +1,10 @@
 <script setup lang="ts">
+import {
+  computeStreak,
+  isStruggling,
+  type StreakInput,
+  type StreakResult,
+} from '~/lib/streak-engine'
 import type { Completion, HabitLog, HabitWithSchedule, Reminder } from '~/types/database'
 
 const route = useRoute()
@@ -125,23 +131,47 @@ const calendarCells = computed(() => {
 
 // ─── Unified Stats ────────────────────────────────────────────────────────────
 
-const currentStreak = computed(() => {
-  let streak = 0
-  const d = new Date()
-  let dStr = d.toISOString().slice(0, 10)
-
-  // Strict streak: if today is not done yet, start counting from yesterday
-  if (dailyStatus.value.get(dStr) !== 'done') {
-    d.setDate(d.getDate() - 1)
-    dStr = d.toISOString().slice(0, 10)
+// Shared streak-engine input — drives both the streak and the struggling detector.
+const streakInput = computed<StreakInput | null>(() => {
+  const h = habit.value
+  if (!h) return null
+  const sched = h.schedule
+  const schedule = {
+    type: sched?.schedule_type ?? 'DAILY',
+    daysOfWeek: sched?.days_of_week ?? null,
+    frequencyCount: sched?.frequency_count ?? null,
+    startDate: sched?.start_date ?? null,
   }
-
-  while (dailyStatus.value.get(dStr) === 'done') {
-    streak++
-    d.setDate(d.getDate() - 1)
-    dStr = d.toISOString().slice(0, 10)
+  if (h.type === 'BOOLEAN') {
+    return {
+      type: 'BOOLEAN',
+      target: h.target_value,
+      schedule,
+      completions: new Set(completions.value.map((c) => c.date)),
+      today: todayStr,
+    }
   }
-  return streak
+  const sums = new Map<string, number>()
+  for (const log of habitLogs.value) sums.set(log.date, (sums.get(log.date) ?? 0) + log.value)
+  return { type: h.type, target: h.target_value, schedule, sums, today: todayStr }
+})
+
+// Schedule-aware streak with never-miss-twice grace.
+const streak = computed<StreakResult>(() =>
+  streakInput.value
+    ? computeStreak(streakInput.value)
+    : { current: 0, longest: 0, status: 'broken', saved: 0 },
+)
+
+const streakColor = computed(() =>
+  streak.value.status === 'at_risk' ? '#f59e0b' : (habit.value?.color ?? 'currentColor'),
+)
+
+const streakCaption = computed(() => {
+  if (streak.value.status === 'broken' || streak.value.current === 0) return 'Start a new streak'
+  if (streak.value.status === 'at_risk') return "At risk — don't miss twice"
+  const best = streak.value.longest > streak.value.current ? ` · best ${streak.value.longest}` : ''
+  return `day streak${best}`
 })
 
 const totalLogged = computed(() => {
@@ -412,6 +442,36 @@ async function resumeHabit() {
   }
 }
 
+// ─── Struggling-habit intervention ──────────────────────────────────────────────
+// Low recent completion (<30% over the last 2 weeks) → resurface motivation + pause.
+// Hidden once there's activity today, so a fresh win doesn't keep nagging.
+const activeToday = computed(() => {
+  const inp = streakInput.value
+  if (!inp) return false
+  return inp.completions ? inp.completions.has(todayStr) : (inp.sums?.get(todayStr) ?? 0) > 0
+})
+
+const struggling = computed(
+  () =>
+    !isPaused.value &&
+    !activeToday.value &&
+    streakInput.value != null &&
+    isStruggling(streakInput.value),
+)
+
+async function pauseStruggling() {
+  if (!habit.value) return
+  const until = new Date()
+  until.setDate(until.getDate() + 7)
+  pausing.value = true
+  try {
+    habit.value = await db.pauseHabit(habit.value.id, until.toISOString().slice(0, 10))
+    await notification('success')
+  } finally {
+    pausing.value = false
+  }
+}
+
 // ─── Archive ──────────────────────────────────────────────────────────────────
 
 const showArchiveConfirm = ref(false)
@@ -580,6 +640,35 @@ onMounted(() => {
         </div>
       </div>
 
+      <!-- ── Sprout streak hero ──────────────────────────────────────────────── -->
+      <div class="flex flex-col items-center gap-2 py-1">
+        <SproutPlant
+          :streak="streak.current"
+          :status="streak.status"
+          :color="habit.color"
+          :size="92"
+        />
+        <div class="text-center leading-tight">
+          <p class="text-3xl font-bold tabular-nums" :style="{ color: streakColor }">
+            {{ streak.current }}
+          </p>
+          <p class="text-xs text-(--ui-text-dimmed) mt-0.5">{{ streakCaption }}</p>
+          <p v-if="streak.saved > 0" class="text-xs text-emerald-400 mt-1 font-medium">
+            <AppIcon name="activity" class="w-3.5 h-3.5 inline-block -mt-0.5" />
+            Bounced back {{ streak.saved }}×
+          </p>
+        </div>
+      </div>
+
+      <!-- ── Struggling-habit nudge ──────────────────────────────────────────── -->
+      <StrugglingNudge
+        v-if="struggling"
+        :habit="habit"
+        :pausing="pausing"
+        @pause="pauseStruggling"
+        @edit="openEdit"
+      />
+
       <!-- ── Paused banner ───────────────────────────────────────────────────── -->
       <div
         v-if="isPaused"
@@ -597,7 +686,7 @@ onMounted(() => {
       <!-- ── Stats cards ─────────────────────────────────────────────────────── -->
       <!-- Unified 4-stat grid for all habit types -->
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard label="Current streak" :value="`${currentStreak} days`" />
+        <StatCard label="Best streak" :value="`${streak.longest} days`" />
         <StatCard :label="habit.type === 'BOOLEAN' ? 'Total completed' : 'Total logged'" :value="totalLogged.toFixed(totalLogged % 1 === 0 ? 0 : 1)" />
         <StatCard :label="avgStat.label" :value="avgStat.value" />
         <StatCard label="Tracked since" :value="fmtArchived(habit.created_at)" />
