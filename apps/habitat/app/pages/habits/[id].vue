@@ -163,14 +163,19 @@ const streak = computed<StreakResult>(() =>
     : { current: 0, longest: 0, status: 'broken', saved: 0 },
 )
 
-const streakColor = computed(() =>
-  streak.value.status === 'at_risk' ? '#f59e0b' : (habit.value?.color ?? 'currentColor'),
-)
+const streakColor = computed(() => {
+  const s = streak.value.status
+  if (s === 'frozen') return '#7dd3fc'
+  if (s === 'thawing') return '#38bdf8'
+  return habit.value?.color ?? 'currentColor'
+})
 
 const streakCaption = computed(() => {
-  if (streak.value.status === 'broken' || streak.value.current === 0) return 'Start a new streak'
-  if (streak.value.status === 'at_risk') return "At risk — don't miss twice"
-  const best = streak.value.longest > streak.value.current ? ` · best ${streak.value.longest}` : ''
+  const s = streak.value
+  if (s.current === 0) return 'Start a streak'
+  if (s.status === 'frozen') return 'Frozen ❄️ — complete 3 to thaw'
+  if (s.status === 'thawing') return `Thawing — ${s.thawProgress}/3`
+  const best = s.longest > s.current ? ` · best ${s.longest}` : ''
   return `day streak${best}`
 })
 
@@ -651,8 +656,9 @@ onMounted(() => {
       <!-- ── Sprout streak hero ──────────────────────────────────────────────── -->
       <div class="flex flex-col items-center gap-2 py-1">
         <SproutPlant
-          :streak="streak.current"
+          :level="streak.plantLevel"
           :status="streak.status"
+          :streak="streak.current"
           :color="habit.color"
           :size="92"
         />
@@ -661,11 +667,12 @@ onMounted(() => {
             {{ streak.current }}
           </p>
           <p class="text-xs text-(--ui-text-dimmed) mt-0.5">{{ streakCaption }}</p>
-          <p v-if="streak.saved > 0" class="text-xs text-emerald-400 mt-1 font-medium">
+          <p v-if="streak.thawed > 0" class="text-xs text-emerald-400 mt-1 font-medium">
             <AppIcon name="activity" class="w-3.5 h-3.5 inline-block -mt-0.5" />
-            Bounced back {{ streak.saved }}×
+            Thawed {{ streak.thawed }}×
           </p>
         </div>
+        <DaisyShelf v-if="streak.daisies > 0" :count="streak.daisies" :color="habit.color" class="justify-center pt-1" />
       </div>
 
       <!-- ── Struggling-habit nudge ──────────────────────────────────────────── -->
