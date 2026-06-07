@@ -206,3 +206,50 @@ function runMachine(seq: boolean[]): StreakResult {
 export function computeStreak(input: StreakInput): StreakResult {
   return runMachine(buildSequence(input))
 }
+
+export interface CompletionWindow {
+  /** Number of scheduled (closed) days in the window. */
+  scheduled: number
+  /** How many of those were hit (met or partial). */
+  hit: number
+  /** hit / scheduled, or 0 when nothing was scheduled. */
+  rate: number
+}
+
+/**
+ * Completion rate over the last `windowDays` CLOSED days (ending yesterday — today
+ * is still open and never penalised). WEEKLY_FLEX returns an empty window.
+ */
+export function recentCompletionRate(input: StreakInput, windowDays = 14): CompletionWindow {
+  const empty: CompletionWindow = { scheduled: 0, hit: 0, rate: 0 }
+  if (input.schedule.type === 'WEEKLY_FLEX') return empty
+
+  const from = addDays(input.today, -windowDays)
+  const start = effectiveStart(input)
+  const begin = start > from ? start : from
+  const end = addDays(input.today, -1) // yesterday
+  if (begin > end) return empty
+
+  const days =
+    input.schedule.type === 'SPECIFIC_DAYS' ? new Set(input.schedule.daysOfWeek ?? []) : null
+  let scheduled = 0
+  let hit = 0
+  for (let date = begin; date <= end; date = addDays(date, 1)) {
+    if (days && !days.has(dayOfWeek(date))) continue
+    scheduled++
+    if (classifyDay(input, date) !== 'missed') hit++
+  }
+  return { scheduled, hit, rate: scheduled === 0 ? 0 : hit / scheduled }
+}
+
+/**
+ * A habit is "struggling" when it has enough recent scheduled days to judge AND a
+ * low hit rate. The `minScheduled` guard prevents brand-new habits from flagging.
+ */
+export function isStruggling(
+  input: StreakInput,
+  { windowDays = 14, minScheduled = 7, threshold = 0.3 } = {},
+): boolean {
+  const w = recentCompletionRate(input, windowDays)
+  return w.scheduled >= minScheduled && w.rate < threshold
+}

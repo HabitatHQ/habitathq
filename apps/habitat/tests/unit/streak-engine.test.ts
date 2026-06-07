@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { computeStreak, type StreakInput } from '~/lib/streak-engine'
+import {
+  computeStreak,
+  isStruggling,
+  recentCompletionRate,
+  type StreakInput,
+} from '~/lib/streak-engine'
 
 // ─── Test helpers ──────────────────────────────────────────────────────────────
 
@@ -306,5 +311,77 @@ describe('computeStreak — weekly flex (3x/week, weeks start Sunday)', () => {
     const r = computeStreak({ ...flex, completions, today: '2024-01-24' })
     expect(r.current).toBe(0)
     expect(r.status).toBe('broken')
+  })
+})
+
+// ─── Struggling detector (recent completion rate) ────────────────────────────────
+
+describe('recentCompletionRate & isStruggling', () => {
+  function daily(over: Partial<StreakInput> = {}): StreakInput {
+    return {
+      type: 'BOOLEAN',
+      target: 1,
+      schedule: { type: 'DAILY', startDate: '2023-12-01' },
+      completions: new Set(),
+      today: '2024-01-15',
+      ...over,
+    }
+  }
+
+  it('measures the rate over the last 14 closed days (excludes today)', () => {
+    // completed 4 of the 14 days before today (2024-01-01 .. 2024-01-14)
+    const done = new Set(['2024-01-02', '2024-01-05', '2024-01-09', '2024-01-14'])
+    const w = recentCompletionRate(daily({ completions: done }))
+    expect(w.scheduled).toBe(14)
+    expect(w.hit).toBe(4)
+    expect(w.rate).toBeCloseTo(4 / 14)
+  })
+
+  it('flags a habit below 30% as struggling', () => {
+    const done = new Set(['2024-01-02', '2024-01-09']) // 2 / 14 ≈ 14%
+    expect(isStruggling(daily({ completions: done }))).toBe(true)
+  })
+
+  it('does not flag a habit at or above 30%', () => {
+    // 5 / 14 ≈ 36%
+    const done = new Set([
+      '2024-01-02',
+      '2024-01-05',
+      '2024-01-08',
+      '2024-01-11',
+      '2024-01-14',
+    ])
+    expect(isStruggling(daily({ completions: done }))).toBe(false)
+  })
+
+  it('does not flag a brand-new habit (too few scheduled days)', () => {
+    // habit started 4 days ago → only 4 scheduled closed days, below minScheduled
+    const input = daily({ schedule: { type: 'DAILY', startDate: '2024-01-11' }, completions: new Set() })
+    expect(recentCompletionRate(input).scheduled).toBe(4)
+    expect(isStruggling(input)).toBe(false)
+  })
+
+  it('counts partial numeric days as hits', () => {
+    const sums = new Map([
+      ['2024-01-03', 2], // partial
+      ['2024-01-07', 10], // met
+      ['2024-01-12', 1], // partial
+    ])
+    const input: StreakInput = {
+      type: 'NUMERIC',
+      target: 10,
+      schedule: { type: 'DAILY', startDate: '2023-12-01' },
+      sums,
+      today: '2024-01-15',
+    }
+    expect(recentCompletionRate(input).hit).toBe(3)
+  })
+
+  it('returns an empty window for weekly-flex habits', () => {
+    const w = recentCompletionRate(
+      daily({ schedule: { type: 'WEEKLY_FLEX', frequencyCount: 3, startDate: '2023-12-01' } }),
+    )
+    expect(w).toEqual({ scheduled: 0, hit: 0, rate: 0 })
+    expect(isStruggling(daily({ schedule: { type: 'WEEKLY_FLEX', frequencyCount: 3 } }))).toBe(false)
   })
 })

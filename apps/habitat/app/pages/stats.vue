@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computeStreak, type StreakInput } from '~/lib/streak-engine'
 import type { Completion, HabitLog, HabitWithSchedule } from '~/types/database'
 
 const db = useDatabase()
@@ -92,16 +93,33 @@ const doneCountByDate = computed(() => {
 
 const totalHabits = computed(() => habits.value.length)
 
-function habitCurrentStreak(h: HabitWithSchedule): number {
-  let streak = 0
-  for (const date of allDateStrings) {
-    if (!isHabitDone(h, date)) break
-    streak++
+function streakInputFor(h: HabitWithSchedule): StreakInput {
+  const sched = h.schedule
+  const schedule = {
+    type: sched?.schedule_type ?? 'DAILY',
+    daysOfWeek: sched?.days_of_week ?? null,
+    frequencyCount: sched?.frequency_count ?? null,
+    startDate: sched?.start_date ?? null,
   }
-  return streak
+  if (h.type === 'BOOLEAN') {
+    return {
+      type: 'BOOLEAN',
+      target: h.target_value,
+      schedule,
+      completions: new Set(completions.value.filter((c) => c.habit_id === h.id).map((c) => c.date)),
+      today,
+    }
+  }
+  const sums = new Map<string, number>()
+  for (const l of habitLogs.value) {
+    if (l.habit_id === h.id) sums.set(l.date, (sums.get(l.date) ?? 0) + l.value)
+  }
+  return { type: h.type, target: h.target_value, schedule, sums, today }
 }
 
-const bestStreak = computed(() => Math.max(0, ...habits.value.map(habitCurrentStreak)))
+const streaks = computed(() => habits.value.map((h) => computeStreak(streakInputFor(h))))
+const bestStreak = computed(() => Math.max(0, ...streaks.value.map((s) => s.longest)))
+const recoveryTotal = computed(() => streaks.value.reduce((sum, s) => sum + s.saved, 0))
 
 const avgCompletion = computed(() => {
   if (!habits.value.length) return 0
@@ -257,6 +275,12 @@ onMounted(load)
         <p class="text-[10px] text-slate-600">30 days</p>
       </UCard>
     </div>
+
+    <!-- ── Recovery (never miss twice) ──────────────────────────────────────── -->
+    <p v-if="recoveryTotal > 0" class="text-center text-xs text-emerald-400 font-medium">
+      <AppIcon name="activity" class="w-3.5 h-3.5 inline-block -mt-0.5" />
+      Bounced back {{ recoveryTotal }}× — never miss twice
+    </p>
 
     <!-- ── Heatmap ───────────────────────────────────────────────────────────── -->
     <UCard :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-3' }">

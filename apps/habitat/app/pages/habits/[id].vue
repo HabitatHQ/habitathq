@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import { computeStreak, type StreakResult } from '~/lib/streak-engine'
+import {
+  computeStreak,
+  isStruggling,
+  type StreakInput,
+  type StreakResult,
+} from '~/lib/streak-engine'
 import type { Completion, HabitLog, HabitWithSchedule, Reminder } from '~/types/database'
 
 const route = useRoute()
@@ -126,10 +131,10 @@ const calendarCells = computed(() => {
 
 // ─── Unified Stats ────────────────────────────────────────────────────────────
 
-// Schedule-aware streak with never-miss-twice grace (shared pure engine).
-const streak = computed<StreakResult>(() => {
+// Shared streak-engine input — drives both the streak and the struggling detector.
+const streakInput = computed<StreakInput | null>(() => {
   const h = habit.value
-  if (!h) return { current: 0, longest: 0, status: 'broken', saved: 0 }
+  if (!h) return null
   const sched = h.schedule
   const schedule = {
     type: sched?.schedule_type ?? 'DAILY',
@@ -138,18 +143,25 @@ const streak = computed<StreakResult>(() => {
     startDate: sched?.start_date ?? null,
   }
   if (h.type === 'BOOLEAN') {
-    return computeStreak({
+    return {
       type: 'BOOLEAN',
       target: h.target_value,
       schedule,
       completions: new Set(completions.value.map((c) => c.date)),
       today: todayStr,
-    })
+    }
   }
   const sums = new Map<string, number>()
   for (const log of habitLogs.value) sums.set(log.date, (sums.get(log.date) ?? 0) + log.value)
-  return computeStreak({ type: h.type, target: h.target_value, schedule, sums, today: todayStr })
+  return { type: h.type, target: h.target_value, schedule, sums, today: todayStr }
 })
+
+// Schedule-aware streak with never-miss-twice grace.
+const streak = computed<StreakResult>(() =>
+  streakInput.value
+    ? computeStreak(streakInput.value)
+    : { current: 0, longest: 0, status: 'broken', saved: 0 },
+)
 
 const streakColor = computed(() =>
   streak.value.status === 'at_risk' ? '#f59e0b' : (habit.value?.color ?? 'currentColor'),
@@ -430,6 +442,25 @@ async function resumeHabit() {
   }
 }
 
+// ─── Struggling-habit intervention ──────────────────────────────────────────────
+// Low recent completion (<30% over the last 2 weeks) → resurface the "why" + pause.
+const struggling = computed(
+  () => !isPaused.value && streakInput.value != null && isStruggling(streakInput.value),
+)
+
+async function pauseStruggling() {
+  if (!habit.value) return
+  const until = new Date()
+  until.setDate(until.getDate() + 7)
+  pausing.value = true
+  try {
+    habit.value = await db.pauseHabit(habit.value.id, until.toISOString().slice(0, 10))
+    await notification('success')
+  } finally {
+    pausing.value = false
+  }
+}
+
 // ─── Archive ──────────────────────────────────────────────────────────────────
 
 const showArchiveConfirm = ref(false)
@@ -611,6 +642,47 @@ onMounted(() => {
             {{ streak.current }}
           </p>
           <p class="text-xs text-(--ui-text-dimmed) mt-0.5">{{ streakCaption }}</p>
+          <p v-if="streak.saved > 0" class="text-xs text-emerald-400 mt-1 font-medium">
+            <AppIcon name="activity" class="w-3.5 h-3.5 inline-block -mt-0.5" />
+            Bounced back {{ streak.saved }}×
+          </p>
+        </div>
+      </div>
+
+      <!-- ── Struggling-habit nudge ──────────────────────────────────────────── -->
+      <div
+        v-if="struggling"
+        class="flex flex-col gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30"
+      >
+        <div class="flex items-start gap-3">
+          <AppIcon name="heart" class="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+          <div class="space-y-1 min-w-0">
+            <p class="text-sm font-medium text-amber-200">Struggling with this one lately?</p>
+            <p v-if="habit.why" class="text-sm text-(--ui-text-toned)">
+              Remember why: <span class="italic">“{{ habit.why }}”</span>
+            </p>
+            <p v-else class="text-sm text-(--ui-text-dimmed)">
+              Adding your “why” can help you reconnect with it.
+            </p>
+          </div>
+        </div>
+        <div class="flex gap-2">
+          <UButton
+            v-if="habit.why"
+            size="xs"
+            color="warning"
+            variant="soft"
+            :loading="pausing"
+            @click="pauseStruggling"
+          >
+            Pause for a week
+          </UButton>
+          <template v-else>
+            <UButton size="xs" color="warning" variant="soft" @click="openEdit">Add a why</UButton>
+            <UButton size="xs" color="neutral" variant="ghost" :loading="pausing" @click="pauseStruggling">
+              Pause for a week
+            </UButton>
+          </template>
         </div>
       </div>
 
