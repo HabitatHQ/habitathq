@@ -455,6 +455,35 @@ async function nukeOpfs(reload: boolean) {
     nuking.value = false
   }
 }
+
+// ─── Dev: seed insights data (dev builds only) ──────────────────────────────────
+
+const isDev = import.meta.dev
+const seeding = ref(false)
+
+async function seedDevData() {
+  seeding.value = true
+  try {
+    const { seedInsightsData } = useSeedDev()
+    const r = await seedInsightsData()
+    toast.add({
+      title: 'Seeded sample data',
+      description: `${r.habits} habits, ${r.completions} completions, ${r.habit_logs} logs, ${r.checkin_responses} check-in responses. Open Insights to view.`,
+      color: 'success',
+      duration: 6000,
+    })
+  } catch (err) {
+    logError('[seedDevData]', err)
+    toast.add({
+      title: 'Failed to seed data',
+      description: 'Check the console for details.',
+      color: 'error',
+      duration: 5000,
+    })
+  } finally {
+    seeding.value = false
+  }
+}
 </script>
 
 <template>
@@ -523,6 +552,26 @@ async function nukeOpfs(reload: boolean) {
           />
         </div>
 
+      </UCard>
+    </section>
+
+    <section v-if="isDev" class="space-y-2">
+      <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Dev tools</p>
+      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Seed insights data</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Generate ~6 months of sample habits, completions, and check-in responses to test the Insights page.</p>
+          </div>
+          <UButton
+            :icon="resolveIcon('sparkles')"
+            variant="ghost"
+            color="primary"
+            size="sm"
+            :loading="seeding"
+            @click="seedDevData"
+          />
+        </div>
       </UCard>
     </section>
 
