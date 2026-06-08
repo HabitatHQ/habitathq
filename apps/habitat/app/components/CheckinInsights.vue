@@ -129,32 +129,13 @@ function arrow(delta: number): string {
 
     <div v-if="loading" class="py-10 text-center text-sm text-(--ui-text-dimmed)">Loading…</div>
 
-    <template v-else>
-      <!-- ── Daily reflection grid ──────────────────────────────────────────── -->
-      <UCard v-if="hasData" :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-3' }">
-        <p class="text-xs font-semibold text-(--ui-text-muted)">Daily Completion</p>
-        <CompletionHeatmap
-          :counts="checkinCounts"
-          :total="totalTemplates"
-          :today="today"
-          unit="check-ins"
-        />
-      </UCard>
-
-      <!-- ── Monthly reflection rate ────────────────────────────────────────── -->
-      <UCard v-if="hasData" :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-3' }">
-        <p class="text-xs font-semibold text-(--ui-text-muted)">Monthly Completion Rate</p>
-        <MonthlyCompletionBars :data="monthlyData" />
-      </UCard>
-
-      <div
-        v-if="insights.length === 0"
-        class="py-12 text-center text-sm text-(--ui-text-dimmed) space-y-1"
-      >
-        <p>No check-in trends yet.</p>
-        <p class="text-xs">Reflect a few days and your insights will grow here.</p>
-      </div>
-    </template>
+    <div
+      v-else-if="insights.length === 0 && !hasData"
+      class="py-12 text-center text-sm text-(--ui-text-dimmed) space-y-1"
+    >
+      <p>No check-in trends yet.</p>
+      <p class="text-xs">Reflect a few days and your insights will grow here.</p>
+    </div>
 
     <!-- One card per check-in template -->
     <UCard
@@ -221,6 +202,23 @@ function arrow(delta: number): string {
           </div>
         </div>
       </div>
+    </UCard>
+
+    <!-- ── Daily reflection grid ──────────────────────────────────────────────── -->
+    <UCard v-if="!loading && hasData" :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-3' }">
+      <p class="text-xs font-semibold text-(--ui-text-muted)">Daily Completion</p>
+      <CompletionHeatmap
+        :counts="checkinCounts"
+        :total="totalTemplates"
+        :today="today"
+        unit="check-ins"
+      />
+    </UCard>
+
+    <!-- ── Monthly reflection rate ────────────────────────────────────────────── -->
+    <UCard v-if="!loading && hasData" :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-3' }">
+      <p class="text-xs font-semibold text-(--ui-text-muted)">Monthly Completion Rate</p>
+      <MonthlyCompletionBars :data="monthlyData" />
     </UCard>
   </div>
 </template>

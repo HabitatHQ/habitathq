@@ -246,35 +246,6 @@ onMounted(load)
       <HabitGarden :plants="gardenPlants" />
     </UCard>
 
-    <!-- ── Heatmap ───────────────────────────────────────────────────────────── -->
-    <UCard :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-3' }">
-      <p class="text-xs font-semibold text-(--ui-text-muted)">Daily Completion</p>
-
-      <div v-if="loading" class="py-4">
-        <AppSkeleton variant="chart" height="120px" />
-      </div>
-      <div v-else-if="!totalHabits" class="flex items-center justify-center py-6">
-        <p class="text-xs text-slate-600">No habits yet</p>
-      </div>
-      <CompletionHeatmap
-        v-else
-        :counts="doneCountByDate"
-        :total="totalHabits"
-        :today="today"
-        unit="habits"
-      />
-    </UCard>
-
-    <!-- ── Monthly completion rate ───────────────────────────────────────────── -->
-    <UCard :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-3' }">
-      <p class="text-xs font-semibold text-(--ui-text-muted)">Monthly Completion Rate</p>
-
-      <div v-if="!totalHabits" class="flex items-center justify-center py-6">
-        <p class="text-xs text-slate-600">No data yet</p>
-      </div>
-      <MonthlyCompletionBars v-else :data="monthlyData" />
-    </UCard>
-
     <!-- ── Habit completion bars ─────────────────────────────────────────────── -->
     <UCard :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-3' }">
       <div class="flex items-center justify-between">
@@ -311,6 +282,35 @@ onMounted(load)
           <span class="w-7 text-[11px] text-(--ui-text-dimmed) text-right flex-shrink-0">{{ item.rate }}%</span>
         </div>
       </div>
+    </UCard>
+
+    <!-- ── Heatmap ───────────────────────────────────────────────────────────── -->
+    <UCard :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-3' }">
+      <p class="text-xs font-semibold text-(--ui-text-muted)">Daily Completion</p>
+
+      <div v-if="loading" class="py-4">
+        <AppSkeleton variant="chart" height="120px" />
+      </div>
+      <div v-else-if="!totalHabits" class="flex items-center justify-center py-6">
+        <p class="text-xs text-slate-600">No habits yet</p>
+      </div>
+      <CompletionHeatmap
+        v-else
+        :counts="doneCountByDate"
+        :total="totalHabits"
+        :today="today"
+        unit="habits"
+      />
+    </UCard>
+
+    <!-- ── Monthly completion rate ───────────────────────────────────────────── -->
+    <UCard :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-3' }">
+      <p class="text-xs font-semibold text-(--ui-text-muted)">Monthly Completion Rate</p>
+
+      <div v-if="!totalHabits" class="flex items-center justify-center py-6">
+        <p class="text-xs text-slate-600">No data yet</p>
+      </div>
+      <MonthlyCompletionBars v-else :data="monthlyData" />
     </UCard>
 
   </div>
