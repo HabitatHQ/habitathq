@@ -42,7 +42,7 @@ test.describe('Page load — no fatal JS errors', () => {
     '/bored/activities',
     '/checkin',
     '/jots',
-    '/stats',
+    '/insights',
     '/archive',
     '/matrix',
     '/settings',
@@ -96,10 +96,10 @@ test.describe('Page load — key elements visible', () => {
     await expect(page.getByRole('heading', { name: 'Jots' })).toBeVisible()
   })
 
-  test('/stats — heading visible', async ({ page }) => {
-    await page.goto('/stats')
+  test('/insights — heading visible', async ({ page }) => {
+    await page.goto('/insights')
     await page.waitForLoadState('networkidle')
-    await expect(page.getByRole('heading', { name: /analytics/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /insights/i })).toBeVisible()
   })
 
   test('/archive — heading visible', async ({ page }) => {

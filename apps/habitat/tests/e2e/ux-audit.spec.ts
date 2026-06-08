@@ -27,7 +27,7 @@ const IPHONE_14_PRO = { width: 393, height: 852 }
 test.describe('Padding & overflow', () => {
   test('stats month-selector buttons have adequate touch height (≥44px)', async ({ page }) => {
     await page.setViewportSize(IPHONE_SE_PORTRAIT)
-    await page.goto('/stats')
+    await page.goto('/insights')
     await page.waitForLoadState('networkidle')
 
     // Period selectors: prev / next arrows
@@ -61,7 +61,7 @@ test.describe('Padding & overflow', () => {
 
     // Document violations — test "fails" (expect.soft) but collects all
     for (const v of violations) {
-      expect.soft(false, `Touch target too small on /stats: ${v}`).toBe(true)
+      expect.soft(false, `Touch target too small on /insights: ${v}`).toBe(true)
     }
   })
 
