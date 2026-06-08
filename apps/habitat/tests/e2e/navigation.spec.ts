@@ -48,10 +48,10 @@ test.describe('Navigation smoke tests', () => {
     await expect(page.getByRole('heading', { name: /Week|Month/ })).toBeVisible()
   })
 
-  test('/stats route renders stats heading', async ({ page }) => {
-    await page.goto('/stats')
+  test('/insights route renders insights heading', async ({ page }) => {
+    await page.goto('/insights')
     await page.waitForLoadState('networkidle')
-    await expect(page.getByRole('heading', { name: /analytics/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /insights/i })).toBeVisible()
   })
 
   test('/archive route renders archive heading', async ({ page }) => {

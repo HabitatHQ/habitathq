@@ -571,7 +571,7 @@ function toggleColorMode() {
           >
             <span
               class="w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all duration-200"
-              :class="showAvatarMenu || isActive('/settings') || isActive('/stats') || isActive('/matrix')
+              :class="showAvatarMenu || isActive('/settings') || isActive('/insights') || isActive('/matrix')
                 ? 'border-primary-500 bg-primary-500/15 text-primary-400'
                 : 'border-(--ui-border-accented) text-(--ui-text-muted) hover:border-(--ui-border-accented) hover:text-(--ui-text)'"
             >
@@ -601,15 +601,15 @@ function toggleColorMode() {
               Matrix
             </NuxtLink>
             <NuxtLink
-              to="/stats"
+              to="/insights"
               class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-              :class="isActive('/stats')
+              :class="isActive('/insights')
                 ? 'bg-primary-500/10 text-primary-400'
                 : 'text-(--ui-text) hover:bg-(--ui-bg-elevated)'"
               @click="showAvatarMenu = false"
             >
               <AppIcon name="chart-bar" class="w-4 h-4" />
-              Stats
+              Insights
             </NuxtLink>
             <NuxtLink
               to="/settings"

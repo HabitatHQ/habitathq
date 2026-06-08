@@ -53,7 +53,7 @@ test.describe('Issue #6 — header icon buttons ≥ 44px', () => {
 test.describe('Issue #7 — stats period selector buttons ≥ 44px', () => {
   test('7d / 14d / 30d / 90d buttons all meet 44px minimum', async ({ page }) => {
     await page.setViewportSize(MOBILE)
-    await page.goto('/stats')
+    await page.goto('/insights')
     await page.waitForLoadState('networkidle')
 
     for (const label of ['7d', '14d', '30d', '90d']) {

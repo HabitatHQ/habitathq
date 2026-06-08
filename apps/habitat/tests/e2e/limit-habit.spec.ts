@@ -239,10 +239,10 @@ test.describe('Limit habit – stats page', () => {
     const errors: string[] = []
     page.on('pageerror', (err) => errors.push(err.message))
 
-    await page.goto('/stats')
+    await page.goto('/insights')
     await page.waitForLoadState('networkidle')
 
-    await expect(page.getByRole('heading', { name: 'Analytics' })).toBeVisible({ timeout: 8000 })
+    await expect(page.getByRole('heading', { name: 'Insights' })).toBeVisible({ timeout: 8000 })
 
     // No fatal JS errors
     const fatal = errors.filter(
@@ -263,9 +263,9 @@ test.describe('Limit habit – stats page', () => {
     await logHabitValue(page, 2)
     await expect(doneCheckCircle(page)).toBeVisible({ timeout: 5000 })
 
-    await page.goto('/stats')
+    await page.goto('/insights')
     await page.waitForLoadState('networkidle')
-    await expect(page.getByRole('heading', { name: 'Analytics' })).toBeVisible({ timeout: 8000 })
+    await expect(page.getByRole('heading', { name: 'Insights' })).toBeVisible({ timeout: 8000 })
 
     // The "Avg" stat card should show a non-zero percentage
     // It's computed as doneCount/totalHabits/30days → at least 1/30 ≈ 3%
