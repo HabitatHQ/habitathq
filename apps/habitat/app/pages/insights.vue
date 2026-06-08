@@ -3,6 +3,16 @@ import { computeStreak, growthStage, type StreakInput } from '~/lib/streak-engin
 import type { Completion, HabitLog, HabitWithSchedule } from '~/types/database'
 
 const db = useDatabase()
+const { settings } = useAppSettings()
+
+type TabKey = 'habits' | 'checkins'
+const tab = ref<TabKey>('habits')
+const tabs = computed<{ key: TabKey; label: string }[]>(() => {
+  const list: { key: TabKey; label: string }[] = [{ key: 'habits', label: 'Habits' }]
+  if (settings.value.enableJournalling) list.push({ key: 'checkins', label: 'Check-ins' })
+  return list
+})
+
 const habits = ref<HabitWithSchedule[]>([])
 const completions = ref<Completion[]>([])
 const habitLogs = ref<HabitLog[]>([])
@@ -196,80 +206,6 @@ const habitRates = computed(() => {
     .slice(0, 6)
 })
 
-// ─── Heatmap ──────────────────────────────────────────────────────────────────
-
-const HEATMAP_WEEKS = 17
-
-interface HeatmapDay {
-  date: string
-  doneCount: number
-  total: number
-  rate: number
-  isToday: boolean
-  isFuture: boolean
-}
-
-function buildHeatmapWeek(start: Date, weekOffset: number, total: number): HeatmapDay[] {
-  const week: HeatmapDay[] = []
-  for (let dow = 0; dow < 7; dow++) {
-    const d = new Date(start)
-    d.setDate(start.getDate() + weekOffset * 7 + dow)
-    const date = d.toISOString().slice(0, 10)
-    const isFuture = date > today
-    const doneCount = !isFuture && total > 0 ? (doneCountByDate.value.get(date) ?? 0) : 0
-    week.push({
-      date,
-      doneCount,
-      total,
-      rate: total && !isFuture ? Math.round((doneCount / total) * 100) : 0,
-      isToday: date === today,
-      isFuture,
-    })
-  }
-  return week
-}
-
-const heatmapWeeks = computed((): HeatmapDay[][] => {
-  const total = habits.value.length
-  // Align start to the Sunday HEATMAP_WEEKS weeks before today
-  const start = new Date(today)
-  start.setDate(start.getDate() - (HEATMAP_WEEKS * 7 - 1) - start.getDay())
-  return Array.from({ length: HEATMAP_WEEKS }, (_, wi) => buildHeatmapWeek(start, wi, total))
-})
-
-function weekMonthLabel(week: HeatmapDay[]): string {
-  const day1 = week.find((d) => d.date.slice(8) === '01')
-  return day1
-    ? new Date(`${day1.date}T12:00:00`).toLocaleDateString('en-US', { month: 'short' })
-    : ''
-}
-
-// 5-level color scale: empty → dim cyan → bright cyan
-const HEAT_COLORS: [string, string, string, string, string] = [
-  '#1e293b',
-  '#083344',
-  '#0e4d6c',
-  '#0e7490',
-  '#22d3ee',
-]
-
-function heatColor(day: HeatmapDay): string {
-  if (day.isFuture || day.total === 0 || day.rate === 0) return HEAT_COLORS[0]
-  if (day.rate <= 33) return HEAT_COLORS[1]
-  if (day.rate <= 66) return HEAT_COLORS[2]
-  if (day.rate < 100) return HEAT_COLORS[3]
-  return HEAT_COLORS[4]
-}
-
-const selectedDay = ref<HeatmapDay | null>(null)
-
-function selectDay(day: HeatmapDay) {
-  selectedDay.value = selectedDay.value?.date === day.date ? null : day
-}
-
-// Only show Mo, We, Fr labels to avoid crowding
-const DOW_LABELS = ['', 'Mo', '', 'We', '', 'Fr', '']
-
 onMounted(load)
 </script>
 
@@ -277,8 +213,28 @@ onMounted(load)
   <div class="space-y-5">
     <header>
       <p class="text-sm text-(--ui-text-dimmed)">Overview</p>
-      <h2 class="text-2xl font-bold">Analytics</h2>
+      <h2 class="text-2xl font-bold">Insights</h2>
     </header>
+
+    <!-- Tabs -->
+    <div
+      v-if="tabs.length > 1"
+      class="flex gap-1 p-1 rounded-full bg-(--ui-bg-elevated) border border-(--ui-border)"
+    >
+      <button
+        v-for="tb in tabs"
+        :key="tb.key"
+        type="button"
+        class="flex-1 text-sm font-semibold py-1.5 rounded-full transition-colors"
+        :class="tab === tb.key ? 'bg-(--ui-bg-muted) text-(--ui-text)' : 'text-(--ui-text-dimmed)'"
+        @click="tab = tb.key"
+      >
+        {{ tb.label }}
+      </button>
+    </div>
+
+    <!-- ── Habits tab ───────────────────────────────────────────────────────── -->
+    <div v-show="tab === 'habits'" class="space-y-5">
 
     <!-- ── Summary cards ────────────────────────────────────────────────────── -->
     <div class="grid grid-cols-3 gap-2">
@@ -328,76 +284,13 @@ onMounted(load)
       <div v-else-if="!totalHabits" class="flex items-center justify-center py-6">
         <p class="text-xs text-slate-600">No habits yet</p>
       </div>
-      <div v-else class="overflow-x-auto -mx-1 px-1">
-        <div class="inline-flex flex-col gap-1">
-
-          <!-- Month labels row -->
-          <div class="flex gap-0.5 ml-5">
-            <div
-              v-for="(week, wi) in heatmapWeeks"
-              :key="wi"
-              class="w-3.5 flex-shrink-0 h-3 text-[9px] text-(--ui-text-dimmed) leading-none"
-            >{{ weekMonthLabel(week) }}</div>
-          </div>
-
-          <!-- Day labels + week columns -->
-          <div class="flex gap-1">
-            <!-- Day-of-week labels -->
-            <div class="flex flex-col gap-0.5 w-4 flex-shrink-0">
-              <div
-                v-for="(label, i) in DOW_LABELS"
-                :key="i"
-                class="h-3.5 text-[9px] text-slate-600 flex items-center justify-end"
-              >{{ label }}</div>
-            </div>
-
-            <!-- Week columns -->
-            <div class="flex gap-0.5">
-              <div
-                v-for="(week, wi) in heatmapWeeks"
-                :key="wi"
-                class="flex flex-col gap-0.5"
-              >
-                <button
-                  v-for="day in week"
-                  :key="day.date"
-                  class="w-3.5 h-3.5 rounded-[3px] flex-shrink-0 transition-transform active:scale-110"
-                  :class="selectedDay?.date === day.date ? 'ring-1 ring-white/60 ring-offset-[1.5px] ring-offset-slate-900' : day.isToday ? 'ring-1 ring-cyan-400/80 ring-offset-[1.5px] ring-offset-slate-900' : ''"
-                  :style="{ backgroundColor: heatColor(day) }"
-                  @click="selectDay(day)"
-                />
-              </div>
-            </div>
-          </div>
-
-          <!-- Tap detail row -->
-          <div class="h-6 flex items-center ml-5">
-            <transition name="fade">
-              <p v-if="selectedDay" class="text-xs">
-                <span class="text-(--ui-text-toned) font-medium">{{ selectedDay.date }}</span>
-                <span class="text-(--ui-text-dimmed) mx-1">—</span>
-                <span v-if="selectedDay.isFuture" class="text-slate-600">future</span>
-                <span v-else class="text-(--ui-text-muted)">{{ selectedDay.doneCount }}/{{ selectedDay.total }} habits</span>
-                <span v-if="!selectedDay.isFuture && selectedDay.doneCount === selectedDay.total && selectedDay.total > 0" class="text-cyan-400 ml-1">✓ Perfect day</span>
-              </p>
-              <p v-else class="text-[10px] text-slate-700">Tap any cell</p>
-            </transition>
-          </div>
-
-          <!-- Legend -->
-          <div class="flex items-center gap-1 ml-5">
-            <span class="text-[10px] text-slate-600 mr-0.5">Less</span>
-            <div
-              v-for="col in HEAT_COLORS"
-              :key="col"
-              class="w-3.5 h-3.5 rounded-[3px]"
-              :style="{ backgroundColor: col }"
-            />
-            <span class="text-[10px] text-slate-600 ml-0.5">More</span>
-          </div>
-
-        </div>
-      </div>
+      <CompletionHeatmap
+        v-else
+        :counts="doneCountByDate"
+        :total="totalHabits"
+        :today="today"
+        unit="habits"
+      />
     </UCard>
 
     <!-- ── Monthly completion rate ───────────────────────────────────────────── -->
@@ -407,26 +300,7 @@ onMounted(load)
       <div v-if="!totalHabits" class="flex items-center justify-center py-6">
         <p class="text-xs text-slate-600">No data yet</p>
       </div>
-      <div v-else class="flex items-end gap-1.5 h-28">
-        <div
-          v-for="month in monthlyData"
-          :key="month.label"
-          class="flex-1 flex flex-col items-center gap-1"
-        >
-          <span
-            class="text-[10px] font-medium tabular-nums"
-            :class="month.rate >= 70 ? 'text-emerald-400' : month.rate >= 40 ? 'text-amber-400' : month.rate > 0 ? 'text-rose-400' : 'text-slate-700'"
-          >{{ month.rate > 0 ? `${month.rate}%` : '—' }}</span>
-          <div class="w-full flex-1 flex items-end">
-            <div
-              class="w-full rounded-t transition-all duration-700"
-              :class="month.rate >= 70 ? 'bg-emerald-500' : month.rate >= 40 ? 'bg-amber-400' : month.rate > 0 ? 'bg-rose-500' : 'bg-(--ui-bg-elevated)'"
-              :style="{ height: `${Math.max(month.rate > 0 ? 4 : 0, month.rate)}%` }"
-            />
-          </div>
-          <span class="text-[10px] text-slate-600">{{ month.label }}</span>
-        </div>
-      </div>
+      <MonthlyCompletionBars v-else :data="monthlyData" />
     </UCard>
 
     <!-- ── Habit completion bars ─────────────────────────────────────────────── -->
@@ -467,10 +341,11 @@ onMounted(load)
       </div>
     </UCard>
 
+    </div>
+    <!-- /Habits tab -->
+
+    <!-- ── Check-ins tab ────────────────────────────────────────────────────── -->
+    <CheckinInsights v-if="tab === 'checkins'" />
+
   </div>
 </template>
-
-<style scoped>
-.fade-enter-active, .fade-leave-active { transition: opacity 0.15s; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
-</style>

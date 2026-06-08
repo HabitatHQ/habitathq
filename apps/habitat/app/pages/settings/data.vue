@@ -5,6 +5,183 @@ import type { ExportSelection, HabitatExport } from '~/types/database'
 const db = useDatabase()
 const toast = useToast()
 
+// ─── DEV SEED DATA (temporary — remove before merge) ────────────────────────────
+// Creates demo habits with back-dated completions/logs to exercise every sprout
+// stage and streak state (active / at-risk / broken / recovery / partial).
+const seeding = ref(false)
+
+function daysAgo(n: number): string {
+  const d = new Date()
+  d.setUTCDate(d.getUTCDate() - n)
+  return d.toISOString().slice(0, 10)
+}
+
+function rangeDays(from: number, to: number): number[] {
+  const out: number[] = []
+  for (let i = from; i <= to; i++) out.push(i)
+  return out
+}
+
+async function seedDemoData() {
+  if (seeding.value) return
+  seeding.value = true
+  try {
+    // days entries: number = boolean completion N days ago; [n, value] = numeric log
+    const makeHabit = async (
+      name: string,
+      icon: string,
+      color: string,
+      days: Array<number | [number, number]>,
+      opts: { type?: 'BOOLEAN' | 'NUMERIC'; target?: number; why?: string } = {},
+    ) => {
+      const h = await db.createHabit({
+        name,
+        description: '',
+        why: opts.why ?? 'Demo habit for testing the sprout experience.',
+        color,
+        icon,
+        frequency: 'daily',
+        tags: [],
+        annotations: {},
+        type: opts.type ?? 'BOOLEAN',
+        target_value: opts.target ?? 1,
+        paused_until: null,
+      })
+      const maxN = days.reduce<number>((m, d) => Math.max(m, Array.isArray(d) ? d[0] : d), 0)
+      if (h.schedule)
+        await db.updateHabitSchedule({ id: h.schedule.id, start_date: daysAgo(maxN + 1) })
+      await Promise.all(
+        days.map((d) =>
+          Array.isArray(d)
+            ? db.logHabitValue(h.id, daysAgo(d[0]), d[1])
+            : db.toggleCompletion(h.id, daysAgo(d)),
+        ),
+      )
+    }
+
+    await Promise.all([
+      // ── Growth stages (consecutive days ending today) ──
+      makeHabit('🌱 Seed (1d)', 'sparkles', '#34d399', rangeDays(0, 0)),
+      makeHabit('🌿 Sprout (3d)', 'leaf', '#22c55e', rangeDays(0, 2)),
+      makeHabit('🪴 Sapling (7d)', 'tree', '#16a34a', rangeDays(0, 6)),
+      makeHabit('🍃 Leafy (14d)', 'book-open', '#0ea5e9', rangeDays(0, 13)),
+      makeHabit('🌾 Budding (21d)', 'star', '#8b5cf6', rangeDays(0, 20)),
+      makeHabit('🌼 Bloom (30d)', 'flower-lotus', '#ec4899', rangeDays(0, 29)),
+      // ── Streak states (forgiving model) ──
+      // Frozen: 10-day streak then a miss → freezes, plant regresses one notch.
+      makeHabit('❄️ Frozen (10)', 'fire', '#38bdf8', rangeDays(2, 11)),
+      // Thawing: froze at 8, then 2 of 3 thaw completions → "2/3".
+      makeHabit('💧 Thawing (8 · 2/3)', 'water-drop', '#06b6d4', [...rangeDays(4, 11), 2, 1]),
+      // Frozen + heavily regressed: streak frozen at 8 but plant faded to a seed.
+      makeHabit('🥀 Frozen · faded', 'leaf', '#94a3b8', rangeDays(20, 27)),
+      // Daisies: a long run banks daisies at 30 / 60.
+      makeHabit('🌼 Daisies (60)', 'flower-lotus', '#ec4899', rangeDays(0, 59)),
+      // Struggling: <30% over the last 2 weeks → why+pause nudge on the detail page.
+      makeHabit('😟 Struggling (why set)', 'fire', '#a855f7', [12, 5]),
+      makeHabit('😶 Struggling (no why)', 'moon', '#64748b', [11, 4], { why: '' }),
+      // Primed for the grow animation: one short of a threshold, today still open.
+      // Complete today on the detail page to watch the stage advance + pop.
+      makeHabit('✨ Grow me → leafy (13d)', 'leaf', '#10b981', rangeDays(1, 13)),
+      makeHabit('✨ Grow me → bloom (29d)', 'sun', '#f59e0b', rangeDays(1, 29)),
+      // Numeric with partial days (target 8) — also seeds LogSheet last-value.
+      makeHabit(
+        '💧 Water (numeric)',
+        'water-drop',
+        '#3b82f6',
+        [
+          [6, 8],
+          [5, 8],
+          [4, 3],
+          [3, 8],
+          [2, 5],
+          [1, 8],
+          [0, 8],
+        ],
+        { type: 'NUMERIC', target: 8 },
+      ),
+    ])
+
+    // ── Check-in templates (create a demo set if the user has none) ──
+    // Without templates + questions there's nothing for responses to attach to,
+    // so the Insights → Check-ins tab would stay empty.
+    let tpls = await db.getCheckinTemplates()
+    if (tpls.length === 0) {
+      const makeTemplate = async (
+        title: string,
+        questions: Array<{ prompt: string; type: 'SCALE' | 'BOOLEAN' | 'TEXT'; desired?: number }>,
+      ) => {
+        const t = await db.createCheckinTemplate({
+          title,
+          schedule_type: 'DAILY',
+          days_active: null,
+        })
+        await Promise.all(
+          questions.map((q, i) =>
+            db.createCheckinQuestion({
+              template_id: t.id,
+              prompt: q.prompt,
+              response_type: q.type,
+              display_order: i,
+              desired_answer: q.desired ?? 1,
+            }),
+          ),
+        )
+      }
+      await makeTemplate('🌅 Morning Check-in', [
+        { prompt: 'How is your mood?', type: 'SCALE' },
+        { prompt: 'Energy level?', type: 'SCALE' },
+        { prompt: 'Slept well?', type: 'BOOLEAN', desired: 1 },
+        { prompt: 'One thing you’re grateful for', type: 'TEXT' },
+      ])
+      await makeTemplate('🌙 Evening Reflection', [
+        { prompt: 'Stress level?', type: 'SCALE' },
+        { prompt: 'Was today productive?', type: 'BOOLEAN', desired: 1 },
+      ])
+      tpls = await db.getCheckinTemplates()
+    }
+
+    // ── Check-in responses (so the Insights → Check-ins tab has trends) ──
+    for (const t of tpls) {
+      const qs = await db.getCheckinQuestions(t.id)
+      for (let n = 0; n < 30; n++) {
+        if (Math.random() < 0.22) continue // ~22% skipped days → realistic consistency
+        const date = daysAgo(n)
+        await Promise.all(
+          qs.map((q) => {
+            if (q.response_type === 'SCALE') {
+              // gentle upward trend + noise, clamped 1–10
+              const v = Math.min(
+                10,
+                Math.max(1, Math.round(6 + (29 - n) * 0.05 + (Math.random() * 2 - 1))),
+              )
+              return db.upsertCheckinResponse(q.id, date, v, null)
+            }
+            if (q.response_type === 'BOOLEAN') {
+              const desired = q.desired_answer ?? 1
+              const v = Math.random() < 0.72 ? desired : 1 - desired
+              return db.upsertCheckinResponse(q.id, date, v, null)
+            }
+            return db.upsertCheckinResponse(q.id, date, null, 'A quick demo reflection.')
+          }),
+        )
+      }
+    }
+
+    toast.add({
+      title: 'Seeded demo habits + check-ins',
+      description: 'Habits → sprouts; Insights → Check-ins tab for trends.',
+      color: 'success',
+      duration: 5000,
+    })
+  } catch (err) {
+    logError('[seedDemoData]', err)
+    toast.add({ title: 'Seeding failed', color: 'error', duration: 4000 })
+  } finally {
+    seeding.value = false
+  }
+}
+// ─── /DEV SEED DATA ─────────────────────────────────────────────────────────────
+
 // ─── JSON export ───────────────────────────────────────────────────────────────
 
 type ExportKey = keyof ExportSelection
@@ -460,6 +637,30 @@ async function nukeOpfs(reload: boolean) {
 <template>
   <div class="space-y-6">
     <BackNav to="/settings" label="Data" title class="mb-4" />
+
+    <!-- DEV SEED DATA — TEMPORARY, remove before merge -->
+    <section class="space-y-2">
+      <p class="text-xs font-semibold uppercase tracking-wider text-amber-500 px-1">Dev tools</p>
+      <UCard :ui="{ root: 'rounded-2xl border border-dashed border-amber-500/40', body: 'p-0 sm:p-0' }">
+        <div class="flex items-center justify-between px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Seed demo habits</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Adds 10 habits with back-dated history to test sprout stages &amp; streak states.</p>
+          </div>
+          <UButton
+            :icon="resolveIcon('sparkles')"
+            color="warning"
+            variant="soft"
+            size="sm"
+            :loading="seeding"
+            @click="seedDemoData"
+          >
+            Seed
+          </UButton>
+        </div>
+      </UCard>
+    </section>
+    <!-- /DEV SEED DATA -->
 
     <section class="space-y-2">
       <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Export & Import</p>
