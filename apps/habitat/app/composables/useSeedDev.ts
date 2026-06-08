@@ -69,6 +69,17 @@ function dowOf(date: string): number {
 
 // ─── Habit definitions ────────────────────────────────────────────────────────────
 
+/**
+ * Performance profile for a habit's generated history. The "slipping" and
+ * "struggling" profiles deliberately keep the recent ~2-week window mostly
+ * missed (and never done today) so the habit trips the Today page's
+ * "Needs attention" detector (isStruggling: rate < 0.3 over ≥7 scheduled days).
+ * "slipping" pairs that recent slump with a strong older history, so it also
+ * exercises plant regression in the garden.
+ */
+type Profile = 'thriving' | 'steady' | 'building' | 'slipping' | 'struggling'
+type Sched = 'DAILY' | 'SPECIFIC_DAYS' | 'WEEKLY_FLEX'
+
 interface HabitSpec {
   id: string
   name: string
@@ -76,12 +87,17 @@ interface HabitSpec {
   color: string
   type: Habit['type']
   target_value: number
-  /** Probability the habit is acted on / logged on any given day. */
-  rate: number
   tags: string[]
+  profile: Profile
+  schedule: Sched
+  /** SPECIFIC_DAYS: scheduled days. WEEKLY_FLEX: the days activity tends to land. */
+  daysOfWeek?: number[]
+  /** WEEKLY_FLEX target days per week. */
+  frequencyCount?: number
 }
 
 const HABIT_SPECS: HabitSpec[] = [
+  // ── Healthy: variety of types + schedules ──────────────────────────────────
   {
     id: 'seed-h-meditate',
     name: 'Meditate',
@@ -89,28 +105,9 @@ const HABIT_SPECS: HabitSpec[] = [
     color: '#8b5cf6',
     type: 'BOOLEAN',
     target_value: 1,
-    rate: 0.82,
     tags: ['wellbeing'],
-  },
-  {
-    id: 'seed-h-workout',
-    name: 'Workout',
-    icon: 'barbell',
-    color: '#ef4444',
-    type: 'BOOLEAN',
-    target_value: 1,
-    rate: 0.58,
-    tags: ['health/exercise'],
-  },
-  {
-    id: 'seed-h-read',
-    name: 'Read pages',
-    icon: 'book-open',
-    color: '#3b82f6',
-    type: 'NUMERIC',
-    target_value: 20,
-    rate: 0.75,
-    tags: ['learning'],
+    profile: 'thriving',
+    schedule: 'DAILY',
   },
   {
     id: 'seed-h-water',
@@ -119,8 +116,31 @@ const HABIT_SPECS: HabitSpec[] = [
     color: '#06b6d4',
     type: 'NUMERIC',
     target_value: 8,
-    rate: 0.9,
     tags: ['health'],
+    profile: 'thriving',
+    schedule: 'DAILY',
+  },
+  {
+    id: 'seed-h-read',
+    name: 'Read pages',
+    icon: 'book-open',
+    color: '#3b82f6',
+    type: 'NUMERIC',
+    target_value: 20,
+    tags: ['learning'],
+    profile: 'steady',
+    schedule: 'DAILY',
+  },
+  {
+    id: 'seed-h-steps',
+    name: 'Walk 8k steps',
+    icon: 'sneaker',
+    color: '#22c55e',
+    type: 'NUMERIC',
+    target_value: 8000,
+    tags: ['health'],
+    profile: 'steady',
+    schedule: 'DAILY',
   },
   {
     id: 'seed-h-screen',
@@ -129,12 +149,107 @@ const HABIT_SPECS: HabitSpec[] = [
     color: '#f59e0b',
     type: 'LIMIT',
     target_value: 2,
-    rate: 0.95,
     tags: ['wellbeing'],
+    profile: 'steady',
+    schedule: 'DAILY',
+  },
+  {
+    id: 'seed-h-workout',
+    name: 'Workout',
+    icon: 'barbell',
+    color: '#ef4444',
+    type: 'BOOLEAN',
+    target_value: 1,
+    tags: ['health/exercise'],
+    profile: 'steady',
+    schedule: 'SPECIFIC_DAYS',
+    daysOfWeek: [1, 3, 5], // Mon/Wed/Fri
+  },
+  {
+    id: 'seed-h-run',
+    name: 'Go for a run',
+    icon: 'running',
+    color: '#10b981',
+    type: 'BOOLEAN',
+    target_value: 1,
+    tags: ['health/exercise'],
+    profile: 'steady',
+    schedule: 'WEEKLY_FLEX',
+    frequencyCount: 3,
+    daysOfWeek: [2, 4, 6], // tends to run Tue/Thu/Sat
+  },
+  {
+    id: 'seed-h-journal',
+    name: 'Journal',
+    icon: 'notebook',
+    color: '#14b8a6',
+    type: 'BOOLEAN',
+    target_value: 1,
+    tags: ['wellbeing'],
+    profile: 'building', // ramps up over time
+    schedule: 'DAILY',
+  },
+  // ── Needs attention: recent slump, not done today ─────────────────────────
+  {
+    id: 'seed-h-stretch',
+    name: 'Stretch',
+    icon: 'stretching',
+    color: '#f43f5e',
+    type: 'BOOLEAN',
+    target_value: 1,
+    tags: ['health/exercise'],
+    profile: 'struggling',
+    schedule: 'DAILY',
+  },
+  {
+    id: 'seed-h-floss',
+    name: 'Floss',
+    icon: 'tooth',
+    color: '#38bdf8',
+    type: 'BOOLEAN',
+    target_value: 1,
+    tags: ['health'],
+    profile: 'slipping',
+    schedule: 'DAILY',
+  },
+  {
+    id: 'seed-h-guitar',
+    name: 'Practice guitar',
+    icon: 'guitar',
+    color: '#a855f7',
+    type: 'NUMERIC',
+    target_value: 30,
+    tags: ['hobbies'],
+    profile: 'struggling',
+    schedule: 'DAILY',
+  },
+  {
+    id: 'seed-h-junk',
+    name: 'No junk food',
+    icon: 'apple',
+    color: '#84cc16',
+    type: 'LIMIT',
+    target_value: 1,
+    tags: ['health'],
+    profile: 'slipping',
+    schedule: 'DAILY',
   },
 ]
 
-function buildHabits(now: string): { habits: Habit[]; schedules: HabitSchedule[] } {
+function scheduleRow(spec: HabitSpec): HabitSchedule {
+  return {
+    id: `${spec.id}-sched`,
+    habit_id: spec.id,
+    schedule_type: spec.schedule,
+    frequency_count: spec.frequencyCount ?? null,
+    days_of_week: spec.schedule === 'SPECIFIC_DAYS' ? (spec.daysOfWeek ?? null) : null,
+    due_time: null,
+    start_date: null,
+    end_date: null,
+  }
+}
+
+function buildHabits(): { habits: Habit[]; schedules: HabitSchedule[] } {
   const createdAt = `${recentDates(HORIZON_DAYS).at(-1)}T08:00:00.000Z`
   const habits: Habit[] = []
   const schedules: HabitSchedule[] = []
@@ -155,120 +270,172 @@ function buildHabits(now: string): { habits: Habit[]; schedules: HabitSchedule[]
       target_value: spec.target_value,
       paused_until: null,
     })
-    schedules.push({
-      id: `${spec.id}-sched`,
-      habit_id: spec.id,
-      schedule_type: 'DAILY',
-      frequency_count: null,
-      days_of_week: null,
-      due_time: null,
-      start_date: null,
-      end_date: null,
-    })
+    schedules.push(scheduleRow(spec))
   }
-  // `now` retained for signature symmetry with check-in builder
-  void now
   return { habits, schedules }
 }
 
-function buildHabitHistory(): { completions: Completion[]; habit_logs: HabitLog[] } {
-  const completions: Completion[] = []
-  const habit_logs: HabitLog[] = []
-  const dates = recentDates(HORIZON_DAYS)
+// ─── Per-day history generation ─────────────────────────────────────────────────
 
-  for (const spec of HABIT_SPECS) {
-    const rng = makeRng(hashSeed(spec.id))
-    for (const date of dates) {
-      const acted = rng() < spec.rate
-      if (!acted) continue
-      const completedAt = `${date}T20:00:00.000Z`
+const ATTENTION: ReadonlySet<Profile> = new Set<Profile>(['slipping', 'struggling'])
 
-      if (spec.type === 'BOOLEAN') {
-        completions.push({
-          id: `seed-c-${spec.id}-${date}`,
-          habit_id: spec.id,
-          date,
-          completed_at: completedAt,
-          notes: '',
-          tags: [],
-          annotations: {},
-        })
-        continue
-      }
+/** Whether the habit's schedule means activity can land on this weekday. */
+function isGenDay(spec: HabitSpec, dow: number): boolean {
+  if (spec.schedule === 'DAILY') return true
+  return (spec.daysOfWeek ?? []).includes(dow)
+}
 
-      // NUMERIC: aim around target with spread; LIMIT: usually under, sometimes over.
-      let value: number
-      if (spec.type === 'NUMERIC') {
-        value = Math.max(1, Math.round(spec.target_value * (0.5 + rng() * 0.9)))
-      } else {
-        // LIMIT — center below the cap, occasional overshoot
-        value = Math.round(spec.target_value * (0.4 + rng() * 1.1) * 10) / 10
-      }
-      habit_logs.push({
-        id: `seed-l-${spec.id}-${date}`,
+/** Decide if a scheduled day was a "hit" for the given profile. `daysAgo` 0 = today. */
+function profileHit(profile: Profile, daysAgo: number, rng: () => number): boolean {
+  if (ATTENTION.has(profile)) {
+    if (daysAgo === 0) return false // never done today → surfaces in Needs attention
+    if (daysAgo <= 18) return daysAgo % 9 === 0 // sparse recent hits → rate well under 0.3
+    return rng() < (profile === 'slipping' ? 0.85 : 0.45)
+  }
+  if (profile === 'thriving') return rng() < 0.92
+  if (profile === 'steady') return rng() < 0.72
+  const recency = 1 - daysAgo / HORIZON_DAYS // building: ramps up toward today
+  return rng() < 0.2 + recency * 0.7
+}
+
+function numericMet(target: number, rng: () => number): number {
+  return Math.max(1, Math.round(target * (1 + rng() * 0.4)))
+}
+function numericPartial(target: number, rng: () => number): number {
+  return Math.max(1, Math.round(target * (0.3 + rng() * 0.45)))
+}
+function limitUnder(target: number, rng: () => number): number {
+  return Math.round(target * (0.3 + rng() * 0.65) * 10) / 10
+}
+function limitOver(target: number, rng: () => number): number {
+  return Math.round(target * (1.3 + rng() * 0.9) * 10) / 10
+}
+
+interface History {
+  completions: Completion[]
+  habit_logs: HabitLog[]
+}
+
+function emitDay(
+  spec: HabitSpec,
+  date: string,
+  daysAgo: number,
+  hit: boolean,
+  rng: () => number,
+  out: History,
+): void {
+  // Attention habits stay completely inactive today so they aren't filtered out.
+  if (daysAgo === 0 && ATTENTION.has(spec.profile)) return
+  const at = `${date}T20:00:00.000Z`
+  const log = (value: number) =>
+    out.habit_logs.push({
+      id: `seed-l-${spec.id}-${date}`,
+      habit_id: spec.id,
+      date,
+      logged_at: at,
+      value,
+      notes: '',
+    })
+
+  if (spec.type === 'BOOLEAN') {
+    if (hit)
+      out.completions.push({
+        id: `seed-c-${spec.id}-${date}`,
         habit_id: spec.id,
         date,
-        logged_at: completedAt,
-        value,
+        completed_at: at,
         notes: '',
+        tags: [],
+        annotations: {},
       })
-    }
+    return
   }
-  return { completions, habit_logs }
+  if (spec.type === 'NUMERIC') {
+    if (hit) log(numericMet(spec.target_value, rng))
+    // Occasional below-target days (only for healthy habits, away from the recent
+    // window) add "partial" variety without disturbing struggle detection.
+    else if (!ATTENTION.has(spec.profile) && daysAgo > 20 && rng() < 0.25)
+      log(numericPartial(spec.target_value, rng))
+    return
+  }
+  // LIMIT — "stay under". Hit = logged under the cap; a slump logs over the cap.
+  if (hit) log(limitUnder(spec.target_value, rng))
+  else if (spec.profile === 'slipping' || rng() < 0.4) log(limitOver(spec.target_value, rng))
+}
+
+function buildHabitHistory(): History {
+  const out: History = { completions: [], habit_logs: [] }
+  const dates = recentDates(HORIZON_DAYS)
+  for (const spec of HABIT_SPECS) {
+    const rng = makeRng(hashSeed(spec.id))
+    dates.forEach((date, daysAgo) => {
+      if (!isGenDay(spec, dowOf(date))) return
+      emitDay(spec, date, daysAgo, profileHit(spec.profile, daysAgo, rng), rng, out)
+    })
+  }
+  return out
 }
 
 // ─── Check-in definitions (used only when no templates exist yet) ───────────────────
 
-const FALLBACK_TEMPLATE: { template: CheckinTemplate; questions: CheckinQuestion[] } = (() => {
-  const tid = 'seed-ct-daily'
+interface SeedTemplate {
+  template: CheckinTemplate
+  questions: CheckinQuestion[]
+}
+
+/** Compact spec → fully-formed template + questions with stable IDs. */
+function makeTemplate(
+  id: string,
+  title: string,
+  schedule_type: CheckinTemplate['schedule_type'],
+  days_active: number[] | null,
+  qs: [slug: string, prompt: string, type: CheckinQuestion['response_type'], desired?: number][],
+): SeedTemplate {
   return {
-    template: {
-      id: tid,
-      title: 'Daily Reflection',
-      schedule_type: 'DAILY',
-      days_active: null,
+    template: { id, title, schedule_type, days_active, archived_at: null },
+    questions: qs.map(([slug, prompt, response_type, desired], i) => ({
+      id: `${id}-${slug}`,
+      template_id: id,
+      prompt,
+      response_type,
+      display_order: i,
+      desired_answer: desired ?? 1,
       archived_at: null,
-    },
-    questions: [
-      {
-        id: 'seed-cq-mood',
-        template_id: tid,
-        prompt: 'Overall mood today (1–10)?',
-        response_type: 'SCALE',
-        display_order: 0,
-        desired_answer: 1,
-        archived_at: null,
-      },
-      {
-        id: 'seed-cq-energy',
-        template_id: tid,
-        prompt: 'How is your energy level?',
-        response_type: 'SCALE',
-        display_order: 1,
-        desired_answer: 1,
-        archived_at: null,
-      },
-      {
-        id: 'seed-cq-stress',
-        template_id: tid,
-        prompt: 'Are you feeling stressed?',
-        response_type: 'BOOLEAN',
-        display_order: 2,
-        desired_answer: 0,
-        archived_at: null,
-      },
-      {
-        id: 'seed-cq-win',
-        template_id: tid,
-        prompt: 'What went well today?',
-        response_type: 'TEXT',
-        display_order: 3,
-        desired_answer: 1,
-        archived_at: null,
-      },
-    ],
+    })),
   }
-})()
+}
+
+/**
+ * Templates seeded only when the DB has none (e.g. after a wipe). On a normal
+ * install the app's default templates already exist and we attach to those.
+ * Covers a daily reflection, a morning check-in, and a weekly review so every
+ * response type (SCALE / BOOLEAN / TEXT) and cadence is represented.
+ */
+const FALLBACK_TEMPLATES: SeedTemplate[] = [
+  makeTemplate('seed-ct-morning', 'Morning Check-in', 'DAILY', null, [
+    ['sleep', 'How did you sleep?', 'SCALE'],
+    ['energy', 'How is your energy level?', 'SCALE'],
+    ['anxious', 'Are you feeling anxious?', 'BOOLEAN', 0],
+    ['intention', "What's your intention for today?", 'TEXT'],
+  ]),
+  makeTemplate('seed-ct-evening', 'Evening Reflection', 'DAILY', null, [
+    ['mood', 'Overall mood today (1–10)?', 'SCALE'],
+    ['productive', 'Did you have a productive day?', 'BOOLEAN'],
+    ['win', 'What went well today?', 'TEXT'],
+    ['better', 'What could have gone better?', 'TEXT'],
+  ]),
+  makeTemplate(
+    'seed-ct-weekly',
+    'Weekly Review',
+    'WEEKLY',
+    [0],
+    [
+      ['rating', 'How would you rate this week (1–10)?', 'SCALE'],
+      ['wins', 'What were your biggest wins?', 'TEXT'],
+      ['focus', 'What will you focus on next week?', 'TEXT'],
+    ],
+  ),
+]
 
 const TEXT_SAMPLES = [
   'Got through a focused deep-work block.',
@@ -356,34 +523,35 @@ export function useSeedDev() {
   }> {
     const now = new Date().toISOString()
 
-    const { habits, schedules } = buildHabits(now)
+    const { habits, schedules } = buildHabits()
     const { completions, habit_logs } = buildHabitHistory()
 
     // Prefer attaching responses to the user's existing check-in templates so the
-    // data shows up under the names they already see. Fall back to a seeded
-    // template only when none exist (e.g. after a data wipe).
+    // data shows up under the names they already see. Fall back to seeded
+    // templates only when none exist (e.g. after a data wipe).
     const existing = await db.getCheckinTemplates()
     const active = existing.filter((t) => !t.archived_at)
 
-    let templates: CheckinTemplate[] = []
+    // Templates/questions to import (empty when reusing the DB's own templates).
+    let newTemplates: CheckinTemplate[] = []
+    let newQuestions: CheckinQuestion[] = []
     const questionsByTemplate = new Map<string, CheckinQuestion[]>()
+    let scheduleMeta: { id: string; schedule_type: CheckinTemplate['schedule_type'] }[]
 
     if (active.length > 0) {
       for (const t of active) {
-        const qs = await db.getCheckinQuestions(t.id)
-        questionsByTemplate.set(t.id, qs)
+        questionsByTemplate.set(t.id, await db.getCheckinQuestions(t.id))
       }
-      // Templates already exist in the DB — don't re-import them.
-      templates = []
+      scheduleMeta = active.map((t) => ({ id: t.id, schedule_type: t.schedule_type }))
     } else {
-      templates = [FALLBACK_TEMPLATE.template]
-      questionsByTemplate.set(FALLBACK_TEMPLATE.template.id, FALLBACK_TEMPLATE.questions)
+      newTemplates = FALLBACK_TEMPLATES.map((t) => t.template)
+      newQuestions = FALLBACK_TEMPLATES.flatMap((t) => t.questions)
+      for (const t of FALLBACK_TEMPLATES) questionsByTemplate.set(t.template.id, t.questions)
+      scheduleMeta = FALLBACK_TEMPLATES.map((t) => ({
+        id: t.template.id,
+        schedule_type: t.template.schedule_type,
+      }))
     }
-
-    const scheduleMeta =
-      active.length > 0
-        ? active.map((t) => ({ id: t.id, schedule_type: t.schedule_type }))
-        : [{ id: FALLBACK_TEMPLATE.template.id, schedule_type: 'DAILY' as const }]
 
     const checkin_responses = buildCheckinResponses(scheduleMeta, questionsByTemplate)
 
@@ -394,8 +562,8 @@ export function useSeedDev() {
       completions,
       habit_logs,
       habit_schedules: schedules,
-      checkin_templates: templates,
-      checkin_questions: templates.length > 0 ? FALLBACK_TEMPLATE.questions : [],
+      checkin_templates: newTemplates,
+      checkin_questions: newQuestions,
       checkin_responses,
       reminders: [],
       checkin_reminders: [],
