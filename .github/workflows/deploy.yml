@@ -83,6 +83,27 @@ jobs:
           for app in habitat hearth halcyon hephaestus; do
             cp -r "apps/$app/.output/public" "_site/$PREFIX/$app"
           done
+
+          # Copy landing page to the prefixed path
+          cp apps/landing/index.html "_site/$PREFIX/index.html"
+
+          # Create a root redirect to the main branch
+          cat <<EOF > _site/index.html
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta http-equiv="refresh" content="0; url=./main/">
+              <script type="text/javascript">
+                window.location.href = "./main/"
+              </script>
+              <title>Redirecting...</title>
+            </head>
+            <body>
+              <p>Redirecting to <a href="./main/">main branch</a>...</p>
+            </body>
+          </html>
+          EOF
+
           touch _site/.nojekyll
 
       - name: Upload Pages artifact
