@@ -121,21 +121,6 @@ watch(
   { immediate: true },
 )
 
-// ── Number pad ────────────────────────────────────────────────────────────
-
-function pad(key: string) {
-  if (key === 'backspace') {
-    form.amountStr = form.amountStr.slice(0, -1)
-    return
-  }
-  if (key === '.' && form.amountStr.includes('.')) return
-  if (form.amountStr.includes('.')) {
-    const decimals = form.amountStr.split('.')[1] ?? ''
-    if (decimals.length >= 2) return
-  }
-  form.amountStr += key
-}
-
 // ── Submit ────────────────────────────────────────────────────────────────
 
 async function submit() {
@@ -273,41 +258,23 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
         </HelpTip>
       </div>
 
-      <!-- ── Amount display ──────────────────────────────────────────────── -->
-      <div
-        class="text-center py-8 px-4"
-        aria-label="Amount to enter"
-        aria-live="polite"
-      >
-        <p
-          class="text-5xl font-bold font-mono tracking-tight amount-display"
+      <!-- ── Amount input ──────────────────────────────────────────────── -->
+      <div class="px-4 py-6">
+        <label for="tx-amount" class="sr-only">Amount</label>
+        <input
+          id="tx-amount"
+          v-model="form.amountStr"
+          type="number"
+          step="any"
+          inputmode="decimal"
+          placeholder="0.00"
+          class="w-full text-center text-5xl font-bold font-mono tracking-tight bg-transparent focus:outline-none amount-display"
           :class="form.type === 'income' ? 'text-green-400' : 'text-(--ui-text)'"
-        >
-          {{ amountFormatted }}
-        </p>
+          aria-label="Transaction amount"
+        />
         <p v-if="form.type === 'expense'" class="text-xs text-(--ui-text-muted) mt-2">Expense</p>
         <p v-else-if="form.type === 'income'" class="text-xs text-green-500 mt-2">Income</p>
         <p v-else class="text-xs text-(--ui-text-muted) mt-2">Transfer</p>
-      </div>
-
-      <!-- ── Number pad ──────────────────────────────────────────────────── -->
-      <div class="grid grid-cols-4 gap-2 px-4" role="group" aria-label="Number pad">
-        <template v-for="key in ['1','2','3','backspace','4','5','6','.','7','8','9','00','','0','','']" :key="key">
-          <button
-            v-if="key && key !== ''"
-            type="button"
-            class="flex items-center justify-center h-14 rounded-2xl text-xl font-semibold transition-all btn-press min-h-[44px]"
-            :class="key === 'backspace'
-              ? 'bg-(--ui-bg-muted) text-(--ui-text-muted) hover:bg-(--ui-bg-elevated)'
-              : 'bg-(--ui-bg-muted) text-(--ui-text) hover:bg-(--ui-bg-elevated)'"
-            :aria-label="key === 'backspace' ? 'Backspace' : key"
-            @click="pad(key)"
-          >
-            <AppIcon v-if="key === 'backspace'" name="backspace" class="w-5 h-5" />
-            <span v-else>{{ key }}</span>
-          </button>
-          <div v-else class="h-14" />
-        </template>
       </div>
 
       <!-- ── Form fields ─────────────────────────────────────────────────── -->
