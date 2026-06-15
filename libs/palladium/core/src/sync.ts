@@ -170,7 +170,6 @@ export class SyncTransport<S extends SchemaMap> {
   #cursorDirty = false;
   #pollHandle: ReturnType<typeof setInterval> | null = null;
   #polling = false;
-  #initialHydrationDone = false;
   #unsubscribeLocal: (() => void) | null = null;
 
   constructor(engine: PalladiumEngine<S>, options: SyncTransportOptions) {
@@ -323,12 +322,11 @@ export class SyncTransport<S extends SchemaMap> {
       }
 
       for (const change of changes) {
-        // After initial hydration, skip own writes — we already applied them.
-        if (this.#initialHydrationDone && change.hlc.nodeId === this.#engine.nodeId) {
-          // Still advance the cursor past own writes so we don't refetch them.
-          this.#cursor = hlcToAfterCursor(change.hlc);
-          continue;
-        }
+        // Own-write detection is now per-row, not per-change: column-level
+        // LWW inside applyRemote rejects re-served own changes automatically
+        // (the stored HLC is >= the remote HLC, the op is a no-op). No more
+        // #initialHydrationDone flag — re-fetching the full server history
+        // after a reload is idempotent at the row level.
 
         // Advance the engine's HLC past the remote so subsequent local sends
         // are causally later, then apply the ops. The change HLC is the
@@ -359,8 +357,6 @@ export class SyncTransport<S extends SchemaMap> {
         await this.#persistCursor();
         this.#cursorDirty = false;
       }
-
-      this.#initialHydrationDone = true;
     } finally {
       this.#polling = false;
     }
