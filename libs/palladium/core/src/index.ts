@@ -53,6 +53,8 @@ export type {
   WireOp,
 } from "./sync.js";
 export { hlcToAfterCursor, SyncTransport } from "./sync.js";
+export type { SyncStateRow } from "./sync-state.js";
+export { SYNC_STATE_DDL, SYNC_STATE_KEYS, SYNC_STATE_TABLE } from "./sync-state.js";
 export type { DeleteOp, InsertOp, Op, SchemaMap, UpdateOp } from "./tx.js";
 export { TxBuilder } from "./tx.js";
 export { generateUlid } from "./ulid.js";

@@ -27,6 +27,7 @@
 import type { PalladiumEngine, SyncStatus } from "./engine.js";
 import type { Hlc } from "./hlc.js";
 import { JOURNAL_TABLE, type JournalOp, type JournalRow, journalRowToEntry } from "./journal.js";
+import { SYNC_STATE_KEYS, SYNC_STATE_TABLE } from "./sync-state.js";
 import type { SchemaMap } from "./tx.js";
 
 // ── Wire types (mirror of the Rust palladium-core JSON serialisation) ──────
@@ -166,6 +167,7 @@ export class SyncTransport<S extends SchemaMap> {
   readonly #fetch: typeof globalThis.fetch;
 
   #cursor: string | null = null;
+  #cursorDirty = false;
   #pollHandle: ReturnType<typeof setInterval> | null = null;
   #polling = false;
   #initialHydrationDone = false;
@@ -195,6 +197,7 @@ export class SyncTransport<S extends SchemaMap> {
       void this.#drainJournal();
     });
     await this.#drainJournal();
+    await this.#loadPersistedCursor();
     await this.#poll();
     this.#pollHandle = setInterval(() => {
       void this.#tick();
@@ -249,6 +252,36 @@ export class SyncTransport<S extends SchemaMap> {
       this.#unsubscribeLocal();
       this.#unsubscribeLocal = null;
     }
+  }
+
+  /**
+   * Read the persisted cursor from `_sync_state`. Called on `start()`;
+   * a warm client (one that already has a cursor) skips the full-history
+   * fetch and goes straight to incremental polling.
+   */
+  async #loadPersistedCursor(): Promise<void> {
+    const rows = await this.#engine.adapter.exec<{ value: string }>(
+      `SELECT value FROM ${SYNC_STATE_TABLE} WHERE key = ?`,
+      [SYNC_STATE_KEYS.cursor],
+    );
+    const row = rows[0];
+    if (row !== undefined) {
+      this.#cursor = row.value;
+      this.#cursorDirty = false;
+    }
+  }
+
+  /** Upsert the current cursor into `_sync_state`. */
+  async #persistCursor(): Promise<void> {
+    if (this.#cursor === null) return;
+    await this.#engine.adapter.exec(
+      `INSERT INTO ${SYNC_STATE_TABLE} (key, value, updated_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT (key) DO UPDATE SET
+         value = excluded.value,
+         updated_at = excluded.updated_at`,
+      [SYNC_STATE_KEYS.cursor, this.#cursor, Date.now()],
+    );
   }
 
   /**
@@ -316,6 +349,15 @@ export class SyncTransport<S extends SchemaMap> {
         }
         // Cursor advances only after the change applied successfully.
         this.#cursor = hlcToAfterCursor(change.hlc);
+        this.#cursorDirty = true;
+      }
+
+      // Persist the cursor (if it changed in this poll) so the next
+      // transport.start() picks up where we left off instead of re-
+      // fetching the full server history.
+      if (this.#cursorDirty) {
+        await this.#persistCursor();
+        this.#cursorDirty = false;
       }
 
       this.#initialHydrationDone = true;

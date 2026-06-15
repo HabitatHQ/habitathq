@@ -22,6 +22,7 @@ import { compareHlcLocal, ROW_VERSIONS_DDL, ROW_VERSIONS_TABLE } from "./row-ver
 import type { SqlQuery } from "./sql.js";
 import type { StorageAdapter } from "./storage.js";
 import { isTransactable } from "./storage.js";
+import { SYNC_STATE_DDL } from "./sync-state.js";
 import type { Op, SchemaMap } from "./tx.js";
 import { TxBuilder } from "./tx.js";
 
@@ -131,6 +132,7 @@ export class PalladiumEngine<S extends SchemaMap> {
     await this.adapter.open();
     await this.adapter.exec(JOURNAL_DDL, []);
     await this.adapter.exec(ROW_VERSIONS_DDL, []);
+    await this.adapter.exec(SYNC_STATE_DDL, []);
     if (schema) {
       await applySchema(this.adapter, schema);
     }
