@@ -30,6 +30,9 @@ import { JOURNAL_TABLE, type JournalOp, type JournalRow, journalRowToEntry } fro
 import { SYNC_STATE_KEYS, SYNC_STATE_TABLE } from "./sync-state.js";
 import type { SchemaMap } from "./tx.js";
 
+// Re-export the status type for consumers that import from sync.ts.
+export type { SyncStatus } from "./engine.js";
+
 // ── Wire types (mirror of the Rust palladium-core JSON serialisation) ──────
 
 export interface InsertWireOp {
@@ -199,6 +202,7 @@ export class SyncTransport<S extends SchemaMap> implements SyncTransportInterfac
   readonly #fetch: typeof globalThis.fetch;
   readonly #authHeaders: AuthHeaders | undefined;
 
+  #status: SyncStatus = "idle";
   #cursor: string | null = null;
   #cursorDirty = false;
   #pollHandle: ReturnType<typeof setInterval> | null = null;
@@ -211,6 +215,26 @@ export class SyncTransport<S extends SchemaMap> implements SyncTransportInterfac
     this.#pollIntervalMs = options.pollIntervalMs ?? 1_000;
     this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.#authHeaders = options.headers;
+  }
+
+  /**
+   * Current sync status. The transport is the canonical owner; the
+   * engine no longer carries this state (architecture review §6).
+   * `sync:status` events on the engine are emitted by the transport
+   * via `notifySyncStatus` — subscribers on either side see the same
+   * stream.
+   */
+  getSyncStatus(): SyncStatus {
+    return this.#status;
+  }
+
+  /**
+   * Update the transport's status and emit a `sync:status` event on
+   * the engine so subscribers don't have to wire up a separate bus.
+   */
+  #setStatus(s: SyncStatus): void {
+    this.#status = s;
+    this.#engine.notifySyncStatus(s);
   }
 
   /**
@@ -259,7 +283,8 @@ export class SyncTransport<S extends SchemaMap> implements SyncTransportInterfac
       [],
     );
     if (rows.length === 0) return;
-    this.#engine.setStatus("syncing");
+    this.#setStatus("syncing");
+    void this.#engine;
     let lastOutcome: PostOutcome = "ok";
     for (const row of rows) {
       const outcome = await this.#tryPost(rowToChange(row));
@@ -272,7 +297,7 @@ export class SyncTransport<S extends SchemaMap> implements SyncTransportInterfac
         break;
       }
     }
-    this.#engine.setStatus(POST_OUTCOME_TO_STATUS[lastOutcome]);
+    this.#setStatus(POST_OUTCOME_TO_STATUS[lastOutcome]);
   }
 
   /** Stop polling. Idempotent. */

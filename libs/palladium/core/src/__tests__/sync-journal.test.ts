@@ -160,7 +160,7 @@ describe("SyncTransport — engine journal uplink", () => {
 
     const rows = await journalRows(db);
     expect(rows).toHaveLength(1);
-    expect(db.getSyncStatus()).toBe("error");
+    expect(transport.getSyncStatus()).toBe("error");
   });
 
   it("pending journal row survives a transport restart and drains on next start()", async () => {

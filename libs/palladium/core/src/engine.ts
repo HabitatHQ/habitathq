@@ -66,7 +66,6 @@ export class PalladiumEngine<S extends SchemaMap> {
   readonly adapter: StorageAdapter;
   readonly nodeId: string;
   protected readonly emitter = new EventEmitter<EngineEvents<S>>();
-  protected status: SyncStatus = "idle";
   readonly #liveQueries = new Set<LiveQuery>();
   readonly #blobRegistry = new BlobRegistry();
   /** High-level blob storage API. */
@@ -81,23 +80,17 @@ export class PalladiumEngine<S extends SchemaMap> {
   #currentHlc: Hlc | null = null;
   #initialized = false;
 
-  constructor(adapter: StorageAdapter, options?: PalladiumEngineOptions | BlobAdapter) {
+  constructor(adapter: StorageAdapter, options: PalladiumEngineOptions = {}) {
     this.adapter = adapter;
-    // Back-compat shim: previous signature was (adapter, blobAdapter?). Detect
-    // a bare BlobAdapter by the absence of nodeId/blobAdapter keys.
-    const opts: PalladiumEngineOptions =
-      options && "get" in options && typeof options.get === "function"
-        ? { blobAdapter: options as BlobAdapter }
-        : ((options as PalladiumEngineOptions | undefined) ?? {});
     // nodeId is assigned here only when the caller gave us one. Otherwise
     // it remains empty and init() (#rehydrateSyncState) either restores it
     // from _sync_state or generates a fresh UUID. This is what makes
     // nodeId durable across reloads.
-    this.nodeId = opts.nodeId ?? "";
+    this.nodeId = options.nodeId ?? "";
     if (this.nodeId === "") {
       this.nodeId = crypto.randomUUID();
     }
-    this.blobs = new BlobHandle(opts.blobAdapter ?? new MemoryBlobAdapter(), this.#blobRegistry);
+    this.blobs = new BlobHandle(options.blobAdapter ?? new MemoryBlobAdapter(), this.#blobRegistry);
   }
 
   /**
@@ -453,17 +446,6 @@ export class PalladiumEngine<S extends SchemaMap> {
     return this.emitter.on(event, listener as unknown as Parameters<typeof this.emitter.on<K>>[1]);
   }
 
-  /** Poll the current sync status. */
-  getSyncStatus(): SyncStatus {
-    return this.status;
-  }
-
-  /** Update the sync status and emit a `sync:status` event. */
-  setStatus(s: SyncStatus): void {
-    this.status = s;
-    this.emitter.emit("sync:status", s);
-  }
-
   /**
    * Emit an `error` event. Exposed for collaborators (e.g. the sync
    * transport) that need to surface failures back to the engine's
@@ -471,6 +453,17 @@ export class PalladiumEngine<S extends SchemaMap> {
    */
   reportError(err: unknown): void {
     this.emitter.emit("error", err instanceof Error ? err : new Error(String(err)));
+  }
+
+  /**
+   * Emit a `sync:status` event. Exposed for the sync transport, which
+   * owns the status. The engine used to expose a public `setStatus`
+   * any caller could poke; that has been removed (architecture review
+   * §6 'engine API surface debt'). The transport is the only legitimate
+   * caller; subscribers listen via `engine.on('sync:status', ...)`.
+   */
+  notifySyncStatus(s: SyncStatus): void {
+    this.emitter.emit("sync:status", s);
   }
 
   async #applyOp(
@@ -560,7 +553,7 @@ export class PalladiumEngine<S extends SchemaMap> {
 /** Factory — create a `PalladiumEngine` with the given adapter and options. */
 export function createEngine<S extends SchemaMap>(
   adapter: StorageAdapter,
-  options?: PalladiumEngineOptions | BlobAdapter,
+  options?: PalladiumEngineOptions,
 ): PalladiumEngine<S> {
   return new PalladiumEngine<S>(adapter, options);
 }

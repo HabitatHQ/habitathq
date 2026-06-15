@@ -185,28 +185,17 @@ describe("createEngine (SQLite)", () => {
     expect(cb).not.toHaveBeenCalled();
   });
 
-  it("getSyncStatus returns idle initially", async () => {
-    const db = makeDb();
-    await db.init(SCHEMA);
-    expect(db.getSyncStatus()).toBe("idle");
-  });
+  // The engine no longer carries sync status — that lives on the transport.
+  // The transport emits sync:status events through engine.notifySyncStatus
+  // so subscribers on the engine still observe them.
 
-  it("getSyncStatus reflects the value set by setStatus", async () => {
-    const db = makeDb();
-    await db.init(SCHEMA);
-    db.setStatus("syncing");
-    expect(db.getSyncStatus()).toBe("syncing");
-    db.setStatus("idle");
-    expect(db.getSyncStatus()).toBe("idle");
-  });
-
-  it("on('sync:status') fires when status changes", async () => {
+  it("on('sync:status') fires when the transport notifies a new status", async () => {
     const db = makeDb();
     await db.init(SCHEMA);
 
     const cb = vi.fn();
     db.on("sync:status", cb);
-    db.setStatus("syncing");
+    db.notifySyncStatus("syncing");
     expect(cb).toHaveBeenCalledWith("syncing");
   });
 
@@ -217,7 +206,7 @@ describe("createEngine (SQLite)", () => {
     const cb = vi.fn();
     const unsub = db.on("sync:status", cb);
     unsub();
-    db.setStatus("syncing");
+    db.notifySyncStatus("syncing");
     expect(cb).not.toHaveBeenCalled();
   });
 

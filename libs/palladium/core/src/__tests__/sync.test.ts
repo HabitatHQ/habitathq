@@ -173,7 +173,7 @@ describe("SyncTransport — uplink", () => {
     await Promise.resolve();
     await transport.stop();
 
-    expect(db.getSyncStatus()).toBe("error");
+    expect(transport.getSyncStatus()).toBe("error");
   });
 });
 
@@ -439,7 +439,7 @@ describe("SyncTransport — durable outbox", () => {
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     );
     expect(rows[0]?.hlc_node_id).toBe(ALICE);
-    expect(db.getSyncStatus()).toBe("error");
+    expect(transport.getSyncStatus()).toBe("error");
   });
 
   it("network failure (fetch throws) leaves the change in the outbox; status is 'offline'", async () => {
@@ -456,7 +456,7 @@ describe("SyncTransport — durable outbox", () => {
     await transport.stop();
 
     expect(await outboxRows(db)).toHaveLength(1);
-    expect(db.getSyncStatus()).toBe("offline");
+    expect(transport.getSyncStatus()).toBe("offline");
   });
 
   it("pending change survives a transport restart and drains on next start()", async () => {
