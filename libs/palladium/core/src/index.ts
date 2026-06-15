@@ -38,6 +38,8 @@ export { LocalStorageBlobAdapter } from "./localstorage-blob-adapter.js";
 export { MemoryBlobAdapter } from "./memory-blob-adapter.js";
 export type { MigrationExec, MigrationStep, SchemaConfig, Seed } from "./migration.js";
 export { applySchema, applySeeds } from "./migration.js";
+export type { RowVersion, VersionRow } from "./row-versions.js";
+export { ROW_VERSIONS_DDL, ROW_VERSIONS_TABLE, rowToVersion } from "./row-versions.js";
 export type { SqlQuery } from "./sql.js";
 export { sql } from "./sql.js";
 export type { SqlValue, StorageAdapter, TransactableStorageAdapter } from "./storage.js";

@@ -299,13 +299,14 @@ export class SyncTransport<S extends SchemaMap> {
         }
 
         // Advance the engine's HLC past the remote so subsequent local sends
-        // are causally later, then apply the ops.
+        // are causally later, then apply the ops. The change HLC is the
+        // LWW comparator; column-level comparisons happen inside applyRemote.
         this.#engine.receiveHlc(change.hlc);
         const engineOps = change.ops.map(wireOpToEngine<S>);
         const opsForEngine = engineOps as unknown as Parameters<
           PalladiumEngine<S>["applyRemote"]
-        >[0];
-        await this.#engine.applyRemote(opsForEngine);
+        >[1];
+        await this.#engine.applyRemote(change.hlc, opsForEngine);
       }
 
       this.#initialHydrationDone = true;

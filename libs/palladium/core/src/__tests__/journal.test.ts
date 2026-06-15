@@ -12,7 +12,7 @@
  */
 
 import { NodeSqliteAdapter } from "@palladium/sqlite-node";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createEngine } from "../engine.js";
 import { sql } from "../sql.js";
 import type { SchemaMap } from "../tx.js";
@@ -107,7 +107,7 @@ describe("engine change journal", () => {
     const db = makeDb();
     await db.init(SCHEMA);
 
-    await db.applyRemote([
+    await db.applyRemote({ wallMs: 1_700_000_000_000, counter: 0, nodeId: "ff" }, [
       {
         type: "insert",
         table: "tasks",
@@ -125,19 +125,27 @@ describe("engine change journal", () => {
   it("consecutive tx() calls advance the HLC counter", async () => {
     const db = makeDb();
     await db.init(SCHEMA);
+    // Freeze the wall clock so both txs land in the same millisecond and
+    // the counter must strictly advance. (Without the freeze, an OS-level
+    // tick between the two awaits would reset the counter to 0 and make
+    // the test flakey.)
+    vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      await db.tx((t) => {
+        t.insert("tasks", { id: "t1", name: "a", done: 0 });
+      });
+      await db.tx((t) => {
+        t.insert("tasks", { id: "t2", name: "b", done: 0 });
+      });
 
-    await db.tx((t) => {
-      t.insert("tasks", { id: "t1", name: "a", done: 0 });
-    });
-    await db.tx((t) => {
-      t.insert("tasks", { id: "t2", name: "b", done: 0 });
-    });
-
-    const rows = await journalRows(db);
-    expect(rows).toHaveLength(2);
-    const [first, second] = rows;
-    expect(second?.hlc_counter).toBeGreaterThan(first?.hlc_counter ?? -1);
-    expect(second?.hlc_wall_ms).toBeGreaterThanOrEqual(first?.hlc_wall_ms ?? -1);
+      const rows = await journalRows(db);
+      expect(rows).toHaveLength(2);
+      const [first, second] = rows;
+      expect(second?.hlc_counter).toBeGreaterThan(first?.hlc_counter ?? -1);
+      expect(second?.hlc_wall_ms).toBeGreaterThanOrEqual(first?.hlc_wall_ms ?? -1);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 
   it("a failed tx() rolls back BOTH the data writes and the journal row", async () => {

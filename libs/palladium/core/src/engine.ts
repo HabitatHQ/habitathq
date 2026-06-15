@@ -18,6 +18,7 @@ import { LiveQuery } from "./live-query.js";
 import { MemoryBlobAdapter } from "./memory-blob-adapter.js";
 import type { SchemaConfig } from "./migration.js";
 import { applySchema } from "./migration.js";
+import { compareHlcLocal, ROW_VERSIONS_DDL, ROW_VERSIONS_TABLE } from "./row-versions.js";
 import type { SqlQuery } from "./sql.js";
 import type { StorageAdapter } from "./storage.js";
 import { isTransactable } from "./storage.js";
@@ -129,6 +130,7 @@ export class PalladiumEngine<S extends SchemaMap> {
   async init(schema?: SchemaConfig): Promise<void> {
     await this.adapter.open();
     await this.adapter.exec(JOURNAL_DDL, []);
+    await this.adapter.exec(ROW_VERSIONS_DDL, []);
     if (schema) {
       await applySchema(this.adapter, schema);
     }
@@ -166,7 +168,7 @@ export class PalladiumEngine<S extends SchemaMap> {
 
     const applyAll = async (adpt: StorageAdapter): Promise<void> => {
       for (const op of ops) {
-        await this.#applyOp(adpt, op);
+        await this.#applyOp(adpt, op, { hlc, mode: "local" });
       }
       await adpt.exec(
         `INSERT INTO ${JOURNAL_TABLE} (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, created_at)
@@ -200,8 +202,16 @@ export class PalladiumEngine<S extends SchemaMap> {
    * Apply ops received from a remote peer. Writes data (so live queries
    * refresh) but does NOT journal — a remote change is not something we
    * need to upload again.
+   *
+   * Column-level LWW: for each remote op, the engine looks up the
+   * currently-stored HLC for every column it touches. If the remote HLC
+   * is not strictly greater, the op is skipped (data and version both
+   * left untouched). Stale op → noop.
+   *
+   * The `remoteHlc` parameter is the HLC of the *change batch* the ops
+   * belong to. A wire-level change is atomic; all its ops share one HLC.
    */
-  async applyRemote(ops: ReadonlyArray<Op<S>>): Promise<void> {
+  async applyRemote(remoteHlc: Hlc, ops: ReadonlyArray<Op<S>>): Promise<void> {
     if (ops.length === 0) return;
     const touchedTables = new Set<string>();
     for (const op of ops) {
@@ -210,7 +220,10 @@ export class PalladiumEngine<S extends SchemaMap> {
 
     const applyAll = async (adpt: StorageAdapter): Promise<void> => {
       for (const op of ops) {
-        await this.#applyOp(adpt, op);
+        const accepted = await this.#acceptRemoteOp(adpt, op, remoteHlc);
+        if (accepted) {
+          await this.#applyOp(adpt, op, { hlc: remoteHlc, mode: "remote" });
+        }
       }
     };
 
@@ -221,6 +234,70 @@ export class PalladiumEngine<S extends SchemaMap> {
     }
 
     await this.#notifyLiveQueries([...touchedTables]);
+  }
+
+  /**
+   * LWW gate: should this remote op be applied given the stored HLCs?
+   * Returns true if the remote HLC is strictly greater than the stored
+   * HLC for every column the op touches. (No stored HLC means "stale by
+   * default" — a missing row's columns count as the zero HLC, which the
+   * remote HLC is greater than.)
+   *
+   * `delete` ops are accepted whenever their HLC is >= the stored HLC
+   * for any column on the row (deletes should propagate even if other
+   * columns have been updated more recently — the tombstone wins).
+   */
+  async #acceptRemoteOp(adpt: StorageAdapter, op: Op<S>, remoteHlc: Hlc): Promise<boolean> {
+    const table = String(op.table);
+    if (op.type === "delete") {
+      // The row's effective HLC is the max of its columns. A delete at
+      // remoteHlc is accepted unless every column is strictly newer.
+      const rows = await adpt.exec<{
+        hlc_wall_ms: number;
+        hlc_counter: number;
+        hlc_node_id: string;
+      }>(
+        `SELECT hlc_wall_ms, hlc_counter, hlc_node_id
+         FROM ${ROW_VERSIONS_TABLE}
+         WHERE table_name = ? AND row_id = ?`,
+        [table, op.id],
+      );
+      for (const r of rows) {
+        const cmp = compareHlcLocal(
+          { wallMs: r.hlc_wall_ms, counter: r.hlc_counter, nodeId: r.hlc_node_id },
+          remoteHlc,
+        );
+        if (cmp > 0) return false;
+      }
+      return true;
+    }
+
+    const cols = op.type === "insert" ? Object.keys(op.data) : Object.keys(op.patch);
+    if (cols.length === 0) return false;
+    for (const col of cols) {
+      const rows = await adpt.exec<{
+        hlc_wall_ms: number;
+        hlc_counter: number;
+        hlc_node_id: string;
+      }>(
+        `SELECT hlc_wall_ms, hlc_counter, hlc_node_id
+         FROM ${ROW_VERSIONS_TABLE}
+         WHERE table_name = ? AND row_id = ? AND col = ?`,
+        [table, op.type === "insert" ? (op.data as unknown as { id: string }).id : op.id, col],
+      );
+      const row = rows[0];
+      if (row === undefined) {
+        // No stored version — the remote HLC wins by default (the row/column
+        // is "stale" relative to the remote's clock).
+        continue;
+      }
+      const cmp = compareHlcLocal(
+        { wallMs: row.hlc_wall_ms, counter: row.hlc_counter, nodeId: row.hlc_node_id },
+        remoteHlc,
+      );
+      if (cmp >= 0) return false;
+    }
+    return true;
   }
 
   /** Shorthand for single-row insert. */
@@ -288,19 +365,55 @@ export class PalladiumEngine<S extends SchemaMap> {
     this.emitter.emit("sync:status", s);
   }
 
-  async #applyOp(adpt: StorageAdapter, op: Op<S>): Promise<void> {
+  async #applyOp(
+    adpt: StorageAdapter,
+    op: Op<S>,
+    options: { hlc?: Hlc; mode: "local" | "remote" } = { mode: "local" },
+  ): Promise<void> {
     const table = String(op.table);
     if (op.type === "insert") {
-      await this._putRow(
-        adpt,
-        table,
-        (op.data as unknown as { id: string }).id,
-        op.data as Record<string, unknown>,
-      );
+      const rowId = (op.data as unknown as { id: string }).id;
+      await this._putRow(adpt, table, rowId, op.data as Record<string, unknown>);
+      if (options.hlc) {
+        await this.#stampVersions(adpt, table, rowId, op.data, options.hlc);
+      }
     } else if (op.type === "update") {
       await this._patchRow(adpt, table, op.id, op.patch as Record<string, unknown>);
+      if (options.hlc) {
+        await this.#stampVersions(adpt, table, op.id, op.patch, options.hlc);
+      }
     } else {
       await this._removeRow(adpt, table, op.id);
+      // Deletes clear all version rows for the row.
+      await adpt.exec(`DELETE FROM ${ROW_VERSIONS_TABLE} WHERE table_name = ? AND row_id = ?`, [
+        table,
+        op.id,
+      ]);
+    }
+  }
+
+  /** Upsert one row in `_row_versions` per column in `data`, stamped with `hlc`. */
+  async #stampVersions(
+    adpt: StorageAdapter,
+    table: string,
+    rowId: string,
+    data: Record<string, unknown>,
+    hlc: Hlc,
+  ): Promise<void> {
+    for (const col of Object.keys(data)) {
+      await adpt.exec(
+        `INSERT INTO ${ROW_VERSIONS_TABLE}
+           (table_name, row_id, col, hlc_wall_ms, hlc_counter, hlc_node_id)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT (table_name, row_id, col) DO UPDATE SET
+           hlc_wall_ms = excluded.hlc_wall_ms,
+           hlc_counter = excluded.hlc_counter,
+           hlc_node_id = excluded.hlc_node_id
+         WHERE excluded.hlc_wall_ms > ${ROW_VERSIONS_TABLE}.hlc_wall_ms
+            OR (excluded.hlc_wall_ms = ${ROW_VERSIONS_TABLE}.hlc_wall_ms
+                AND excluded.hlc_counter > ${ROW_VERSIONS_TABLE}.hlc_counter)`,
+        [table, rowId, col, hlc.wallMs, hlc.counter, hlc.nodeId],
+      );
     }
   }
 
