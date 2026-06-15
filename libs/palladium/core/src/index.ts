@@ -47,6 +47,7 @@ export { isTransactable } from "./storage.js";
 export type {
   DeleteWireOp,
   InsertWireOp,
+  SyncTransportInterface,
   SyncTransportOptions,
   UpdateWireOp,
   WireChange,

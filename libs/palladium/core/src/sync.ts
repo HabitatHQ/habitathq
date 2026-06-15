@@ -160,7 +160,23 @@ const POST_OUTCOME_TO_STATUS: Record<PostOutcome, SyncStatus> = {
 
 // ── Transport ──────────────────────────────────────────────────────────────
 
-export class SyncTransport<S extends SchemaMap> {
+/**
+ * The contract every sync transport must satisfy.
+ *
+ * `SyncTransport` (HTTP-polling) is one realisation. SSE and WebSocket
+ * transports can implement the same interface without changes to the
+ * engine or the framework bindings. The contract is intentionally
+ * minimal: drain the engine's journal of pending changes, fetch remote
+ * changes, and surface failures via the engine's `error` event.
+ */
+export interface SyncTransportInterface {
+  /** Begin draining + receiving. Idempotent. */
+  start(): Promise<void>;
+  /** Stop draining + receiving. Idempotent. */
+  stop(): Promise<void>;
+}
+
+export class SyncTransport<S extends SchemaMap> implements SyncTransportInterface {
   readonly #engine: PalladiumEngine<S>;
   readonly #serverUrl: string;
   readonly #pollIntervalMs: number;
