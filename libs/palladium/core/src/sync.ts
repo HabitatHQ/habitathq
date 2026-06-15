@@ -290,11 +290,10 @@ export class SyncTransport<S extends SchemaMap> {
       }
 
       for (const change of changes) {
-        // Advance cursor for every change we see, even own-changes we skip.
-        this.#cursor = hlcToAfterCursor(change.hlc);
-
         // After initial hydration, skip own writes — we already applied them.
         if (this.#initialHydrationDone && change.hlc.nodeId === this.#engine.nodeId) {
+          // Still advance the cursor past own writes so we don't refetch them.
+          this.#cursor = hlcToAfterCursor(change.hlc);
           continue;
         }
 
@@ -306,7 +305,17 @@ export class SyncTransport<S extends SchemaMap> {
         const opsForEngine = engineOps as unknown as Parameters<
           PalladiumEngine<S>["applyRemote"]
         >[1];
-        await this.#engine.applyRemote(change.hlc, opsForEngine);
+        try {
+          await this.#engine.applyRemote(change.hlc, opsForEngine);
+        } catch (err) {
+          // The change failed to apply. Do NOT advance the cursor past it —
+          // the next poll will retry. Surface the error to the engine's
+          // 'error' event so subscribers can react.
+          this.#engine.reportError(err);
+          return;
+        }
+        // Cursor advances only after the change applied successfully.
+        this.#cursor = hlcToAfterCursor(change.hlc);
       }
 
       this.#initialHydrationDone = true;

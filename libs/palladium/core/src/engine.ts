@@ -365,6 +365,15 @@ export class PalladiumEngine<S extends SchemaMap> {
     this.emitter.emit("sync:status", s);
   }
 
+  /**
+   * Emit an `error` event. Exposed for collaborators (e.g. the sync
+   * transport) that need to surface failures back to the engine's
+   * subscribers without holding a private handle to the emitter.
+   */
+  reportError(err: unknown): void {
+    this.emitter.emit("error", err instanceof Error ? err : new Error(String(err)));
+  }
+
   async #applyOp(
     adpt: StorageAdapter,
     op: Op<S>,
