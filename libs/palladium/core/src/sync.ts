@@ -78,12 +78,28 @@ export function hlcToAfterCursor(hlc: Hlc): string {
 
 // ── Options ────────────────────────────────────────────────────────────────
 
+/**
+ * Static headers (Record) or a factory returning headers (for rotating
+ * tokens). Merged into every request alongside the default
+ * `Content-Type: application/json`. Pass `undefined` to omit auth.
+ */
+export type AuthHeaders =
+  | Record<string, string>
+  | (() => Record<string, string> | Promise<Record<string, string>>);
+
 export interface SyncTransportOptions {
   readonly serverUrl: string;
   /** Polling interval for the downlink. Default: 1000 ms. */
   readonly pollIntervalMs?: number;
   /** Override `fetch` for tests. */
   readonly fetch?: typeof globalThis.fetch;
+  /**
+   * Auth headers merged into every request. Either a static record or
+   * a factory (called once per request; may return a Promise for async
+   * token refresh). For dynamic per-request logic, prefer the `fetch`
+   * override above.
+   */
+  readonly headers?: AuthHeaders;
 }
 
 // ── Journal ↔ wire conversion ──────────────────────────────────────────────
@@ -181,6 +197,7 @@ export class SyncTransport<S extends SchemaMap> implements SyncTransportInterfac
   readonly #serverUrl: string;
   readonly #pollIntervalMs: number;
   readonly #fetch: typeof globalThis.fetch;
+  readonly #authHeaders: AuthHeaders | undefined;
 
   #cursor: string | null = null;
   #cursorDirty = false;
@@ -193,6 +210,7 @@ export class SyncTransport<S extends SchemaMap> implements SyncTransportInterfac
     this.#serverUrl = options.serverUrl.replace(/\/+$/, "");
     this.#pollIntervalMs = options.pollIntervalMs ?? 1_000;
     this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
+    this.#authHeaders = options.headers;
   }
 
   /**
@@ -307,15 +325,25 @@ export class SyncTransport<S extends SchemaMap> implements SyncTransportInterfac
    */
   async #tryPost(change: WireChange): Promise<PostOutcome> {
     try {
+      const headers = await this.#buildHeaders();
       const res = await this.#fetch(`${this.#serverUrl}/v1/changes`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(change),
       });
       return res.ok ? "ok" : "rejected";
     } catch {
       return "offline";
     }
+  }
+
+  /** Build the headers for a request, merging in any auth headers option. */
+  async #buildHeaders(): Promise<Record<string, string>> {
+    const base: Record<string, string> = { "Content-Type": "application/json" };
+    if (this.#authHeaders === undefined) return base;
+    const extra =
+      typeof this.#authHeaders === "function" ? await this.#authHeaders() : this.#authHeaders;
+    return { ...base, ...extra };
   }
 
   /** Fetch newer changes from server and apply them locally. */
@@ -330,7 +358,8 @@ export class SyncTransport<S extends SchemaMap> implements SyncTransportInterfac
 
       let changes: WireChange[];
       try {
-        const res = await this.#fetch(url);
+        const headers = await this.#buildHeaders();
+        const res = await this.#fetch(url, { headers });
         if (!res.ok) return;
         changes = (await res.json()) as WireChange[];
       } catch {

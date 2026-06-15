@@ -45,6 +45,7 @@ export { sql } from "./sql.js";
 export type { SqlValue, StorageAdapter, TransactableStorageAdapter } from "./storage.js";
 export { isTransactable } from "./storage.js";
 export type {
+  AuthHeaders,
   DeleteWireOp,
   InsertWireOp,
   SyncTransportInterface,

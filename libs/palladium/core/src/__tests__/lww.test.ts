@@ -4,7 +4,7 @@
  * Architecture review §2: "no conflict resolution — not even LWW". The fix
  * is per-column HLC metadata; on `applyRemote`, only apply a remote op
  * if its HLC is strictly greater than the stored HLC for that (table,
- * row_id, col). Equal HLCs on the same node are idempotent.
+ * row_id, col). Equal HLCs from the same node are idempotent.
  *
  * HLC metadata is stored in a shadow table:
  *   _row_versions (table_name, row_id, col, hlc_wall_ms, hlc_counter, hlc_node_id)
@@ -63,6 +63,20 @@ async function versions(
   );
 }
 
+async function mustVersion(
+  db: PalladiumEngine<Schema>,
+  table: string,
+  rowId: string,
+  col: string,
+): Promise<VersionRow> {
+  const rows = await versions(db, table, rowId);
+  const row = rows.find((r) => r.col === col);
+  if (row === undefined) {
+    throw new Error(`Expected version row for ${table}.${rowId}.${col} to exist`);
+  }
+  return row;
+}
+
 function makeDb() {
   return createEngine<Schema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }));
 }
@@ -85,20 +99,19 @@ describe("column-level LWW — local writes stamp _row_versions", () => {
     const db = makeDb();
     await db.init(SCHEMA);
     await db.insert("tasks", { id: "t1", name: "hi", done: 0 });
-    const before = await versions(db, "tasks", "t1");
-    const doneBefore = before.find((r) => r.col === "done");
+    const doneBefore = await mustVersion(db, "tasks", "t1", "done");
+    const nameBefore = await mustVersion(db, "tasks", "t1", "name");
 
     // Wait one millisecond so the HLC wallMs advances.
     await new Promise((r) => setTimeout(r, 5));
     await db.update("tasks", "t1", { done: 1 });
 
-    const after = await versions(db, "tasks", "t1");
-    const doneAfter = after.find((r) => r.col === "done");
-    const nameAfter = after.find((r) => r.col === "name");
+    const doneAfter = await mustVersion(db, "tasks", "t1", "done");
+    const nameAfter = await mustVersion(db, "tasks", "t1", "name");
 
-    expect(doneAfter?.hlc_wall_ms).toBeGreaterThan(doneBefore?.hlc_wall_ms ?? 0);
+    expect(doneAfter.hlc_wall_ms).toBeGreaterThan(doneBefore.hlc_wall_ms);
     // Untouched columns keep their original HLC.
-    expect(nameAfter?.hlc_wall_ms).toBe(before.find((r) => r.col === "name")?.hlc_wall_ms);
+    expect(nameAfter.hlc_wall_ms).toBe(nameBefore.hlc_wall_ms);
   });
 
   it("local delete removes the row AND the version rows", async () => {
@@ -116,11 +129,11 @@ describe("column-level LWW — applyRemote skips stale ops", () => {
     await db.init(SCHEMA);
 
     await db.insert("tasks", { id: "t1", name: "newer", done: 0 });
-    const local = (await versions(db, "tasks", "t1")).find((r) => r.col === "name");
+    const local = await mustVersion(db, "tasks", "t1", "name");
     const localHlc = {
-      wallMs: local!.hlc_wall_ms,
-      counter: local!.hlc_counter,
-      nodeId: local!.hlc_node_id,
+      wallMs: local.hlc_wall_ms,
+      counter: local.hlc_counter,
+      nodeId: local.hlc_node_id,
     };
 
     // Remote op with a strictly older HLC.
@@ -130,8 +143,8 @@ describe("column-level LWW — applyRemote skips stale ops", () => {
     ]);
 
     // Version row was NOT bumped.
-    const after = (await versions(db, "tasks", "t1")).find((r) => r.col === "name");
-    expect(after?.hlc_wall_ms).toBe(localHlc.wallMs);
+    const after = await mustVersion(db, "tasks", "t1", "name");
+    expect(after.hlc_wall_ms).toBe(localHlc.wallMs);
     // Data write was skipped.
     const rows = await db.exec<{ name: string }>(sql`SELECT name FROM tasks WHERE id = 't1'`);
     expect(rows[0]?.name).toBe("newer");
@@ -141,27 +154,27 @@ describe("column-level LWW — applyRemote skips stale ops", () => {
     const db = makeDb();
     await db.init(SCHEMA);
     await db.insert("tasks", { id: "t1", name: "old", done: 0 });
-    const before = (await versions(db, "tasks", "t1")).find((r) => r.col === "name");
+    const before = await mustVersion(db, "tasks", "t1", "name");
 
-    const newer = { wallMs: before!.hlc_wall_ms + 100, counter: 0, nodeId: "ff" };
+    const newer = { wallMs: before.hlc_wall_ms + 100, counter: 0, nodeId: "ff" };
     await db.applyRemote(newer, [
       { type: "update", table: "tasks", id: "t1", patch: { name: "new" } },
     ]);
 
     const rows = await db.exec<{ name: string }>(sql`SELECT name FROM tasks WHERE id = 't1'`);
     expect(rows[0]?.name).toBe("new");
-    const after = (await versions(db, "tasks", "t1")).find((r) => r.col === "name");
-    expect(after?.hlc_wall_ms).toBe(newer.wallMs);
+    const after = await mustVersion(db, "tasks", "t1", "name");
+    expect(after.hlc_wall_ms).toBe(newer.wallMs);
   });
 
   it("a remote update of column A does not affect the HLC of column B", async () => {
     const db = makeDb();
     await db.init(SCHEMA);
     await db.insert("tasks", { id: "t1", name: "a", done: 0 });
-    const nameBefore = (await versions(db, "tasks", "t1")).find((r) => r.col === "name");
-    const doneBefore = (await versions(db, "tasks", "t1")).find((r) => r.col === "done");
+    const nameBefore = await mustVersion(db, "tasks", "t1", "name");
+    const doneBefore = await mustVersion(db, "tasks", "t1", "done");
 
-    const newer = { wallMs: nameBefore!.hlc_wall_ms + 50, counter: 0, nodeId: "ff" };
+    const newer = { wallMs: nameBefore.hlc_wall_ms + 50, counter: 0, nodeId: "ff" };
     await db.applyRemote(newer, [
       { type: "update", table: "tasks", id: "t1", patch: { name: "b" } },
     ]);
@@ -170,7 +183,6 @@ describe("column-level LWW — applyRemote skips stale ops", () => {
     const nameAfter = after.find((r) => r.col === "name");
     const doneAfter = after.find((r) => r.col === "done");
     expect(nameAfter?.hlc_wall_ms).toBe(newer.wallMs);
-    expect(doneAfter?.hlc_wall_ms).toBe(doneBefore?.hlc_wall_ms);
-    void nameBefore;
+    expect(doneAfter?.hlc_wall_ms).toBe(doneBefore.hlc_wall_ms);
   });
 });
