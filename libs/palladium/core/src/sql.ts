@@ -50,6 +50,21 @@ export function sql(strings: TemplateStringsArray, ...values: unknown[]): SqlQue
   return buildSqlTag(strings, values);
 }
 
+/**
+ * Declare a query's table dependencies explicitly, bypassing the
+ * regex extractor. Use this for SQL the regex can't parse (CTEs,
+ * quoted identifiers, views, dynamic table names).
+ *
+ * ```ts
+ * const q = sql.withTables("WITH x AS (...) SELECT * FROM x", ["real_table"]);
+ * ```
+ *
+ * Lower-cased, deduped.
+ */
+sql.withTables = function withTables(text: string, tables: readonly string[]): SqlQuery {
+  return { text, params: [], tables: [...new Set(tables.map((t) => t.toLowerCase()))] };
+};
+
 /** Join multiple SqlQuery fragments with a separator. */
 sql.join = function join(queries: readonly SqlQuery[], separator: string): SqlQuery {
   const texts: string[] = [];

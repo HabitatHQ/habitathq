@@ -424,9 +424,18 @@ export class PalladiumEngine<S extends SchemaMap> {
 
   /**
    * Create a reactive live query. Automatically deregisters on cancel().
-   * @deprecated LiveQuery runs on the same thread as the engine. In worker-based
-   * architectures (OPFS / SharedArrayBuffer), use framework composables or a
-   * message-bus subscription instead.
+   *
+   * The query is re-run when any of the tables it depends on is
+   * touched by a local or remote write. Use `sql.withTables(...)` to
+   * declare dependencies explicitly for SQL the regex extractor
+   * can't parse (CTEs, quoted identifiers, views, dynamic table
+   * names).
+   *
+   * In worker-based architectures, the live query still works as
+   * long as the engine instance lives in the worker. The framework
+   * bindings (react/vue/svelte) provide composables that wrap this
+   * method and add a worker-bus subscription for cross-thread
+   * reactivity.
    */
   liveQuery<T = Record<string, unknown>>(query: SqlQuery): LiveQuery<T> {
     const lq = new LiveQuery<T>(query, this.adapter, () => {
