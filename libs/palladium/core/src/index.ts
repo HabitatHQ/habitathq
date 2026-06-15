@@ -26,6 +26,13 @@ export { EventEmitter } from "./event-emitter.js";
 export type { Hlc } from "./hlc.js";
 export { compareHlc, createHlc, hlcFromString, hlcToString, recvHlc, sendHlc } from "./hlc.js";
 export { IDBBlobAdapter } from "./idb-blob-adapter.js";
+export type { JournalEntry, JournalOp, JournalRow } from "./journal.js";
+export {
+  engineOpToJournalOp,
+  JOURNAL_DDL,
+  JOURNAL_TABLE,
+  journalRowToEntry,
+} from "./journal.js";
 export { LiveQuery } from "./live-query.js";
 export { LocalStorageBlobAdapter } from "./localstorage-blob-adapter.js";
 export { MemoryBlobAdapter } from "./memory-blob-adapter.js";

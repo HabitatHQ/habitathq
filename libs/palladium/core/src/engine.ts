@@ -13,6 +13,7 @@ import { BlobRegistry } from "./blob-registry.js";
 import { EventEmitter } from "./event-emitter.js";
 import type { Hlc } from "./hlc.js";
 import { createHlc, recvHlc, sendHlc } from "./hlc.js";
+import { engineOpToJournalOp, JOURNAL_DDL, JOURNAL_TABLE, type JournalOp } from "./journal.js";
 import { LiveQuery } from "./live-query.js";
 import { MemoryBlobAdapter } from "./memory-blob-adapter.js";
 import type { SchemaConfig } from "./migration.js";
@@ -36,10 +37,14 @@ export interface EngineEvents<S extends SchemaMap = SchemaMap> {
   "sync:status": SyncStatus;
   error: Error;
   /**
-   * Fired after a local `tx()` commits successfully. Suppressed while the
-   * engine is applying remote ops via `applyRemote()`. Subscribers (sync
-   * transport, audit logs, etc.) get the full batch with the original engine
-   * `Op` shape — wire-format conversion is the subscriber's job.
+   * Fired after a local `tx()` commits successfully. Subscribers (sync
+   * transport, audit logs, etc.) get the full batch with the original
+   * engine `Op` shape — wire-format conversion is the subscriber's job.
+   *
+   * `applyRemote()` deliberately does NOT emit this event; a remote change
+   * is not a local change and should not trigger uplink. The journal is
+   * the single source of truth for "things to upload"; remote writes are
+   * not journaled.
    */
   "changes:local": ChangesLocal<S>;
 }
@@ -123,15 +128,20 @@ export class PalladiumEngine<S extends SchemaMap> {
    */
   async init(schema?: SchemaConfig): Promise<void> {
     await this.adapter.open();
+    await this.adapter.exec(JOURNAL_DDL, []);
     if (schema) {
       await applySchema(this.adapter, schema);
     }
   }
 
-  /** Suppresses `"changes:local"` while remote ops are being applied. */
-  #suppressLocalEmit = false;
-
-  /** Execute a batch of mutations, wrapped in a transaction when supported. */
+  /**
+   * Execute a batch of mutations, wrapped in a transaction when supported.
+   *
+   * Each committed local tx writes one row to the `_changes` journal — in
+   * the *same* storage transaction as the data writes, stamped with the
+   * engine's HLC. `SyncTransport` reads the journal to know what to upload.
+   * If the data write fails, the journal row is rolled back with it.
+   */
   async tx(callback: (t: TxBuilder<S>) => void): Promise<void> {
     const builder = new TxBuilder<S>();
     const maybePromise: unknown = callback(builder);
@@ -141,12 +151,65 @@ export class PalladiumEngine<S extends SchemaMap> {
       );
     }
     const ops = builder.build();
+    if (ops.length === 0) {
+      // Still run a (no-op) notify so the engine's reactive surface stays
+      // consistent, but skip the journal + event-bus emit.
+      return;
+    }
+
     const touchedTables = new Set<string>();
+    for (const op of ops) {
+      touchedTables.add(String(op.table).toLowerCase());
+    }
+    const hlc = this.nextSendHlc();
+    const journalOps: JournalOp[] = ops.flatMap(engineOpToJournalOp);
 
     const applyAll = async (adpt: StorageAdapter): Promise<void> => {
       for (const op of ops) {
-        // Lowercase to match extractTables(), which normalises SQL identifiers.
-        touchedTables.add(String(op.table).toLowerCase());
+        await this.#applyOp(adpt, op);
+      }
+      await adpt.exec(
+        `INSERT INTO ${JOURNAL_TABLE} (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          crypto.randomUUID(),
+          hlc.wallMs,
+          hlc.counter,
+          hlc.nodeId,
+          JSON.stringify(journalOps),
+          Date.now(),
+        ],
+      );
+    };
+
+    if (isTransactable(this.adapter)) {
+      await this.adapter.transaction(applyAll);
+    } else {
+      await applyAll(this.adapter);
+    }
+
+    await this.#notifyLiveQueries([...touchedTables]);
+
+    this.emitter.emit("changes:local", {
+      ops,
+      touchedTables: [...touchedTables],
+    });
+  }
+
+  /**
+   * Apply ops received from a remote peer. Writes data (so live queries
+   * refresh) but does NOT journal — a remote change is not something we
+   * need to upload again.
+   */
+  async applyRemote(ops: ReadonlyArray<Op<S>>): Promise<void> {
+    if (ops.length === 0) return;
+    const touchedTables = new Set<string>();
+    for (const op of ops) {
+      touchedTables.add(String(op.table).toLowerCase());
+    }
+
+    const applyAll = async (adpt: StorageAdapter): Promise<void> => {
+      for (const op of ops) {
         await this.#applyOp(adpt, op);
       }
     };
@@ -158,39 +221,6 @@ export class PalladiumEngine<S extends SchemaMap> {
     }
 
     await this.#notifyLiveQueries([...touchedTables]);
-
-    if (!this.#suppressLocalEmit && ops.length > 0) {
-      this.emitter.emit("changes:local", {
-        ops,
-        touchedTables: [...touchedTables],
-      });
-    }
-  }
-
-  /**
-   * Apply ops received from a remote peer. Runs through the normal `tx()`
-   * path (so live queries refresh) but suppresses the `"changes:local"` event
-   * — sync transports need this to avoid re-emitting a change they just
-   * downloaded.
-   */
-  async applyRemote(ops: ReadonlyArray<Op<S>>): Promise<void> {
-    if (ops.length === 0) return;
-    this.#suppressLocalEmit = true;
-    try {
-      await this.tx((t) => {
-        for (const op of ops) {
-          if (op.type === "insert") {
-            t.insert(op.table, op.data);
-          } else if (op.type === "update") {
-            t.update(op.table, op.id, op.patch);
-          } else {
-            t.delete(op.table, op.id);
-          }
-        }
-      });
-    } finally {
-      this.#suppressLocalEmit = false;
-    }
   }
 
   /** Shorthand for single-row insert. */
