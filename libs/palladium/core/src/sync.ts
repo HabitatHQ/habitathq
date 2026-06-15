@@ -4,27 +4,29 @@
  *
  * Lifecycle
  * ─────────
- * `await transport.start()` creates a `_sync_pending_changes` outbox table if
- * missing, drains any pending rows left from a previous session, hydrates the
- * local store from the server (full `GET /v1/changes`), then schedules a
- * periodic poll that applies new remote changes via `engine.applyRemote()`.
- * While the transport is running, any local `engine.tx()` fires a
- * `"changes:local"` event; the transport writes the change to the outbox,
- * attempts a `POST /v1/changes`, and deletes the outbox row on success. Each
- * poll cycle also re-attempts any outbox rows that are still pending.
+ * The transport is a dumb drainer of the engine's `_changes` journal. It
+ * does not own the journal; the engine writes a row for every local tx
+ * (see {@link PalladiumEngine.tx}). On `start()`, the transport:
  *
- * `await transport.stop()` clears the poll timer and unsubscribes from the
- * engine event bus. The transport can be restarted (idempotently).
+ *   1. drains any rows already in the journal (writes made before
+ *      `start()`, plus rows that never made it to the server last time),
+ *   2. hydrates from the server with the current cursor,
+ *   3. starts polling.
+ *
+ * Each tick: drain the journal, then poll for remote changes. `stop()`
+ * clears the poll timer. The transport can be restarted (idempotently).
  *
  * Wire-format quirks
  * ──────────────────
- * The Rust server's `Op::Update` is single-column (`{col, value}`) while the
- * engine's update op carries a `patch: Partial<Row>` (potentially many
- * columns). One engine update with N patched columns becomes N wire ops.
+ * The Rust server's `Op::Update` is single-column (`{col, value}`) while
+ * the engine's update op carries a `patch: Partial<Row>` (potentially
+ * many columns). The journal stores one `update` per column (fan-out),
+ * which matches the wire shape directly.
  */
 
 import type { PalladiumEngine, SyncStatus } from "./engine.js";
 import type { Hlc } from "./hlc.js";
+import { JOURNAL_TABLE, type JournalOp, type JournalRow, journalRowToEntry } from "./journal.js";
 import type { SchemaMap } from "./tx.js";
 
 // ── Wire types (mirror of the Rust palladium-core JSON serialisation) ──────
@@ -83,100 +85,48 @@ export interface SyncTransportOptions {
   readonly fetch?: typeof globalThis.fetch;
 }
 
-// ── Outbox table ───────────────────────────────────────────────────────────
+// ── Journal ↔ wire conversion ──────────────────────────────────────────────
 
-const OUTBOX_TABLE = "_sync_pending_changes";
-
-/**
- * Idempotent DDL for the durable outbox. Creates the table only if missing,
- * so it's safe to run on every transport start without versioning.
- */
-const OUTBOX_DDL = `CREATE TABLE IF NOT EXISTS ${OUTBOX_TABLE} (
-  change_id TEXT PRIMARY KEY,
-  hlc_wall_ms INTEGER NOT NULL,
-  hlc_counter INTEGER NOT NULL,
-  hlc_node_id TEXT NOT NULL,
-  ops TEXT NOT NULL,
-  created_at INTEGER NOT NULL
-)`;
-
-interface OutboxRow {
-  change_id: string;
-  hlc_wall_ms: number;
-  hlc_counter: number;
-  hlc_node_id: string;
-  /** JSON-encoded array of `WireOp`. */
-  ops: string;
-  created_at: number;
+/** Convert one journal `Op` into its wire shape. The shapes already match. */
+function journalOpToWire(op: JournalOp): WireOp {
+  if (op.op === "insert") {
+    return { op: "insert", table: op.table, row_id: op.row_id, data: op.data };
+  }
+  if (op.op === "update") {
+    return { op: "update", table: op.table, row_id: op.row_id, col: op.col, value: op.value };
+  }
+  return { op: "delete", table: op.table, row_id: op.row_id };
 }
 
-function rowToChange(row: OutboxRow): WireChange {
+function rowToChange(row: JournalRow): WireChange {
+  const entry = journalRowToEntry(row);
   return {
-    id: row.change_id,
-    hlc: { wallMs: row.hlc_wall_ms, counter: row.hlc_counter, nodeId: row.hlc_node_id },
-    ops: JSON.parse(row.ops) as WireOp[],
+    id: entry.changeId,
+    hlc: entry.hlc,
+    ops: entry.ops.map(journalOpToWire),
   };
 }
 
-type PostOutcome = "ok" | "rejected" | "offline";
-
-const POST_OUTCOME_TO_STATUS: Record<PostOutcome, SyncStatus> = {
-  ok: "idle",
-  rejected: "error",
-  offline: "offline",
-};
-
-// ── Engine ↔ wire conversion ───────────────────────────────────────────────
-
-interface EngineInsertOp {
-  readonly type: "insert";
-  readonly table: string;
-  readonly data: Record<string, unknown> & { id: string };
-}
-
-interface EngineUpdateOp {
-  readonly type: "update";
-  readonly table: string;
-  readonly id: string;
-  readonly patch: Record<string, unknown>;
-}
-
-interface EngineDeleteOp {
-  readonly type: "delete";
-  readonly table: string;
-  readonly id: string;
-}
-
-type EngineOp = EngineInsertOp | EngineUpdateOp | EngineDeleteOp;
-
-/** Convert one engine `Op` into one or more wire `Op`s. */
-function engineOpToWire(op: EngineOp): WireOp[] {
-  if (op.type === "insert") {
-    return [
-      {
-        op: "insert",
-        table: String(op.table),
-        row_id: op.data.id,
-        data: op.data,
-      },
-    ];
-  }
-  if (op.type === "update") {
-    // Engine patch is multi-column; wire is single-column per Op.
-    const entries = Object.entries(op.patch);
-    return entries.map<UpdateWireOp>(([col, value]) => ({
-      op: "update",
-      table: String(op.table),
-      row_id: op.id,
-      col,
-      value,
-    }));
-  }
-  return [{ op: "delete", table: String(op.table), row_id: op.id }];
-}
-
 /** Convert one wire `Op` into the engine `Op` shape that `applyRemote` accepts. */
-function wireOpToEngine<S extends SchemaMap>(op: WireOp): EngineOp & { table: keyof S & string } {
+function wireOpToEngine<S extends SchemaMap>(
+  op: WireOp,
+):
+  | {
+      type: "insert";
+      table: keyof S & string;
+      data: Record<string, unknown> & { id: string };
+    }
+  | {
+      type: "update";
+      table: keyof S & string;
+      id: string;
+      patch: Record<string, unknown>;
+    }
+  | {
+      type: "delete";
+      table: keyof S & string;
+      id: string;
+    } {
   if (op.op === "insert") {
     return {
       type: "insert",
@@ -198,6 +148,14 @@ function wireOpToEngine<S extends SchemaMap>(op: WireOp): EngineOp & { table: ke
     id: op.row_id,
   };
 }
+
+type PostOutcome = "ok" | "rejected" | "offline";
+
+const POST_OUTCOME_TO_STATUS: Record<PostOutcome, SyncStatus> = {
+  ok: "idle",
+  rejected: "error",
+  offline: "offline",
+};
 
 // ── Transport ──────────────────────────────────────────────────────────────
 
@@ -221,33 +179,46 @@ export class SyncTransport<S extends SchemaMap> {
   }
 
   /**
-   * Provision the outbox table, drain any pending rows from previous
-   * sessions, hydrate from server, then start polling. Idempotent.
+   * Drain the engine's journal, hydrate from the server, then start polling.
+   * Idempotent.
+   *
+   * We also subscribe to the engine's `changes:local` event to trigger an
+   * *immediate* drain attempt when a new local tx commits. The journal is
+   * still the source of truth: the event is just a hint to avoid waiting
+   * for the next poll tick. A racing tick-drain and event-drain is safe —
+   * both read the same rows in the same order, and the DELETE is idempotent
+   * (the second one is a no-op).
    */
   async start(): Promise<void> {
     if (this.#pollHandle !== null) return;
-    await this.#engine.adapter.exec(OUTBOX_DDL, []);
-    await this.#drainOutbox();
-    this.#unsubscribeLocal = this.#engine.on("changes:local", (payload) => {
-      void this.#postLocal(payload.ops as ReadonlyArray<EngineOp>);
+    this.#unsubscribeLocal = this.#engine.on("changes:local", () => {
+      void this.#drainJournal();
     });
+    await this.#drainJournal();
     await this.#poll();
     this.#pollHandle = setInterval(() => {
       void this.#tick();
     }, this.#pollIntervalMs);
   }
 
-  /** One periodic step: drain the outbox, then poll. */
+  /** One periodic step: drain the journal, then poll. */
   async #tick(): Promise<void> {
-    await this.#drainOutbox();
+    await this.#drainJournal();
     await this.#poll();
   }
 
-  /** Re-attempt every row currently in `_sync_pending_changes`, oldest first. */
-  async #drainOutbox(): Promise<void> {
-    const rows = await this.#engine.adapter.exec<OutboxRow>(
+  /**
+   * Re-attempt every row currently in the engine's `_changes` journal,
+   * oldest first. The transport owns nothing; the engine does. We just
+   * observe and try to upload.
+   *
+   * Stop after the first failure to preserve ordering and avoid hammering
+   * a server that's clearly not accepting writes.
+   */
+  async #drainJournal(): Promise<void> {
+    const rows = await this.#engine.adapter.exec<JournalRow>(
       `SELECT change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, created_at
-         FROM ${OUTBOX_TABLE}
+         FROM ${JOURNAL_TABLE}
          ORDER BY hlc_wall_ms ASC, hlc_counter ASC, change_id ASC`,
       [],
     );
@@ -258,19 +229,17 @@ export class SyncTransport<S extends SchemaMap> {
       const outcome = await this.#tryPost(rowToChange(row));
       lastOutcome = outcome;
       if (outcome === "ok") {
-        await this.#engine.adapter.exec(`DELETE FROM ${OUTBOX_TABLE} WHERE change_id = ?`, [
+        await this.#engine.adapter.exec(`DELETE FROM ${JOURNAL_TABLE} WHERE change_id = ?`, [
           row.change_id,
         ]);
       } else {
-        // Stop after first failure — preserves ordering and avoids hammering
-        // a server that's clearly not accepting writes right now.
         break;
       }
     }
     this.#engine.setStatus(POST_OUTCOME_TO_STATUS[lastOutcome]);
   }
 
-  /** Stop polling and unsubscribe from engine events. Idempotent. */
+  /** Stop polling. Idempotent. */
   async stop(): Promise<void> {
     if (this.#pollHandle !== null) {
       clearInterval(this.#pollHandle);
@@ -280,46 +249,6 @@ export class SyncTransport<S extends SchemaMap> {
       this.#unsubscribeLocal();
       this.#unsubscribeLocal = null;
     }
-  }
-
-  /**
-   * Persist + post one batched Change. The change is written to
-   * `_sync_pending_changes` first so it survives a reload if the POST fails
-   * or the page is closed mid-flight; the outbox row is deleted on success.
-   */
-  async #postLocal(ops: ReadonlyArray<EngineOp>): Promise<void> {
-    const wireOps = ops.flatMap(engineOpToWire);
-    if (wireOps.length === 0) return;
-    const change: WireChange = {
-      id: crypto.randomUUID(),
-      hlc: this.#engine.nextSendHlc(),
-      ops: wireOps,
-    };
-
-    // Durable outbox first, then attempt the post. Order matters: a crash
-    // between INSERT and fetch leaves the row in place, ready for retry on
-    // next start().
-    await this.#engine.adapter.exec(
-      `INSERT INTO ${OUTBOX_TABLE} (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [
-        change.id,
-        change.hlc.wallMs,
-        change.hlc.counter,
-        change.hlc.nodeId,
-        JSON.stringify(change.ops),
-        Date.now(),
-      ],
-    );
-
-    this.#engine.setStatus("syncing");
-    const outcome = await this.#tryPost(change);
-    if (outcome === "ok") {
-      await this.#engine.adapter.exec(`DELETE FROM ${OUTBOX_TABLE} WHERE change_id = ?`, [
-        change.id,
-      ]);
-    }
-    this.#engine.setStatus(POST_OUTCOME_TO_STATUS[outcome]);
   }
 
   /**
@@ -370,13 +299,9 @@ export class SyncTransport<S extends SchemaMap> {
         }
 
         // Advance the engine's HLC past the remote so subsequent local sends
-        // are causally later, then apply the ops via the suppress-emit path.
+        // are causally later, then apply the ops.
         this.#engine.receiveHlc(change.hlc);
         const engineOps = change.ops.map(wireOpToEngine<S>);
-        // The cast is structural: wireOpToEngine emits the same {type, table,
-        // id, data?, patch?} shape Op<S> declares, but TS can't see through
-        // the generic to verify. The runtime values pass through applyRemote's
-        // own validation inside tx().
         const opsForEngine = engineOps as unknown as Parameters<
           PalladiumEngine<S>["applyRemote"]
         >[0];

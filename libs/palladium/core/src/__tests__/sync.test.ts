@@ -399,7 +399,7 @@ interface OutboxRow {
 
 async function outboxRows(db: PalladiumEngine<Schema>): Promise<OutboxRow[]> {
   return db.adapter.exec<OutboxRow>(
-    "SELECT change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, created_at FROM _sync_pending_changes ORDER BY hlc_wall_ms, hlc_counter",
+    "SELECT change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, created_at FROM _changes ORDER BY hlc_wall_ms, hlc_counter",
     [],
   );
 }
