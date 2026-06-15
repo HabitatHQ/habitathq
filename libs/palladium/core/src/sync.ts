@@ -216,6 +216,14 @@ export interface SyncStatusInfo {
   readonly lastSyncId: string | null;
 }
 
+/** Result returned by {@link SyncTransport.bootstrap}. */
+export interface BootstrapResult {
+  /** Number of remote changes applied from the snapshot. */
+  readonly applied: number;
+  /** Cursor persisted after the bootstrap. */
+  readonly cursor: string;
+}
+
 export class SyncTransport<S extends SchemaMap> implements SyncTransportInterface {
   readonly #engine: PalladiumEngine<S>;
   readonly #serverUrl: string;
@@ -289,6 +297,41 @@ export class SyncTransport<S extends SchemaMap> implements SyncTransportInterfac
     this.#pollHandle = setInterval(() => {
       void this.#tick();
     }, this.#pollIntervalMs);
+  }
+
+  /**
+   * Cold-start bootstrap. Calls the server's `/v1/bootstrap` endpoint
+   * once, applies the returned snapshot (if any), and persists the
+   * cursor. After bootstrap, the next start() picks up incrementally.
+   *
+   * Server response shape:
+   *   { snapshot?: WireChange[]; cursor: string }
+   *
+   * The snapshot is optional; servers without compaction support
+   * return an empty array and the client falls through to the
+   * regular /v1/changes poll.
+   */
+  async bootstrap(): Promise<BootstrapResult> {
+    const url = `${this.#serverUrl}/v1/bootstrap`;
+    const res = await this.#fetch(url, { headers: await this.#buildHeaders() });
+    if (!res.ok) {
+      throw new Error(`bootstrap failed: ${res.status} ${res.statusText}`);
+    }
+    const body = (await res.json()) as { snapshot?: WireChange[]; cursor: string };
+    const snapshot = body.snapshot ?? [];
+    let applied = 0;
+    for (const change of snapshot) {
+      this.#engine.receiveHlc(change.hlc);
+      const engineOps = change.ops.map(wireOpToEngine<S>);
+      const opsForEngine = engineOps as unknown as Parameters<PalladiumEngine<S>["applyRemote"]>[1];
+      await this.#engine.applyRemote(change.hlc, opsForEngine);
+      applied += 1;
+    }
+    this.#cursor = body.cursor;
+    this.#cursorDirty = true;
+    await this.#persistCursor();
+    this.#cursorDirty = false;
+    return { applied, cursor: body.cursor };
   }
 
   /** One periodic step: drain the journal, then poll. */
