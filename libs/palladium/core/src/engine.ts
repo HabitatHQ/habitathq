@@ -22,7 +22,7 @@ import { compareHlcLocal, ROW_VERSIONS_DDL, ROW_VERSIONS_TABLE } from "./row-ver
 import type { SqlQuery } from "./sql.js";
 import type { StorageAdapter } from "./storage.js";
 import { isTransactable } from "./storage.js";
-import { SYNC_STATE_DDL } from "./sync-state.js";
+import { SYNC_STATE_DDL, SYNC_STATE_KEYS, SYNC_STATE_TABLE } from "./sync-state.js";
 import type { Op, SchemaMap } from "./tx.js";
 import { TxBuilder } from "./tx.js";
 
@@ -88,7 +88,14 @@ export class PalladiumEngine<S extends SchemaMap> {
       options && "get" in options && typeof options.get === "function"
         ? { blobAdapter: options as BlobAdapter }
         : ((options as PalladiumEngineOptions | undefined) ?? {});
-    this.nodeId = opts.nodeId ?? crypto.randomUUID();
+    // nodeId is assigned here only when the caller gave us one. Otherwise
+    // it remains empty and init() (#rehydrateSyncState) either restores it
+    // from _sync_state or generates a fresh UUID. This is what makes
+    // nodeId durable across reloads.
+    this.nodeId = opts.nodeId ?? "";
+    if (this.nodeId === "") {
+      this.nodeId = crypto.randomUUID();
+    }
     this.blobs = new BlobHandle(opts.blobAdapter ?? new MemoryBlobAdapter(), this.#blobRegistry);
   }
 
@@ -97,23 +104,33 @@ export class PalladiumEngine<S extends SchemaMap> {
    * propagated to the server). Counter increments on same-millisecond bursts;
    * `wallMs` advances when the OS clock ticks. The returned HLC is strictly
    * greater than any HLC this engine has issued or received.
+   *
+   * The new HLC is persisted to `_sync_state` so a reload can pick up
+   * where the previous instance left off, even across a backwards
+   * wall-clock tick.
    */
   nextSendHlc(): Hlc {
     this.#currentHlc =
       this.#currentHlc === null ? createHlc(this.nodeId) : sendHlc(this.#currentHlc);
+    void this.#persistSyncState(SYNC_STATE_KEYS.currentHlc, JSON.stringify(this.#currentHlc));
     return this.#currentHlc;
   }
 
   /**
    * Advance the engine's HLC after *receiving* a remote HLC. Preserves the
    * causality invariant that future local sends will be strictly greater than
-   * any HLC observed (local or remote).
+   * any HLC observed (local or remote). Persists the new HLC.
+   *
+   * Returns a promise that resolves when the HLC has been persisted. Most
+   * callers can ignore it; the sync transport awaits it before applying
+   * remote ops so the HLC is durable on disk before the cursor advances.
    */
-  receiveHlc(remote: Hlc): void {
+  receiveHlc(remote: Hlc): Promise<void> {
     this.#currentHlc =
       this.#currentHlc === null
         ? recvHlc(createHlc(this.nodeId), remote)
         : recvHlc(this.#currentHlc, remote);
+    return this.#persistSyncState(SYNC_STATE_KEYS.currentHlc, JSON.stringify(this.#currentHlc));
   }
 
   /** Most-recently-issued HLC, or `null` if the engine has not yet stamped anything. */
@@ -127,14 +144,70 @@ export class PalladiumEngine<S extends SchemaMap> {
    * Without a schema config, just opens the adapter.
    * With a schema config, also runs baseline DDL, versioned migrations,
    * and seeds via `applySchema()`.
+   *
+   * Also provisions the engine-owned tables (`_changes`, `_row_versions`,
+   * `_sync_state`) and rehydrates durable state (nodeId, currentHlc) from
+   * `_sync_state` when present. See HLC durability notes on `nextSendHlc`.
    */
   async init(schema?: SchemaConfig): Promise<void> {
     await this.adapter.open();
     await this.adapter.exec(JOURNAL_DDL, []);
     await this.adapter.exec(ROW_VERSIONS_DDL, []);
     await this.adapter.exec(SYNC_STATE_DDL, []);
+    await this.#rehydrateSyncState();
     if (schema) {
       await applySchema(this.adapter, schema);
+    }
+  }
+
+  /**
+   * Load nodeId and currentHlc from `_sync_state` if present. nodeId
+   * defaults to the constructor option (or a fresh UUID); currentHlc
+   * defaults to null and is then advanced by `nextSendHlc` / `receiveHlc`
+   * which persist on every call.
+   */
+  async #rehydrateSyncState(): Promise<void> {
+    const rows = await this.adapter.exec<{ key: string; value: string }>(
+      `SELECT key, value FROM ${SYNC_STATE_TABLE}`,
+    );
+    for (const row of rows) {
+      if (row.key === SYNC_STATE_KEYS.nodeId) {
+        // Constructor-supplied nodeId wins; only fall back to persisted
+        // value when the constructor was given nothing.
+        // (We read from the public field that was set in the ctor.)
+        if (this.nodeId === "" || this.nodeId === undefined) {
+          (this as { nodeId: string }).nodeId = row.value;
+        }
+      } else if (row.key === SYNC_STATE_KEYS.currentHlc) {
+        const parsed = JSON.parse(row.value) as Hlc;
+        this.#currentHlc = parsed;
+      }
+    }
+    // Persist whatever nodeId we ended up with so a future reload can
+    // pick it up without an explicit option.
+    await this.#persistSyncState(SYNC_STATE_KEYS.nodeId, this.nodeId);
+  }
+
+  /**
+   * Upsert one row in `_sync_state`. Silently no-ops if the adapter is
+   * not open (e.g. the engine was constructed but never `init()`-ed, or
+   * the test closes the adapter before this fire-and-forget persist
+   * resolves). The in-memory HLC is still authoritative; persistence
+   * is best-effort.
+   */
+  async #persistSyncState(key: string, value: string): Promise<void> {
+    try {
+      await this.adapter.exec(
+        `INSERT INTO ${SYNC_STATE_TABLE} (key, value, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT (key) DO UPDATE SET
+           value = excluded.value,
+           updated_at = excluded.updated_at`,
+        [key, value, Date.now()],
+      );
+    } catch {
+      // Adapter not open or already closed; the in-memory state is
+      // still consistent.
     }
   }
 
