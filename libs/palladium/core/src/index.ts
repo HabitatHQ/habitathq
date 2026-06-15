@@ -16,6 +16,7 @@ export { toCapacitorDbAdapter, toDbAdapter } from "./db-adapter.js";
 export type { LogFn } from "./debug.js";
 export { dbg, disableDebug, enableDebug, isDebugEnabled } from "./debug.js";
 export type {
+  ApplyRemoteResult,
   ChangesLocal,
   EngineEvents,
   PalladiumEngineOptions,
@@ -49,6 +50,8 @@ export type {
   BootstrapResult,
   DeleteWireOp,
   InsertWireOp,
+  OnRejected,
+  OnStaleDelta,
   SyncStatusInfo,
   SyncTransportInterface,
   SyncTransportOptions,

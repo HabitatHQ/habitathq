@@ -35,6 +35,18 @@ export interface ChangesLocal<S extends SchemaMap = SchemaMap> {
   readonly touchedTables: ReadonlyArray<string>;
 }
 
+/**
+ * Result returned by `PalladiumEngine.applyRemote`. Subscribers can
+ * use `stale` to drive a merge UI or audit log; the engine itself
+ * already rejected those ops in the LWW comparison.
+ */
+export interface ApplyRemoteResult<S extends SchemaMap = SchemaMap> {
+  /** Number of ops that were applied. */
+  readonly applied: number;
+  /** Ops rejected by the LWW gate. */
+  readonly stale: ReadonlyArray<Op<S>>;
+}
+
 export interface EngineEvents<S extends SchemaMap = SchemaMap> {
   "sync:status": SyncStatus;
   error: Error;
@@ -302,9 +314,15 @@ export class PalladiumEngine<S extends SchemaMap> {
    *
    * The `remoteHlc` parameter is the HLC of the *change batch* the ops
    * belong to. A wire-level change is atomic; all its ops share one HLC.
+   *
+   * Returns diagnostics about which ops were skipped (the LWW gate
+   * rejected). Subscribers can use these to drive a "merge UI" or audit
+   * log without polling the engine.
    */
-  async applyRemote(remoteHlc: Hlc, ops: ReadonlyArray<Op<S>>): Promise<void> {
-    if (ops.length === 0) return;
+  async applyRemote(remoteHlc: Hlc, ops: ReadonlyArray<Op<S>>): Promise<ApplyRemoteResult> {
+    let applied = 0;
+    const stale: Op<S>[] = [];
+    if (ops.length === 0) return { applied, stale };
     const touchedTables = new Set<string>();
     for (const op of ops) {
       touchedTables.add(String(op.table).toLowerCase());
@@ -315,6 +333,9 @@ export class PalladiumEngine<S extends SchemaMap> {
         const accepted = await this.#acceptRemoteOp(adpt, op, remoteHlc);
         if (accepted) {
           await this.#applyOp(adpt, op, { hlc: remoteHlc, mode: "remote" });
+          applied += 1;
+        } else {
+          stale.push(op);
         }
       }
     };
@@ -326,6 +347,7 @@ export class PalladiumEngine<S extends SchemaMap> {
     }
 
     await this.#notifyLiveQueries([...touchedTables]);
+    return { applied, stale };
   }
 
   /**

@@ -90,6 +90,22 @@ export type AuthHeaders =
   | Record<string, string>
   | (() => Record<string, string> | Promise<Record<string, string>>);
 
+/**
+ * Called when the server returns a non-2xx response to a POST. The
+ * transport does not retry; the app must intervene (rebuild the
+ * change with a fresh ULID, drop the local row, etc.) and either
+ * remove the journal row manually or call something like
+ * `engine.exec("DELETE FROM _changes WHERE change_id = ?", [id])`.
+ */
+export type OnRejected = (change: WireChange, reason: string) => void;
+
+/**
+ * Called when a remote op is dropped by the engine's column-level
+ * LWW gate. The op is included so the app can show a conflict
+ * notification or audit log entry.
+ */
+export type OnStaleDelta = (op: WireOp) => void;
+
 export interface SyncTransportOptions {
   readonly serverUrl: string;
   /** Polling interval for the downlink. Default: 1000 ms. */
@@ -103,6 +119,10 @@ export interface SyncTransportOptions {
    * override above.
    */
   readonly headers?: AuthHeaders;
+  /** Invoked when the server rejects (4xx) a POSTed change. */
+  readonly onRejected?: OnRejected;
+  /** Invoked when a remote op is dropped by the engine's LWW gate. */
+  readonly onStaleDelta?: OnStaleDelta;
 }
 
 // ── Journal ↔ wire conversion ──────────────────────────────────────────────
@@ -230,6 +250,8 @@ export class SyncTransport<S extends SchemaMap> implements SyncTransportInterfac
   readonly #pollIntervalMs: number;
   readonly #fetch: typeof globalThis.fetch;
   readonly #authHeaders: AuthHeaders | undefined;
+  readonly #onRejected: OnRejected | undefined;
+  readonly #onStaleDelta: OnStaleDelta | undefined;
 
   #status: SyncStatus = "idle";
   #cursor: string | null = null;
@@ -245,6 +267,8 @@ export class SyncTransport<S extends SchemaMap> implements SyncTransportInterfac
     this.#pollIntervalMs = options.pollIntervalMs ?? 1_000;
     this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.#authHeaders = options.headers;
+    this.#onRejected = options.onRejected;
+    this.#onStaleDelta = options.onStaleDelta;
   }
 
   /**
@@ -418,7 +442,9 @@ export class SyncTransport<S extends SchemaMap> implements SyncTransportInterfac
   /**
    * Attempt a single POST.
    * - "ok": 2xx response
-   * - "rejected": fetch returned a non-2xx (server reachable, request rejected)
+   * - "rejected": fetch returned a non-2xx (server reachable, request rejected).
+   *              The change is delivered to `onRejected` if configured; the
+   *              journal row is left in place (the app must intervene).
    * - "offline": fetch threw (network down, DNS, CORS, etc.)
    */
   async #tryPost(change: WireChange): Promise<PostOutcome> {
@@ -429,7 +455,24 @@ export class SyncTransport<S extends SchemaMap> implements SyncTransportInterfac
         headers,
         body: JSON.stringify(change),
       });
-      return res.ok ? "ok" : "rejected";
+      if (res.ok) return "ok";
+      // Non-2xx: surface to the app via onRejected, with the response
+      // body as the "reason" (server may carry a JSON explanation).
+      if (this.#onRejected !== undefined) {
+        let reason = `${res.status} ${res.statusText}`;
+        try {
+          const text = await res.text();
+          if (text.length > 0) reason += `: ${text}`;
+        } catch {
+          // Body unreadable; keep the status-only reason.
+        }
+        try {
+          this.#onRejected(change, reason);
+        } catch {
+          // Listener errors are not fatal; the drain still continues.
+        }
+      }
+      return "rejected";
     } catch {
       return "offline";
     }
@@ -480,7 +523,16 @@ export class SyncTransport<S extends SchemaMap> implements SyncTransportInterfac
           PalladiumEngine<S>["applyRemote"]
         >[1];
         try {
-          await this.#engine.applyRemote(change.hlc, opsForEngine);
+          const applyResult = await this.#engine.applyRemote(change.hlc, opsForEngine);
+          if (this.#onStaleDelta !== undefined && applyResult.stale.length > 0) {
+            for (const op of applyResult.stale) {
+              try {
+                this.#onStaleDelta(op as unknown as WireOp);
+              } catch {
+                // Listener errors are not fatal.
+              }
+            }
+          }
         } catch (err) {
           // The change failed to apply. Do NOT advance the cursor past it —
           // the next poll will retry. Surface the error to the engine's
