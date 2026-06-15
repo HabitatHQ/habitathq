@@ -79,6 +79,7 @@ export class PalladiumEngine<S extends SchemaMap> {
    * follow-up commit will persist this to SQLite.
    */
   #currentHlc: Hlc | null = null;
+  #initialized = false;
 
   constructor(adapter: StorageAdapter, options?: PalladiumEngineOptions | BlobAdapter) {
     this.adapter = adapter;
@@ -149,7 +150,14 @@ export class PalladiumEngine<S extends SchemaMap> {
    * `_sync_state`) and rehydrates durable state (nodeId, currentHlc) from
    * `_sync_state` when present. See HLC durability notes on `nextSendHlc`.
    */
+  /**
+   * Open the adapter and optionally apply versioned migrations and seeds.
+   *
+   * Idempotent: a second call after a successful init() is a no-op
+   * (no extra open(), no re-apply). Call `close()` first to re-init.
+   */
   async init(schema?: SchemaConfig): Promise<void> {
+    if (this.#initialized) return;
     await this.adapter.open();
     await this.adapter.exec(JOURNAL_DDL, []);
     await this.adapter.exec(ROW_VERSIONS_DDL, []);
@@ -158,6 +166,22 @@ export class PalladiumEngine<S extends SchemaMap> {
     if (schema) {
       await applySchema(this.adapter, schema);
     }
+    this.#initialized = true;
+  }
+
+  /**
+   * Release adapter resources. Idempotent. After close(), the engine
+   * can be re-opened with init().
+   */
+  async close(): Promise<void> {
+    if (!this.#initialized) return;
+    try {
+      await this.adapter.close();
+    } catch {
+      // Adapter may already be closed; the in-memory flag is the
+      // source of truth.
+    }
+    this.#initialized = false;
   }
 
   /**
