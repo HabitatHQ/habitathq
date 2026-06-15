@@ -195,6 +195,27 @@ export interface SyncTransportInterface {
   stop(): Promise<void>;
 }
 
+/**
+ * Rich sync status object returned by `getSyncStatus()`.
+ *
+ * - `status`: coarse state string. `"syncing"` while a POST or
+ *   poll is in flight, `"error"` when a server rejected, `"offline"`
+ *   when fetch threw, `"idle"` otherwise.
+ * - `pendingCount`: number of rows in the engine's `_changes`
+ *   journal that have not been successfully POSTed yet.
+ * - `isOnline`: derived from the most recent POST outcome — false
+ *   iff it was a network failure (not a 4xx/5xx rejection).
+ * - `lastSyncId`: `change_id` of the most recently drained journal
+ *   row (i.e. the last thing we successfully sent to the server),
+ *   or null if nothing has been sent yet.
+ */
+export interface SyncStatusInfo {
+  readonly status: SyncStatus;
+  readonly pendingCount: number;
+  readonly isOnline: boolean;
+  readonly lastSyncId: string | null;
+}
+
 export class SyncTransport<S extends SchemaMap> implements SyncTransportInterface {
   readonly #engine: PalladiumEngine<S>;
   readonly #serverUrl: string;
@@ -205,6 +226,7 @@ export class SyncTransport<S extends SchemaMap> implements SyncTransportInterfac
   #status: SyncStatus = "idle";
   #cursor: string | null = null;
   #cursorDirty = false;
+  #lastSyncId: string | null = null;
   #pollHandle: ReturnType<typeof setInterval> | null = null;
   #polling = false;
   #unsubscribeLocal: (() => void) | null = null;
@@ -224,8 +246,16 @@ export class SyncTransport<S extends SchemaMap> implements SyncTransportInterfac
    * via `notifySyncStatus` — subscribers on either side see the same
    * stream.
    */
-  getSyncStatus(): SyncStatus {
-    return this.#status;
+  async getSyncStatus(): Promise<SyncStatusInfo> {
+    const rows = await this.#engine.adapter.exec<{ n: number }>(
+      "SELECT COUNT(*) AS n FROM _changes",
+    );
+    return {
+      status: this.#status,
+      pendingCount: rows[0]?.n ?? 0,
+      isOnline: this.#status !== "offline",
+      lastSyncId: this.#lastSyncId,
+    };
   }
 
   /**
@@ -284,7 +314,6 @@ export class SyncTransport<S extends SchemaMap> implements SyncTransportInterfac
     );
     if (rows.length === 0) return;
     this.#setStatus("syncing");
-    void this.#engine;
     let lastOutcome: PostOutcome = "ok";
     for (const row of rows) {
       const outcome = await this.#tryPost(rowToChange(row));
@@ -293,6 +322,7 @@ export class SyncTransport<S extends SchemaMap> implements SyncTransportInterfac
         await this.#engine.adapter.exec(`DELETE FROM ${JOURNAL_TABLE} WHERE change_id = ?`, [
           row.change_id,
         ]);
+        this.#lastSyncId = row.change_id;
       } else {
         break;
       }

@@ -48,6 +48,7 @@ export type {
   AuthHeaders,
   DeleteWireOp,
   InsertWireOp,
+  SyncStatusInfo,
   SyncTransportInterface,
   SyncTransportOptions,
   UpdateWireOp,
