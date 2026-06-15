@@ -41,7 +41,7 @@ describe("applySchema", () => {
     expect(await getVersion(adapter)).toBe(5);
   });
 
-  it("does not run migrations on fresh install", async () => {
+  it("runs migrations on fresh install (callbacks execute for the target version)", async () => {
     const adapter = makeAdapter();
     await adapter.open();
     const callback = vi.fn();
@@ -52,7 +52,7 @@ describe("applySchema", () => {
       migrations: { 2: [callback] },
     });
 
-    expect(callback).not.toHaveBeenCalled();
+    expect(callback).toHaveBeenCalledOnce();
     expect(await getVersion(adapter)).toBe(2);
   });
 

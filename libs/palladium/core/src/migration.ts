@@ -26,7 +26,7 @@
  * ```
  */
 
-import type { StorageAdapter } from "./storage.js";
+import { isTransactable, type StorageAdapter } from "./storage.js";
 
 /** Function signature for executing SQL during migrations and seeds. */
 export type MigrationExec = <T = Record<string, unknown>>(
@@ -62,18 +62,31 @@ export interface SchemaConfig {
   readonly seeds?: readonly Seed[];
 }
 
-/** Execute migration steps for a single version. */
+/** Execute migration steps for a single version, atomically. */
 async function runSteps(
   adapter: StorageAdapter,
   exec: MigrationExec,
   steps: readonly MigrationStep[],
 ): Promise<void> {
-  for (const step of steps) {
-    if (typeof step === "string") {
-      // String steps use runMigrations for multi-statement support.
-      await adapter.runMigrations([step]);
-    } else {
-      await step(exec);
+  if (isTransactable(adapter)) {
+    // All steps in one transaction: a failure in step N rolls back
+    // steps 0..N-1 and leaves the schema version at its previous value.
+    await adapter.transaction(async (tx) => {
+      for (const step of steps) {
+        if (typeof step === "string") {
+          await tx.runMigrations([step]);
+        } else {
+          await step(exec);
+        }
+      }
+    });
+  } else {
+    for (const step of steps) {
+      if (typeof step === "string") {
+        await adapter.runMigrations([step]);
+      } else {
+        await step(exec);
+      }
     }
   }
 }
@@ -86,6 +99,12 @@ async function applyMigrations(
   currentVersion: number,
   targetVersion: number,
 ): Promise<void> {
+  if (targetVersion < currentVersion) {
+    throw new Error(
+      `applySchema: target version ${targetVersion} is lower than current version ${currentVersion}. Downgrade is not supported.`,
+    );
+  }
+
   const versions = Object.keys(migrations)
     .map(Number)
     .filter((v) => v > currentVersion && v <= targetVersion)
@@ -128,9 +147,12 @@ export async function applySchema(adapter: StorageAdapter, config: SchemaConfig)
   const rows = await adapter.exec<{ user_version: number }>("PRAGMA user_version");
   const currentVersion = rows[0]?.user_version ?? 0;
 
-  if (currentVersion === 0) {
-    // Fresh install — stamp target version, skip migrations
-    await adapter.exec(`PRAGMA user_version = ${config.version}`);
+  if (currentVersion === 0 && config.migrations) {
+    // Fresh install — run the migration steps for the *current* target
+    // version too. The baseline DDL may not be enough to express the
+    // schema, and callbacks often seed data the app expects on first
+    // boot. After the steps, stamp the version.
+    await applyMigrations(adapter, exec, config.migrations, 0, config.version);
   } else if (config.migrations) {
     await applyMigrations(adapter, exec, config.migrations, currentVersion, config.version);
   } else if (currentVersion < config.version) {
