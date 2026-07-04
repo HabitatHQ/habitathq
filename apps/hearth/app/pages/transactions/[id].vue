@@ -224,11 +224,16 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
             </option>
           </select>
         <input
+          type='number'
+          min="0"
+          step="any"
+          inputmode="decimal"
+          placeholder="0.00"
           class="text-5xl text-center font-bold font-mono tracking-tight amount-display
-          focus:outline-none focus:ring-0 focus:border-transparent" type='number'
-          min="0" step="any" inputmode="decimal" placeholder="0.00"
+          focus:outline-none focus:ring-0 focus:border-transparent"
           :class="form.type === 'income' ? 'text-green-400' : 'text-(--ui-text)'"
           v-model="form.amountStr"
+          aria-label="Amount"
         >
         </input>
         </div>
