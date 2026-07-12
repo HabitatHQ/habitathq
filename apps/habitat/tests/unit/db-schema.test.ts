@@ -69,6 +69,55 @@ async function runSeeds(adapter: DbAdapter): Promise<void> {
   }
 }
 
+/** Map of table name → sorted column names, ignoring bookkeeping tables. */
+async function introspect(adapter: DbAdapter): Promise<Record<string, string[]>> {
+  const tables = await adapter.queryAll<{ name: string }>(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != '_palladium_seeds' ORDER BY name",
+  )
+  const out: Record<string, string[]> = {}
+  for (const { name } of tables) {
+    const cols = await adapter.queryAll<{ name: string }>(`PRAGMA table_info('${name}')`)
+    out[name] = cols.map((c) => c.name).sort()
+  }
+  return out
+}
+
+/**
+ * MigrationExec that routes reads to queryAll and swallows "duplicate column
+ * name" — the expected outcome when an unguarded `ADD COLUMN` migration re-runs
+ * against a schema that ALREADY has the column (i.e. correctly mirrored in DDL).
+ */
+function replayExec(adapter: DbAdapter): MigrationExec {
+  return async <T = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+    const head = sql.trim().toUpperCase()
+    if (head.startsWith('SELECT') || head.startsWith('PRAGMA')) {
+      return adapter.queryAll<T>(sql, params as unknown[]) as Promise<T[]>
+    }
+    try {
+      await adapter.exec(sql, params as unknown[])
+    } catch (e) {
+      if (!/duplicate column name/i.test(String(e))) throw e
+    }
+    return [] as T[]
+  }
+}
+
+/** Replay every configured migration (ascending) against the given DB. */
+async function replayMigrations(adapter: DbAdapter): Promise<void> {
+  await ensureSeedsTable(adapter)
+  const exec = replayExec(adapter)
+  const migrations = SCHEMA_CONFIG.migrations ?? {}
+  const versions = Object.keys(migrations)
+    .map(Number)
+    .sort((a, b) => a - b)
+  for (const v of versions) {
+    for (const step of migrations[v] as MigrationStep[]) {
+      if (typeof step === 'function') await step(exec)
+      else await exec(step)
+    }
+  }
+}
+
 // ─── DDL ─────────────────────────────────────────────────────────────────────
 
 describe('SCHEMA_DDL', () => {
@@ -167,13 +216,13 @@ describe('SCHEMA_CONFIG seeds', () => {
 // ─── Schema config structure ─────────────────────────────────────────────────
 
 describe('SCHEMA_CONFIG', () => {
-  it('has version 21', () => {
-    expect(SCHEMA_CONFIG.version).toBe(21)
+  it('has version 22', () => {
+    expect(SCHEMA_CONFIG.version).toBe(22)
   })
 
-  it('defines migrations for versions 11-21', () => {
+  it('defines migrations for versions 11-22', () => {
     const keys = Object.keys(SCHEMA_CONFIG.migrations ?? {}).map(Number).sort((a, b) => a - b)
-    expect(keys).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21])
+    expect(keys).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22])
   })
 
   it('has seeds array', () => {
@@ -249,5 +298,27 @@ describe('migration 21 (tag normalization)', () => {
       's1',
     ])
     expect(JSON.parse(s!.tags)).toEqual(['spark', 'dream'])
+  })
+})
+
+// ─── DDL / migration parity ────────────────────────────────────────────────────
+// Guards against the two-sources-of-truth drift that caused bug-041: fresh
+// installs only ever run SCHEMA_DDL (migrations are skipped), so any column or
+// table a migration adds MUST also live in SCHEMA_DDL. If it doesn't, replaying
+// the migrations on a fresh DDL database mutates the schema — which this fails on.
+
+describe('SCHEMA_DDL / migration parity', () => {
+  it('replaying every migration on a fresh SCHEMA_DDL database does not change the schema', async () => {
+    const { adapter } = freshDb()
+    await applyDdl(adapter)
+    await ensureSeedsTable(adapter)
+
+    const before = await introspect(adapter)
+    await replayMigrations(adapter)
+    const after = await introspect(adapter)
+
+    // Any added table/column here means SCHEMA_DDL is missing something a
+    // migration adds — fresh installs would ship without it.
+    expect(after).toEqual(before)
   })
 })

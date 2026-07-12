@@ -565,7 +565,7 @@ const SEEDS: Seed[] = [
 
 export const SCHEMA_CONFIG: SchemaConfig = {
   schema: SCHEMA_DDL,
-  version: 21,
+  version: 22,
   migrations: {
     11: [
       `CREATE TABLE IF NOT EXISTS bored_categories (
@@ -700,6 +700,18 @@ export const SCHEMA_CONFIG: SchemaConfig = {
               await exec(`UPDATE ${table} SET tags = ? WHERE id = ?`, [next, row.id])
             }
           }
+        }
+      },
+    ],
+    22: [
+      // Fresh installs apply SCHEMA_DDL and jump straight to the current version,
+      // skipping earlier migrations — so DBs created before `title` was added to
+      // SCHEMA_DDL got stamped at their creation version without the column, and
+      // migration 20's ALTER never re-runs for them. Re-apply it idempotently.
+      async (exec: MigrationExec) => {
+        const cols = await exec<{ name: string }>("PRAGMA table_info('voice_notes')")
+        if (!cols.some((c) => c.name === 'title')) {
+          await exec("ALTER TABLE voice_notes ADD COLUMN title TEXT NOT NULL DEFAULT ''")
         }
       },
     ],
