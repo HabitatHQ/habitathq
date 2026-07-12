@@ -279,6 +279,7 @@ function fractionFor(note: VoiceNote): number {
 function togglePlay(note: VoiceNote) {
   const audio = getAudio(note)
   if (!audio) return
+  void selectionChanged()
   if (currentlyPlaying.value && currentlyPlaying.value !== note.id) {
     audioMap.get(currentlyPlaying.value)?.pause()
     currentlyPlaying.value = null
@@ -324,22 +325,6 @@ function seekTo(note: VoiceNote, fraction: number) {
       { once: true },
     )
   }
-}
-
-function seekFromEvent(note: VoiceNote, el: HTMLElement, clientX: number) {
-  const rect = el.getBoundingClientRect()
-  seekTo(note, (clientX - rect.left) / rect.width)
-}
-
-function onWaveformPointerDown(note: VoiceNote, e: PointerEvent) {
-  const el = e.currentTarget as HTMLElement
-  el.setPointerCapture(e.pointerId)
-  seekFromEvent(note, el, e.clientX)
-}
-
-function onWaveformPointerMove(note: VoiceNote, e: PointerEvent) {
-  const el = e.currentTarget as HTMLElement
-  if (el.hasPointerCapture(e.pointerId)) seekFromEvent(note, el, e.clientX)
 }
 
 /** Keyboard nudge: ±5% of the clip. */
@@ -708,27 +693,16 @@ onUnmounted(() => {
                     @click="togglePlay(item.data as VoiceNote)"
                   />
                   <!-- Waveform — click / drag to seek -->
-                  <div
-                    class="flex-1 min-w-0 h-8 flex items-center gap-[2px] cursor-pointer touch-none select-none"
-                    role="slider"
-                    tabindex="0"
-                    aria-label="Seek voice note"
-                    :aria-valuenow="Math.round(fractionFor(item.data as VoiceNote) * 100)"
-                    aria-valuemin="0"
-                    aria-valuemax="100"
-                    @pointerdown="onWaveformPointerDown(item.data as VoiceNote, $event)"
-                    @pointermove="onWaveformPointerMove(item.data as VoiceNote, $event)"
-                    @keydown.left.prevent="seekBy(item.data as VoiceNote, -0.05)"
-                    @keydown.right.prevent="seekBy(item.data as VoiceNote, 0.05)"
-                  >
-                    <span
-                      v-for="(h, i) in waveformBars(item.data.id)"
-                      :key="i"
-                      class="flex-1 rounded-full"
-                      :class="(i + 0.5) / WAVEFORM_BARS <= fractionFor(item.data as VoiceNote) ? 'bg-primary-400' : 'bg-(--ui-text-dimmed)'"
-                      :style="{ height: h + '%' }"
-                    />
-                  </div>
+                  <JotWaveform
+                    class="flex-1 min-w-0"
+                    variant="row"
+                    :bars="waveformBars(item.data.id)"
+                    :fraction="fractionFor(item.data as VoiceNote)"
+                    :bar-count="WAVEFORM_BARS"
+                    @seek="seekTo(item.data as VoiceNote, $event)"
+                    @nudge="seekBy(item.data as VoiceNote, $event)"
+                    @toggle="togglePlay(item.data as VoiceNote)"
+                  />
                   <span class="text-xs type-duration text-(--ui-text-toned) shrink-0">{{ fmtDuration((item.data as VoiceNote).duration) }}</span>
                 </div>
                 <!-- Footer -->
@@ -868,27 +842,15 @@ onUnmounted(() => {
               class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) overflow-hidden"
             >
               <!-- Waveform thumbnail — click / drag to seek -->
-              <div
-                class="relative h-24 bg-(--ui-bg-elevated) flex items-center justify-between px-3 overflow-hidden cursor-pointer touch-none select-none"
-                role="slider"
-                tabindex="0"
-                aria-label="Seek voice note"
-                :aria-valuenow="Math.round(fractionFor(item.data as VoiceNote) * 100)"
-                aria-valuemin="0"
-                aria-valuemax="100"
-                @pointerdown="onWaveformPointerDown(item.data as VoiceNote, $event)"
-                @pointermove="onWaveformPointerMove(item.data as VoiceNote, $event)"
-                @keydown.left.prevent="seekBy(item.data as VoiceNote, -0.05)"
-                @keydown.right.prevent="seekBy(item.data as VoiceNote, 0.05)"
-                @keydown.enter.prevent="togglePlay(item.data as VoiceNote)"
+              <JotWaveform
+                variant="block"
+                :bars="waveformBars(item.data.id)"
+                :fraction="fractionFor(item.data as VoiceNote)"
+                :bar-count="WAVEFORM_BARS"
+                @seek="seekTo(item.data as VoiceNote, $event)"
+                @nudge="seekBy(item.data as VoiceNote, $event)"
+                @toggle="togglePlay(item.data as VoiceNote)"
               >
-                <span
-                  v-for="(h, i) in waveformBars(item.data.id)"
-                  :key="i"
-                  class="w-[3px] rounded-full"
-                  :class="(i + 0.5) / WAVEFORM_BARS <= fractionFor(item.data as VoiceNote) ? 'bg-primary-400' : 'bg-(--ui-text-dimmed)'"
-                  :style="{ height: h + '%' }"
-                />
                 <UButton
                   :icon="resolveIcon(currentlyPlaying === item.data.id ? 'pause' : 'play')"
                   :color="currentlyPlaying === item.data.id ? 'primary' : 'neutral'"
@@ -900,7 +862,7 @@ onUnmounted(() => {
                   @pointerdown.stop
                   @click.stop="togglePlay(item.data as VoiceNote)"
                 />
-              </div>
+              </JotWaveform>
               <div class="px-2.5 py-2">
                 <button
                   type="button"
