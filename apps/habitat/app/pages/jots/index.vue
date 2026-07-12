@@ -119,7 +119,8 @@ const filteredJots = computed((): JotItem[] => {
         )
       }
       if (item.kind === 'image') {
-        return (item.data as ImageNote).filename.toLowerCase().includes(q)
+        const img = item.data as ImageNote
+        return img.filename.toLowerCase().includes(q) || img.title.toLowerCase().includes(q)
       }
       if (item.kind === 'voice') {
         const title = (item.data as VoiceNote).title
@@ -175,7 +176,8 @@ function jotDisplayTitle(item: JotItem): string {
   if (item.kind === 'voice') {
     return (item.data as VoiceNote).title || `Voice note — ${item.data.created_at.slice(0, 10)}`
   }
-  return (item.data as ImageNote).filename
+  const img = item.data as ImageNote
+  return img.title || img.filename
 }
 
 function openCreateTodo(item: JotItem) {
@@ -359,7 +361,7 @@ function openRename(item: JotItem) {
   if (item.kind !== 'voice' && item.kind !== 'image') return
   renameTarget.value = item
   renameValue.value =
-    item.kind === 'voice' ? (item.data as VoiceNote).title : (item.data as ImageNote).filename
+    item.kind === 'voice' ? (item.data as VoiceNote).title : (item.data as ImageNote).title
   showRenameModal.value = true
 }
 
@@ -386,7 +388,7 @@ const lightboxAlt = ref('')
 function openLightbox(note: ImageNote) {
   if (!note.url) return
   lightboxUrl.value = note.url
-  lightboxAlt.value = note.filename
+  lightboxAlt.value = note.title || note.filename
 }
 
 function onLightboxKeydown(e: KeyboardEvent) {
@@ -755,10 +757,11 @@ onUnmounted(() => {
                     <button
                       type="button"
                       class="block max-w-full truncate text-sm text-left transition-colors"
-                      :class="(item.data as ImageNote).filename ? 'text-(--ui-text-toned) hover:text-primary-400' : 'text-(--ui-text-dimmed) italic hover:text-(--ui-text-muted)'"
+                      :class="(item.data as ImageNote).title ? 'text-(--ui-text) font-medium hover:text-primary-400' : 'text-(--ui-text-dimmed) italic hover:text-(--ui-text-muted)'"
                       aria-label="Rename photo"
                       @click.stop="openRename(item)"
-                    >{{ (item.data as ImageNote).filename || 'Add a name' }}</button>
+                    >{{ (item.data as ImageNote).title || 'Add a title' }}</button>
+                    <p class="text-[11px] text-(--ui-text-dimmed) truncate mt-0.5">{{ (item.data as ImageNote).filename }}</p>
                   </div>
                 </div>
                 <!-- Footer -->
@@ -923,10 +926,10 @@ onUnmounted(() => {
                   <button
                     type="button"
                     class="block max-w-full truncate text-[11px] text-left leading-tight transition-colors"
-                    :class="(item.data as ImageNote).filename ? 'text-(--ui-text-muted) hover:text-primary-400' : 'text-(--ui-text-dimmed) italic hover:text-(--ui-text-muted)'"
+                    :class="(item.data as ImageNote).title ? 'text-(--ui-text) font-medium hover:text-primary-400' : 'text-(--ui-text-dimmed) italic hover:text-(--ui-text-muted)'"
                     aria-label="Rename photo"
                     @click.stop="openRename(item)"
-                  >{{ (item.data as ImageNote).filename || 'Add a name' }}</button>
+                  >{{ (item.data as ImageNote).title || 'Add a title' }}</button>
                   <div class="flex items-center gap-1 text-(--ui-text-dimmed) mt-0.5">
                     <AppIcon name="photo" class="w-3 h-3 shrink-0" />
                     <span class="text-[10px] truncate">{{ timeAgo(item.data.created_at) }}</span>
@@ -964,10 +967,10 @@ onUnmounted(() => {
     <!-- ── Rename voice / image jot modal ─────────────────────────────────── -->
     <AppModal v-model="showRenameModal" :title="renameIsImage ? 'Rename photo' : 'Rename voice note'">
       <div class="space-y-3">
-        <UFormField :label="renameIsImage ? 'Name' : 'Title'">
+        <UFormField label="Title">
           <AppTextField
             v-model="renameValue"
-            :placeholder="renameIsImage ? 'Photo name…' : 'Voice note title…'"
+            :placeholder="renameIsImage ? 'Photo title…' : 'Voice note title…'"
             class="w-full"
             @keydown.enter="saveRename"
           />

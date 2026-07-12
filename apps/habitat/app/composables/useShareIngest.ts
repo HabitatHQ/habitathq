@@ -78,6 +78,7 @@ export function useShareIngest() {
         id,
         mime_type: blob.type || 'image/png',
         filename,
+        title: '',
         created_at: new Date().toISOString(),
       })
     } catch {

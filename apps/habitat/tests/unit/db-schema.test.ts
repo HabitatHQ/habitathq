@@ -216,13 +216,13 @@ describe('SCHEMA_CONFIG seeds', () => {
 // ─── Schema config structure ─────────────────────────────────────────────────
 
 describe('SCHEMA_CONFIG', () => {
-  it('has version 22', () => {
-    expect(SCHEMA_CONFIG.version).toBe(22)
+  it('has version 23', () => {
+    expect(SCHEMA_CONFIG.version).toBe(23)
   })
 
-  it('defines migrations for versions 11-22', () => {
+  it('defines migrations for versions 11-23', () => {
     const keys = Object.keys(SCHEMA_CONFIG.migrations ?? {}).map(Number).sort((a, b) => a - b)
-    expect(keys).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22])
+    expect(keys).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23])
   })
 
   it('has seeds array', () => {

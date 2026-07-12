@@ -18,6 +18,7 @@ export interface ImageNote {
   blob: Blob
   mimeType: string
   filename: string
+  title: string
   created_at: string
   url?: string
 }
@@ -142,6 +143,7 @@ async function runBlobMigration(db: ReturnType<typeof useDatabase>): Promise<voi
       id: img.id,
       mime_type: img.mimeType,
       filename: img.filename,
+      title: '',
       created_at: img.created_at,
     })
   }
@@ -174,6 +176,7 @@ async function hydrateImage(row: ImageNoteRow): Promise<ImageNote> {
     blob,
     mimeType: row.mime_type,
     filename: row.filename,
+    title: row.title ?? '',
     created_at: row.created_at,
     url: URL.createObjectURL(blob),
   }
@@ -259,16 +262,17 @@ export function useJotsStore() {
       id: note.id,
       mime_type: note.mimeType,
       filename: note.filename,
+      title: note.title,
       created_at: note.created_at,
     })
     imageNotes.value.unshift({ ...note, url: objectUrl })
   }
 
-  async function renameImageNote(note: ImageNote, filename: string): Promise<void> {
-    const trimmed = filename.trim()
+  async function renameImageNote(note: ImageNote, title: string): Promise<void> {
+    const trimmed = title.trim()
     await db.updateImageNote(note.id, trimmed)
     const target = imageNotes.value.find((n) => n.id === note.id)
-    if (target) target.filename = trimmed
+    if (target) target.title = trimmed
   }
 
   async function deleteImageNote(note: ImageNote): Promise<void> {

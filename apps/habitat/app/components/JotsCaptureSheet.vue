@@ -59,6 +59,7 @@ async function saveImage() {
         blob,
         mimeType: file.type,
         filename: file.name,
+        title: '',
         created_at: new Date().toISOString(),
       },
       url,

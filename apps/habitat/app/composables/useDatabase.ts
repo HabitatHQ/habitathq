@@ -255,8 +255,8 @@ export function useDatabase() {
     getImageNotes: (): Promise<ImageNoteRow[]> => sendToWorker({ type: 'GET_IMAGE_NOTES' }),
     createImageNote: (p: ImageNoteRow): Promise<ImageNoteRow> =>
       sendToWorker({ type: 'CREATE_IMAGE_NOTE', payload: p }),
-    updateImageNote: (id: string, filename: string): Promise<null> =>
-      sendToWorker({ type: 'UPDATE_IMAGE_NOTE', payload: { id, filename } }),
+    updateImageNote: (id: string, title: string): Promise<null> =>
+      sendToWorker({ type: 'UPDATE_IMAGE_NOTE', payload: { id, title } }),
     deleteImageNote: (id: string): Promise<null> =>
       sendToWorker({ type: 'DELETE_IMAGE_NOTE', payload: { id } }),
     deleteAllMediaNotes: (): Promise<null> =>

@@ -2025,7 +2025,7 @@ export async function dispatch(db: DbAdapter, req: WorkerRequestBody): Promise<u
     case 'CREATE_IMAGE_NOTE':
       return createImageNote(db, req.payload)
     case 'UPDATE_IMAGE_NOTE':
-      return updateImageNote(db, req.payload.id, req.payload.filename)
+      return updateImageNote(db, req.payload.id, req.payload.title)
     case 'DELETE_IMAGE_NOTE':
       return deleteImageNote(db, req.payload.id)
     case 'DELETE_ALL_MEDIA_NOTES':
@@ -2065,14 +2065,14 @@ async function getImageNotes(db: DbAdapter): Promise<ImageNoteRow[]> {
 
 async function createImageNote(db: DbAdapter, p: ImageNoteRow): Promise<ImageNoteRow> {
   await db.exec(
-    'INSERT OR IGNORE INTO image_notes (id, mime_type, filename, created_at) VALUES (?, ?, ?, ?)',
-    [p.id, p.mime_type, p.filename, p.created_at],
+    'INSERT OR IGNORE INTO image_notes (id, mime_type, filename, title, created_at) VALUES (?, ?, ?, ?, ?)',
+    [p.id, p.mime_type, p.filename, p.title ?? '', p.created_at],
   )
-  return p
+  return { ...p, title: p.title ?? '' }
 }
 
-async function updateImageNote(db: DbAdapter, id: string, filename: string): Promise<null> {
-  await db.exec('UPDATE image_notes SET filename = ? WHERE id = ?', [filename, id])
+async function updateImageNote(db: DbAdapter, id: string, title: string): Promise<null> {
+  await db.exec('UPDATE image_notes SET title = ? WHERE id = ?', [title, id])
   return null
 }
 
