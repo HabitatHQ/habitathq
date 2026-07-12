@@ -6,7 +6,6 @@ import type { JotSection } from '~/utils/jots-helpers'
 import { groupJotsByDate, groupJotsByTags } from '~/utils/jots-helpers'
 
 const router = useRouter()
-const { settings: appSettings } = useAppSettings()
 const { selectionChanged } = useHaptics()
 const store = useJotsStore()
 const { timeline, todoByJotId, todos } = store
@@ -217,30 +216,135 @@ async function saveCreateTodo() {
 
 // ─── Voice playback ───────────────────────────────────────────────────────────
 
-const currentlyPlaying = ref<string | null>(null)
+const currentlyPlaying = ref<string | null>(null) // id while actively playing
+const activeNoteId = ref<string | null>(null) // id loaded (playing OR paused/scrubbed)
+const playbackFraction = ref(0) // 0..1 progress of the active note
 const audioMap = new Map<string, HTMLAudioElement>()
 
+// Decorative waveform for voice tiles — deterministic bar heights (20–100%)
+// derived from the note id so a given note always renders the same shape.
+// Memoized so repeated renders don't recompute the array.
+const WAVEFORM_BARS = 32
+const waveformCache = new Map<string, number[]>()
+function waveformBars(id: string): number[] {
+  let bars = waveformCache.get(id)
+  if (bars) return bars
+  let seed = 2166136261
+  for (let i = 0; i < id.length; i++) seed = ((seed ^ id.charCodeAt(i)) * 16777619) >>> 0
+  bars = []
+  for (let i = 0; i < WAVEFORM_BARS; i++) {
+    seed = (seed * 1103515245 + 12345) >>> 0
+    bars.push(20 + (seed % 81))
+  }
+  waveformCache.set(id, bars)
+  return bars
+}
+
+/**
+ * Authoritative clip length in seconds. Prefer the stored `note.duration` —
+ * webm from MediaRecorder reports `audio.duration === Infinity` until a seek
+ * forces it to resolve, which would make `currentTime / duration` collapse to 0
+ * and freeze the progress fill until you manually scrub. Fall back to the media
+ * element's duration only when the note has no stored value.
+ */
+function clipLength(note: VoiceNote, audio: HTMLAudioElement): number {
+  if (note.duration > 0) return note.duration
+  return Number.isFinite(audio.duration) ? audio.duration : 0
+}
+
+function getAudio(note: VoiceNote): HTMLAudioElement | null {
+  if (!note.url) return null
+  const existing = audioMap.get(note.id)
+  if (existing) return existing
+  const audio = new Audio(note.url)
+  audio.addEventListener('timeupdate', () => {
+    const len = clipLength(note, audio)
+    if (activeNoteId.value === note.id && len > 0) {
+      playbackFraction.value = Math.min(1, audio.currentTime / len)
+    }
+  })
+  audio.addEventListener('ended', () => {
+    if (currentlyPlaying.value === note.id) currentlyPlaying.value = null
+    if (activeNoteId.value === note.id) playbackFraction.value = 0
+  })
+  audioMap.set(note.id, audio)
+  return audio
+}
+
+/** Progress (0..1) to render on a note's waveform. Only the active note tracks. */
+function fractionFor(note: VoiceNote): number {
+  return activeNoteId.value === note.id ? playbackFraction.value : 0
+}
+
 function togglePlay(note: VoiceNote) {
-  if (!note.url) return
+  const audio = getAudio(note)
+  if (!audio) return
   if (currentlyPlaying.value && currentlyPlaying.value !== note.id) {
     audioMap.get(currentlyPlaying.value)?.pause()
     currentlyPlaying.value = null
   }
-  let audio = audioMap.get(note.id)
-  if (!audio) {
-    audio = new Audio(note.url)
-    audio.onended = () => {
-      currentlyPlaying.value = null
-    }
-    audioMap.set(note.id, audio)
-  }
   if (currentlyPlaying.value === note.id) {
     audio.pause()
-    currentlyPlaying.value = null
+    currentlyPlaying.value = null // stays active; fraction retained
   } else {
+    if (activeNoteId.value !== note.id) {
+      activeNoteId.value = note.id
+      const len = clipLength(note, audio)
+      playbackFraction.value = len > 0 ? Math.min(1, audio.currentTime / len) : 0
+    }
     audio.play()
     currentlyPlaying.value = note.id
   }
+}
+
+/** Move playback position without changing play/pause state. */
+function seekTo(note: VoiceNote, fraction: number) {
+  const audio = getAudio(note)
+  if (!audio) return
+  const clamped = Math.min(1, Math.max(0, fraction))
+  if (activeNoteId.value !== note.id) {
+    // scrubbing a different note takes over the active slot (pause the old one)
+    if (currentlyPlaying.value && currentlyPlaying.value !== note.id) {
+      audioMap.get(currentlyPlaying.value)?.pause()
+      currentlyPlaying.value = null
+    }
+    activeNoteId.value = note.id
+  }
+  playbackFraction.value = clamped
+  const len = clipLength(note, audio)
+  if (len > 0) {
+    audio.currentTime = clamped * len
+  } else {
+    // Unknown length (no stored duration, metadata not in yet) — wait for it.
+    audio.addEventListener(
+      'loadedmetadata',
+      () => {
+        if (Number.isFinite(audio.duration)) audio.currentTime = clamped * audio.duration
+      },
+      { once: true },
+    )
+  }
+}
+
+function seekFromEvent(note: VoiceNote, el: HTMLElement, clientX: number) {
+  const rect = el.getBoundingClientRect()
+  seekTo(note, (clientX - rect.left) / rect.width)
+}
+
+function onWaveformPointerDown(note: VoiceNote, e: PointerEvent) {
+  const el = e.currentTarget as HTMLElement
+  el.setPointerCapture(e.pointerId)
+  seekFromEvent(note, el, e.clientX)
+}
+
+function onWaveformPointerMove(note: VoiceNote, e: PointerEvent) {
+  const el = e.currentTarget as HTMLElement
+  if (el.hasPointerCapture(e.pointerId)) seekFromEvent(note, el, e.clientX)
+}
+
+/** Keyboard nudge: ±5% of the clip. */
+function seekBy(note: VoiceNote, delta: number) {
+  seekTo(note, fractionFor(note) + delta)
 }
 
 async function handleDeleteVoice(note: VoiceNote) {
@@ -250,6 +354,10 @@ async function handleDeleteVoice(note: VoiceNote) {
     audioMap.delete(note.id)
   }
   if (currentlyPlaying.value === note.id) currentlyPlaying.value = null
+  if (activeNoteId.value === note.id) {
+    activeNoteId.value = null
+    playbackFraction.value = 0
+  }
   await store.deleteVoiceNote(note)
 }
 
@@ -484,43 +592,43 @@ onUnmounted(() => {
             <AppCard
               v-if="item.kind === 'text'"
               tag="li"
+              align="start"
               class="active:opacity-70 transition-opacity cursor-pointer"
               @click="navigateTo(`/jots/edit-${item.data.id}`)"
             >
-              <div class="flex items-start gap-2.5">
-                <div class="w-6 h-6 rounded-full bg-amber-500/10 flex items-center justify-center mt-0.5 shrink-0">
-                  <AppIcon name="pencil" class="w-4 h-4 text-amber-400" />
+              <div class="flex-1 min-w-0">
+                <p
+                  class="text-sm text-(--ui-text) leading-snug"
+                  :class="{ 'font-medium': item.data.title }"
+                >{{ previewTitle(item.data) }}</p>
+                <p v-if="previewBody(item.data)" class="text-xs text-(--ui-text-dimmed) mt-0.5 line-clamp-2">{{ previewBody(item.data) }}</p>
+                <div v-if="item.data.tags?.length > 0" class="flex flex-wrap gap-1 mt-2">
+                  <span
+                    v-for="tag in (item.data.tags || []).slice(0, 5)"
+                    :key="tag"
+                    class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px]
+                           text-(--ui-text-muted) bg-(--ui-bg-elevated) border border-(--ui-border-accented)"
+                  >
+                    <span v-if="splitTag(tag).parent" class="text-slate-600">{{ splitTag(tag).parent }}/</span>
+                    <span>{{ splitTag(tag).leaf }}</span>
+                  </span>
+                  <span v-if="item.data.tags?.length > 5" class="text-[10px] text-slate-600 self-center pl-0.5">+{{ (item.data.tags?.length || 0) - 5 }}</span>
                 </div>
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-start justify-between gap-2">
-                    <p
-                      class="text-sm text-(--ui-text) leading-snug"
-                      :class="{ 'font-medium': item.data.title }"
-                    >{{ previewTitle(item.data) }}</p>
-                    <span class="text-[11px] text-slate-600 shrink-0 mt-0.5">{{ timeAgo(item.data.updated_at) }}</span>
+                <!-- Footer -->
+                <div class="flex items-center justify-between gap-2 mt-2.5">
+                  <div class="flex items-center gap-1.5 text-(--ui-text-dimmed)">
+                    <AppIcon name="pencil" class="w-3.5 h-3.5" />
+                    <span class="text-[11px]">{{ timeAgo(item.data.updated_at) }}</span>
                   </div>
-                  <p v-if="previewBody(item.data)" class="text-xs text-(--ui-text-dimmed) mt-0.5 line-clamp-2">{{ previewBody(item.data) }}</p>
-                  <div v-if="item.data.tags?.length > 0" class="flex flex-wrap gap-1 mt-2">
-                    <span
-                      v-for="tag in (item.data.tags || []).slice(0, 5)"
-                      :key="tag"
-                      class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px]
-                             text-(--ui-text-muted) bg-(--ui-bg-elevated) border border-(--ui-border-accented)"
-                    >
-                      <span v-if="splitTag(tag).parent" class="text-slate-600">{{ splitTag(tag).parent }}/</span>
-                      <span>{{ splitTag(tag).leaf }}</span>
-                    </span>
-                    <span v-if="item.data.tags?.length > 5" class="text-[10px] text-slate-600 self-center pl-0.5">+{{ (item.data.tags?.length || 0) - 5 }}</span>
-                  </div>
+                  <button
+                    class="shrink-0 p-1 rounded-lg transition-colors"
+                    :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
+                    :aria-label="hasLinkedTodo(item.data.id) ? 'View linked TODO' : 'Create TODO for this jot'"
+                    @click.stop="onJotLinkClick(item)"
+                  >
+                    <AppIcon :name="hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link'" class="w-4 h-4" />
+                  </button>
                 </div>
-                <button
-                  class="shrink-0 self-start mt-0.5 p-1 rounded-lg transition-colors"
-                  :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
-                  :aria-label="hasLinkedTodo(item.data.id) ? 'View linked TODO' : 'Create TODO for this jot'"
-                  @click.stop="onJotLinkClick(item)"
-                >
-                  <AppIcon :name="hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link'" class="w-4 h-4" />
-                </button>
               </div>
             </AppCard>
 
@@ -528,45 +636,73 @@ onUnmounted(() => {
             <AppCard
               v-else-if="item.kind === 'voice'"
               tag="li"
+              align="start"
             >
-              <div class="flex items-center gap-3">
-                <div class="w-6 h-6 rounded-full bg-rose-500/10 flex items-center justify-center shrink-0">
-                  <AppIcon name="microphone" class="w-4 h-4 text-rose-400" />
+              <div class="flex-1 min-w-0">
+                <p v-if="(item.data as VoiceNote).title" class="text-sm font-medium text-(--ui-text) truncate mb-1.5">{{ (item.data as VoiceNote).title }}</p>
+                <div class="flex items-center gap-3">
+                  <UButton
+                    :icon="resolveIcon(currentlyPlaying === item.data.id ? 'pause' : 'play')"
+                    :color="currentlyPlaying === item.data.id ? 'primary' : 'neutral'"
+                    :variant="currentlyPlaying === item.data.id ? 'soft' : 'outline'"
+                    size="sm"
+                    :aria-label="currentlyPlaying === item.data.id ? 'Pause voice note' : 'Play voice note'"
+                    class="min-h-[44px] min-w-[44px] shrink-0"
+                    :ui="{ base: 'rounded-full' }"
+                    @click="togglePlay(item.data as VoiceNote)"
+                  />
+                  <!-- Waveform — click / drag to seek -->
+                  <div
+                    class="flex-1 min-w-0 h-8 flex items-center gap-[2px] cursor-pointer touch-none select-none"
+                    role="slider"
+                    tabindex="0"
+                    aria-label="Seek voice note"
+                    :aria-valuenow="Math.round(fractionFor(item.data as VoiceNote) * 100)"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    @pointerdown="onWaveformPointerDown(item.data as VoiceNote, $event)"
+                    @pointermove="onWaveformPointerMove(item.data as VoiceNote, $event)"
+                    @keydown.left.prevent="seekBy(item.data as VoiceNote, -0.05)"
+                    @keydown.right.prevent="seekBy(item.data as VoiceNote, 0.05)"
+                  >
+                    <span
+                      v-for="(h, i) in waveformBars(item.data.id)"
+                      :key="i"
+                      class="flex-1 rounded-full"
+                      :class="(i + 0.5) / WAVEFORM_BARS <= fractionFor(item.data as VoiceNote) ? 'bg-primary-400' : 'bg-(--ui-text-dimmed)'"
+                      :style="{ height: h + '%' }"
+                    />
+                  </div>
+                  <span class="text-xs type-duration text-(--ui-text-toned) shrink-0">{{ fmtDuration((item.data as VoiceNote).duration) }}</span>
                 </div>
-                <UButton
-                  :icon="resolveIcon(currentlyPlaying === item.data.id ? 'pause' : 'play')"
-                  :color="currentlyPlaying === item.data.id ? 'primary' : 'neutral'"
-                  :variant="currentlyPlaying === item.data.id ? 'soft' : 'outline'"
-                  size="sm"
-                  :aria-label="currentlyPlaying === item.data.id ? 'Pause voice note' : 'Play voice note'"
-                  class="min-h-[44px] min-w-[44px]"
-                  :ui="{ base: 'rounded-full' }"
-                  @click="togglePlay(item.data as VoiceNote)"
-                />
-                <div class="flex-1 min-w-0">
-                  <p v-if="(item.data as VoiceNote).title" class="text-sm font-medium text-(--ui-text) truncate">{{ (item.data as VoiceNote).title }}</p>
-                  <p class="text-sm text-(--ui-text-toned) truncate">{{ fmtDate(item.data.created_at, appSettings.use24HourTime) }}</p>
-                  <p class="text-xs type-duration text-(--ui-text-dimmed)">{{ fmtDuration((item.data as VoiceNote).duration) }}</p>
+                <!-- Footer -->
+                <div class="flex items-center justify-between gap-2 mt-2.5">
+                  <div class="flex items-center gap-1.5 text-(--ui-text-dimmed)">
+                    <AppIcon name="microphone" class="w-3.5 h-3.5" />
+                    <span class="text-[11px]">{{ timeAgo(item.data.created_at) }}</span>
+                  </div>
+                  <div class="flex items-center">
+                    <UButton
+                      :icon="resolveIcon(hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link')"
+                      color="neutral"
+                      variant="ghost"
+                      size="sm"
+                      :aria-label="hasLinkedTodo(item.data.id) ? 'Linked to todo' : 'Link to todo'"
+                      class="min-h-[44px] min-w-[44px]"
+                      :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
+                      @click="onJotLinkClick(item)"
+                    />
+                    <UButton
+                      :icon="resolveIcon('trash')"
+                      color="neutral"
+                      variant="ghost"
+                      size="sm"
+                      aria-label="Delete voice note"
+                      class="min-h-[44px] min-w-[44px] text-slate-600 hover:text-red-400"
+                      @click="handleDeleteVoice(item.data as VoiceNote)"
+                    />
+                  </div>
                 </div>
-                <UButton
-                  :icon="resolveIcon(hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link')"
-                  color="neutral"
-                  variant="ghost"
-                  size="sm"
-                  :aria-label="hasLinkedTodo(item.data.id) ? 'Linked to todo' : 'Link to todo'"
-                  class="min-h-[44px] min-w-[44px]"
-                  :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
-                  @click="onJotLinkClick(item)"
-                />
-                <UButton
-                  :icon="resolveIcon('trash')"
-                  color="neutral"
-                  variant="ghost"
-                  size="sm"
-                  aria-label="Delete voice note"
-                  class="min-h-[44px] min-w-[44px] text-slate-600 hover:text-red-400"
-                  @click="handleDeleteVoice(item.data as VoiceNote)"
-                />
               </div>
             </AppCard>
 
@@ -574,40 +710,48 @@ onUnmounted(() => {
             <AppCard
               v-else-if="item.kind === 'image'"
               tag="li"
+              align="start"
             >
-              <div class="flex items-center gap-3">
-                <div class="w-6 h-6 rounded-full bg-sky-500/10 flex items-center justify-center shrink-0">
-                  <AppIcon name="photo" class="w-4 h-4 text-sky-400" />
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-3">
+                  <img
+                    v-if="(item.data as ImageNote).url"
+                    :src="(item.data as ImageNote).url"
+                    :alt="(item.data as ImageNote).filename"
+                    class="w-16 h-16 object-cover rounded-lg shrink-0"
+                  />
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm text-(--ui-text-toned) truncate">{{ (item.data as ImageNote).filename }}</p>
+                  </div>
                 </div>
-                <img
-                  v-if="(item.data as ImageNote).url"
-                  :src="(item.data as ImageNote).url"
-                  :alt="(item.data as ImageNote).filename"
-                  class="w-16 h-16 object-cover rounded-lg shrink-0"
-                />
-                <div class="flex-1 min-w-0">
-                  <p class="text-sm text-(--ui-text-toned) truncate">{{ (item.data as ImageNote).filename }}</p>
-                  <p class="text-xs text-(--ui-text-dimmed)">{{ fmtDate(item.data.created_at, appSettings.use24HourTime) }}</p>
+                <!-- Footer -->
+                <div class="flex items-center justify-between gap-2 mt-2.5">
+                  <div class="flex items-center gap-1.5 text-(--ui-text-dimmed)">
+                    <AppIcon name="photo" class="w-3.5 h-3.5" />
+                    <span class="text-[11px]">{{ timeAgo(item.data.created_at) }}</span>
+                  </div>
+                  <div class="flex items-center">
+                    <UButton
+                      :icon="resolveIcon(hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link')"
+                      color="neutral"
+                      variant="ghost"
+                      size="sm"
+                      :aria-label="hasLinkedTodo(item.data.id) ? 'Linked to todo' : 'Link to todo'"
+                      class="min-h-[44px] min-w-[44px]"
+                      :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
+                      @click="onJotLinkClick(item)"
+                    />
+                    <UButton
+                      :icon="resolveIcon('trash')"
+                      color="neutral"
+                      variant="ghost"
+                      size="sm"
+                      aria-label="Delete image note"
+                      class="min-h-[44px] min-w-[44px] text-slate-600 hover:text-red-400"
+                      @click="store.deleteImageNote(item.data as ImageNote)"
+                    />
+                  </div>
                 </div>
-                <UButton
-                  :icon="resolveIcon(hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link')"
-                  color="neutral"
-                  variant="ghost"
-                  size="sm"
-                  :aria-label="hasLinkedTodo(item.data.id) ? 'Linked to todo' : 'Link to todo'"
-                  class="min-h-[44px] min-w-[44px]"
-                  :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
-                  @click="onJotLinkClick(item)"
-                />
-                <UButton
-                  :icon="resolveIcon('trash')"
-                  color="neutral"
-                  variant="ghost"
-                  size="sm"
-                  aria-label="Delete image note"
-                  class="min-h-[44px] min-w-[44px] text-slate-600 hover:text-red-400"
-                  @click="store.deleteImageNote(item.data as ImageNote)"
-                />
               </div>
             </AppCard>
 
@@ -624,34 +768,33 @@ onUnmounted(() => {
               class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) overflow-hidden cursor-pointer active:scale-[0.97] transition-transform"
               @click="navigateTo(`/jots/edit-${item.data.id}`)"
             >
-              <div class="flex">
-                <div class="w-[3px] shrink-0 rounded-l-2xl bg-gradient-to-b from-amber-500/80 to-amber-600/30" />
-                <div class="p-3 flex flex-col gap-2 min-w-0 flex-1">
-                  <p
-                    class="text-sm text-(--ui-text) leading-snug line-clamp-2"
-                    :class="{ 'font-semibold': item.data.title }"
-                  >{{ previewTitle(item.data) }}</p>
-                  <p v-if="gridBody(item.data)" class="text-xs text-(--ui-text-dimmed) line-clamp-6 leading-relaxed">{{ gridBody(item.data) }}</p>
-                  <div class="flex items-end justify-between gap-1 mt-auto pt-1">
-                    <div class="flex flex-wrap gap-1 min-w-0">
-                      <span
-                        v-for="tag in (item.data.tags || []).slice(0, 2)"
-                        :key="tag"
-                        class="px-1.5 py-0.5 rounded-full text-[9px] bg-(--ui-bg-elevated) text-(--ui-text-dimmed) border border-(--ui-border-accented)/60 truncate max-w-[72px]"
-                      >{{ splitTag(tag).leaf }}</span>
-                      <span v-if="item.data.tags?.length > 2" class="text-[9px] text-slate-600 self-center">+{{ (item.data.tags?.length || 0) - 2 }}</span>
-                    </div>
-                    <div class="flex items-center gap-0.5 shrink-0">
-                      <button
-                        class="p-0.5 rounded transition-colors"
-                        :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
-                        @click.stop="onJotLinkClick(item)"
-                      >
-                        <AppIcon :name="hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link'" class="w-3 h-3" />
-                      </button>
-                      <span class="text-[10px] text-slate-600">{{ timeAgo(item.data.updated_at) }}</span>
-                    </div>
+              <div class="p-3 flex flex-col gap-2 min-w-0">
+                <p
+                  class="text-sm text-(--ui-text) leading-snug line-clamp-2"
+                  :class="{ 'font-semibold': item.data.title }"
+                >{{ previewTitle(item.data) }}</p>
+                <p v-if="gridBody(item.data)" class="text-xs text-(--ui-text-dimmed) line-clamp-6 leading-relaxed">{{ gridBody(item.data) }}</p>
+                <div v-if="item.data.tags?.length > 0" class="flex flex-wrap gap-1">
+                  <span
+                    v-for="tag in (item.data.tags || []).slice(0, 2)"
+                    :key="tag"
+                    class="px-1.5 py-0.5 rounded-full text-[9px] bg-(--ui-bg-elevated) text-(--ui-text-dimmed) border border-(--ui-border-accented)/60 truncate max-w-[72px]"
+                  >{{ splitTag(tag).leaf }}</span>
+                  <span v-if="item.data.tags?.length > 2" class="text-[9px] text-slate-600 self-center">+{{ (item.data.tags?.length || 0) - 2 }}</span>
+                </div>
+                <!-- Footer -->
+                <div class="flex items-center justify-between gap-1 mt-auto pt-1">
+                  <div class="flex items-center gap-1 text-(--ui-text-dimmed) min-w-0">
+                    <AppIcon name="pencil" class="w-3 h-3 shrink-0" />
+                    <span class="text-[10px] truncate">{{ timeAgo(item.data.updated_at) }}</span>
                   </div>
+                  <button
+                    class="p-0.5 rounded transition-colors shrink-0"
+                    :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
+                    @click.stop="onJotLinkClick(item)"
+                  >
+                    <AppIcon :name="hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link'" class="w-3 h-3" />
+                  </button>
                 </div>
               </div>
             </li>
@@ -661,46 +804,70 @@ onUnmounted(() => {
               v-else-if="item.kind === 'voice'"
               class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) overflow-hidden"
             >
-              <div class="h-0.5 bg-gradient-to-r from-rose-500/70 to-rose-600/30" />
-              <div class="p-3 flex flex-col items-center gap-2.5 text-center">
-                <div class="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mt-1">
-                  <AppIcon name="microphone" class="w-6 h-6 text-rose-400" />
-                </div>
-                <div>
-                  <p v-if="(item.data as VoiceNote).title" class="text-sm font-medium text-(--ui-text) line-clamp-2 mb-0.5">{{ (item.data as VoiceNote).title }}</p>
-                  <p class="text-sm type-duration font-medium text-(--ui-text-toned)">{{ fmtDuration((item.data as VoiceNote).duration) }}</p>
-                  <p class="text-[10px] text-slate-600 mt-0.5">{{ timeAgo(item.data.created_at) }}</p>
-                </div>
+              <!-- Waveform thumbnail — click / drag to seek -->
+              <div
+                class="relative h-24 bg-(--ui-bg-elevated) flex items-center justify-between px-3 overflow-hidden cursor-pointer touch-none select-none"
+                role="slider"
+                tabindex="0"
+                aria-label="Seek voice note"
+                :aria-valuenow="Math.round(fractionFor(item.data as VoiceNote) * 100)"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                @pointerdown="onWaveformPointerDown(item.data as VoiceNote, $event)"
+                @pointermove="onWaveformPointerMove(item.data as VoiceNote, $event)"
+                @keydown.left.prevent="seekBy(item.data as VoiceNote, -0.05)"
+                @keydown.right.prevent="seekBy(item.data as VoiceNote, 0.05)"
+                @keydown.enter.prevent="togglePlay(item.data as VoiceNote)"
+              >
+                <span
+                  v-for="(h, i) in waveformBars(item.data.id)"
+                  :key="i"
+                  class="w-[3px] rounded-full"
+                  :class="(i + 0.5) / WAVEFORM_BARS <= fractionFor(item.data as VoiceNote) ? 'bg-primary-400' : 'bg-(--ui-text-dimmed)'"
+                  :style="{ height: h + '%' }"
+                />
                 <UButton
                   :icon="resolveIcon(currentlyPlaying === item.data.id ? 'pause' : 'play')"
                   :color="currentlyPlaying === item.data.id ? 'primary' : 'neutral'"
-                  :variant="currentlyPlaying === item.data.id ? 'soft' : 'outline'"
-                  size="xs"
+                  :variant="currentlyPlaying === item.data.id ? 'solid' : 'soft'"
+                  size="sm"
                   :aria-label="currentlyPlaying === item.data.id ? 'Pause voice note' : 'Play voice note'"
-                  class="min-h-[44px] min-w-[44px]"
+                  class="absolute min-h-[44px] min-w-[44px] shadow-md"
                   :ui="{ base: 'rounded-full' }"
+                  @pointerdown.stop
                   @click.stop="togglePlay(item.data as VoiceNote)"
                 />
-                <div class="flex items-center gap-0.5 pb-1">
-                  <UButton
-                    :icon="resolveIcon(hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link')"
-                    color="neutral"
-                    variant="ghost"
-                    size="xs"
-                    :aria-label="hasLinkedTodo(item.data.id) ? 'Linked to todo' : 'Link to todo'"
-                    class="min-h-[44px] min-w-[44px]"
-                    :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
-                    @click.stop="onJotLinkClick(item)"
-                  />
-                  <UButton
-                    :icon="resolveIcon('trash')"
-                    color="neutral"
-                    variant="ghost"
-                    size="xs"
-                    aria-label="Delete voice note"
-                    class="min-h-[44px] min-w-[44px] text-slate-600 hover:text-red-400"
-                    @click.stop="handleDeleteVoice(item.data as VoiceNote)"
-                  />
+              </div>
+              <div class="px-2.5 py-2">
+                <p v-if="(item.data as VoiceNote).title" class="text-[13px] font-medium text-(--ui-text) line-clamp-1">{{ (item.data as VoiceNote).title }}</p>
+                <p class="text-xs type-duration text-(--ui-text-toned)">{{ fmtDuration((item.data as VoiceNote).duration) }}</p>
+                <!-- Footer -->
+                <div class="flex items-center justify-between gap-1 mt-1.5">
+                  <div class="flex items-center gap-1 text-(--ui-text-dimmed) min-w-0">
+                    <AppIcon name="microphone" class="w-3 h-3 shrink-0" />
+                    <span class="text-[10px] truncate">{{ timeAgo(item.data.created_at) }}</span>
+                  </div>
+                  <div class="flex items-center shrink-0">
+                    <UButton
+                      :icon="resolveIcon(hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link')"
+                      color="neutral"
+                      variant="ghost"
+                      size="xs"
+                      :aria-label="hasLinkedTodo(item.data.id) ? 'Linked to todo' : 'Link to todo'"
+                      class="min-h-[44px] min-w-[44px]"
+                      :class="hasLinkedTodo(item.data.id) ? 'text-primary-400' : 'text-slate-600 hover:text-primary-400'"
+                      @click.stop="onJotLinkClick(item)"
+                    />
+                    <UButton
+                      :icon="resolveIcon('trash')"
+                      color="neutral"
+                      variant="ghost"
+                      size="xs"
+                      aria-label="Delete voice note"
+                      class="min-h-[44px] min-w-[44px] text-slate-600 hover:text-red-400"
+                      @click.stop="handleDeleteVoice(item.data as VoiceNote)"
+                    />
+                  </div>
                 </div>
               </div>
             </li>
@@ -722,7 +889,10 @@ onUnmounted(() => {
               <div class="px-2.5 py-2 flex items-center justify-between gap-1">
                 <div class="min-w-0">
                   <p class="text-[11px] text-(--ui-text-muted) truncate leading-tight">{{ (item.data as ImageNote).filename }}</p>
-                  <p class="text-[10px] text-slate-600 mt-0.5">{{ timeAgo(item.data.created_at) }}</p>
+                  <div class="flex items-center gap-1 text-(--ui-text-dimmed) mt-0.5">
+                    <AppIcon name="photo" class="w-3 h-3 shrink-0" />
+                    <span class="text-[10px] truncate">{{ timeAgo(item.data.created_at) }}</span>
+                  </div>
                 </div>
                 <div class="flex items-center gap-0.5 shrink-0">
                   <button
