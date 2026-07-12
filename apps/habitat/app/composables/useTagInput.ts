@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { isReservedTag, normalizeTag } from '~/utils/tags'
 
 /**
  * Shared tag management logic for any reactive string[] array.
@@ -8,8 +9,9 @@ export function useTagInput(tags: string[]) {
   const tagInput = ref('')
 
   function addTag() {
-    const tag = tagInput.value.replace(/,+$/, '').trim()
-    if (tag && !tag.startsWith('habitat-') && !tags.includes(tag)) tags.push(tag)
+    // Normalize (trim + lowercase) so tags are case-insensitively unique.
+    const tag = normalizeTag(tagInput.value.replace(/,+$/, ''))
+    if (tag && !isReservedTag(tag) && !tags.includes(tag)) tags.push(tag)
     tagInput.value = ''
   }
 

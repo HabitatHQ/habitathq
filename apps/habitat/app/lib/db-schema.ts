@@ -565,7 +565,7 @@ const SEEDS: Seed[] = [
 
 export const SCHEMA_CONFIG: SchemaConfig = {
   schema: SCHEMA_DDL,
-  version: 20,
+  version: 21,
   migrations: {
     11: [
       `CREATE TABLE IF NOT EXISTS bored_categories (
@@ -662,6 +662,44 @@ export const SCHEMA_CONFIG: SchemaConfig = {
         const cols = await exec<{ name: string }>("PRAGMA table_info('voice_notes')")
         if (!cols.some((c) => c.name === 'title')) {
           await exec("ALTER TABLE voice_notes ADD COLUMN title TEXT NOT NULL DEFAULT ''")
+        }
+      },
+    ],
+    21: [
+      // Canonicalize stored tags to trimmed-lowercase so tags are uniquely
+      // keyed regardless of the case they were originally entered in. Mirrors
+      // normalizeTag() in app/utils/tags.ts; kept inline so the migration is
+      // self-contained. Also de-dupes case/whitespace variants within a row.
+      async (exec: MigrationExec) => {
+        const normalizeTagsJson = (raw: string): string | null => {
+          let parsed: unknown
+          try {
+            parsed = JSON.parse(raw)
+          } catch {
+            return null
+          }
+          if (!Array.isArray(parsed)) return null
+          const seen = new Set<string>()
+          const out: string[] = []
+          for (const t of parsed) {
+            if (typeof t !== 'string') continue
+            const tag = t.trim().toLowerCase()
+            if (!tag || seen.has(tag)) continue
+            seen.add(tag)
+            out.push(tag)
+          }
+          return JSON.stringify(out)
+        }
+
+        const taggedTables = ['habits', 'completions', 'todos', 'bored_activities', 'scribbles']
+        for (const table of taggedTables) {
+          const rows = await exec<{ id: string; tags: string }>(`SELECT id, tags FROM ${table}`)
+          for (const row of rows) {
+            const next = normalizeTagsJson(row.tags ?? '[]')
+            if (next !== null && next !== row.tags) {
+              await exec(`UPDATE ${table} SET tags = ? WHERE id = ?`, [next, row.id])
+            }
+          }
         }
       },
     ],

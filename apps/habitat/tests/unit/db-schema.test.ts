@@ -1,5 +1,5 @@
 // @vitest-environment node
-import type { DbAdapter } from '@palladium/core'
+import type { DbAdapter, MigrationExec, MigrationStep } from '@palladium/core'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { SCHEMA_CONFIG, SCHEMA_DDL } from '~/lib/db-schema'
@@ -167,13 +167,13 @@ describe('SCHEMA_CONFIG seeds', () => {
 // ─── Schema config structure ─────────────────────────────────────────────────
 
 describe('SCHEMA_CONFIG', () => {
-  it('has version 20', () => {
-    expect(SCHEMA_CONFIG.version).toBe(20)
+  it('has version 21', () => {
+    expect(SCHEMA_CONFIG.version).toBe(21)
   })
 
-  it('defines migrations for versions 11-20', () => {
+  it('defines migrations for versions 11-21', () => {
     const keys = Object.keys(SCHEMA_CONFIG.migrations ?? {}).map(Number).sort((a, b) => a - b)
-    expect(keys).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
+    expect(keys).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21])
   })
 
   it('has seeds array', () => {
@@ -191,5 +191,63 @@ describe('SCHEMA_CONFIG', () => {
     const m18 = SCHEMA_CONFIG.migrations?.[18]
     expect(Array.isArray(m18)).toBe(true)
     expect(typeof (m18 as unknown[])[0]).toBe('function')
+  })
+})
+
+describe('migration 21 (tag normalization)', () => {
+  function execFor(adapter: DbAdapter): MigrationExec {
+    return async <T = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+      const head = sql.trim().toUpperCase()
+      if (head.startsWith('SELECT') || head.startsWith('PRAGMA')) {
+        return adapter.queryAll<T>(sql, params as unknown[]) as Promise<T[]>
+      }
+      await adapter.exec(sql, params as unknown[])
+      return [] as T[]
+    }
+  }
+
+  async function runMigration21(adapter: DbAdapter): Promise<void> {
+    const step = (SCHEMA_CONFIG.migrations?.[21] as MigrationStep[])[0]
+    if (typeof step !== 'function') throw new Error('migration 21 step is not a callback')
+    await step(execFor(adapter))
+  }
+
+  it('lower-cases and de-dupes stored tags across all tagged tables', async () => {
+    const { adapter } = freshDb()
+    await applyDdl(adapter)
+
+    await adapter.exec(
+      `INSERT INTO habits (id, name, created_at, tags) VALUES ('h1', 'H', '2026-01-01', ?)`,
+      [JSON.stringify(['Work', 'work', 'FOCUS'])],
+    )
+    await adapter.exec(
+      `INSERT INTO todos (id, title, tags, created_at, updated_at) VALUES ('t1', 'T', ?, '2026-01-01', '2026-01-01')`,
+      [JSON.stringify([' Reading ', 'reading'])],
+    )
+
+    await runMigration21(adapter)
+
+    const h = await adapter.queryOne<{ tags: string }>('SELECT tags FROM habits WHERE id = ?', [
+      'h1',
+    ])
+    const t = await adapter.queryOne<{ tags: string }>('SELECT tags FROM todos WHERE id = ?', ['t1'])
+    expect(JSON.parse(h!.tags)).toEqual(['work', 'focus'])
+    expect(JSON.parse(t!.tags)).toEqual(['reading'])
+  })
+
+  it('leaves already-normalized tags untouched', async () => {
+    const { adapter } = freshDb()
+    await applyDdl(adapter)
+    await adapter.exec(
+      `INSERT INTO scribbles (id, title, content, tags, created_at, updated_at) VALUES ('s1', 'S', '', ?, '2026-01-01', '2026-01-01')`,
+      [JSON.stringify(['spark', 'dream'])],
+    )
+
+    await runMigration21(adapter)
+
+    const s = await adapter.queryOne<{ tags: string }>('SELECT tags FROM scribbles WHERE id = ?', [
+      's1',
+    ])
+    expect(JSON.parse(s!.tags)).toEqual(['spark', 'dream'])
   })
 })

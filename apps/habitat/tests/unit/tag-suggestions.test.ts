@@ -27,6 +27,18 @@ describe('rankSuggestions', () => {
     expect(result).toEqual([])
   })
 
+  it('merges legacy mixed-case rows into one canonical tag', () => {
+    const mixed: TagRow[] = [row('Work', 'todo', 5), row('work', 'todo', 2)]
+    const result = rankSuggestions(mixed, 'todo', 'wo', [])
+    expect(result.map((r) => r.tag)).toEqual(['work'])
+    expect(result[0]?.score).toBe((5 + 2) * 3)
+  })
+
+  it('excludes selected tags case-insensitively', () => {
+    const result = rankSuggestions(rows, 'todo', 'wo', ['WORK'])
+    expect(result).toEqual([])
+  })
+
   it('excludes habitat-* tags', () => {
     const result = rankSuggestions(rows, 'habit', '', [])
     expect(result.map((r) => r.tag)).not.toContain('habitat-health')

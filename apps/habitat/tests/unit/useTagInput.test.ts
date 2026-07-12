@@ -44,6 +44,22 @@ describe('useTagInput', () => {
     expect(tags).toEqual(['existing'])
   })
 
+  it('lower-cases tags on add for case-insensitive uniqueness', () => {
+    const tags = reactive<string[]>([])
+    const { tagInput, addTag } = useTagInput(tags)
+    tagInput.value = 'Deep-Work'
+    addTag()
+    expect(tags).toEqual(['deep-work'])
+  })
+
+  it('treats case-variant tags as duplicates', () => {
+    const tags = reactive<string[]>(['work'])
+    const { tagInput, addTag } = useTagInput(tags)
+    tagInput.value = 'WORK'
+    addTag()
+    expect(tags).toEqual(['work'])
+  })
+
   it('does not add habitat-* prefixed tags', () => {
     const tags = reactive<string[]>([])
     const { tagInput, addTag } = useTagInput(tags)
