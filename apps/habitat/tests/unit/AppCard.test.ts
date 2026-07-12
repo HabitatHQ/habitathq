@@ -39,4 +39,19 @@ describe('AppCard', () => {
     const wrapper = mount(AppCard, { props: { tag: 'li' } })
     expect(wrapper.element.tagName).toBe('LI')
   })
+
+  it('wraps a navigable card in an <li> when tag="li" and `to` are both set', () => {
+    // `to` renders a NuxtLink (<a>); an <a> cannot also be the list item, so the
+    // link must be wrapped in a real <li> to keep <ul> markup valid.
+    const wrapper = mount(AppCard, {
+      props: { tag: 'li', to: '/somewhere' },
+      global: { stubs: { NuxtLink: { template: '<a><slot /></a>', props: ['to'] } } },
+    })
+    expect(wrapper.element.tagName).toBe('LI')
+    const link = wrapper.find('a')
+    expect(link.exists()).toBe(true)
+    // The card surface + navigable classes live on the link, not the <li>.
+    expect(link.classes()).toEqual(expect.arrayContaining(['rounded-xl', 'cursor-pointer']))
+    expect(wrapper.classes()).not.toContain('rounded-xl')
+  })
 })

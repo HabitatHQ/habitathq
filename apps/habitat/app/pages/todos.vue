@@ -736,16 +736,20 @@ async function deleteAndClose(t: Todo) {
                       <AppIcon name="clock" class="w-4 h-4 shrink-0" />
                       <div class="flex items-center gap-1" @click.stop>
                         <button
-                          class="w-6 h-6 rounded-md bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors press-strong"
-                          :class="{ 'opacity-30 pointer-events-none': modeMenuMinutes <= 5 }"
+                          aria-label="Decrease timer duration by 5 minutes"
+                          class="min-w-[44px] min-h-[44px] rounded-md bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors press-strong"
+                          :class="{ 'opacity-30': modeMenuMinutes <= 5 }"
+                          :disabled="modeMenuMinutes <= 5"
                           @click="modeMenuMinutes = Math.max(5, modeMenuMinutes - 5)"
                         >
                           <AppIcon name="minus" class="w-3 h-3" />
                         </button>
-                        <span class="w-10 text-center font-semibold tabular-nums text-(--ui-text)">{{ modeMenuMinutes }}</span>
+                        <span class="w-10 text-center font-semibold type-numeric text-(--ui-text)">{{ modeMenuMinutes }}</span>
                         <button
-                          class="w-6 h-6 rounded-md bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors press-strong"
-                          :class="{ 'opacity-30 pointer-events-none': modeMenuMinutes >= 120 }"
+                          aria-label="Increase timer duration by 5 minutes"
+                          class="min-w-[44px] min-h-[44px] rounded-md bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors press-strong"
+                          :class="{ 'opacity-30': modeMenuMinutes >= 120 }"
+                          :disabled="modeMenuMinutes >= 120"
                           @click="modeMenuMinutes = Math.min(120, modeMenuMinutes + 5)"
                         >
                           <AppIcon name="plus" class="w-3 h-3" />

@@ -182,12 +182,25 @@
 
 /* Reduce motion — fewer/gentler animations, not zero */
 @media (prefers-reduced-motion: reduce) {
+  /* Safety net: collapse every keyframe animation to a single instant run so
+     decorative ambient loops (moss-sway, bubbles, tentacles, glow-pulse…) and
+     brand pops can't keep moving. Curated *transitions* are handled per-preset
+     below and stay gentle rather than zeroed. */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
   .btn-press:active {
     transform: none;
   }
   .stagger-list > * {
     animation: none;
     opacity: 1;
+  }
+  .sheet-backdrop {
+    transition-duration: 0ms;
   }
   .sheet-slide-enter-active,
   .sheet-slide-leave-active,
@@ -214,12 +227,21 @@
   }
 }
 
+html.reduce-motion *,
+html.reduce-motion *::before,
+html.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+}
 html.reduce-motion .btn-press:active {
   transform: none;
 }
 html.reduce-motion .stagger-list > * {
   animation: none;
   opacity: 1;
+}
+html.reduce-motion .sheet-backdrop {
+  transition-duration: 0ms;
 }
 html.reduce-motion .sheet-slide-enter-active,
 html.reduce-motion .sheet-slide-leave-active,

@@ -18,5 +18,6 @@ g['useHaptics'] = () => ({
 g['logError'] = vi.fn()
 
 // Stub useFirstVisit (auto-imported composable). Return true so mounted pages
-// behave like first load — the entrance class is applied.
+// behave like first load — the entrance class is applied. The real first-visit /
+// repeat-visit behavior is covered directly in tests/unit/useFirstVisit.test.ts.
 g['useFirstVisit'] = () => true

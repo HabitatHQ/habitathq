@@ -43,6 +43,6 @@ Nuxt layer shared by all Habitat apps. Provides: app-level Nuxt config, shared C
 | Press feedback | `btn-press` (`.icon-btn`, `.chip-btn`) | `:active` utility class |
 | Loading | `animate-pulse` / `animate-spin` | Tailwind (reduce-motion-aware) |
 
-Reduce-motion is handled centrally (both `@media (prefers-reduced-motion)` and `html.reduce-motion`); new presets must be added to both blocks. `sprout-draw` / `nav-wiggle` are habitat-brand animations that stay in the app.
+Reduce-motion is handled centrally (both `@media (prefers-reduced-motion)` and `html.reduce-motion`, wired from `settings.reduceMotion` in `app.vue`): a global `*` safety-net collapses **every** keyframe `animation` to a single instant run (so page-local decorative loops like `moss-sway`/bubbles/tentacles are covered automatically), while curated **transitions** are zeroed per-preset — new transition presets must be added to both blocks. `sprout-draw` / `nav-wiggle` are habitat-brand animations that stay in the app.
 
 **Guard:** `apps/*/tests/unit/motion-tokens.test.ts` fails if the shared layer inlines a raw `cubic-bezier()` outside `:root`, drops a token, or ships a preset missing its enter/leave class. (Extending the raw-easing check into app code is the phase-2 migration.)

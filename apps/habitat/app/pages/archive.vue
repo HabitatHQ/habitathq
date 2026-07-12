@@ -97,6 +97,7 @@ onMounted(loadHabits)
           v-for="habit in archivedHabits"
           :key="habit.id"
           tag="li"
+          align="start"
         >
           <div
             class="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center opacity-60"
@@ -132,6 +133,7 @@ onMounted(loadHabits)
           v-for="day in checkinDays"
           :key="day.date"
           tag="li"
+          align="start"
         >
           <div class="w-9 h-9 rounded-full bg-(--ui-bg-elevated) flex items-center justify-center flex-shrink-0">
             <AppIcon name="pencil-square" class="w-4 h-4 text-(--ui-text-muted)" />

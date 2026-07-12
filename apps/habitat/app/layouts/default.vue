@@ -462,16 +462,20 @@ function toggleColorMode() {
               <AppIcon name="clock" class="w-4 h-4 shrink-0" />
               <div class="flex items-center gap-1">
                 <button
-                  class="w-6 h-6 rounded-md bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors press-strong"
-                  :class="{ 'opacity-30 pointer-events-none': quickFocusMinutes <= 5 }"
+                  aria-label="Decrease Quick Focus duration by 5 minutes"
+                  class="min-w-[44px] min-h-[44px] rounded-md bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors press-strong"
+                  :class="{ 'opacity-30': quickFocusMinutes <= 5 }"
+                  :disabled="quickFocusMinutes <= 5"
                   @click="quickFocusMinutes = Math.max(5, quickFocusMinutes - 5)"
                 >
                   <AppIcon name="minus" class="w-3 h-3" />
                 </button>
                 <span class="w-10 text-center font-semibold type-numeric">{{ quickFocusMinutes }}</span>
                 <button
-                  class="w-6 h-6 rounded-md bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors press-strong"
-                  :class="{ 'opacity-30 pointer-events-none': quickFocusMinutes >= 120 }"
+                  aria-label="Increase Quick Focus duration by 5 minutes"
+                  class="min-w-[44px] min-h-[44px] rounded-md bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors press-strong"
+                  :class="{ 'opacity-30': quickFocusMinutes >= 120 }"
+                  :disabled="quickFocusMinutes >= 120"
                   @click="quickFocusMinutes = Math.min(120, quickFocusMinutes + 5)"
                 >
                   <AppIcon name="plus" class="w-3 h-3" />

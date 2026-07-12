@@ -76,4 +76,27 @@ describe('motion tokens', () => {
       )
     }
   })
+
+  it('honors reduce-motion via BOTH the OS query and the in-app class', () => {
+    const css = read('animations.css')
+    // Both mechanisms must exist: OS-level media query + in-app html.reduce-motion.
+    expect(css).toContain('@media (prefers-reduced-motion: reduce)')
+    expect(css).toMatch(/html\.reduce-motion\b/)
+
+    // A global keyframe safety-net must appear in each mechanism so decorative
+    // ambient loops (declared per-page) can't keep running under reduce-motion.
+    const net = css.match(/animation-iteration-count:\s*1\s*!important/g) ?? []
+    expect(net.length, 'global animation safety-net missing from a reduce-motion block').toBeGreaterThanOrEqual(2)
+
+    // Every named-transition preset must be neutralized under both mechanisms,
+    // and so must the backdrop scrim fade (opacity-only, but still zeroed).
+    for (const target of [...REQUIRED_PRESETS.map((p) => `${p}-leave-active`), 'sheet-backdrop']) {
+      expect(css, `${target} not neutralized under @media reduce-motion`).toMatch(
+        new RegExp(`@media \\(prefers-reduced-motion: reduce\\)[\\s\\S]*\\.${target}`),
+      )
+      expect(css, `${target} not neutralized under html.reduce-motion`).toMatch(
+        new RegExp(`html\\.reduce-motion[\\s\\S]*\\.${target}`),
+      )
+    }
+  })
 })
