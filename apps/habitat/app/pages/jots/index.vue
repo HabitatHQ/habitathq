@@ -10,6 +10,8 @@ const { settings: appSettings } = useAppSettings()
 const { selectionChanged } = useHaptics()
 const store = useJotsStore()
 const { timeline, todoByJotId, todos } = store
+const staggerListOnce = useFirstVisit('jots-list')
+const staggerGridOnce = useFirstVisit('jots-grid')
 const db = useDatabase()
 
 // ─── Recently bookmarked ──────────────────────────────────────────────────────
@@ -475,7 +477,7 @@ onUnmounted(() => {
       <AppListSection v-for="section in groupedJots" :key="section.label" :title="section.label">
 
         <!-- ── List view ─────────────────────────────────────────────── -->
-        <ul v-if="!gridView" class="space-y-2 stagger-list">
+        <ul v-if="!gridView" :class="['space-y-2', { 'stagger-list': staggerListOnce }]">
           <template v-for="item in section.items" :key="item.kind + '-' + item.data.id">
 
             <!-- Text jot -->
@@ -613,7 +615,7 @@ onUnmounted(() => {
         </ul>
 
         <!-- ── Grid view ─────────────────────────────────────────────── -->
-        <ul v-else class="jots-masonry stagger-list">
+        <ul v-else :class="['jots-masonry', { 'stagger-list': staggerGridOnce }]">
           <template v-for="item in section.items" :key="item.kind + '-' + item.data.id">
 
             <!-- Text tile -->

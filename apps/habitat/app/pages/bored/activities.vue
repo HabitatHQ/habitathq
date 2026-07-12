@@ -8,6 +8,7 @@ import {
 
 const db = useDatabase()
 const toast = useToast()
+const staggerOnce = useFirstVisit('bored-activities')
 
 const categories = ref<BoredCategory[]>([])
 const activities = ref<BoredActivity[]>([])
@@ -247,7 +248,7 @@ async function archiveActivity(a: BoredActivity) {
         </div>
       </div>
 
-      <div class="space-y-1 stagger-list">
+      <div :class="['space-y-1', { 'stagger-list': staggerOnce }]">
         <AppCard
           v-for="act in activitiesForCategory(cat.id)"
           :key="act.id"

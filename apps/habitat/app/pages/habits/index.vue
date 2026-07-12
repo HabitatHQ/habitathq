@@ -7,6 +7,7 @@ const { settings } = useAppSettings()
 const { anyActive, matchesContext } = useContextFilter()
 const habits = ref<HabitWithSchedule[]>([])
 const loading = ref(true)
+const staggerOnce = useFirstVisit('habits-list')
 const isOpen = useBoolModalQuery('create')
 const saving = ref(false)
 const scheduleError = ref<string | null>(null)
@@ -335,7 +336,7 @@ onMounted(() => {
       description="Tap New to create your first habit."
     />
 
-    <ul v-else class="space-y-2 stagger-list">
+    <ul v-else :class="['space-y-2', { 'stagger-list': staggerOnce }]">
       <AppCard
         v-for="habit in habits"
         :key="habit.id"

@@ -6,6 +6,7 @@ const db = useDatabase()
 const toast = useToast()
 const templates = ref<CheckinTemplate[]>([])
 const loading = ref(true)
+const staggerOnce = useFirstVisit('checkin-list')
 
 // ─── Load ────────────────────────────────────────────────────────────────────
 
@@ -139,7 +140,7 @@ async function createTemplate() {
 
     <!-- Template list -->
     <div v-else class="space-y-2">
-      <ul v-if="templates.length" class="space-y-2 stagger-list">
+      <ul v-if="templates.length" :class="['space-y-2', { 'stagger-list': staggerOnce }]">
         <AppCard
           v-for="t in templates"
           :key="t.id"

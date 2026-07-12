@@ -9,6 +9,7 @@ const { settings, set: setAppSetting } = useAppSettings()
 const { anyActive, matchesContext } = useContextFilter()
 const { impact, selectionChanged, notification } = useHaptics()
 const { loadTags, suggest: suggestTags } = useTagSuggestions('todo')
+const staggerOnce = useFirstVisit('todos-list')
 
 // ── Timer ─────────────────────────────────────────────────────────────────────
 
@@ -601,7 +602,7 @@ async function deleteAndClose(t: Todo) {
           </button>
         </header>
 
-        <ul v-if="!section.collapsible || showDone" class="space-y-2 stagger-list">
+        <ul v-if="!section.collapsible || showDone" :class="['space-y-2', { 'stagger-list': staggerOnce }]">
           <AppCard
             v-for="todo in section.items"
             :key="todo.id"

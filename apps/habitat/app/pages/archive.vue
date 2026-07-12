@@ -6,6 +6,8 @@ const db = useDatabase()
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
 
 const tab = ref<'habits' | 'checkin'>('habits')
+const staggerHabitsOnce = useFirstVisit('archive-habits')
+const staggerCheckinOnce = useFirstVisit('archive-checkin')
 
 // ─── Archived habits ──────────────────────────────────────────────────────────
 
@@ -90,7 +92,7 @@ onMounted(loadHabits)
         description="Habits you archive will appear here."
       />
 
-      <ul v-else class="space-y-2 stagger-list">
+      <ul v-else :class="['space-y-2', { 'stagger-list': staggerHabitsOnce }]">
         <AppCard
           v-for="habit in archivedHabits"
           :key="habit.id"
@@ -125,7 +127,7 @@ onMounted(loadHabits)
         description="Completed check-ins will appear here."
       />
 
-      <ul v-else class="space-y-2 stagger-list">
+      <ul v-else :class="['space-y-2', { 'stagger-list': staggerCheckinOnce }]">
         <AppCard
           v-for="day in checkinDays"
           :key="day.date"
