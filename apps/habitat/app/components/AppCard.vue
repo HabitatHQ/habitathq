@@ -9,8 +9,10 @@ const props = withDefaults(
     completed?: boolean
     /** Applies opacity-40 (e.g. context-filter mismatch) */
     dimmed?: boolean
+    /** Cross-axis alignment — `start` for multi-line items, `center` (default) for single-line rows */
+    align?: 'center' | 'start'
   }>(),
-  { tag: 'div', completed: false, dimmed: false },
+  { tag: 'div', completed: false, dimmed: false, align: 'center' },
 )
 
 const component = computed(() => (props.to ? resolveComponent('NuxtLink') : props.tag))
@@ -20,8 +22,9 @@ const component = computed(() => (props.to ? resolveComponent('NuxtLink') : prop
   <component
     :is="component"
     :to="to"
-    class="flex items-center gap-3 p-3 rounded-xl border transition-colors"
+    class="flex gap-3 p-3 rounded-xl border transition-colors"
     :class="[
+      align === 'start' ? 'items-start' : 'items-center',
       completed
         ? 'border-primary-500/40 bg-primary-500/5'
         : 'bg-(--ui-bg-muted) border-(--ui-border)',

@@ -49,7 +49,13 @@ Pass-through parents: `habits.vue`, `checkin.vue`, `bored.vue`, `jots.vue`, `set
 - **Platform guard**: `if (!Capacitor.isNativePlatform())` before any OPFS logic.
 - **Error logging**: use `logError(context, err)` from `~/utils/error.ts` — `console.error` outside that file is a semgrep error.
 - **`db.queryOne` is banned** in `db-shared.ts` (tests override with call counters; queryAll is safe).
-- **Reduced motion**: guard CSS animations with both `@media (prefers-reduced-motion: reduce)` and `html.reduce-motion`; gate JS animations with `isMotionReduced()`.
+- **Reduced motion**: prefer a shared motion preset (see `@habitathq/shared` `animations.css` catalog in its AGENTS.md) which already handles reduce-motion centrally. For bespoke CSS animations, guard with both `@media (prefers-reduced-motion: reduce)` and `html.reduce-motion`; gate JS animations with `isMotionReduced()`.
+- **List & card rendering** — one vocabulary for content lists:
+  - `AppCard` is the only list-item surface (`rounded-xl` + `p-3` + muted border). Never hand-roll the card markup. Use `align="start"` for multi-line items, `tag="li"` inside a `<ul>`, and `to` / `completed` / `dimmed` as needed. Domain markup goes in its default slot.
+  - `AppListSection` renders the canonical uppercase group header (+ optional `#actions`). Don't copy-paste the `text-xs font-semibold uppercase tracking-wider` header.
+  - List containers use `space-y-2`; add `stagger-list` for entrance.
+  - Empty lists render `EmptyState` — don't hand-roll empties.
+  - Scope: content lists only. Settings rows, calendar/matrix grids, pickers, and sheets/panels are deliberately NOT AppCard.
 
 ## Config
 
