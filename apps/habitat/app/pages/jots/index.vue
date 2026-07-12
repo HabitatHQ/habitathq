@@ -471,17 +471,18 @@ onUnmounted(() => {
 
     <!-- ── Sectioned content ──────────────────────────────────────────── -->
     <template v-else>
-      <div v-for="section in groupedJots" :key="section.label" class="space-y-2">
-        <h3 class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) mt-4 first:mt-0">{{ section.label }}</h3>
+      <div class="space-y-6">
+      <AppListSection v-for="section in groupedJots" :key="section.label" :title="section.label">
 
         <!-- ── List view ─────────────────────────────────────────────── -->
-        <ul v-if="!gridView" class="space-y-2">
+        <ul v-if="!gridView" class="space-y-2 stagger-list">
           <template v-for="item in section.items" :key="item.kind + '-' + item.data.id">
 
             <!-- Text jot -->
-            <li
+            <AppCard
               v-if="item.kind === 'text'"
-              class="p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border) active:opacity-70 transition-opacity cursor-pointer"
+              tag="li"
+              class="active:opacity-70 transition-opacity cursor-pointer"
               @click="navigateTo(`/jots/edit-${item.data.id}`)"
             >
               <div class="flex items-start gap-2.5">
@@ -519,12 +520,12 @@ onUnmounted(() => {
                   <AppIcon :name="hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link'" class="w-4 h-4" />
                 </button>
               </div>
-            </li>
+            </AppCard>
 
             <!-- Voice jot -->
-            <li
+            <AppCard
               v-else-if="item.kind === 'voice'"
-              class="p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border)"
+              tag="li"
             >
               <div class="flex items-center gap-3">
                 <div class="w-6 h-6 rounded-full bg-rose-500/10 flex items-center justify-center shrink-0">
@@ -565,12 +566,12 @@ onUnmounted(() => {
                   @click="handleDeleteVoice(item.data as VoiceNote)"
                 />
               </div>
-            </li>
+            </AppCard>
 
             <!-- Image jot -->
-            <li
+            <AppCard
               v-else-if="item.kind === 'image'"
-              class="p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border)"
+              tag="li"
             >
               <div class="flex items-center gap-3">
                 <div class="w-6 h-6 rounded-full bg-sky-500/10 flex items-center justify-center shrink-0">
@@ -606,7 +607,7 @@ onUnmounted(() => {
                   @click="store.deleteImageNote(item.data as ImageNote)"
                 />
               </div>
-            </li>
+            </AppCard>
 
           </template>
         </ul>
@@ -746,6 +747,7 @@ onUnmounted(() => {
 
           </template>
         </ul>
+      </AppListSection>
       </div>
     </template>
 
