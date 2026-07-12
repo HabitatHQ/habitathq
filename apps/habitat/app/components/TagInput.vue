@@ -19,8 +19,10 @@ const emit = defineEmits<{
 const input = ref('')
 const focused = ref(false)
 const dropdownOpen = ref(false)
+const activeIndex = ref(-1)
 const inputEl = ref<HTMLInputElement | null>()
 const fieldEl = ref<HTMLDivElement | null>()
+const panelEl = ref<HTMLDivElement | null>()
 const reservedWarning = ref(false)
 
 const dropdownStyle = ref<Record<string, string>>({})
@@ -37,16 +39,79 @@ const showDropdown = computed(
 watch(input, (v) => {
   reservedWarning.value = isReservedTag(v.trim())
   dropdownOpen.value = true
+  // Reset highlight when the candidate list changes under the cursor.
+  activeIndex.value = -1
 })
+
+// Keep the highlighted index in bounds as suggestions shrink, and reposition
+// the panel — its height changes with the list, which matters when it's placed
+// above the field (top is derived from panel height, so it would otherwise drift).
+watch(suggestions, (list) => {
+  if (activeIndex.value >= list.length) activeIndex.value = list.length - 1
+  if (showDropdown.value) nextTick(updateDropdownPosition)
+})
+
+// Reposition the teleported dropdown whenever it's open and the field moves
+// (e.g. scrolling inside a modal, or the iOS keyboard showing/hiding) so it
+// never detaches from the field or hides behind the soft keyboard.
+watch(showDropdown, (open) => {
+  if (open) {
+    nextTick(updateDropdownPosition)
+    window.addEventListener('scroll', updateDropdownPosition, true)
+    window.addEventListener('resize', updateDropdownPosition)
+    // visualViewport fires resize/scroll when the iOS keyboard appears.
+    window.visualViewport?.addEventListener('resize', updateDropdownPosition)
+    window.visualViewport?.addEventListener('scroll', updateDropdownPosition)
+  } else {
+    teardownPositionListeners()
+  }
+})
+
+function teardownPositionListeners() {
+  window.removeEventListener('scroll', updateDropdownPosition, true)
+  window.removeEventListener('resize', updateDropdownPosition)
+  window.visualViewport?.removeEventListener('resize', updateDropdownPosition)
+  window.visualViewport?.removeEventListener('scroll', updateDropdownPosition)
+}
+
+onBeforeUnmount(teardownPositionListeners)
+
+const GAP = 4 // px between field and panel
+const VIEWPORT_MARGIN = 8 // px breathing room from the viewport edge
 
 function updateDropdownPosition() {
   if (!fieldEl.value) return
   const rect = fieldEl.value.getBoundingClientRect()
+
+  // Use the visual viewport (the area NOT covered by the iOS keyboard) so the
+  // panel is always placed within the visible region. getBoundingClientRect and
+  // `position: fixed` top share this coordinate space, so we only ever set top.
+  const vv = window.visualViewport
+  const viewTop = vv?.offsetTop ?? 0
+  const viewBottom = viewTop + (vv?.height ?? window.innerHeight)
+
+  const spaceBelow = viewBottom - rect.bottom - GAP - VIEWPORT_MARGIN
+  const spaceAbove = rect.top - viewTop - GAP - VIEWPORT_MARGIN
+
+  // Flip above the field when below is cramped (e.g. keyboard up) but above isn't.
+  const placeAbove = spaceBelow < 160 && spaceAbove > spaceBelow
+  const maxHeight = Math.max(96, Math.floor(placeAbove ? spaceAbove : spaceBelow))
+
+  let top: number
+  if (placeAbove) {
+    const panelH = Math.min(panelEl.value?.offsetHeight ?? maxHeight, maxHeight)
+    top = rect.top - GAP - panelH
+  } else {
+    top = rect.bottom + GAP
+  }
+
   dropdownStyle.value = {
     position: 'fixed',
-    top: `${rect.bottom + 4}px`,
     left: `${rect.left}px`,
+    top: `${top}px`,
     width: `${rect.width}px`,
+    maxHeight: `${maxHeight}px`,
+    overflowY: 'auto',
   }
 }
 
@@ -70,13 +135,33 @@ function removeTag(tag: string) {
 
 function selectSuggestion(ranked: RankedTag) {
   commitTag(ranked.tag)
+  activeIndex.value = -1
   inputEl.value?.focus()
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter' || e.key === ',') {
+  const list = suggestions.value
+  if (e.key === 'ArrowDown') {
     e.preventDefault()
-    commitTag()
+    dropdownOpen.value = true
+    if (list.length) activeIndex.value = (activeIndex.value + 1) % list.length
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    dropdownOpen.value = true
+    if (list.length) activeIndex.value = (activeIndex.value - 1 + list.length) % list.length
+  } else if (e.key === 'Enter' || e.key === ',') {
+    e.preventDefault()
+    const active = activeIndex.value >= 0 ? list[activeIndex.value] : undefined
+    if (active) selectSuggestion(active)
+    else commitTag()
+  } else if (e.key === 'Escape') {
+    if (dropdownOpen.value) {
+      e.preventDefault()
+      // Stop the enclosing modal/bottom-sheet from also closing on Escape.
+      e.stopPropagation()
+      dropdownOpen.value = false
+      activeIndex.value = -1
+    }
   } else if (e.key === 'Backspace' && !input.value && props.modelValue.length > 0) {
     const last = props.modelValue[props.modelValue.length - 1]
     if (last) removeTag(last)
@@ -94,6 +179,7 @@ function onBlur() {
   setTimeout(() => {
     focused.value = false
     dropdownOpen.value = false
+    activeIndex.value = -1
   }, 150)
 }
 
@@ -167,9 +253,10 @@ function focusInput() {
     <Teleport to="body">
       <div
         v-if="showDropdown"
+        ref="panelEl"
         :style="dropdownStyle"
         class="z-[60] bg-(--ui-bg) border border-(--ui-border)
-               rounded-lg shadow-lg overflow-hidden"
+               rounded-lg shadow-lg overscroll-contain"
       >
         <div
           v-if="reservedWarning"
@@ -179,12 +266,14 @@ function focusInput() {
           Reserved prefix — cannot use <code class="mx-0.5">habitat-*</code> tags
         </div>
         <button
-          v-for="s in suggestions"
+          v-for="(s, i) in suggestions"
           :key="s.tag"
           type="button"
           class="w-full text-left px-3 py-1.5 text-sm transition-colors flex items-center gap-2
-                 hover:bg-(--ui-bg-muted) active:bg-(--ui-bg-accented)"
+                 active:bg-(--ui-bg-accented)"
+          :class="i === activeIndex ? 'bg-(--ui-bg-accented)' : 'hover:bg-(--ui-bg-muted)'"
           @mousedown.prevent="selectSuggestion(s)"
+          @mousemove="activeIndex = i"
         >
           <span class="text-primary-400/60 text-xs">#</span>
           <span class="text-(--ui-text-toned) flex-1">{{ s.tag }}</span>
