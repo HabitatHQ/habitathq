@@ -155,63 +155,6 @@ async function saveRecording() {
   }
 }
 
-// ─── Debug: upload a voice file (dev only) ────────────────────────────────────
-// Lets you seed a voice note without mic access (e.g. simulator / headless).
-
-const isDev = import.meta.dev
-const fileInput = ref<HTMLInputElement | null>(null)
-const uploading = ref(false)
-
-/** Read a clip's duration, working around Chrome's Infinity-duration webm bug. */
-function getAudioDuration(url: string): Promise<number> {
-  return new Promise((resolve) => {
-    const audio = new Audio()
-    audio.preload = 'metadata'
-    audio.addEventListener('loadedmetadata', () => {
-      if (Number.isFinite(audio.duration)) {
-        resolve(audio.duration)
-        return
-      }
-      // webm from MediaRecorder often reports Infinity until forced to seek.
-      audio.addEventListener(
-        'timeupdate',
-        () => resolve(Number.isFinite(audio.duration) ? audio.duration : 0),
-        { once: true },
-      )
-      audio.currentTime = 1e101
-    })
-    audio.addEventListener('error', () => resolve(0), { once: true })
-    audio.src = url
-  })
-}
-
-async function onDebugFile(e: Event) {
-  const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
-  input.value = '' // allow re-picking the same file
-  if (!file || uploading.value) return
-  uploading.value = true
-  try {
-    const url = URL.createObjectURL(file)
-    const duration = Math.round(await getAudioDuration(url))
-    URL.revokeObjectURL(url)
-    await store.addVoiceNote({
-      id: crypto.randomUUID(),
-      title: file.name.replace(/\.[^.]+$/, ''),
-      blob: file,
-      mimeType: file.type || 'audio/webm',
-      duration,
-      created_at: new Date().toISOString(),
-    })
-    void notification('success')
-    emit('close')
-  } catch (err: unknown) {
-    errorMsg.value = `Upload failed: ${err instanceof Error ? err.message : String(err)}`
-  } finally {
-    uploading.value = false
-  }
-}
-
 // ─── Transcript modal ─────────────────────────────────────────────────────────
 
 const showTranscript = ref(false)
@@ -295,29 +238,6 @@ onUnmounted(() => {
       <p class="text-xs text-(--ui-text-dimmed)">
         {{ isRecording ? 'Tap to stop recording' : 'Tap to start recording' }}
       </p>
-
-      <!-- Debug: upload a voice file without recording (dev only) -->
-      <div
-        v-if="isDev && !isRecording"
-        class="w-full flex flex-col items-center gap-1.5 pt-3 border-t border-(--ui-border)/50"
-      >
-        <input
-          ref="fileInput"
-          type="file"
-          accept="audio/webm,audio/*,.webm"
-          class="hidden"
-          @change="onDebugFile"
-        />
-        <UButton
-          variant="soft"
-          color="neutral"
-          size="sm"
-          :loading="uploading"
-          :icon="resolveIcon('arrow-up-tray')"
-          @click="fileInput?.click()"
-        >Upload .webm (debug)</UButton>
-        <p class="text-[10px] text-(--ui-text-dimmed)">Dev only — bypasses mic recording</p>
-      </div>
 
       <div
         v-if="isRecording && (liveTranscript || partialTranscript)"
