@@ -601,12 +601,14 @@ async function deleteAndClose(t: Todo) {
           </button>
         </header>
 
-        <ul v-if="!section.collapsible || showDone" class="space-y-2">
-          <li
+        <ul v-if="!section.collapsible || showDone" class="space-y-2 stagger-list">
+          <AppCard
             v-for="todo in section.items"
             :key="todo.id"
+            tag="li"
+            align="start"
             :id="`todo-${todo.id}`"
-            class="flex items-start gap-3 bg-(--ui-bg-muted) border border-(--ui-border) rounded-xl px-3 py-3 transition-shadow"
+            class="transition-shadow"
             :class="[
               highlightedTodoId === todo.id ? 'ring-2 ring-primary-500 ring-offset-1 ring-offset-(--ui-bg)' : '',
               anyActive && !matchesContext(todo.tags) ? 'opacity-40' : '',
@@ -768,7 +770,7 @@ async function deleteAndClose(t: Todo) {
               <AppIconButton icon="pencil" label="Edit todo" @click="openEdit(todo)" />
               <AppIconButton icon="archive-box" label="Archive todo" @click="confirmArchiveTodo = todo" />
             </div>
-          </li>
+          </AppCard>
         </ul>
       </section>
     </template>
