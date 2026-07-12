@@ -248,10 +248,11 @@ async function archiveActivity(a: BoredActivity) {
         </div>
       </div>
 
-      <div :class="['space-y-1', { 'stagger-list': staggerOnce }]">
+      <ul :class="['space-y-1', { 'stagger-list': staggerOnce }]">
         <AppCard
           v-for="act in activitiesForCategory(cat.id)"
           :key="act.id"
+          tag="li"
           class="justify-between"
         >
           <div class="flex-1 min-w-0">
@@ -277,10 +278,10 @@ async function archiveActivity(a: BoredActivity) {
             <AppIconButton icon="trash" class="text-red-500" :label="`Delete ${act.title}`" @click="confirmDeleteActivity = act" />
           </div>
         </AppCard>
-        <div v-if="activitiesForCategory(cat.id).length === 0" class="text-xs text-slate-600 px-1">
+        <li v-if="activitiesForCategory(cat.id).length === 0" class="text-xs text-slate-600 px-1">
           No activities yet.
-        </div>
-      </div>
+        </li>
+      </ul>
     </div>
 
     <!-- Add custom category -->

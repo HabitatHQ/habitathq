@@ -25,7 +25,7 @@ Nuxt layer shared by all Habitat apps. Provides: app-level Nuxt config, shared C
 
 `app/assets/css/animations.css` is the **single source of truth** for motion across all Habitat apps (loaded app-wide via this layer's `nuxt.config` `css`). Never hand-roll durations, easings, or transition classes in app code — reference a canonical preset.
 
-**Tokens** (the only place raw values live): easings `--ease-out` (enter), `--ease-in-out`, `--ease-drawer` (sheets); durations `--duration-fast` 160ms, `--duration-normal` 250ms, `--duration-exit` 200ms, `--duration-slow` 300ms.
+**Tokens** (the only place raw values live): easings `--ease-out` (enter), `--ease-in-out`, `--ease-drawer` (sheets); durations `--duration-fast` 160ms, `--duration-normal` 250ms, `--duration-exit` 200ms, `--duration-slow` 300ms, `--duration-slower` 500ms (lingering exits only — e.g. the check-in "Saved" fade-out via `swap-slow`).
 
 **Preset catalog** — one preset per motion role:
 
@@ -38,6 +38,7 @@ Nuxt layer shared by all Habitat apps. Provides: app-level Nuxt config, shared C
 | List item entrance | `stagger-list` | `.stagger-list` on the parent |
 | Single-panel reveal | `reveal` | `<Transition name="reveal">` |
 | Content crossfade | `swap` | `<Transition name="swap">` |
+| Crossfade, lingering exit | `swap-slow` | `<Transition name="swap-slow">` (500ms leave — status/"Saved" fades) |
 | Collapse / expand | `collapsible-grid` | `.collapsible-grid` + `[data-open]` |
 | Press feedback | `btn-press` (`.icon-btn`, `.chip-btn`) | `:active` utility class |
 | Loading | `animate-pulse` / `animate-spin` | Tailwind (reduce-motion-aware) |

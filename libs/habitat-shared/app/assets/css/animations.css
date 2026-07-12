@@ -16,6 +16,7 @@
      List entrance       stagger-list         parent class, staggered children
      Single reveal       reveal               <Transition name>
      Content crossfade   swap                 <Transition name>
+     Crossfade (linger)  swap-slow            <Transition name> (500ms leave)
      Collapse / expand   collapsible-grid     [data-open] utility class
      Press feedback      btn-press            :active utility class
      Loading             animate-pulse/-spin  Tailwind (reduce-motion-aware)
