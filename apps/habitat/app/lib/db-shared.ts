@@ -2016,12 +2016,16 @@ export async function dispatch(db: DbAdapter, req: WorkerRequestBody): Promise<u
       return getVoiceNotes(db)
     case 'CREATE_VOICE_NOTE':
       return createVoiceNote(db, req.payload)
+    case 'UPDATE_VOICE_NOTE':
+      return updateVoiceNote(db, req.payload.id, req.payload.title)
     case 'DELETE_VOICE_NOTE':
       return deleteVoiceNote(db, req.payload.id)
     case 'GET_IMAGE_NOTES':
       return getImageNotes(db)
     case 'CREATE_IMAGE_NOTE':
       return createImageNote(db, req.payload)
+    case 'UPDATE_IMAGE_NOTE':
+      return updateImageNote(db, req.payload.id, req.payload.filename)
     case 'DELETE_IMAGE_NOTE':
       return deleteImageNote(db, req.payload.id)
     case 'DELETE_ALL_MEDIA_NOTES':
@@ -2045,6 +2049,11 @@ async function createVoiceNote(db: DbAdapter, p: VoiceNoteRow): Promise<VoiceNot
   return { ...p, title: p.title ?? '' }
 }
 
+async function updateVoiceNote(db: DbAdapter, id: string, title: string): Promise<null> {
+  await db.exec('UPDATE voice_notes SET title = ? WHERE id = ?', [title, id])
+  return null
+}
+
 async function deleteVoiceNote(db: DbAdapter, id: string): Promise<null> {
   await db.exec('DELETE FROM voice_notes WHERE id = ?', [id])
   return null
@@ -2060,6 +2069,11 @@ async function createImageNote(db: DbAdapter, p: ImageNoteRow): Promise<ImageNot
     [p.id, p.mime_type, p.filename, p.created_at],
   )
   return p
+}
+
+async function updateImageNote(db: DbAdapter, id: string, filename: string): Promise<null> {
+  await db.exec('UPDATE image_notes SET filename = ? WHERE id = ?', [filename, id])
+  return null
 }
 
 async function deleteImageNote(db: DbAdapter, id: string): Promise<null> {

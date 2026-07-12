@@ -238,6 +238,13 @@ export function useJotsStore() {
     voiceNotes.value.unshift({ ...note, url: URL.createObjectURL(note.blob) })
   }
 
+  async function renameVoiceNote(note: VoiceNote, title: string): Promise<void> {
+    const trimmed = title.trim()
+    await db.updateVoiceNote(note.id, trimmed)
+    const target = voiceNotes.value.find((n) => n.id === note.id)
+    if (target) target.title = trimmed
+  }
+
   async function deleteVoiceNote(note: VoiceNote): Promise<void> {
     if (note.url) URL.revokeObjectURL(note.url)
     await getBlobAdapter().delete(note.id)
@@ -255,6 +262,13 @@ export function useJotsStore() {
       created_at: note.created_at,
     })
     imageNotes.value.unshift({ ...note, url: objectUrl })
+  }
+
+  async function renameImageNote(note: ImageNote, filename: string): Promise<void> {
+    const trimmed = filename.trim()
+    await db.updateImageNote(note.id, trimmed)
+    const target = imageNotes.value.find((n) => n.id === note.id)
+    if (target) target.filename = trimmed
   }
 
   async function deleteImageNote(note: ImageNote): Promise<void> {
@@ -284,8 +298,10 @@ export function useJotsStore() {
     loadAll,
     refreshScribbles,
     addVoiceNote,
+    renameVoiceNote,
     deleteVoiceNote,
     addImageNote,
+    renameImageNote,
     deleteImageNote,
     revokeAllUrls,
   }

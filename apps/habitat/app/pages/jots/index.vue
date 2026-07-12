@@ -361,6 +361,55 @@ async function handleDeleteVoice(note: VoiceNote) {
   await store.deleteVoiceNote(note)
 }
 
+// ─── Rename voice / image jot ─────────────────────────────────────────────────
+
+const showRenameModal = ref(false)
+const renameTarget = ref<JotItem | null>(null)
+const renameValue = ref('')
+const renamingJot = ref(false)
+
+const renameIsImage = computed(() => renameTarget.value?.kind === 'image')
+
+function openRename(item: JotItem) {
+  if (item.kind !== 'voice' && item.kind !== 'image') return
+  renameTarget.value = item
+  renameValue.value =
+    item.kind === 'voice' ? (item.data as VoiceNote).title : (item.data as ImageNote).filename
+  showRenameModal.value = true
+}
+
+async function saveRename() {
+  const item = renameTarget.value
+  if (!item || renamingJot.value) return
+  renamingJot.value = true
+  try {
+    if (item.kind === 'voice') await store.renameVoiceNote(item.data as VoiceNote, renameValue.value)
+    else if (item.kind === 'image')
+      await store.renameImageNote(item.data as ImageNote, renameValue.value)
+    showRenameModal.value = false
+  } finally {
+    renamingJot.value = false
+  }
+}
+
+// ─── Image lightbox ───────────────────────────────────────────────────────────
+
+const lightboxUrl = ref<string | null>(null)
+const lightboxAlt = ref('')
+
+function openLightbox(note: ImageNote) {
+  if (!note.url) return
+  lightboxUrl.value = note.url
+  lightboxAlt.value = note.filename
+}
+
+function onLightboxKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && lightboxUrl.value) lightboxUrl.value = null
+}
+
+onMounted(() => window.addEventListener('keydown', onLightboxKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onLightboxKeydown))
+
 // ─── Bottom sheet modals ──────────────────────────────────────────────────────
 
 const showPickSheet = ref(false)
@@ -639,7 +688,13 @@ onUnmounted(() => {
               align="start"
             >
               <div class="flex-1 min-w-0">
-                <p v-if="(item.data as VoiceNote).title" class="text-sm font-medium text-(--ui-text) truncate mb-1.5">{{ (item.data as VoiceNote).title }}</p>
+                <button
+                  type="button"
+                  class="block max-w-full truncate text-sm font-medium text-left mb-1.5 transition-colors"
+                  :class="(item.data as VoiceNote).title ? 'text-(--ui-text) hover:text-primary-400' : 'text-(--ui-text-dimmed) italic hover:text-(--ui-text-muted)'"
+                  aria-label="Rename voice note"
+                  @click.stop="openRename(item)"
+                >{{ (item.data as VoiceNote).title || 'Add title' }}</button>
                 <div class="flex items-center gap-3">
                   <UButton
                     :icon="resolveIcon(currentlyPlaying === item.data.id ? 'pause' : 'play')"
@@ -718,10 +773,17 @@ onUnmounted(() => {
                     v-if="(item.data as ImageNote).url"
                     :src="(item.data as ImageNote).url"
                     :alt="(item.data as ImageNote).filename"
-                    class="w-16 h-16 object-cover rounded-lg shrink-0"
+                    class="w-16 h-16 object-cover rounded-lg shrink-0 cursor-zoom-in"
+                    @click.stop="openLightbox(item.data as ImageNote)"
                   />
                   <div class="flex-1 min-w-0">
-                    <p class="text-sm text-(--ui-text-toned) truncate">{{ (item.data as ImageNote).filename }}</p>
+                    <button
+                      type="button"
+                      class="block max-w-full truncate text-sm text-left transition-colors"
+                      :class="(item.data as ImageNote).filename ? 'text-(--ui-text-toned) hover:text-primary-400' : 'text-(--ui-text-dimmed) italic hover:text-(--ui-text-muted)'"
+                      aria-label="Rename photo"
+                      @click.stop="openRename(item)"
+                    >{{ (item.data as ImageNote).filename || 'Add a name' }}</button>
                   </div>
                 </div>
                 <!-- Footer -->
@@ -839,7 +901,13 @@ onUnmounted(() => {
                 />
               </div>
               <div class="px-2.5 py-2">
-                <p v-if="(item.data as VoiceNote).title" class="text-[13px] font-medium text-(--ui-text) line-clamp-1">{{ (item.data as VoiceNote).title }}</p>
+                <button
+                  type="button"
+                  class="block max-w-full truncate text-[13px] font-medium text-left transition-colors"
+                  :class="(item.data as VoiceNote).title ? 'text-(--ui-text) hover:text-primary-400' : 'text-(--ui-text-dimmed) italic hover:text-(--ui-text-muted)'"
+                  aria-label="Rename voice note"
+                  @click.stop="openRename(item)"
+                >{{ (item.data as VoiceNote).title || 'Add title' }}</button>
                 <p class="text-xs type-duration text-(--ui-text-toned)">{{ fmtDuration((item.data as VoiceNote).duration) }}</p>
                 <!-- Footer -->
                 <div class="flex items-center justify-between gap-1 mt-1.5">
@@ -881,14 +949,21 @@ onUnmounted(() => {
                 v-if="(item.data as ImageNote).url"
                 :src="(item.data as ImageNote).url"
                 :alt="(item.data as ImageNote).filename"
-                class="w-full object-cover rounded-t-2xl"
+                class="w-full object-cover rounded-t-2xl cursor-zoom-in"
+                @click.stop="openLightbox(item.data as ImageNote)"
               />
               <div v-else class="w-full aspect-[4/3] bg-(--ui-bg-elevated) flex items-center justify-center rounded-t-2xl">
                 <AppIcon name="photo" class="w-8 h-8 text-slate-600" />
               </div>
               <div class="px-2.5 py-2 flex items-center justify-between gap-1">
                 <div class="min-w-0">
-                  <p class="text-[11px] text-(--ui-text-muted) truncate leading-tight">{{ (item.data as ImageNote).filename }}</p>
+                  <button
+                    type="button"
+                    class="block max-w-full truncate text-[11px] text-left leading-tight transition-colors"
+                    :class="(item.data as ImageNote).filename ? 'text-(--ui-text-muted) hover:text-primary-400' : 'text-(--ui-text-dimmed) italic hover:text-(--ui-text-muted)'"
+                    aria-label="Rename photo"
+                    @click.stop="openRename(item)"
+                  >{{ (item.data as ImageNote).filename || 'Add a name' }}</button>
                   <div class="flex items-center gap-1 text-(--ui-text-dimmed) mt-0.5">
                     <AppIcon name="photo" class="w-3 h-3 shrink-0" />
                     <span class="text-[10px] truncate">{{ timeAgo(item.data.created_at) }}</span>
@@ -922,6 +997,52 @@ onUnmounted(() => {
       </AppListSection>
       </div>
     </template>
+
+    <!-- ── Rename voice / image jot modal ─────────────────────────────────── -->
+    <AppModal v-model="showRenameModal" :title="renameIsImage ? 'Rename photo' : 'Rename voice note'">
+      <div class="space-y-3">
+        <UFormField :label="renameIsImage ? 'Name' : 'Title'">
+          <AppTextField
+            v-model="renameValue"
+            :placeholder="renameIsImage ? 'Photo name…' : 'Voice note title…'"
+            class="w-full"
+            @keydown.enter="saveRename"
+          />
+        </UFormField>
+      </div>
+      <template #footer>
+        <div class="flex gap-2">
+          <UButton variant="soft" color="neutral" class="flex-1" @click="showRenameModal = false">Cancel</UButton>
+          <UButton color="primary" class="flex-1" :loading="renamingJot" @click="saveRename">Save</UButton>
+        </div>
+      </template>
+    </AppModal>
+
+    <!-- ── Image lightbox ─────────────────────────────────────────────────── -->
+    <Teleport to="body">
+      <div
+        v-if="lightboxUrl"
+        class="fixed inset-0 z-[70] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Image preview"
+        @click="lightboxUrl = null"
+      >
+        <img
+          :src="lightboxUrl"
+          :alt="lightboxAlt"
+          class="max-w-full max-h-full object-contain rounded-lg select-none"
+          @click.stop
+        />
+        <button
+          class="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white"
+          aria-label="Close image preview"
+          @click.stop="lightboxUrl = null"
+        >
+          <AppIcon name="x-mark" class="w-5 h-5" />
+        </button>
+      </div>
+    </Teleport>
 
     <!-- ── Create TODO from jot modal ────────────────────────────────────── -->
     <AppModal v-model="showCreateTodoModal" title="Create TODO">
