@@ -9,6 +9,7 @@ const { settings, set: setAppSetting } = useAppSettings()
 const { anyActive, matchesContext } = useContextFilter()
 const { impact, selectionChanged, notification } = useHaptics()
 const { loadTags, suggest: suggestTags } = useTagSuggestions('todo')
+const staggerOnce = useFirstVisit('todos-list')
 
 // ── Timer ─────────────────────────────────────────────────────────────────────
 
@@ -601,12 +602,14 @@ async function deleteAndClose(t: Todo) {
           </button>
         </header>
 
-        <ul v-if="!section.collapsible || showDone" class="space-y-2">
-          <li
+        <ul v-if="!section.collapsible || showDone" :class="['space-y-2', { 'stagger-list': staggerOnce }]">
+          <AppCard
             v-for="todo in section.items"
             :key="todo.id"
+            tag="li"
+            align="start"
             :id="`todo-${todo.id}`"
-            class="flex items-start gap-3 bg-(--ui-bg-muted) border border-(--ui-border) rounded-xl px-3 py-3 transition-shadow"
+            class="transition-shadow"
             :class="[
               highlightedTodoId === todo.id ? 'ring-2 ring-primary-500 ring-offset-1 ring-offset-(--ui-bg)' : '',
               anyActive && !matchesContext(todo.tags) ? 'opacity-40' : '',
@@ -733,16 +736,20 @@ async function deleteAndClose(t: Todo) {
                       <AppIcon name="clock" class="w-4 h-4 shrink-0" />
                       <div class="flex items-center gap-1" @click.stop>
                         <button
-                          class="w-6 h-6 rounded-md bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors active:scale-90"
-                          :class="{ 'opacity-30 pointer-events-none': modeMenuMinutes <= 5 }"
+                          aria-label="Decrease timer duration by 5 minutes"
+                          class="min-w-[44px] min-h-[44px] rounded-md bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors press-strong"
+                          :class="{ 'opacity-30': modeMenuMinutes <= 5 }"
+                          :disabled="modeMenuMinutes <= 5"
                           @click="modeMenuMinutes = Math.max(5, modeMenuMinutes - 5)"
                         >
                           <AppIcon name="minus" class="w-3 h-3" />
                         </button>
-                        <span class="w-10 text-center font-semibold tabular-nums text-(--ui-text)">{{ modeMenuMinutes }}</span>
+                        <span class="w-10 text-center font-semibold type-numeric text-(--ui-text)">{{ modeMenuMinutes }}</span>
                         <button
-                          class="w-6 h-6 rounded-md bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors active:scale-90"
-                          :class="{ 'opacity-30 pointer-events-none': modeMenuMinutes >= 120 }"
+                          aria-label="Increase timer duration by 5 minutes"
+                          class="min-w-[44px] min-h-[44px] rounded-md bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors press-strong"
+                          :class="{ 'opacity-30': modeMenuMinutes >= 120 }"
+                          :disabled="modeMenuMinutes >= 120"
                           @click="modeMenuMinutes = Math.min(120, modeMenuMinutes + 5)"
                         >
                           <AppIcon name="plus" class="w-3 h-3" />
@@ -768,7 +775,7 @@ async function deleteAndClose(t: Todo) {
               <AppIconButton icon="pencil" label="Edit todo" @click="openEdit(todo)" />
               <AppIconButton icon="archive-box" label="Archive todo" @click="confirmArchiveTodo = todo" />
             </div>
-          </li>
+          </AppCard>
         </ul>
       </section>
     </template>

@@ -329,7 +329,7 @@ onMounted(() => {
     />
 
     <!-- Slide-up strip -->
-    <Transition name="slide-up">
+    <Transition name="sheet-slide">
       <div
         v-if="cellEdit"
         class="fixed inset-x-0 bottom-0 z-50 bg-(--ui-bg-muted) border-t border-(--ui-border-accented)"
@@ -394,14 +394,3 @@ onMounted(() => {
 
   </div>
 </template>
-
-<style scoped>
-.slide-up-enter-active,
-.slide-up-leave-active {
-  transition: transform 0.22s ease;
-}
-.slide-up-enter-from,
-.slide-up-leave-to {
-  transform: translateY(100%);
-}
-</style>

@@ -130,7 +130,7 @@ const DOW_LABELS = ['', 'Mo', '', 'We', '', 'Fr', '']
 
       <!-- Tap detail row -->
       <div class="h-6 flex items-center ml-5">
-        <transition name="fade">
+        <transition name="swap">
           <p v-if="selectedDay" class="text-xs">
             <span class="text-(--ui-text-toned) font-medium">{{ selectedDay.date }}</span>
             <span class="text-(--ui-text-dimmed) mx-1">—</span>
@@ -157,8 +157,3 @@ const DOW_LABELS = ['', 'Mo', '', 'We', '', 'Fr', '']
     </div>
   </div>
 </template>
-
-<style scoped>
-.fade-enter-active, .fade-leave-active { transition: opacity 0.15s; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
-</style>

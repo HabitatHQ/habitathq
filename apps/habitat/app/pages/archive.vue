@@ -6,6 +6,8 @@ const db = useDatabase()
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
 
 const tab = ref<'habits' | 'checkin'>('habits')
+const staggerHabitsOnce = useFirstVisit('archive-habits')
+const staggerCheckinOnce = useFirstVisit('archive-checkin')
 
 // ─── Archived habits ──────────────────────────────────────────────────────────
 
@@ -90,11 +92,12 @@ onMounted(loadHabits)
         description="Habits you archive will appear here."
       />
 
-      <ul v-else class="space-y-2">
-        <li
+      <ul v-else :class="['space-y-2', { 'stagger-list': staggerHabitsOnce }]">
+        <AppCard
           v-for="habit in archivedHabits"
           :key="habit.id"
-          class="flex items-center gap-3 p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border)"
+          tag="li"
+          align="start"
         >
           <div
             class="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center opacity-60"
@@ -108,7 +111,7 @@ onMounted(loadHabits)
               Archived {{ habit.archived_at ? fmtArchived(habit.archived_at) : '' }}
             </p>
           </div>
-        </li>
+        </AppCard>
       </ul>
     </template>
 
@@ -125,11 +128,12 @@ onMounted(loadHabits)
         description="Completed check-ins will appear here."
       />
 
-      <ul v-else class="space-y-2">
-        <li
+      <ul v-else :class="['space-y-2', { 'stagger-list': staggerCheckinOnce }]">
+        <AppCard
           v-for="day in checkinDays"
           :key="day.date"
-          class="flex items-center gap-3 p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border)"
+          tag="li"
+          align="start"
         >
           <div class="w-9 h-9 rounded-full bg-(--ui-bg-elevated) flex items-center justify-center flex-shrink-0">
             <AppIcon name="pencil-square" class="w-4 h-4 text-(--ui-text-muted)" />
@@ -138,7 +142,7 @@ onMounted(loadHabits)
             <p class="text-sm font-medium text-(--ui-text-toned) truncate">{{ day.label }}</p>
             <p class="text-xs text-slate-600">{{ day.count }} {{ day.count === 1 ? 'response' : 'responses' }}</p>
           </div>
-        </li>
+        </AppCard>
       </ul>
     </template>
 

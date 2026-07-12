@@ -1,3 +1,3 @@
 <template>
-  <NuxtPage :transition="{ name: 'slide-up', mode: 'out-in' }" />
+  <NuxtPage :transition="{ name: 'page-slide-up', mode: 'out-in' }" />
 </template>

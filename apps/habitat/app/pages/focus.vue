@@ -236,14 +236,14 @@ function addOneMinute() {
         <div class="flex items-center justify-center gap-5">
           <button
             v-if="timerComp.timer?.mode !== 'stopwatch'"
-            class="px-5 py-3 rounded-full font-semibold bg-(--ui-bg-elevated) hover:bg-(--ui-bg-muted) active:scale-95 transition-all text-sm shadow-xs border border-(--ui-border) pointer-events-auto"
+            class="px-5 py-3 rounded-full font-semibold bg-(--ui-bg-elevated) hover:bg-(--ui-bg-muted) transition-all text-sm shadow-xs border border-(--ui-border) pointer-events-auto press-strong"
             @click="addOneMinute"
           >
             + 1 min
           </button>
           
           <button
-            class="w-16 h-16 rounded-full bg-(--ui-text) text-(--ui-bg) flex items-center justify-center shadow-lg active:scale-90 transition-all pointer-events-auto"
+            class="w-16 h-16 rounded-full bg-(--ui-text) text-(--ui-bg) flex items-center justify-center shadow-lg transition-all pointer-events-auto press-strong"
             aria-label="Play/Pause"
             @click="playPause"
           >

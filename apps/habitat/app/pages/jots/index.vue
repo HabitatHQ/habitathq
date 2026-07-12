@@ -10,6 +10,8 @@ const { settings: appSettings } = useAppSettings()
 const { selectionChanged } = useHaptics()
 const store = useJotsStore()
 const { timeline, todoByJotId, todos } = store
+const staggerListOnce = useFirstVisit('jots-list')
+const staggerGridOnce = useFirstVisit('jots-grid')
 const db = useDatabase()
 
 // ─── Recently bookmarked ──────────────────────────────────────────────────────
@@ -471,17 +473,18 @@ onUnmounted(() => {
 
     <!-- ── Sectioned content ──────────────────────────────────────────── -->
     <template v-else>
-      <div v-for="section in groupedJots" :key="section.label" class="space-y-2">
-        <h3 class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) mt-4 first:mt-0">{{ section.label }}</h3>
+      <div class="space-y-6">
+      <AppListSection v-for="section in groupedJots" :key="section.label" :title="section.label">
 
         <!-- ── List view ─────────────────────────────────────────────── -->
-        <ul v-if="!gridView" class="space-y-2">
+        <ul v-if="!gridView" :class="['space-y-2', { 'stagger-list': staggerListOnce }]">
           <template v-for="item in section.items" :key="item.kind + '-' + item.data.id">
 
             <!-- Text jot -->
-            <li
+            <AppCard
               v-if="item.kind === 'text'"
-              class="p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border) active:opacity-70 transition-opacity cursor-pointer"
+              tag="li"
+              class="active:opacity-70 transition-opacity cursor-pointer"
               @click="navigateTo(`/jots/edit-${item.data.id}`)"
             >
               <div class="flex items-start gap-2.5">
@@ -519,12 +522,12 @@ onUnmounted(() => {
                   <AppIcon :name="hasLinkedTodo(item.data.id) ? 'paper-clip' : 'link'" class="w-4 h-4" />
                 </button>
               </div>
-            </li>
+            </AppCard>
 
             <!-- Voice jot -->
-            <li
+            <AppCard
               v-else-if="item.kind === 'voice'"
-              class="p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border)"
+              tag="li"
             >
               <div class="flex items-center gap-3">
                 <div class="w-6 h-6 rounded-full bg-rose-500/10 flex items-center justify-center shrink-0">
@@ -565,12 +568,12 @@ onUnmounted(() => {
                   @click="handleDeleteVoice(item.data as VoiceNote)"
                 />
               </div>
-            </li>
+            </AppCard>
 
             <!-- Image jot -->
-            <li
+            <AppCard
               v-else-if="item.kind === 'image'"
-              class="p-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border)"
+              tag="li"
             >
               <div class="flex items-center gap-3">
                 <div class="w-6 h-6 rounded-full bg-sky-500/10 flex items-center justify-center shrink-0">
@@ -606,13 +609,13 @@ onUnmounted(() => {
                   @click="store.deleteImageNote(item.data as ImageNote)"
                 />
               </div>
-            </li>
+            </AppCard>
 
           </template>
         </ul>
 
         <!-- ── Grid view ─────────────────────────────────────────────── -->
-        <ul v-else class="jots-masonry">
+        <ul v-else :class="['jots-masonry', { 'stagger-list': staggerGridOnce }]">
           <template v-for="item in section.items" :key="item.kind + '-' + item.data.id">
 
             <!-- Text tile -->
@@ -746,6 +749,7 @@ onUnmounted(() => {
 
           </template>
         </ul>
+      </AppListSection>
       </div>
     </template>
 
@@ -831,13 +835,8 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.slide-up-sheet {
-  animation: slide-up-sheet-anime 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-@keyframes slide-up-sheet-anime {
-  from { transform: translateY(100%); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
+/* Masonry layout only — item entrance uses the shared `stagger-list` preset
+   (see @habitathq/shared animations.css), applied via the class on the <ul>. */
 .jots-masonry {
   columns: 2;
   column-gap: 10px;
@@ -850,23 +849,5 @@ onUnmounted(() => {
   margin-bottom: 10px;
   display: inline-block;
   width: 100%;
-  animation: tile-in 0.3s ease-out both;
 }
-@keyframes tile-in {
-  from {
-    opacity: 0;
-    transform: scale(0.96) translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .slide-up-sheet { animation: none; }
-  .jots-masonry > li { animation: none; }
-}
-:global(html.reduce-motion) .slide-up-sheet { animation: none; }
-:global(html.reduce-motion) .jots-masonry > li { animation: none; }
 </style>

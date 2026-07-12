@@ -8,6 +8,7 @@ import {
 
 const db = useDatabase()
 const toast = useToast()
+const staggerOnce = useFirstVisit('bored-activities')
 
 const categories = ref<BoredCategory[]>([])
 const activities = ref<BoredActivity[]>([])
@@ -247,11 +248,12 @@ async function archiveActivity(a: BoredActivity) {
         </div>
       </div>
 
-      <div class="space-y-1">
-        <div
+      <ul :class="['space-y-1', { 'stagger-list': staggerOnce }]">
+        <AppCard
           v-for="act in activitiesForCategory(cat.id)"
           :key="act.id"
-          class="flex items-center justify-between bg-(--ui-bg-muted) border border-(--ui-border) rounded-xl px-4 py-3"
+          tag="li"
+          class="justify-between"
         >
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium truncate" :class="act.is_done ? 'line-through text-(--ui-text-dimmed)' : ''">
@@ -275,11 +277,11 @@ async function archiveActivity(a: BoredActivity) {
             <AppIconButton icon="archive-box" :label="`Archive ${act.title}`" @click="confirmArchiveActivity = act" />
             <AppIconButton icon="trash" class="text-red-500" :label="`Delete ${act.title}`" @click="confirmDeleteActivity = act" />
           </div>
-        </div>
-        <div v-if="activitiesForCategory(cat.id).length === 0" class="text-xs text-slate-600 px-1">
+        </AppCard>
+        <li v-if="activitiesForCategory(cat.id).length === 0" class="text-xs text-slate-600 px-1">
           No activities yet.
-        </div>
-      </div>
+        </li>
+      </ul>
     </div>
 
     <!-- Add custom category -->
