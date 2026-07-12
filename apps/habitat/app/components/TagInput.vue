@@ -153,7 +153,10 @@ function onKeydown(e: KeyboardEvent) {
   } else if (e.key === 'ArrowUp') {
     e.preventDefault()
     dropdownOpen.value = true
-    if (list.length) activeIndex.value = (activeIndex.value - 1 + list.length) % list.length
+    // From no selection (-1) or the first item, wrap to the last suggestion.
+    if (list.length) {
+      activeIndex.value = activeIndex.value <= 0 ? list.length - 1 : activeIndex.value - 1
+    }
   } else if (e.key === 'Enter' || e.key === ',') {
     e.preventDefault()
     const active = activeIndex.value >= 0 ? list[activeIndex.value] : undefined
