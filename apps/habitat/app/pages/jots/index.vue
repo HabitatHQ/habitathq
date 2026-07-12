@@ -612,7 +612,7 @@ onUnmounted(() => {
         </ul>
 
         <!-- ── Grid view ─────────────────────────────────────────────── -->
-        <ul v-else class="jots-masonry">
+        <ul v-else class="jots-masonry stagger-list">
           <template v-for="item in section.items" :key="item.kind + '-' + item.data.id">
 
             <!-- Text tile -->
@@ -831,13 +831,8 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.slide-up-sheet {
-  animation: slide-up-sheet-anime 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-@keyframes slide-up-sheet-anime {
-  from { transform: translateY(100%); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
+/* Masonry layout only — item entrance uses the shared `stagger-list` preset
+   (see @habitathq/shared animations.css), applied via the class on the <ul>. */
 .jots-masonry {
   columns: 2;
   column-gap: 10px;
@@ -850,23 +845,5 @@ onUnmounted(() => {
   margin-bottom: 10px;
   display: inline-block;
   width: 100%;
-  animation: tile-in 0.3s ease-out both;
 }
-@keyframes tile-in {
-  from {
-    opacity: 0;
-    transform: scale(0.96) translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .slide-up-sheet { animation: none; }
-  .jots-masonry > li { animation: none; }
-}
-:global(html.reduce-motion) .slide-up-sheet { animation: none; }
-:global(html.reduce-motion) .jots-masonry > li { animation: none; }
 </style>

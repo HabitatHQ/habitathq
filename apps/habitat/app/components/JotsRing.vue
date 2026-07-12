@@ -278,7 +278,7 @@ const compactOptions = [
         @click="emit('select', node.type)"
       >
         <div
-          class="w-11 h-11 rounded-full flex items-center justify-center border-2 transition-all duration-200 active:scale-90"
+          class="w-11 h-11 rounded-full flex items-center justify-center border-2 transition-all duration-200 press-strong"
           :class="{
             'bg-rose-500/15 border-rose-500/40 hover:border-rose-400 hover:bg-rose-500/25': node.color === 'rose',
             'bg-amber-500/15 border-amber-500/40 hover:border-amber-400 hover:bg-amber-500/25': node.color === 'amber',

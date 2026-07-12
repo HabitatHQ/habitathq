@@ -718,14 +718,7 @@ onMounted(async () => {
       </section>
 
       <!-- ── All done — bored suggestion ──────────────────────────────────────── -->
-      <Transition
-        enter-active-class="transition-all duration-300"
-        enter-from-class="opacity-0 translate-y-2"
-        enter-to-class="opacity-100 translate-y-0"
-        leave-active-class="transition-all duration-200"
-        leave-from-class="opacity-100 translate-y-0"
-        leave-to-class="opacity-0 translate-y-1"
-      >
+      <Transition name="reveal">
         <section v-if="boredSectionVisible" class="space-y-3 border-t border-(--ui-border) pt-3" aria-label="What's next suggestion">
           <div class="flex items-center justify-between px-1">
             <h3 class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed)">All done! What's next?</h3>

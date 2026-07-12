@@ -1,4 +1,28 @@
-/* Shared animation design system — Emil Kowalski design engineering principles */
+/* ─── Shared motion design system ────────────────────────────────────────────
+   Emil Kowalski design-engineering principles. This file is the SINGLE SOURCE
+   OF TRUTH for motion across all Habitat apps — loaded app-wide via the
+   @habitathq/shared Nuxt layer (see nuxt.config `css`).
+
+   Naming config — every animation belongs to one canonical preset. Do NOT
+   hand-roll durations, easings, or transition classes in app code; reference a
+   preset below (via `<Transition name="…">` or the utility class) instead.
+
+     Category            Preset               Mechanism
+     ─────────────────   ──────────────────   ──────────────────────────────────
+     Route push (up)     page-slide-up        <Transition name> (named classes)
+     Bottom sheet        sheet-slide          <Transition name>
+     Centered modal      sheet-scale          <Transition name>
+     Backdrop / scrim    sheet-backdrop       utility class
+     List entrance       stagger-list         parent class, staggered children
+     Single reveal       reveal               <Transition name>
+     Content crossfade   swap                 <Transition name>
+     Collapse / expand   collapsible-grid     [data-open] utility class
+     Press feedback      btn-press            :active utility class
+     Loading             animate-pulse/-spin  Tailwind (reduce-motion-aware)
+
+   Easings and durations are tokens only — a raw cubic-bezier() outside :root
+   fails the motion-tokens guard test in each app's tests/unit directory.
+   ──────────────────────────────────────────────────────────────────────────── */
 
 :root {
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
@@ -8,6 +32,8 @@
   --duration-fast: 160ms;
   --duration-normal: 250ms;
   --duration-exit: 200ms;
+  --duration-slow: 300ms;
+  --duration-slower: 500ms;
 }
 
 /* Button press feedback — scale(0.97) on :active */
@@ -32,7 +58,7 @@
 }
 
 .stagger-list > * {
-  animation: fadeSlideIn 300ms var(--ease-out) both;
+  animation: fadeSlideIn var(--duration-slow) var(--ease-out) both;
 }
 .stagger-list > :nth-child(1) { animation-delay: 0ms; }
 .stagger-list > :nth-child(2) { animation-delay: 50ms; }
@@ -80,6 +106,64 @@
   transform: scale(0.95);
 }
 
+/* Route push — sub-page slides up from the bottom (e.g. Jots create/edit).
+   Used as `<NuxtPage :transition="{ name: 'page-slide-up', mode: 'out-in' }" />`. */
+.page-slide-up-enter-active {
+  transition: transform var(--duration-normal) var(--ease-drawer),
+    opacity var(--duration-normal) var(--ease-out);
+}
+.page-slide-up-leave-active {
+  transition: transform var(--duration-exit) var(--ease-out),
+    opacity var(--duration-exit) var(--ease-out);
+}
+.page-slide-up-enter-from,
+.page-slide-up-leave-to {
+  opacity: 0;
+  transform: translateY(40%);
+}
+
+/* Single-element reveal — one panel fading/rising into place (insights,
+   onboarding step, expandable panels). For LISTS of items use stagger-list. */
+.reveal-enter-active {
+  transition: opacity var(--duration-slow) var(--ease-out),
+    transform var(--duration-slow) var(--ease-out);
+}
+.reveal-leave-active {
+  transition: opacity var(--duration-exit) var(--ease-out),
+    transform var(--duration-exit) var(--ease-out);
+}
+.reveal-enter-from,
+.reveal-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+/* Content crossfade — swapping the contents of a fixed region (heatmap views,
+   check-in slides). Opacity only, no movement. */
+.swap-enter-active {
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+.swap-leave-active {
+  transition: opacity var(--duration-exit) var(--ease-out);
+}
+.swap-enter-from,
+.swap-leave-to {
+  opacity: 0;
+}
+
+/* Content crossfade, lingering exit — like `swap` but the leaving element
+   fades out slowly (e.g. a transient "Saved" confirmation that dwells). */
+.swap-slow-enter-active {
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+.swap-slow-leave-active {
+  transition: opacity var(--duration-slower) var(--ease-out);
+}
+.swap-slow-enter-from,
+.swap-slow-leave-to {
+  opacity: 0;
+}
+
 /* Collapsible expand/collapse via grid-template-rows */
 .collapsible-grid {
   display: grid;
@@ -107,7 +191,15 @@
   .sheet-slide-enter-active,
   .sheet-slide-leave-active,
   .sheet-scale-enter-active,
-  .sheet-scale-leave-active {
+  .sheet-scale-leave-active,
+  .page-slide-up-enter-active,
+  .page-slide-up-leave-active,
+  .reveal-enter-active,
+  .reveal-leave-active,
+  .swap-enter-active,
+  .swap-leave-active,
+  .swap-slow-enter-active,
+  .swap-slow-leave-active {
     transition-duration: 0ms;
   }
   .collapsible-grid {
@@ -131,7 +223,15 @@ html.reduce-motion .stagger-list > * {
 html.reduce-motion .sheet-slide-enter-active,
 html.reduce-motion .sheet-slide-leave-active,
 html.reduce-motion .sheet-scale-enter-active,
-html.reduce-motion .sheet-scale-leave-active {
+html.reduce-motion .sheet-scale-leave-active,
+html.reduce-motion .page-slide-up-enter-active,
+html.reduce-motion .page-slide-up-leave-active,
+html.reduce-motion .reveal-enter-active,
+html.reduce-motion .reveal-leave-active,
+html.reduce-motion .swap-enter-active,
+html.reduce-motion .swap-leave-active,
+html.reduce-motion .swap-slow-enter-active,
+html.reduce-motion .swap-slow-leave-active {
   transition-duration: 0ms;
 }
 html.reduce-motion .collapsible-grid {

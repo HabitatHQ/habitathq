@@ -462,7 +462,7 @@ function toggleColorMode() {
               <AppIcon name="clock" class="w-4 h-4 shrink-0" />
               <div class="flex items-center gap-1">
                 <button
-                  class="w-6 h-6 rounded-md bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors active:scale-90"
+                  class="w-6 h-6 rounded-md bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors press-strong"
                   :class="{ 'opacity-30 pointer-events-none': quickFocusMinutes <= 5 }"
                   @click="quickFocusMinutes = Math.max(5, quickFocusMinutes - 5)"
                 >
@@ -470,7 +470,7 @@ function toggleColorMode() {
                 </button>
                 <span class="w-10 text-center font-semibold type-numeric">{{ quickFocusMinutes }}</span>
                 <button
-                  class="w-6 h-6 rounded-md bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors active:scale-90"
+                  class="w-6 h-6 rounded-md bg-(--ui-bg-elevated) border border-(--ui-border) flex items-center justify-center text-(--ui-text-muted) hover:text-(--ui-text) transition-colors press-strong"
                   :class="{ 'opacity-30 pointer-events-none': quickFocusMinutes >= 120 }"
                   @click="quickFocusMinutes = Math.min(120, quickFocusMinutes + 5)"
                 >
@@ -719,14 +719,7 @@ function toggleColorMode() {
     </main>
 
     <!-- Reorder mode backdrop -->
-    <Transition
-      enter-active-class="transition-opacity duration-300"
-      enter-from-class="opacity-0"
-      enter-to-class="opacity-100"
-      leave-active-class="transition-opacity duration-200"
-      leave-from-class="opacity-100"
-      leave-to-class="opacity-0"
-    >
+    <Transition name="swap">
       <div
         v-if="navReorderMode"
         class="fixed inset-0 z-20 bg-black/20 dark:bg-black/60 backdrop-blur-[2px]"
@@ -735,14 +728,7 @@ function toggleColorMode() {
     </Transition>
 
     <!-- Reorder mode banner -->
-    <Transition
-      enter-active-class="transition-all duration-200 ease-out"
-      enter-from-class="translate-y-full opacity-0"
-      enter-to-class="translate-y-0 opacity-100"
-      leave-active-class="transition-all duration-150 ease-in"
-      leave-from-class="translate-y-0 opacity-100"
-      leave-to-class="translate-y-full opacity-0"
-    >
+    <Transition name="sheet-slide">
       <div
         v-if="navReorderMode"
         class="fixed z-40 inset-x-0 flex items-center justify-between px-4 py-2 bg-(--ui-bg-elevated) border-t border-(--ui-border)"

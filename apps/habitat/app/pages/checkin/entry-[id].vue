@@ -287,12 +287,7 @@ onMounted(async () => {
               class="w-full"
               @update:model-value="onText(q.id, $event)"
             />
-            <Transition
-              enter-active-class="transition-opacity duration-150"
-              leave-active-class="transition-opacity duration-500"
-              enter-from-class="opacity-0"
-              leave-to-class="opacity-0"
-            >
+            <Transition name="swap-slow">
               <span
                 v-if="savedIndicator[q.id]"
                 class="flex items-center gap-1 text-xs text-green-400 mt-1"
