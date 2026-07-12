@@ -39,9 +39,9 @@ function onPointerMove(e: PointerEvent) {
 
 <template>
   <div
-    class="flex items-center cursor-pointer touch-none select-none"
+    class="flex items-center cursor-pointer touch-none select-none min-h-[44px]"
     :class="variant === 'row'
-      ? 'h-8 gap-[2px]'
+      ? 'h-8 gap-[2px] py-[6px]'
       : 'relative h-24 justify-between px-3 overflow-hidden bg-(--ui-bg-elevated)'"
     role="slider"
     tabindex="0"
