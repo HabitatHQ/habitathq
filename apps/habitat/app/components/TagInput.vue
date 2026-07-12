@@ -9,7 +9,9 @@ const props = withDefaults(
     placeholder?: string
     maxSuggestions?: number
   }>(),
-  { placeholder: 'Search or create tag…', maxSuggestions: 6 },
+  // Render a generous list; the dropdown scrolls (overflow-y: auto + computed
+  // maxHeight) so more tags are reachable without crowding the viewport.
+  { placeholder: 'Search or create tag…', maxSuggestions: 50 },
 )
 
 const emit = defineEmits<{
@@ -95,7 +97,9 @@ function updateDropdownPosition() {
 
   // Flip above the field when below is cramped (e.g. keyboard up) but above isn't.
   const placeAbove = spaceBelow < 160 && spaceAbove > spaceBelow
-  const maxHeight = Math.max(96, Math.floor(placeAbove ? spaceAbove : spaceBelow))
+  // Fit the available space on the chosen side (never force a taller panel that
+  // would extend behind the keyboard or off-screen); the panel scrolls instead.
+  const maxHeight = Math.max(0, Math.floor(placeAbove ? spaceAbove : spaceBelow))
 
   let top: number
   if (placeAbove) {

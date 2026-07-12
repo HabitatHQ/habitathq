@@ -136,7 +136,9 @@ export function useTagSuggestions(context: TagSource, bonusSuggestions?: Ref<str
       context,
       input,
       alreadySelected,
-      8,
+      // Return a generous set; the dropdown is scrollable so the UI decides how
+      // many fit. Keeps more matches reachable for users with many tags.
+      50,
       bonusSuggestions?.value ?? [],
     )
   }
