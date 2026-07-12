@@ -383,7 +383,8 @@ async function saveRename() {
   if (!item || renamingJot.value) return
   renamingJot.value = true
   try {
-    if (item.kind === 'voice') await store.renameVoiceNote(item.data as VoiceNote, renameValue.value)
+    if (item.kind === 'voice')
+      await store.renameVoiceNote(item.data as VoiceNote, renameValue.value)
     else if (item.kind === 'image')
       await store.renameImageNote(item.data as ImageNote, renameValue.value)
     showRenameModal.value = false
