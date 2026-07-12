@@ -79,24 +79,50 @@ describe('motion tokens', () => {
 
   it('honors reduce-motion via BOTH the OS query and the in-app class', () => {
     const css = read('animations.css')
-    // Both mechanisms must exist: OS-level media query + in-app html.reduce-motion.
-    expect(css).toContain('@media (prefers-reduced-motion: reduce)')
-    expect(css).toMatch(/html\.reduce-motion\b/)
+    const { media, inApp } = reduceMotionBlocks(css)
 
     // A global keyframe safety-net must appear in each mechanism so decorative
     // ambient loops (declared per-page) can't keep running under reduce-motion.
-    const net = css.match(/animation-iteration-count:\s*1\s*!important/g) ?? []
-    expect(net.length, 'global animation safety-net missing from a reduce-motion block').toBeGreaterThanOrEqual(2)
+    const net = /animation-iteration-count:\s*1\s*!important/
+    expect(media, 'global animation safety-net missing from @media reduce-motion').toMatch(net)
+    expect(inApp, 'global animation safety-net missing from html.reduce-motion').toMatch(net)
 
     // Every named-transition preset must be neutralized under both mechanisms,
     // and so must the backdrop scrim fade (opacity-only, but still zeroed).
-    for (const target of [...REQUIRED_PRESETS.map((p) => `${p}-leave-active`), 'sheet-backdrop']) {
-      expect(css, `${target} not neutralized under @media reduce-motion`).toMatch(
-        new RegExp(`@media \\(prefers-reduced-motion: reduce\\)[\\s\\S]*\\.${target}`),
-      )
-      expect(css, `${target} not neutralized under html.reduce-motion`).toMatch(
-        new RegExp(`html\\.reduce-motion[\\s\\S]*\\.${target}`),
-      )
+    // Each block is checked in isolation so dropping a preset from just one
+    // mechanism still fails.
+    for (const target of [...REQUIRED_PRESETS.map((p) => `.${p}-leave-active`), '.sheet-backdrop']) {
+      expect(media, `${target} not neutralized under @media reduce-motion`).toContain(target)
+      expect(inApp, `${target} not neutralized under html.reduce-motion`).toContain(target)
     }
   })
 })
+
+/**
+ * Split animations.css into its two reduce-motion regions so each can be
+ * asserted independently: the body inside `@media (prefers-reduced-motion:
+ * reduce) { … }`, and everything after it (where the `html.reduce-motion`
+ * rules live). Brace-matched rather than regex-sliced so one block's rules
+ * never leak into the other block's assertions.
+ */
+function reduceMotionBlocks(css: string): { media: string; inApp: string } {
+  const start = css.indexOf('@media (prefers-reduced-motion: reduce)')
+  if (start === -1) throw new Error('no prefers-reduced-motion media block')
+  const open = css.indexOf('{', start)
+  let depth = 0
+  let end = -1
+  for (let i = open; i < css.length; i++) {
+    if (css[i] === '{') depth++
+    else if (css[i] === '}') {
+      depth--
+      if (depth === 0) {
+        end = i
+        break
+      }
+    }
+  }
+  if (end === -1) throw new Error('unbalanced @media block')
+  const inApp = css.slice(end + 1)
+  if (!/html\.reduce-motion\b/.test(inApp)) throw new Error('no html.reduce-motion rules after @media block')
+  return { media: css.slice(open + 1, end), inApp }
+}
