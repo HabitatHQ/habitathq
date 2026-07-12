@@ -1,5 +1,20 @@
 import { describe, it, expect } from 'vitest'
-import { isReservedTag, filterReservedTags, RESERVED_TAG_PREFIX } from '~/utils/tags'
+import { isReservedTag, filterReservedTags, normalizeTag, RESERVED_TAG_PREFIX } from '~/utils/tags'
+
+describe('normalizeTag', () => {
+  it('lower-cases the tag', () => {
+    expect(normalizeTag('Work')).toBe('work')
+    expect(normalizeTag('DEEP-WORK')).toBe('deep-work')
+  })
+
+  it('trims surrounding whitespace', () => {
+    expect(normalizeTag('  reading  ')).toBe('reading')
+  })
+
+  it('collapses case/whitespace variants to one canonical form', () => {
+    expect(normalizeTag(' WORK ')).toBe(normalizeTag('work'))
+  })
+})
 
 describe('isReservedTag', () => {
   it('returns true for habitat- prefixed tags', () => {

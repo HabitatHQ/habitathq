@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { RankedTag } from '~/composables/useTagSuggestions'
-import { isReservedTag } from '~/utils/tags'
+import { isReservedTag, normalizeTag } from '~/utils/tags'
 
 const props = withDefaults(
   defineProps<{
@@ -37,7 +37,7 @@ const showDropdown = computed(
 )
 
 watch(input, (v) => {
-  reservedWarning.value = isReservedTag(v.trim())
+  reservedWarning.value = isReservedTag(normalizeTag(v))
   dropdownOpen.value = true
   // Reset highlight when the candidate list changes under the cursor.
   activeIndex.value = -1
@@ -116,7 +116,8 @@ function updateDropdownPosition() {
 }
 
 function commitTag(raw?: string) {
-  const tag = (raw ?? input.value).replace(/,+$/, '').trim()
+  // Normalize (trim + lowercase) so tags are case-insensitively unique.
+  const tag = normalizeTag((raw ?? input.value).replace(/,+$/, ''))
   if (!tag || isReservedTag(tag)) return
   if (props.modelValue.includes(tag)) {
     input.value = ''

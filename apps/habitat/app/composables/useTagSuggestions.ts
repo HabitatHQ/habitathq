@@ -1,5 +1,5 @@
 import type { TagRow, TagSource } from '~/types/database'
-import { isReservedTag } from '~/utils/tags'
+import { isReservedTag, normalizeTag } from '~/utils/tags'
 
 export interface RankedTag {
   tag: string
@@ -68,10 +68,12 @@ function buildScoreMap(
 ): Map<string, number> {
   const map = new Map<string, number>()
   for (const r of rows) {
-    if (!isCandidate(r.tag, prefix, excluded)) continue
-    const prev = map.get(r.tag) ?? 0
+    // Canonicalize so legacy mixed-case rows ("Work" + "work") merge into one.
+    const tag = normalizeTag(r.tag)
+    if (!isCandidate(tag, prefix, excluded)) continue
+    const prev = map.get(tag) ?? 0
     const weight = r.source === context ? 3 : 1
-    map.set(r.tag, prev + r.count * weight)
+    map.set(tag, prev + r.count * weight)
   }
   return map
 }
@@ -91,12 +93,13 @@ export function rankSuggestions(
   bonusSuggestions: string[] = [],
 ): RankedTag[] {
   const prefix = input.toLowerCase()
-  const excluded = new Set(alreadySelected)
+  const excluded = new Set(alreadySelected.map(normalizeTag))
   const scoreMap = buildScoreMap(rows, context, prefix, excluded)
 
   for (const bonus of bonusSuggestions) {
-    if (isCandidate(bonus, prefix, excluded) && !scoreMap.has(bonus)) {
-      scoreMap.set(bonus, 0.5)
+    const b = normalizeTag(bonus)
+    if (isCandidate(b, prefix, excluded) && !scoreMap.has(b)) {
+      scoreMap.set(b, 0.5)
     }
   }
 
@@ -141,7 +144,8 @@ export function useTagSuggestions(context: TagSource, bonusSuggestions?: Ref<str
   const allUserTags = computed(() => {
     const seen = new Set<string>()
     for (const r of tagRows.value) {
-      if (!isReservedTag(r.tag)) seen.add(r.tag)
+      const tag = normalizeTag(r.tag)
+      if (!isReservedTag(tag)) seen.add(tag)
     }
     return [...seen].sort()
   })
