@@ -637,7 +637,7 @@ onMounted(async () => {
       </p>
 
       <!-- ── Habit list ───────────────────────────────────────────────────────── -->
-      <ul v-if="visibleHabits.length > 0" class="space-y-2">
+      <ul v-if="visibleHabits.length > 0" class="space-y-2 stagger-list">
         <template v-for="(habit, i) in sortedHabits" :key="habit.id">
           <!-- "Others" section label — inserted before first non-matching habit -->
           <li v-if="anyActive && i === contextHabits.length && otherHabits.length > 0" class="list-none pt-1 pb-0.5" aria-hidden="true">
@@ -701,7 +701,7 @@ onMounted(async () => {
           />
         </div>
 
-        <ul v-if="todayTodos.length > 0" class="space-y-1.5">
+        <ul v-if="todayTodos.length > 0" class="space-y-1.5 stagger-list">
           <TodoListItem
             v-for="todo in todayTodos"
             :key="todo.id"
@@ -835,7 +835,7 @@ onMounted(async () => {
       >
         <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Today's Activity</p>
 
-        <div class="space-y-2">
+        <div class="space-y-2 stagger-list">
 
           <!-- Check-in templates with responses today -->
           <AppCard
