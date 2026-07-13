@@ -73,6 +73,8 @@ export const SCHEMA_DDL = `
     title         TEXT NOT NULL,
     schedule_type TEXT NOT NULL DEFAULT 'DAILY',
     days_active   TEXT,
+    icon          TEXT,
+    color         TEXT,
     archived_at   TEXT
   );
 
@@ -566,7 +568,7 @@ const SEEDS: Seed[] = [
 
 export const SCHEMA_CONFIG: SchemaConfig = {
   schema: SCHEMA_DDL,
-  version: 23,
+  version: 24,
   migrations: {
     11: [
       `CREATE TABLE IF NOT EXISTS bored_categories (
@@ -723,6 +725,19 @@ export const SCHEMA_CONFIG: SchemaConfig = {
         const cols = await exec<{ name: string }>("PRAGMA table_info('image_notes')")
         if (!cols.some((c) => c.name === 'title')) {
           await exec("ALTER TABLE image_notes ADD COLUMN title TEXT NOT NULL DEFAULT ''")
+        }
+      },
+    ],
+    24: [
+      // Per-template icon + color so check-in cards can be customized (like habits).
+      // Guarded so it's idempotent against fresh SCHEMA_DDL installs.
+      async (exec: MigrationExec) => {
+        const cols = await exec<{ name: string }>("PRAGMA table_info('checkin_templates')")
+        if (!cols.some((c) => c.name === 'icon')) {
+          await exec('ALTER TABLE checkin_templates ADD COLUMN icon TEXT')
+        }
+        if (!cols.some((c) => c.name === 'color')) {
+          await exec('ALTER TABLE checkin_templates ADD COLUMN color TEXT')
         }
       },
     ],

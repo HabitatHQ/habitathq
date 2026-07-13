@@ -61,45 +61,15 @@ function isActiveToday(t: CheckinTemplate): boolean {
 // ─── Create template ─────────────────────────────────────────────────────────
 
 const showCreate = useBoolModalQuery('create')
-const creating = ref(false)
-const newTitle = ref('')
-const newTitleError = ref<string | null>(null)
-const newSchedule = ref<'DAILY' | 'WEEKLY' | 'MONTHLY'>('DAILY')
-const newDays = ref<number[]>([])
-
-watch(newTitle, () => {
-  newTitleError.value = null
-})
 
 function openCreate() {
-  newTitle.value = ''
-  newSchedule.value = 'DAILY'
-  newDays.value = []
   showCreate.value = true
 }
 
-async function createTemplate() {
-  if (creating.value) return
-  if (!newTitle.value.trim()) {
-    newTitleError.value = 'Name is required'
-    return
-  }
-  newTitleError.value = null
-  creating.value = true
-  try {
-    const t = await db.createCheckinTemplate({
-      title: newTitle.value.trim(),
-      schedule_type: newSchedule.value,
-      days_active:
-        newSchedule.value === 'WEEKLY' && newDays.value.length ? [...newDays.value] : null,
-    })
-    templates.value.push(t)
-    showCreate.value = false
-    toast.add({ title: 'Check-in created', color: 'success', duration: 2000 })
-    await navigateTo(`/checkin/${t.id}`)
-  } finally {
-    creating.value = false
-  }
+async function onCreated(t: CheckinTemplate) {
+  templates.value.push(t)
+  toast.add({ title: 'Check-in created', color: 'success', duration: 2000 })
+  await navigateTo(`/checkin/${t.id}`)
 }
 </script>
 
@@ -149,7 +119,7 @@ async function createTemplate() {
           :completed="isCompleted(t)"
           :dimmed="!isActiveToday(t)"
         >
-          <AppCardIcon icon="pencil-square" bg-class="bg-primary-500/10" icon-color="#22d3ee" />
+          <AppCardIcon :icon="t.icon" :icon-color="t.color" :bg-color="t.color + '33'" />
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-(--ui-text) truncate">{{ t.title }}</p>
             <p class="text-xs text-(--ui-text-dimmed) mt-0.5">
@@ -175,52 +145,7 @@ async function createTemplate() {
     </div>
 
     <!-- ── Create modal ─────────────────────────────────────────────────────── -->
-    <AppModal v-model="showCreate">
-        <div class="flex items-center justify-between">
-          <h3 class="font-semibold text-(--ui-text)">New Check-in</h3>
-          <AppIconButton icon="x-mark" label="Close" @click="showCreate = false" />
-        </div>
-
-        <!-- Title -->
-        <AppTextField
-          v-model="newTitle"
-          placeholder="Name (e.g. Morning Check-in)"
-          autofocus
-          @keydown.enter="createTemplate"
-        />
-        <p v-if="newTitleError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
-          <AppIcon name="exclamation-circle" class="w-4 h-4 flex-shrink-0" />
-          {{ newTitleError }}
-        </p>
-
-        <!-- Schedule -->
-        <div class="space-y-1.5">
-          <p class="text-xs text-(--ui-text-dimmed)">Schedule</p>
-          <TypeSelector
-            v-model="newSchedule"
-            :options="[{value:'DAILY',label:'Daily'},{value:'WEEKLY',label:'Weekly'},{value:'MONTHLY',label:'Monthly'}]"
-          />
-        </div>
-
-        <!-- Day picker (WEEKLY only) -->
-        <div v-if="newSchedule === 'WEEKLY'" class="space-y-1.5">
-          <p class="text-xs text-(--ui-text-dimmed)">Days (leave blank for every day)</p>
-          <DayPicker v-model="newDays" :labels="CHECKIN_DAY_LABELS" />
-        </div>
-
-        <div class="flex justify-end gap-2 pt-1">
-          <UButton variant="ghost" color="neutral" size="sm" @click="showCreate = false">Cancel</UButton>
-          <UButton
-            size="sm"
-            :disabled="!newTitle.trim() || creating"
-            :loading="creating"
-            @click="createTemplate"
-          >
-            Create
-          </UButton>
-        </div>
-        <div class="safe-area-bottom" aria-hidden="true" />
-    </AppModal>
+    <CheckinFormModal v-model="showCreate" mode="create" @saved="onCreated" />
 
   </div>
 </template>

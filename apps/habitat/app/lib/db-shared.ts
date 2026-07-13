@@ -546,12 +546,14 @@ export async function createCheckinTemplate(
 ): Promise<CheckinTemplate> {
   const id = crypto.randomUUID()
   await db.exec(
-    'INSERT INTO checkin_templates (id, title, schedule_type, days_active) VALUES (?,?,?,?)',
+    'INSERT INTO checkin_templates (id, title, schedule_type, days_active, icon, color) VALUES (?,?,?,?,?,?)',
     [
       id,
       payload.title,
       payload.schedule_type ?? 'DAILY',
       payload.days_active == null ? null : JSON.stringify(payload.days_active),
+      payload.icon ?? 'pencil-square',
+      payload.color ?? '#22d3ee',
     ],
   )
   const row = await db.queryOne<Record<string, unknown>>(
@@ -570,6 +572,8 @@ export async function updateCheckinTemplate(
     { kind: 'scalar', name: 'title' },
     { kind: 'scalar', name: 'schedule_type' },
     { kind: 'json-nullable', name: 'days_active' },
+    { kind: 'scalar', name: 'icon' },
+    { kind: 'scalar', name: 'color' },
   ])
   await execDynamicUpdate(db, 'checkin_templates', id, pairs)
   const row = await db.queryOne<Record<string, unknown>>(
@@ -1670,12 +1674,14 @@ export async function importJson(db: DbAdapter, data: HabitatExport): Promise<nu
     }
     for (const t of data.checkin_templates ?? []) {
       await db.exec(
-        'INSERT OR IGNORE INTO checkin_templates (id,title,schedule_type,days_active) VALUES (?,?,?,?)',
+        'INSERT OR IGNORE INTO checkin_templates (id,title,schedule_type,days_active,icon,color) VALUES (?,?,?,?,?,?)',
         [
           t.id,
           t.title,
           t.schedule_type ?? 'DAILY',
           t.days_active == null ? null : JSON.stringify(t.days_active),
+          t.icon ?? null,
+          t.color ?? null,
         ],
       )
     }

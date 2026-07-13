@@ -127,35 +127,14 @@ async function removeReminder(rid: string) {
 // ─── Edit template ────────────────────────────────────────────────────────────
 
 const showEdit = ref(false)
-const editTitle = ref('')
-const editSchedule = ref<'DAILY' | 'WEEKLY' | 'MONTHLY'>('DAILY')
-const editDays = ref<number[]>([])
-const saving = ref(false)
 
 function openEdit() {
   if (!template.value) return
-  editTitle.value = template.value.title
-  editSchedule.value = template.value.schedule_type
-  editDays.value = template.value.days_active ? [...template.value.days_active] : []
   showEdit.value = true
 }
 
-async function saveEdit() {
-  if (!template.value || saving.value) return
-  saving.value = true
-  try {
-    const updated = await db.updateCheckinTemplate({
-      id: template.value.id,
-      title: editTitle.value.trim() || template.value.title,
-      schedule_type: editSchedule.value,
-      days_active:
-        editSchedule.value === 'WEEKLY' && editDays.value.length ? [...editDays.value] : null,
-    })
-    template.value = updated
-    showEdit.value = false
-  } finally {
-    saving.value = false
-  }
+function onEdited(updated: CheckinTemplate) {
+  template.value = updated
 }
 
 // ─── Delete template ──────────────────────────────────────────────────────────
@@ -402,33 +381,7 @@ onMounted(async () => {
     </template>
 
     <!-- ── Edit modal ─────────────────────────────────────────────────────── -->
-    <AppModal v-model="showEdit">
-        <div class="flex items-center justify-between">
-          <h3 class="font-semibold text-(--ui-text)">Edit Template</h3>
-          <AppIconButton icon="x-mark" label="Close" @click="showEdit = false" />
-        </div>
-
-        <AppTextField v-model="editTitle" placeholder="Name" @keydown.enter="saveEdit" />
-
-        <div class="space-y-1.5">
-          <p class="text-xs text-(--ui-text-dimmed)">Schedule</p>
-          <TypeSelector
-            v-model="editSchedule"
-            :options="[{value:'DAILY',label:'Daily'},{value:'WEEKLY',label:'Weekly'},{value:'MONTHLY',label:'Monthly'}]"
-          />
-        </div>
-
-        <div v-if="editSchedule === 'WEEKLY'" class="space-y-1.5">
-          <p class="text-xs text-(--ui-text-dimmed)">Days (leave blank for every day)</p>
-          <DayPicker v-model="editDays" :labels="CHECKIN_DAY_LABELS" />
-        </div>
-
-        <div class="flex justify-end gap-2 pt-1">
-          <UButton variant="ghost" color="neutral" size="sm" @click="showEdit = false">Cancel</UButton>
-          <UButton size="sm" :disabled="saving" :loading="saving" @click="saveEdit">Save</UButton>
-        </div>
-        <div class="safe-area-bottom" aria-hidden="true" />
-    </AppModal>
+    <CheckinFormModal v-model="showEdit" mode="edit" :template="template" @saved="onEdited" />
 
     <!-- ── Delete confirm ─────────────────────────────────────────────────── -->
     <ConfirmDialog

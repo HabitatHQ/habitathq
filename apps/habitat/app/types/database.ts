@@ -65,6 +65,10 @@ export interface CheckinTemplate {
   title: string
   schedule_type: 'DAILY' | 'WEEKLY' | 'MONTHLY'
   days_active: number[] | null
+  /** Icon registry name shown on the check-in card. */
+  icon: string
+  /** Hex accent color for the card icon. */
+  color: string
   archived_at: string | null
   /** Number of distinct days with at least one response. Added by GET_CHECKIN_TEMPLATES subquery. */
   response_day_count?: number

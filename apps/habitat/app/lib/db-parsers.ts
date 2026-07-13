@@ -141,6 +141,8 @@ export function parseCheckinTemplate(row: Record<string, unknown>): CheckinTempl
     title: row['title'] as string,
     schedule_type: ((row['schedule_type'] as string) ?? 'DAILY') as 'DAILY' | 'WEEKLY' | 'MONTHLY',
     days_active: safeJsonParse<number[] | null>(row['days_active'] as string | null, null),
+    icon: (row['icon'] as string | null) || 'pencil-square',
+    color: (row['color'] as string | null) || '#22d3ee',
     archived_at: (row['archived_at'] as string | null) ?? null,
   }
   if (row['response_day_count'] !== undefined) {
