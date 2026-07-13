@@ -69,6 +69,85 @@ async function runSeeds(adapter: DbAdapter): Promise<void> {
   }
 }
 
+/** Map of table name → sorted column names, ignoring bookkeeping tables. */
+async function introspect(adapter: DbAdapter): Promise<Record<string, string[]>> {
+  const tables = await adapter.queryAll<{ name: string }>(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != '_palladium_seeds' ORDER BY name",
+  )
+  const out: Record<string, string[]> = {}
+  for (const { name } of tables) {
+    const cols = await adapter.queryAll<{ name: string }>(`PRAGMA table_info('${name}')`)
+    out[name] = cols.map((c) => c.name).sort()
+  }
+  return out
+}
+
+/** Full column metadata for one table: name, declared type, NOT NULL, default. */
+async function columnMeta(adapter: DbAdapter, table: string) {
+  const cols = await adapter.queryAll<{
+    name: string
+    type: string
+    notnull: number
+    dflt_value: string | null
+  }>(`PRAGMA table_info('${table}')`)
+  return cols
+    .map((c) => ({ name: c.name, type: c.type, notnull: c.notnull, dflt_value: c.dflt_value }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** MigrationExec that routes reads to queryAll and runs writes as-is (no error suppression). */
+function plainExec(adapter: DbAdapter): MigrationExec {
+  return async <T = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+    const head = sql.trim().toUpperCase()
+    if (head.startsWith('SELECT') || head.startsWith('PRAGMA')) {
+      return adapter.queryAll<T>(sql, params as unknown[]) as Promise<T[]>
+    }
+    await adapter.exec(sql, params as unknown[])
+    return [] as T[]
+  }
+}
+
+/**
+ * MigrationExec for the fresh-DDL replay. Legacy UNGUARDED `ALTER TABLE … ADD
+ * COLUMN` migrations (12/16/17) re-run against a fresh SCHEMA_DDL database that
+ * already mirrors the column, raising "duplicate column name". That single,
+ * expected collision — and ONLY for an ADD COLUMN statement — is tolerated; it
+ * is what confirms the column is present in DDL. Every other failure (including
+ * a duplicate-column error from any other statement kind) is real drift or a
+ * malformed migration and is rethrown so it fails the test.
+ */
+function replayExec(adapter: DbAdapter): MigrationExec {
+  return async <T = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+    const head = sql.trim().toUpperCase()
+    if (head.startsWith('SELECT') || head.startsWith('PRAGMA')) {
+      return adapter.queryAll<T>(sql, params as unknown[]) as Promise<T[]>
+    }
+    const isAddColumn = /^ALTER\s+TABLE\b[\s\S]*\bADD\s+COLUMN\b/.test(head)
+    try {
+      await adapter.exec(sql, params as unknown[])
+    } catch (e) {
+      if (!(isAddColumn && /duplicate column name/i.test(String(e)))) throw e
+    }
+    return [] as T[]
+  }
+}
+
+/** Replay every configured migration (ascending) against the given DB. */
+async function replayMigrations(adapter: DbAdapter): Promise<void> {
+  await ensureSeedsTable(adapter)
+  const exec = replayExec(adapter)
+  const migrations = SCHEMA_CONFIG.migrations ?? {}
+  const versions = Object.keys(migrations)
+    .map(Number)
+    .sort((a, b) => a - b)
+  for (const v of versions) {
+    for (const step of migrations[v] as MigrationStep[]) {
+      if (typeof step === 'function') await step(exec)
+      else await exec(step)
+    }
+  }
+}
+
 // ─── DDL ─────────────────────────────────────────────────────────────────────
 
 describe('SCHEMA_DDL', () => {
@@ -167,13 +246,13 @@ describe('SCHEMA_CONFIG seeds', () => {
 // ─── Schema config structure ─────────────────────────────────────────────────
 
 describe('SCHEMA_CONFIG', () => {
-  it('has version 21', () => {
-    expect(SCHEMA_CONFIG.version).toBe(21)
+  it('has version 23', () => {
+    expect(SCHEMA_CONFIG.version).toBe(23)
   })
 
-  it('defines migrations for versions 11-21', () => {
+  it('defines migrations for versions 11-23', () => {
     const keys = Object.keys(SCHEMA_CONFIG.migrations ?? {}).map(Number).sort((a, b) => a - b)
-    expect(keys).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21])
+    expect(keys).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23])
   })
 
   it('has seeds array', () => {
@@ -249,5 +328,55 @@ describe('migration 21 (tag normalization)', () => {
       's1',
     ])
     expect(JSON.parse(s!.tags)).toEqual(['spark', 'dream'])
+  })
+})
+
+// ─── DDL / migration parity ────────────────────────────────────────────────────
+// Guards against the two-sources-of-truth drift that caused bug-041: fresh
+// installs only ever run SCHEMA_DDL (migrations are skipped), so any column or
+// table a migration adds MUST also live in SCHEMA_DDL. If it doesn't, replaying
+// the migrations on a fresh DDL database mutates the schema — which this fails on.
+
+describe('SCHEMA_DDL / migration parity', () => {
+  it('replaying every migration on a fresh SCHEMA_DDL database does not change the schema', async () => {
+    const { adapter } = freshDb()
+    await applyDdl(adapter)
+    await ensureSeedsTable(adapter)
+
+    const before = await introspect(adapter)
+    await replayMigrations(adapter)
+    const after = await introspect(adapter)
+
+    // Any added table/column here means SCHEMA_DDL is missing something a
+    // migration adds — fresh installs would ship without it.
+    expect(after).toEqual(before)
+  })
+
+  it('upgrading a pre-title (v21) database reproduces the fresh SCHEMA_DDL columns exactly', async () => {
+    // The fresh-DDL replay above only proves migrations 22/23 are idempotent
+    // no-ops (they take their guarded branch). Here we exercise the REAL upgrade
+    // path: simulate a client stamped at v21 by dropping the two `title` columns,
+    // run migrations 22 & 23 through a non-swallowing exec, then assert the
+    // resulting columns match a fresh SCHEMA_DDL install down to type, nullability
+    // and default — catching metadata drift the name-only parity check misses.
+    const { adapter } = freshDb()
+    await applyDdl(adapter)
+    await adapter.exec('ALTER TABLE voice_notes DROP COLUMN title')
+    await adapter.exec('ALTER TABLE image_notes DROP COLUMN title')
+
+    const exec = plainExec(adapter)
+    for (const v of [22, 23]) {
+      for (const step of SCHEMA_CONFIG.migrations?.[v] as MigrationStep[]) {
+        if (typeof step === 'function') await step(exec)
+        else await exec(step)
+      }
+    }
+
+    const { adapter: ref } = freshDb()
+    await applyDdl(ref)
+
+    for (const table of ['voice_notes', 'image_notes']) {
+      expect(await columnMeta(adapter, table), table).toEqual(await columnMeta(ref, table))
+    }
   })
 })

@@ -848,11 +848,11 @@ describe('createImageNote', () => {
     const db = new MockDbAdapter()
     await shared.dispatch(db, {
       type: 'CREATE_IMAGE_NOTE',
-      payload: { id: 'i1', mime_type: 'image/jpeg', filename: 'photo.jpg', created_at: '2025-01-01T00:00:00Z' },
+      payload: { id: 'i1', mime_type: 'image/jpeg', filename: 'photo.jpg', title: 'Sunset', created_at: '2025-01-01T00:00:00Z' },
     })
     const insert = db.calls.find(c => c.method === 'exec' && c.sql.includes('image_notes'))!
     expect(insert.sql).toContain('INSERT OR IGNORE')
-    expect(insert.bind).toEqual(['i1', 'image/jpeg', 'photo.jpg', '2025-01-01T00:00:00Z'])
+    expect(insert.bind).toEqual(['i1', 'image/jpeg', 'photo.jpg', 'Sunset', '2025-01-01T00:00:00Z'])
   })
 })
 

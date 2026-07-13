@@ -248,11 +248,15 @@ export function useDatabase() {
     getVoiceNotes: (): Promise<VoiceNoteRow[]> => sendToWorker({ type: 'GET_VOICE_NOTES' }),
     createVoiceNote: (p: VoiceNoteRow): Promise<VoiceNoteRow> =>
       sendToWorker({ type: 'CREATE_VOICE_NOTE', payload: p }),
+    updateVoiceNote: (id: string, title: string): Promise<null> =>
+      sendToWorker({ type: 'UPDATE_VOICE_NOTE', payload: { id, title } }),
     deleteVoiceNote: (id: string): Promise<null> =>
       sendToWorker({ type: 'DELETE_VOICE_NOTE', payload: { id } }),
     getImageNotes: (): Promise<ImageNoteRow[]> => sendToWorker({ type: 'GET_IMAGE_NOTES' }),
     createImageNote: (p: ImageNoteRow): Promise<ImageNoteRow> =>
       sendToWorker({ type: 'CREATE_IMAGE_NOTE', payload: p }),
+    updateImageNote: (id: string, title: string): Promise<null> =>
+      sendToWorker({ type: 'UPDATE_IMAGE_NOTE', payload: { id, title } }),
     deleteImageNote: (id: string): Promise<null> =>
       sendToWorker({ type: 'DELETE_IMAGE_NOTE', payload: { id } }),
     deleteAllMediaNotes: (): Promise<null> =>

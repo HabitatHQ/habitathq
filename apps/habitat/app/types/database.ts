@@ -132,6 +132,7 @@ export interface ImageNoteRow {
   id: string
   mime_type: string
   filename: string
+  title: string
   created_at: string
 }
 
@@ -384,12 +385,22 @@ export type WorkerRequest =
       type: 'CREATE_VOICE_NOTE'
       payload: Omit<VoiceNoteRow, never>
     }
+  | {
+      id: string
+      type: 'UPDATE_VOICE_NOTE'
+      payload: { id: string; title: string }
+    }
   | { id: string; type: 'DELETE_VOICE_NOTE'; payload: { id: string } }
   | { id: string; type: 'GET_IMAGE_NOTES' }
   | {
       id: string
       type: 'CREATE_IMAGE_NOTE'
       payload: Omit<ImageNoteRow, never>
+    }
+  | {
+      id: string
+      type: 'UPDATE_IMAGE_NOTE'
+      payload: { id: string; title: string }
     }
   | { id: string; type: 'DELETE_IMAGE_NOTE'; payload: { id: string } }
   | { id: string; type: 'DELETE_ALL_MEDIA_NOTES'; payload: null }

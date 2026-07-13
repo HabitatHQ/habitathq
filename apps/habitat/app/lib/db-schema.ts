@@ -212,6 +212,7 @@ export const SCHEMA_DDL = `
     id         TEXT PRIMARY KEY,
     mime_type  TEXT NOT NULL,
     filename   TEXT NOT NULL DEFAULT '',
+    title      TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
   );
 `
@@ -565,7 +566,7 @@ const SEEDS: Seed[] = [
 
 export const SCHEMA_CONFIG: SchemaConfig = {
   schema: SCHEMA_DDL,
-  version: 21,
+  version: 23,
   migrations: {
     11: [
       `CREATE TABLE IF NOT EXISTS bored_categories (
@@ -700,6 +701,28 @@ export const SCHEMA_CONFIG: SchemaConfig = {
               await exec(`UPDATE ${table} SET tags = ? WHERE id = ?`, [next, row.id])
             }
           }
+        }
+      },
+    ],
+    22: [
+      // Fresh installs apply SCHEMA_DDL and jump straight to the current version,
+      // skipping earlier migrations — so DBs created before `title` was added to
+      // SCHEMA_DDL got stamped at their creation version without the column, and
+      // migration 20's ALTER never re-runs for them. Re-apply it idempotently.
+      async (exec: MigrationExec) => {
+        const cols = await exec<{ name: string }>("PRAGMA table_info('voice_notes')")
+        if (!cols.some((c) => c.name === 'title')) {
+          await exec("ALTER TABLE voice_notes ADD COLUMN title TEXT NOT NULL DEFAULT ''")
+        }
+      },
+    ],
+    23: [
+      // Distinct, user-editable title for image notes (separate from filename).
+      // Guarded so it's idempotent against fresh SCHEMA_DDL installs.
+      async (exec: MigrationExec) => {
+        const cols = await exec<{ name: string }>("PRAGMA table_info('image_notes')")
+        if (!cols.some((c) => c.name === 'title')) {
+          await exec("ALTER TABLE image_notes ADD COLUMN title TEXT NOT NULL DEFAULT ''")
         }
       },
     ],
