@@ -286,11 +286,12 @@ onMounted(() => {
       <div v-if="form.type === 'LIMIT'" class="py-1.5 px-3 rounded-lg text-sm bg-(--ui-bg-elevated) text-(--ui-text-toned) text-center font-medium">
         Daily
       </div>
-      <div v-else class="flex gap-2 mb-2">
+      <div v-else role="group" aria-label="Schedule type" class="flex gap-2 mb-2">
         <button
           v-for="s in availableSchedules"
           :key="s"
-          class="flex-1 py-1.5 rounded-lg text-sm font-medium transition-colors"
+          :aria-pressed="form.schedule_type === s"
+          class="flex-1 min-h-[44px] py-1.5 rounded-lg text-sm font-medium transition-colors"
           :class="form.schedule_type === s
             ? 'bg-primary-600 text-white'
             : 'bg-(--ui-bg-elevated) text-(--ui-text-toned)'"
@@ -305,12 +306,14 @@ onMounted(() => {
         <span class="text-sm text-(--ui-text-muted)">Times per week:</span>
         <div class="flex items-center gap-1">
           <button
-            class="w-7 h-7 rounded-lg bg-(--ui-bg-elevated) border border-(--ui-border-accented) text-(--ui-text-toned) flex items-center justify-center text-sm"
+            aria-label="Decrease times per week"
+            class="min-h-[44px] min-w-[44px] rounded-lg bg-(--ui-bg-elevated) border border-(--ui-border-accented) text-(--ui-text-toned) flex items-center justify-center text-sm"
             @click="form.frequency_count = Math.max(1, form.frequency_count - 1)"
           >−</button>
           <span class="w-5 text-center text-sm font-medium">{{ form.frequency_count }}</span>
           <button
-            class="w-7 h-7 rounded-lg bg-(--ui-bg-elevated) border border-(--ui-border-accented) text-(--ui-text-toned) flex items-center justify-center text-sm"
+            aria-label="Increase times per week"
+            class="min-h-[44px] min-w-[44px] rounded-lg bg-(--ui-bg-elevated) border border-(--ui-border-accented) text-(--ui-text-toned) flex items-center justify-center text-sm"
             @click="form.frequency_count = Math.min(7, form.frequency_count + 1)"
           >+</button>
         </div>
@@ -348,7 +351,7 @@ onMounted(() => {
           <AppTextField v-model="entry.key" placeholder="key" class="w-24 shrink-0" />
           <span class="text-slate-600 text-xs">:</span>
           <AppTextField v-model="entry.value" placeholder="value" class="flex-1" />
-          <button class="p-2 -m-1 text-slate-700 hover:text-red-400 transition-colors" @click="removeAnnotationEntry(i)">
+          <button aria-label="Remove annotation" class="min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-700 hover:text-red-400 transition-colors" @click="removeAnnotationEntry(i)">
             <AppIcon name="x-mark" class="w-4 h-4" />
           </button>
         </div>

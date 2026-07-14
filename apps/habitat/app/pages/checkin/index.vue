@@ -4,6 +4,7 @@ import { toLocalDateKey } from '~/utils/format'
 
 const db = useDatabase()
 const toast = useToast()
+const { impact } = useHaptics()
 const templates = ref<CheckinTemplate[]>([])
 const loading = ref(true)
 const staggerOnce = useFirstVisit('checkin-list')
@@ -72,11 +73,13 @@ async function openCreate() {
       icon: 'pencil-square',
       color: '#22d3ee',
     })
+    void impact('medium')
     await navigateTo(`/checkin/${t.id}?new=1`)
   } catch (e) {
-    creating.value = false
     logError('[checkin/create]', e)
     toast.add({ title: 'Failed to create check-in', color: 'error', duration: 3000 })
+  } finally {
+    creating.value = false
   }
 }
 </script>
@@ -146,7 +149,7 @@ async function openCreate() {
         description="Track your mood, energy, or anything you want to reflect on."
       >
         <template #actions>
-          <UButton @click="openCreate" :icon="resolveIcon('plus')" :loading="creating">
+          <UButton @click="openCreate" :icon="resolveIcon('plus')" :loading="creating" class="min-h-[44px] min-w-[44px]">
             Create Check-in
           </UButton>
         </template>

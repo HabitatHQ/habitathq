@@ -309,7 +309,7 @@ onMounted(() => {
               <span class="text-xs text-(--ui-text-dimmed)">
                 {{ r.days.length ? r.days.map(d => HABIT_DAY_LABELS[d]).join(' ') : 'Every day' }}
               </span>
-              <button class="ml-auto p-1.5 -m-1 text-slate-700 hover:text-red-400 transition-colors" @click="removePendingReminder(i)">
+              <button aria-label="Remove reminder" class="ml-auto min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-700 hover:text-red-400 transition-colors" @click="removePendingReminder(i)">
                 <AppIcon name="x-mark" class="w-4 h-4" />
               </button>
             </div>

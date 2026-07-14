@@ -180,6 +180,7 @@ function onQuestionPointerDown(index: number, e: PointerEvent) {
 }
 
 async function applyQuestionOrder(newOrder: CheckinQuestion[]) {
+  const previousOrder = questions.value
   questions.value = newOrder
   try {
     await Promise.all(
@@ -193,6 +194,7 @@ async function applyQuestionOrder(newOrder: CheckinQuestion[]) {
   } catch (err) {
     logError('[reorderQuestions]', err)
     toast.add({ title: 'Failed to save order', color: 'error', duration: 3000 })
+    questions.value = previousOrder
   }
 }
 
@@ -368,8 +370,8 @@ onMounted(async () => {
           <p class="text-sm text-(--ui-text-dimmed)">No questions yet. Add one below.</p>
         </div>
 
-        <div v-else ref="questionsContainerRef" class="space-y-2">
-          <div
+        <ul v-else ref="questionsContainerRef" class="space-y-2">
+          <li
             v-for="(q, i) in questions"
             :key="q.id"
             class="flex items-start gap-2 rounded-2xl border border-(--ui-border) bg-(--ui-bg-elevated) p-3"
@@ -377,7 +379,7 @@ onMounted(async () => {
           >
             <button
               type="button"
-              class="flex-shrink-0 -ml-1 mt-0.5 p-1.5 text-(--ui-text-dimmed) hover:text-(--ui-text-muted) cursor-grab active:cursor-grabbing touch-none"
+              class="flex-shrink-0 -ml-1 mt-0.5 min-h-[44px] min-w-[44px] flex items-center justify-center text-(--ui-text-dimmed) hover:text-(--ui-text-muted) cursor-grab active:cursor-grabbing touch-none"
               aria-label="Drag to reorder question"
               @pointerdown="onQuestionPointerDown(i, $event)"
             >
@@ -396,12 +398,12 @@ onMounted(async () => {
             >
               <AppIcon name="trash" class="w-4 h-4" />
             </button>
-          </div>
-        </div>
+          </li>
+        </ul>
 
         <!-- ── Add question ─────────────────────────────────────────────────── -->
         <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
-          <div class="px-4 pt-3.5 pb-3 flex items-center justify-between cursor-pointer" @click="showAddQuestion = !showAddQuestion">
+          <div class="px-4 pt-3.5 pb-3 flex items-center justify-between">
             <p class="text-xs font-semibold text-(--ui-text-muted)">Add Question</p>
             <UButton
               size="xs"
@@ -425,11 +427,12 @@ onMounted(async () => {
               />
             </UFormField>
             <UFormField label="Response type">
-              <div class="flex gap-1.5">
+              <div class="flex gap-1.5" role="group" aria-label="Response type">
                 <button
                   v-for="rt in (['TEXT', 'SCALE', 'BOOLEAN'] as const)"
                   :key="rt"
-                  class="flex-1 py-1.5 text-xs font-medium rounded-lg border transition-colors"
+                  :aria-pressed="newResponseType === rt"
+                  class="flex-1 min-h-[44px] py-1.5 text-xs font-medium rounded-lg border transition-colors"
                   :class="newResponseType === rt
                     ? 'bg-primary-500/20 border-primary-500 text-primary-300'
                     : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented)'"
@@ -440,11 +443,12 @@ onMounted(async () => {
               </div>
             </UFormField>
             <UFormField v-if="newResponseType === 'BOOLEAN'" label="Desired answer">
-              <div class="flex gap-1.5">
+              <div class="flex gap-1.5" role="group" aria-label="Desired answer">
                 <button
                   v-for="opt in ([{ value: 1, label: 'Yes' }, { value: 0, label: 'No' }] as const)"
                   :key="opt.value"
-                  class="flex-1 py-1.5 text-xs font-medium rounded-lg border transition-colors"
+                  :aria-pressed="newDesiredAnswer === opt.value"
+                  class="flex-1 min-h-[44px] py-1.5 text-xs font-medium rounded-lg border transition-colors"
                   :class="newDesiredAnswer === opt.value
                     ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
                     : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented)'"
