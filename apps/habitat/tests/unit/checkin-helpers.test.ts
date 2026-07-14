@@ -4,6 +4,7 @@ import {
   CHECKIN_DAY_NAMES,
   CHECKIN_DAY_LABELS,
   checkinScheduleLabel,
+  ordinalDay,
 } from '~/utils/checkin-helpers'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -51,8 +52,17 @@ describe('checkinScheduleLabel', () => {
     expect(checkinScheduleLabel(makeTemplate({ schedule_type: 'DAILY' }))).toBe('Daily')
   })
 
-  it('returns "Monthly" for MONTHLY schedule', () => {
+  it('returns "Monthly" for MONTHLY schedule with no day set', () => {
     expect(checkinScheduleLabel(makeTemplate({ schedule_type: 'MONTHLY' }))).toBe('Monthly')
+  })
+
+  it('includes the ordinal day for MONTHLY with a configured day', () => {
+    expect(
+      checkinScheduleLabel(makeTemplate({ schedule_type: 'MONTHLY', days_active: [15] })),
+    ).toBe('Monthly · 15th')
+    expect(
+      checkinScheduleLabel(makeTemplate({ schedule_type: 'MONTHLY', days_active: [1] })),
+    ).toBe('Monthly · 1st')
   })
 
   it('returns "Weekly" for WEEKLY with no days_active', () => {
@@ -82,5 +92,29 @@ describe('checkinScheduleLabel', () => {
       makeTemplate({ schedule_type: 'WEEKLY', days_active: [0, 6] }),
     )
     expect(result).toContain('Sun, Sat')
+  })
+})
+
+// ─── ordinalDay ──────────────────────────────────────────────────────────────
+
+describe('ordinalDay', () => {
+  it('uses st/nd/rd for 1/2/3', () => {
+    expect(ordinalDay(1)).toBe('1st')
+    expect(ordinalDay(2)).toBe('2nd')
+    expect(ordinalDay(3)).toBe('3rd')
+  })
+
+  it('uses th for 4–20 and the 11–13 exceptions', () => {
+    expect(ordinalDay(4)).toBe('4th')
+    expect(ordinalDay(11)).toBe('11th')
+    expect(ordinalDay(12)).toBe('12th')
+    expect(ordinalDay(13)).toBe('13th')
+  })
+
+  it('handles 21/22/23/31', () => {
+    expect(ordinalDay(21)).toBe('21st')
+    expect(ordinalDay(22)).toBe('22nd')
+    expect(ordinalDay(23)).toBe('23rd')
+    expect(ordinalDay(31)).toBe('31st')
   })
 })

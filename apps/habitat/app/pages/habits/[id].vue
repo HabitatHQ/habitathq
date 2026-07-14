@@ -512,6 +512,15 @@ onMounted(() => {
           <p v-if="habit.description" class="text-sm text-(--ui-text-dimmed) truncate">{{ habit.description }}</p>
           <p v-if="habit.why" class="text-sm text-(--ui-text-dimmed) italic truncate">{{ habit.why }}</p>
         </div>
+        <UButton
+          :icon="resolveIcon('pencil-square')"
+          variant="ghost"
+          color="neutral"
+          size="sm"
+          aria-label="Edit habit"
+          class="min-h-[44px] min-w-[44px] flex-shrink-0"
+          @click="openEdit"
+        />
       </div>
 
       <!-- ── Sprout streak hero ──────────────────────────────────────────────── -->
@@ -798,9 +807,6 @@ onMounted(() => {
 
       <!-- ── Actions ────────────────────────────────────────────────────────── -->
       <div class="flex gap-3 pt-1">
-        <UButton variant="outline" color="neutral" class="flex-1 justify-center" @click="openEdit">
-          Edit Habit
-        </UButton>
         <UButton variant="soft" color="error" class="flex-1 justify-center" @click="showArchiveConfirm = true">
           Archive
         </UButton>

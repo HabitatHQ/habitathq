@@ -36,18 +36,12 @@ function isCompleted(t: CheckinTemplate) {
 
 onMounted(loadTemplates)
 
-// ─── Schedule label ───────────────────────────────────────────────────────────
+// ─── Active-today gating (schedule label comes from checkinScheduleLabel helper) ──
 
-const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-
-function checkinScheduleLabel(t: CheckinTemplate): string {
-  if (t.schedule_type === 'DAILY') return 'Daily'
-  if (t.schedule_type === 'MONTHLY') return 'Monthly'
-  if (!t.days_active || t.days_active.length === 0) return 'Weekly'
-  return `Weekly · ${t.days_active.map((d) => DAY_NAMES[d]).join(', ')}`
-}
-
-const todayDow = new Date().getDay() // 0=Sun … 6=Sat
+const now = new Date()
+const todayDow = now.getDay() // 0=Sun … 6=Sat
+const todayDom = now.getDate() // 1…31
+const daysInThisMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
 
 function isActiveToday(t: CheckinTemplate): boolean {
   if (t.schedule_type === 'DAILY') return true
@@ -55,21 +49,35 @@ function isActiveToday(t: CheckinTemplate): boolean {
     if (!t.days_active || t.days_active.length === 0) return true
     return t.days_active.includes(todayDow)
   }
-  return true // MONTHLY — always show
+  // MONTHLY — active on the configured day, clamped to the month's last day.
+  const day = t.days_active?.[0]
+  if (!day) return true
+  return todayDom === Math.min(day, daysInThisMonth)
 }
 
 // ─── Create template ─────────────────────────────────────────────────────────
+// Skip the modal — create a blank check-in and land straight on its edit page,
+// where title/icon/color/schedule/questions are all configured inline.
 
-const showCreate = useBoolModalQuery('create')
+const creating = ref(false)
 
-function openCreate() {
-  showCreate.value = true
-}
-
-async function onCreated(t: CheckinTemplate) {
-  templates.value.push(t)
-  toast.add({ title: 'Check-in created', color: 'success', duration: 2000 })
-  await navigateTo(`/checkin/${t.id}`)
+async function openCreate() {
+  if (creating.value) return
+  creating.value = true
+  try {
+    const t = await db.createCheckinTemplate({
+      title: 'New check-in',
+      schedule_type: 'DAILY',
+      days_active: null,
+      icon: 'pencil-square',
+      color: '#22d3ee',
+    })
+    await navigateTo(`/checkin/${t.id}?new=1`)
+  } catch (e) {
+    creating.value = false
+    logError('[checkin/create]', e)
+    toast.add({ title: 'Failed to create check-in', color: 'error', duration: 3000 })
+  }
 }
 </script>
 
@@ -96,6 +104,7 @@ async function onCreated(t: CheckinTemplate) {
           color="neutral"
           size="sm"
           class="min-h-[44px]"
+          :loading="creating"
           @click="openCreate"
         >
           New
@@ -137,15 +146,12 @@ async function onCreated(t: CheckinTemplate) {
         description="Track your mood, energy, or anything you want to reflect on."
       >
         <template #actions>
-          <UButton @click="openCreate" :icon="resolveIcon('plus')">
+          <UButton @click="openCreate" :icon="resolveIcon('plus')" :loading="creating">
             Create Check-in
           </UButton>
         </template>
       </EmptyState>
     </div>
-
-    <!-- ── Create modal ─────────────────────────────────────────────────────── -->
-    <CheckinFormModal v-model="showCreate" mode="create" @saved="onCreated" />
 
   </div>
 </template>
