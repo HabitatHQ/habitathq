@@ -1,16 +1,92 @@
 <script setup lang="ts">
+import { useDragReorder } from '~/composables/useTabReorder'
 import type { CheckinQuestion, CheckinReminder, CheckinTemplate } from '~/types/database'
 
 const db = useDatabase()
 const toast = useToast()
 const route = useRoute()
 const templateId = computed(() => route.params['id'] as string)
+// Freshly created check-ins arrive with ?new=1 — focus the title so the user can name it right away.
+const isNew = route.query['new'] === '1'
+
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 // ─── Template + questions ─────────────────────────────────────────────────────
 
 const template = ref<CheckinTemplate | null>(null)
 const questions = ref<CheckinQuestion[]>([])
+const reminders = ref<CheckinReminder[]>([])
 const loading = ref(true)
+
+// ─── Identity (title / icon / color / schedule) — auto-saved inline ───────────
+
+const form = reactive({
+  title: '',
+  icon: 'pencil-square',
+  color: '#22d3ee',
+  schedule_type: 'DAILY' as 'DAILY' | 'WEEKLY' | 'MONTHLY',
+  days_active: [] as number[],
+  dayOfMonth: new Date().getDate(),
+})
+
+function clampDayOfMonth(n: number): number {
+  if (!Number.isFinite(n)) return 1
+  return Math.min(31, Math.max(1, Math.round(n)))
+}
+let hydrated = false
+const savedFlash = ref(false)
+let savedTimer: ReturnType<typeof setTimeout> | null = null
+let titleTimer: ReturnType<typeof setTimeout> | null = null
+
+function flashSaved() {
+  savedFlash.value = true
+  if (savedTimer) clearTimeout(savedTimer)
+  savedTimer = setTimeout(() => {
+    savedFlash.value = false
+  }, 1500)
+}
+
+async function persistIdentity() {
+  if (!template.value) return
+  let days: number[] | null = null
+  if (form.schedule_type === 'WEEKLY' && form.days_active.length) days = [...form.days_active]
+  else if (form.schedule_type === 'MONTHLY') days = [clampDayOfMonth(form.dayOfMonth)]
+  try {
+    template.value = await db.updateCheckinTemplate({
+      id: template.value.id,
+      title: form.title.trim() || template.value.title,
+      schedule_type: form.schedule_type,
+      days_active: days,
+      icon: form.icon,
+      color: form.color,
+    })
+    flashSaved()
+  } catch (e) {
+    logError('[checkin/persistIdentity]', e)
+    toast.add({ title: 'Failed to save', color: 'error', duration: 3000 })
+  }
+}
+
+function onTitleInput(val: string) {
+  form.title = val
+  if (titleTimer) clearTimeout(titleTimer)
+  titleTimer = setTimeout(persistIdentity, 600)
+}
+
+// Discrete selections (icon / color / schedule / days) save immediately.
+watch(
+  [
+    () => form.icon,
+    () => form.color,
+    () => form.schedule_type,
+    () => form.days_active,
+    () => form.dayOfMonth,
+  ],
+  () => {
+    if (hydrated) void persistIdentity()
+  },
+  { deep: true },
+)
 
 async function loadTemplate() {
   const [tmpl, qs] = await Promise.all([
@@ -19,6 +95,19 @@ async function loadTemplate() {
   ])
   template.value = tmpl
   questions.value = qs
+  if (tmpl) {
+    form.title = tmpl.title
+    form.icon = tmpl.icon
+    form.color = tmpl.color
+    form.schedule_type = tmpl.schedule_type
+    form.days_active =
+      tmpl.schedule_type === 'WEEKLY' && tmpl.days_active ? [...tmpl.days_active] : []
+    if (tmpl.schedule_type === 'MONTHLY' && tmpl.days_active?.length) {
+      form.dayOfMonth = clampDayOfMonth(tmpl.days_active[0] ?? 1)
+    }
+  }
+  await nextTick()
+  hydrated = true
   loading.value = false
 }
 
@@ -30,6 +119,12 @@ const newResponseType = ref<'SCALE' | 'TEXT' | 'BOOLEAN'>('TEXT')
 const newDesiredAnswer = ref(1)
 const addingQuestion = ref(false)
 const deletingQuestion = reactive(new Set<string>())
+
+function questionTypeLabel(q: CheckinQuestion): string {
+  if (q.response_type === 'TEXT') return 'Text Input'
+  if (q.response_type === 'SCALE') return '1–10 Scale'
+  return `Yes/No · desired: ${q.desired_answer === 0 ? 'No' : 'Yes'}`
+}
 
 async function addQuestion() {
   if (!newPrompt.value.trim() || addingQuestion.value) return
@@ -69,11 +164,42 @@ async function deleteQuestion(qid: string) {
   }
 }
 
+// ─── Question reorder (drag) ──────────────────────────────────────────────────
+
+const questionsContainerRef = ref<HTMLElement | null>(null)
+const { state: qDrag, onPointerDown: qDragPointerDown } = useDragReorder(
+  questions,
+  (newOrder) => {
+    void applyQuestionOrder(newOrder)
+  },
+  { orientation: 'vertical' },
+)
+
+function onQuestionPointerDown(index: number, e: PointerEvent) {
+  if (questionsContainerRef.value) qDragPointerDown(index, e, questionsContainerRef.value)
+}
+
+async function applyQuestionOrder(newOrder: CheckinQuestion[]) {
+  const previousOrder = questions.value
+  questions.value = newOrder
+  try {
+    await Promise.all(
+      newOrder.map((q, i) =>
+        q.display_order === i ? null : db.updateCheckinQuestion({ id: q.id, display_order: i }),
+      ),
+    )
+    newOrder.forEach((q, i) => {
+      q.display_order = i
+    })
+  } catch (err) {
+    logError('[reorderQuestions]', err)
+    toast.add({ title: 'Failed to save order', color: 'error', duration: 3000 })
+    questions.value = previousOrder
+  }
+}
+
 // ─── Reminders ────────────────────────────────────────────────────────────────
 
-const CHECKIN_DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-
-const reminders = ref<CheckinReminder[]>([])
 const showAddReminder = ref(false)
 const newReminderTime = ref('')
 const newReminderDays = ref<number[]>([])
@@ -86,7 +212,7 @@ async function loadReminders() {
 
 function reminderDaysLabel(r: CheckinReminder): string {
   if (!r.days_active || r.days_active.length === 0) return 'Every day'
-  return r.days_active.map((d) => CHECKIN_DAY_LABELS[d]).join(', ')
+  return r.days_active.map((d) => DAY_NAMES[d]).join(', ')
 }
 
 async function addReminder() {
@@ -124,40 +250,6 @@ async function removeReminder(rid: string) {
   }
 }
 
-// ─── Edit template ────────────────────────────────────────────────────────────
-
-const showEdit = ref(false)
-const editTitle = ref('')
-const editSchedule = ref<'DAILY' | 'WEEKLY' | 'MONTHLY'>('DAILY')
-const editDays = ref<number[]>([])
-const saving = ref(false)
-
-function openEdit() {
-  if (!template.value) return
-  editTitle.value = template.value.title
-  editSchedule.value = template.value.schedule_type
-  editDays.value = template.value.days_active ? [...template.value.days_active] : []
-  showEdit.value = true
-}
-
-async function saveEdit() {
-  if (!template.value || saving.value) return
-  saving.value = true
-  try {
-    const updated = await db.updateCheckinTemplate({
-      id: template.value.id,
-      title: editTitle.value.trim() || template.value.title,
-      schedule_type: editSchedule.value,
-      days_active:
-        editSchedule.value === 'WEEKLY' && editDays.value.length ? [...editDays.value] : null,
-    })
-    template.value = updated
-    showEdit.value = false
-  } finally {
-    saving.value = false
-  }
-}
-
 // ─── Delete template ──────────────────────────────────────────────────────────
 
 const showDeleteConfirm = ref(false)
@@ -172,15 +264,6 @@ async function deleteTemplate() {
   } finally {
     deleting.value = false
   }
-}
-
-// ─── Schedule label helper ────────────────────────────────────────────────────
-
-function scheduleLabel(t: CheckinTemplate): string {
-  if (t.schedule_type === 'DAILY') return 'Daily'
-  if (t.schedule_type === 'MONTHLY') return 'Monthly'
-  if (!t.days_active || t.days_active.length === 0) return 'Weekly'
-  return `Weekly · ${t.days_active.map((d) => CHECKIN_DAY_LABELS[d]).join(', ')}`
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
@@ -212,18 +295,73 @@ onMounted(async () => {
     <template v-else>
 
       <!-- ── Header ────────────────────────────────────────────────────────── -->
-      <header class="flex items-start justify-between">
-        <div>
-          <p class="text-xs text-(--ui-text-dimmed)">{{ scheduleLabel(template) }}</p>
-          <h2 class="text-2xl font-bold leading-tight">{{ template.title }} Configuration</h2>
-        </div>
-        <div class="flex items-center gap-0.5 mt-1">
-          <AppIconButton icon="pencil-square" label="Edit check-in template" @click="openEdit" />
-        </div>
+      <header class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold leading-tight">Edit check-in</h1>
+        <Transition name="swap-slow">
+          <span
+            v-if="savedFlash"
+            class="flex items-center gap-1 text-xs text-green-400"
+            aria-live="polite"
+          >
+            <AppIcon name="check" class="w-3.5 h-3.5" />
+            Saved
+          </span>
+        </Transition>
       </header>
 
+      <!-- ── Identity (auto-saved) ─────────────────────────────────────────── -->
+      <div class="rounded-2xl border border-(--ui-border) bg-(--ui-bg-muted) p-4 space-y-4">
+        <!-- Icon preview + title -->
+        <div class="flex items-center gap-3">
+          <AppCardIcon :icon="form.icon" :icon-color="form.color" :bg-color="form.color + '33'" />
+          <AppTextField
+            :model-value="form.title"
+            placeholder="Check-in name"
+            class="flex-1 text-base font-semibold"
+            :autofocus="isNew"
+            @update:model-value="onTitleInput"
+          />
+        </div>
+
+        <UFormField label="Color">
+          <HabitColorPicker v-model="form.color" />
+        </UFormField>
+        <UFormField label="Icon">
+          <HabitIconPicker v-model="form.icon" :color="form.color" />
+        </UFormField>
+
+        <UFormField label="Schedule">
+          <TypeSelector
+            v-model="form.schedule_type"
+            :options="[{value:'DAILY',label:'Daily'},{value:'WEEKLY',label:'Weekly'},{value:'MONTHLY',label:'Monthly'}]"
+          />
+        </UFormField>
+        <UFormField v-if="form.schedule_type === 'WEEKLY'" label="Days (leave blank for every day)">
+          <DayPicker v-model="form.days_active" :labels="CHECKIN_DAY_LABELS" />
+        </UFormField>
+        <UFormField
+          v-if="form.schedule_type === 'MONTHLY'"
+          label="Day of the month"
+          help="Months without this day fall back to their last day."
+        >
+          <AppTextField
+            :model-value="form.dayOfMonth"
+            type="number"
+            min="1"
+            max="31"
+            class="w-24"
+            @update:model-value="(v: string) => (form.dayOfMonth = clampDayOfMonth(Number(v)))"
+          />
+        </UFormField>
+      </div>
+
       <!-- ── Questions ─────────────────────────────────────────────────────── -->
-      <div class="space-y-4">
+      <div class="space-y-2">
+        <div class="flex items-center justify-between px-1">
+          <p class="text-xs font-semibold text-(--ui-text-muted) uppercase tracking-wide">Questions</p>
+          <p v-if="questions.length > 1" class="text-[11px] text-(--ui-text-dimmed)">Drag to reorder</p>
+        </div>
+
         <div
           v-if="questions.length === 0"
           class="flex flex-col items-center gap-3 py-8 text-center bg-(--ui-bg-muted) rounded-2xl border border-(--ui-border)"
@@ -232,13 +370,25 @@ onMounted(async () => {
           <p class="text-sm text-(--ui-text-dimmed)">No questions yet. Add one below.</p>
         </div>
 
-        <UCard
-          v-for="q in questions"
-          :key="q.id"
-          :ui="{ root: 'rounded-2xl', body: 'p-4 sm:p-4 space-y-1' }"
-        >
-          <div class="flex items-start justify-between gap-2">
-            <p class="text-sm font-medium text-(--ui-text) leading-snug">{{ q.prompt }}</p>
+        <ul v-else ref="questionsContainerRef" class="space-y-2">
+          <li
+            v-for="(q, i) in questions"
+            :key="q.id"
+            class="flex items-start gap-2 rounded-2xl border border-(--ui-border) bg-(--ui-bg-elevated) p-3"
+            :class="{ 'opacity-60': qDrag.dragging && qDrag.dragIndex === i }"
+          >
+            <button
+              type="button"
+              class="flex-shrink-0 -ml-1 mt-0.5 min-h-[44px] min-w-[44px] flex items-center justify-center text-(--ui-text-dimmed) hover:text-(--ui-text-muted) cursor-grab active:cursor-grabbing touch-none"
+              aria-label="Drag to reorder question"
+              @pointerdown="onQuestionPointerDown(i, $event)"
+            >
+              <AppIcon name="bars-3" class="w-4 h-4" />
+            </button>
+            <div class="flex-1 min-w-0 space-y-1">
+              <p class="text-sm font-medium text-(--ui-text) leading-snug">{{ q.prompt }}</p>
+              <p class="text-xs text-(--ui-text-dimmed) font-mono">{{ questionTypeLabel(q) }}</p>
+            </div>
             <button
               type="button"
               class="icon-btn flex-shrink-0 text-slate-700 hover:text-red-400"
@@ -248,81 +398,80 @@ onMounted(async () => {
             >
               <AppIcon name="trash" class="w-4 h-4" />
             </button>
-          </div>
-          <p class="text-xs text-(--ui-text-dimmed) font-mono">
-            {{ q.response_type === 'TEXT' ? 'Text Input' : q.response_type === 'SCALE' ? '1-10 Scale' : `Yes/No · desired: ${q.desired_answer === 0 ? 'No' : 'Yes'}` }}
-          </p>
-        </UCard>
-      </div>
+          </li>
+        </ul>
 
-      <!-- ── Add question ───────────────────────────────────────────────────── -->
-      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
-        <div class="px-4 pt-3.5 pb-3 flex items-center justify-between cursor-pointer" @click="showAddQuestion = !showAddQuestion">
-          <p class="text-xs font-semibold text-(--ui-text-muted)">Add Question</p>
-          <UButton
-            size="xs"
-            variant="ghost"
-            color="neutral"
-            :icon="resolveIcon(showAddQuestion ? 'chevron-up' : 'plus')"
-            :aria-label="showAddQuestion ? 'Collapse add question' : 'Expand add question'"
-            class="min-h-[44px] min-w-[44px]"
-            @click.stop="showAddQuestion = !showAddQuestion"
-          />
-        </div>
-
-        <div v-if="showAddQuestion" class="px-4 py-3 space-y-3">
-          <AppTextField
-            v-model="newPrompt"
-            placeholder="Question prompt…"
-            autofocus
-            @keydown.enter="addQuestion"
-          />
-          <!-- Response type -->
-          <div class="space-y-1">
-            <p class="text-[11px] text-(--ui-text-dimmed)">Response type</p>
-            <div class="flex gap-1.5">
-              <button
-                v-for="rt in (['TEXT', 'SCALE', 'BOOLEAN'] as const)"
-                :key="rt"
-                class="flex-1 py-1 text-xs font-medium rounded-lg border transition-colors"
-                :class="newResponseType === rt
-                  ? 'bg-primary-500/20 border-primary-500 text-primary-300'
-                  : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented)'"
-                @click="newResponseType = rt"
-              >
-                {{ rt === 'TEXT' ? 'Text' : rt === 'SCALE' ? '1–10' : 'Yes/No' }}
-              </button>
-            </div>
-          </div>
-          <div v-if="newResponseType === 'BOOLEAN'" class="space-y-1">
-            <p class="text-[11px] text-(--ui-text-dimmed)">Desired answer</p>
-            <div class="flex gap-1.5">
-              <button
-                v-for="opt in ([{ value: 1, label: 'Yes' }, { value: 0, label: 'No' }] as const)"
-                :key="opt.value"
-                class="flex-1 py-1 text-xs font-medium rounded-lg border transition-colors"
-                :class="newDesiredAnswer === opt.value
-                  ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
-                  : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented)'"
-                @click="newDesiredAnswer = opt.value"
-              >
-                {{ opt.label }}
-              </button>
-            </div>
-          </div>
-          <div class="flex justify-end gap-2">
-            <UButton size="xs" variant="ghost" color="neutral" @click="showAddQuestion = false">Cancel</UButton>
+        <!-- ── Add question ─────────────────────────────────────────────────── -->
+        <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
+          <div class="px-4 pt-3.5 pb-3 flex items-center justify-between">
+            <p class="text-xs font-semibold text-(--ui-text-muted)">Add Question</p>
             <UButton
               size="xs"
-              :disabled="!newPrompt.trim() || addingQuestion"
-              :loading="addingQuestion"
-              @click="addQuestion"
-            >
-              Add
-            </UButton>
+              variant="ghost"
+              color="neutral"
+              :icon="resolveIcon(showAddQuestion ? 'chevron-up' : 'plus')"
+              :aria-label="showAddQuestion ? 'Collapse add question' : 'Expand add question'"
+              class="min-h-[44px] min-w-[44px]"
+              @click.stop="showAddQuestion = !showAddQuestion"
+            />
           </div>
-        </div>
-      </UCard>
+
+          <div v-if="showAddQuestion" class="px-4 py-3 space-y-3">
+            <UFormField label="Prompt">
+              <AppTextField
+                v-model="newPrompt"
+                placeholder="e.g. How are you feeling?"
+                class="w-full"
+                autofocus
+                @keydown.enter="addQuestion"
+              />
+            </UFormField>
+            <UFormField label="Response type">
+              <div class="flex gap-1.5" role="group" aria-label="Response type">
+                <button
+                  v-for="rt in (['TEXT', 'SCALE', 'BOOLEAN'] as const)"
+                  :key="rt"
+                  :aria-pressed="newResponseType === rt"
+                  class="flex-1 min-h-[44px] py-1.5 text-xs font-medium rounded-lg border transition-colors"
+                  :class="newResponseType === rt
+                    ? 'bg-primary-500/20 border-primary-500 text-primary-300'
+                    : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented)'"
+                  @click="newResponseType = rt"
+                >
+                  {{ rt === 'TEXT' ? 'Text' : rt === 'SCALE' ? '1–10' : 'Yes/No' }}
+                </button>
+              </div>
+            </UFormField>
+            <UFormField v-if="newResponseType === 'BOOLEAN'" label="Desired answer">
+              <div class="flex gap-1.5" role="group" aria-label="Desired answer">
+                <button
+                  v-for="opt in ([{ value: 1, label: 'Yes' }, { value: 0, label: 'No' }] as const)"
+                  :key="opt.value"
+                  :aria-pressed="newDesiredAnswer === opt.value"
+                  class="flex-1 min-h-[44px] py-1.5 text-xs font-medium rounded-lg border transition-colors"
+                  :class="newDesiredAnswer === opt.value
+                    ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                    : 'border-(--ui-border-accented) text-(--ui-text-dimmed) hover:border-(--ui-border-accented)'"
+                  @click="newDesiredAnswer = opt.value"
+                >
+                  {{ opt.label }}
+                </button>
+              </div>
+            </UFormField>
+            <div class="flex justify-end gap-2">
+              <UButton size="xs" variant="ghost" color="neutral" @click="showAddQuestion = false">Cancel</UButton>
+              <UButton
+                size="xs"
+                :disabled="!newPrompt.trim() || addingQuestion"
+                :loading="addingQuestion"
+                @click="addQuestion"
+              >
+                Add
+              </UButton>
+            </div>
+          </div>
+        </UCard>
+      </div>
 
       <!-- ── Reminders ─────────────────────────────────────────────────────── -->
       <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
@@ -395,40 +544,11 @@ onMounted(async () => {
           :icon="resolveIcon('trash')"
           @click="showDeleteConfirm = true"
         >
-          Delete check-in template
+          Delete check-in
         </UButton>
       </div>
 
     </template>
-
-    <!-- ── Edit modal ─────────────────────────────────────────────────────── -->
-    <AppModal v-model="showEdit">
-        <div class="flex items-center justify-between">
-          <h3 class="font-semibold text-(--ui-text)">Edit Template</h3>
-          <AppIconButton icon="x-mark" label="Close" @click="showEdit = false" />
-        </div>
-
-        <AppTextField v-model="editTitle" placeholder="Name" @keydown.enter="saveEdit" />
-
-        <div class="space-y-1.5">
-          <p class="text-xs text-(--ui-text-dimmed)">Schedule</p>
-          <TypeSelector
-            v-model="editSchedule"
-            :options="[{value:'DAILY',label:'Daily'},{value:'WEEKLY',label:'Weekly'},{value:'MONTHLY',label:'Monthly'}]"
-          />
-        </div>
-
-        <div v-if="editSchedule === 'WEEKLY'" class="space-y-1.5">
-          <p class="text-xs text-(--ui-text-dimmed)">Days (leave blank for every day)</p>
-          <DayPicker v-model="editDays" :labels="CHECKIN_DAY_LABELS" />
-        </div>
-
-        <div class="flex justify-end gap-2 pt-1">
-          <UButton variant="ghost" color="neutral" size="sm" @click="showEdit = false">Cancel</UButton>
-          <UButton size="sm" :disabled="saving" :loading="saving" @click="saveEdit">Save</UButton>
-        </div>
-        <div class="safe-area-bottom" aria-hidden="true" />
-    </AppModal>
 
     <!-- ── Delete confirm ─────────────────────────────────────────────────── -->
     <ConfirmDialog

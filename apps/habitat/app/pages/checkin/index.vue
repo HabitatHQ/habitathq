@@ -4,6 +4,7 @@ import { toLocalDateKey } from '~/utils/format'
 
 const db = useDatabase()
 const toast = useToast()
+const { impact } = useHaptics()
 const templates = ref<CheckinTemplate[]>([])
 const loading = ref(true)
 const staggerOnce = useFirstVisit('checkin-list')
@@ -36,18 +37,12 @@ function isCompleted(t: CheckinTemplate) {
 
 onMounted(loadTemplates)
 
-// ─── Schedule label ───────────────────────────────────────────────────────────
+// ─── Active-today gating (schedule label comes from checkinScheduleLabel helper) ──
 
-const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-
-function checkinScheduleLabel(t: CheckinTemplate): string {
-  if (t.schedule_type === 'DAILY') return 'Daily'
-  if (t.schedule_type === 'MONTHLY') return 'Monthly'
-  if (!t.days_active || t.days_active.length === 0) return 'Weekly'
-  return `Weekly · ${t.days_active.map((d) => DAY_NAMES[d]).join(', ')}`
-}
-
-const todayDow = new Date().getDay() // 0=Sun … 6=Sat
+const now = new Date()
+const todayDow = now.getDay() // 0=Sun … 6=Sat
+const todayDom = now.getDate() // 1…31
+const daysInThisMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
 
 function isActiveToday(t: CheckinTemplate): boolean {
   if (t.schedule_type === 'DAILY') return true
@@ -55,48 +50,34 @@ function isActiveToday(t: CheckinTemplate): boolean {
     if (!t.days_active || t.days_active.length === 0) return true
     return t.days_active.includes(todayDow)
   }
-  return true // MONTHLY — always show
+  // MONTHLY — active on the configured day, clamped to the month's last day.
+  const day = t.days_active?.[0]
+  if (!day) return true
+  return todayDom === Math.min(day, daysInThisMonth)
 }
 
 // ─── Create template ─────────────────────────────────────────────────────────
+// Skip the modal — create a blank check-in and land straight on its edit page,
+// where title/icon/color/schedule/questions are all configured inline.
 
-const showCreate = useBoolModalQuery('create')
 const creating = ref(false)
-const newTitle = ref('')
-const newTitleError = ref<string | null>(null)
-const newSchedule = ref<'DAILY' | 'WEEKLY' | 'MONTHLY'>('DAILY')
-const newDays = ref<number[]>([])
 
-watch(newTitle, () => {
-  newTitleError.value = null
-})
-
-function openCreate() {
-  newTitle.value = ''
-  newSchedule.value = 'DAILY'
-  newDays.value = []
-  showCreate.value = true
-}
-
-async function createTemplate() {
+async function openCreate() {
   if (creating.value) return
-  if (!newTitle.value.trim()) {
-    newTitleError.value = 'Name is required'
-    return
-  }
-  newTitleError.value = null
   creating.value = true
   try {
     const t = await db.createCheckinTemplate({
-      title: newTitle.value.trim(),
-      schedule_type: newSchedule.value,
-      days_active:
-        newSchedule.value === 'WEEKLY' && newDays.value.length ? [...newDays.value] : null,
+      title: 'New check-in',
+      schedule_type: 'DAILY',
+      days_active: null,
+      icon: 'pencil-square',
+      color: '#22d3ee',
     })
-    templates.value.push(t)
-    showCreate.value = false
-    toast.add({ title: 'Check-in created', color: 'success', duration: 2000 })
-    await navigateTo(`/checkin/${t.id}`)
+    void impact('medium')
+    await navigateTo(`/checkin/${t.id}?new=1`)
+  } catch (e) {
+    logError('[checkin/create]', e)
+    toast.add({ title: 'Failed to create check-in', color: 'error', duration: 3000 })
   } finally {
     creating.value = false
   }
@@ -126,6 +107,7 @@ async function createTemplate() {
           color="neutral"
           size="sm"
           class="min-h-[44px]"
+          :loading="creating"
           @click="openCreate"
         >
           New
@@ -149,7 +131,7 @@ async function createTemplate() {
           :completed="isCompleted(t)"
           :dimmed="!isActiveToday(t)"
         >
-          <AppCardIcon icon="pencil-square" bg-class="bg-primary-500/10" icon-color="#22d3ee" />
+          <AppCardIcon :icon="t.icon" :icon-color="t.color" :bg-color="t.color + '33'" />
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-(--ui-text) truncate">{{ t.title }}</p>
             <p class="text-xs text-(--ui-text-dimmed) mt-0.5">
@@ -167,60 +149,12 @@ async function createTemplate() {
         description="Track your mood, energy, or anything you want to reflect on."
       >
         <template #actions>
-          <UButton @click="openCreate" :icon="resolveIcon('plus')">
+          <UButton @click="openCreate" :icon="resolveIcon('plus')" :loading="creating" class="min-h-[44px] min-w-[44px]">
             Create Check-in
           </UButton>
         </template>
       </EmptyState>
     </div>
-
-    <!-- ── Create modal ─────────────────────────────────────────────────────── -->
-    <AppModal v-model="showCreate">
-        <div class="flex items-center justify-between">
-          <h3 class="font-semibold text-(--ui-text)">New Check-in</h3>
-          <AppIconButton icon="x-mark" label="Close" @click="showCreate = false" />
-        </div>
-
-        <!-- Title -->
-        <AppTextField
-          v-model="newTitle"
-          placeholder="Name (e.g. Morning Check-in)"
-          autofocus
-          @keydown.enter="createTemplate"
-        />
-        <p v-if="newTitleError" class="text-xs text-red-400 -mt-2 flex items-center gap-1">
-          <AppIcon name="exclamation-circle" class="w-4 h-4 flex-shrink-0" />
-          {{ newTitleError }}
-        </p>
-
-        <!-- Schedule -->
-        <div class="space-y-1.5">
-          <p class="text-xs text-(--ui-text-dimmed)">Schedule</p>
-          <TypeSelector
-            v-model="newSchedule"
-            :options="[{value:'DAILY',label:'Daily'},{value:'WEEKLY',label:'Weekly'},{value:'MONTHLY',label:'Monthly'}]"
-          />
-        </div>
-
-        <!-- Day picker (WEEKLY only) -->
-        <div v-if="newSchedule === 'WEEKLY'" class="space-y-1.5">
-          <p class="text-xs text-(--ui-text-dimmed)">Days (leave blank for every day)</p>
-          <DayPicker v-model="newDays" :labels="CHECKIN_DAY_LABELS" />
-        </div>
-
-        <div class="flex justify-end gap-2 pt-1">
-          <UButton variant="ghost" color="neutral" size="sm" @click="showCreate = false">Cancel</UButton>
-          <UButton
-            size="sm"
-            :disabled="!newTitle.trim() || creating"
-            :loading="creating"
-            @click="createTemplate"
-          >
-            Create
-          </UButton>
-        </div>
-        <div class="safe-area-bottom" aria-hidden="true" />
-    </AppModal>
 
   </div>
 </template>

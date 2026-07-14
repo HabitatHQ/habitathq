@@ -48,25 +48,10 @@ test.describe('Query-param modal opening', () => {
     await expect(page.getByRole('heading', { name: 'New Habit' })).toBeVisible({ timeout: 5000 })
   })
 
-  test('/checkin?modal=create opens the create-template modal', async ({ page }) => {
-    await page.goto('/checkin?modal=create')
-    await page.waitForLoadState('networkidle')
-    await expect(page.getByRole('heading', { name: 'New Check-in' })).toBeVisible({ timeout: 5000 })
-  })
-
   test('closing the habit modal removes query param', async ({ page }) => {
     await page.goto('/habits?modal=create')
     await page.waitForLoadState('networkidle')
     await expect(page.getByRole('heading', { name: 'New Habit' })).toBeVisible({ timeout: 5000 })
-
-    await page.getByRole('button', { name: 'Cancel' }).click()
-    await expect(page).not.toHaveURL(/modal=create/)
-  })
-
-  test('closing the checkin modal removes query param', async ({ page }) => {
-    await page.goto('/checkin?modal=create')
-    await page.waitForLoadState('networkidle')
-    await expect(page.getByRole('heading', { name: 'New Check-in' })).toBeVisible({ timeout: 5000 })
 
     await page.getByRole('button', { name: 'Cancel' }).click()
     await expect(page).not.toHaveURL(/modal=create/)

@@ -259,154 +259,16 @@ async function deleteCompletionRecord(date: string) {
 // ─── Edit ─────────────────────────────────────────────────────────────────────
 
 const isEditing = ref(false)
-const editScheduleError = ref<string | null>(null)
-
-// Clear error when the modal closes (cancel or after save)
-watch(isEditing, (open) => {
-  if (!open) editScheduleError.value = null
-})
-
-const editForm = reactive({
-  name: '',
-  description: '',
-  why: '',
-  icon: 'star',
-  color: '#06b6d4',
-  type: 'BOOLEAN' as 'BOOLEAN' | 'NUMERIC' | 'LIMIT',
-  target_value: 1,
-  schedule_type: 'DAILY' as 'DAILY' | 'WEEKLY_FLEX' | 'SPECIFIC_DAYS',
-  frequency_count: 3,
-  days_of_week: [] as number[],
-  tags: [] as string[],
-  show_due_time: false,
-  due_time: '',
-})
-const saving = ref(false)
-
-const { loadTags, suggest: suggestHabitTags } = useTagSuggestions('habit')
-const editAnnotationEntries = ref<{ key: string; value: string }[]>([])
-const editShowAnnotations = ref(false)
-
-function addEditAnnotationEntry() {
-  editAnnotationEntries.value.push({ key: '', value: '' })
-}
-function removeEditAnnotationEntry(i: number) {
-  editAnnotationEntries.value.splice(i, 1)
-}
-
-const availableEditSchedules = computed(() => {
-  if (editForm.type === 'LIMIT') return ['DAILY'] as const
-  if (editForm.type === 'NUMERIC') return ['DAILY', 'WEEKLY_FLEX'] as const
-  return ['DAILY', 'WEEKLY_FLEX', 'SPECIFIC_DAYS'] as const
-})
-
-watch(
-  () => editForm.type,
-  (newType) => {
-    if (newType === 'LIMIT') {
-      editForm.schedule_type = 'DAILY'
-    } else if (newType === 'NUMERIC') {
-      if (editForm.schedule_type === 'SPECIFIC_DAYS') editForm.schedule_type = 'DAILY'
-      if (editForm.schedule_type === 'WEEKLY_FLEX') editForm.frequency_count = 1
-    }
-  },
-)
-
-watch(
-  () => editForm.schedule_type,
-  (newSched) => {
-    if (editForm.type === 'NUMERIC' && newSched === 'WEEKLY_FLEX') {
-      editForm.frequency_count = 1
-    }
-  },
-)
-
-function validateEditSchedule(): string | null {
-  if (editForm.type === 'NUMERIC') {
-    if (editForm.schedule_type === 'SPECIFIC_DAYS')
-      return 'Target habits can only be daily or 1× per week.'
-    if (editForm.schedule_type === 'WEEKLY_FLEX' && editForm.frequency_count > 1)
-      return 'Target habits can only be daily or 1× per week.'
-  }
-  if (editForm.type === 'LIMIT' && editForm.schedule_type !== 'DAILY')
-    return 'Limit habits must be daily.'
-  return null
-}
-
-watch([() => editForm.type, () => editForm.schedule_type, () => editForm.frequency_count], () => {
-  editScheduleError.value = null
-})
 
 function openEdit() {
   if (!habit.value) return
-  const sched = habit.value.schedule
-  editForm.name = habit.value.name
-  editForm.description = habit.value.description
-  editForm.why = habit.value.why
-  editForm.icon = habit.value.icon
-  editForm.color = habit.value.color
-  editForm.type = habit.value.type
-  editForm.target_value = habit.value.target_value
-  editForm.schedule_type = sched?.schedule_type ?? 'DAILY'
-  editForm.frequency_count = sched?.frequency_count ?? 3
-  editForm.days_of_week = sched?.days_of_week ? [...sched.days_of_week] : []
-  editForm.tags = [...habit.value.tags]
-  editForm.show_due_time = !!sched?.due_time
-  editForm.due_time = sched?.due_time ?? ''
-  editAnnotationEntries.value = Object.entries(habit.value.annotations).map(([key, value]) => ({
-    key,
-    value,
-  }))
-  editShowAnnotations.value = editAnnotationEntries.value.length > 0
   isEditing.value = true
 }
 
-async function saveEdit() {
-  if (!habit.value || !editForm.name.trim()) return
-  const err = validateEditSchedule()
-  if (err) {
-    editScheduleError.value = err
-    return
-  }
-  editScheduleError.value = null
-  saving.value = true
-  try {
-    const editAnnotations: Record<string, string> = {}
-    for (const { key, value } of editAnnotationEntries.value) {
-      if (key.trim()) editAnnotations[key.trim()] = value
-    }
-    const updated = await db.updateHabit({
-      id: habit.value.id,
-      name: editForm.name.trim(),
-      description: editForm.description.trim(),
-      why: editForm.why.trim(),
-      icon: editForm.icon,
-      color: editForm.color,
-      type: editForm.type,
-      target_value: editForm.target_value,
-      tags: [...editForm.tags],
-      annotations: editAnnotations,
-    })
-    const sched = updated.schedule
-    if (sched) {
-      const newSchedule = await db.updateHabitSchedule({
-        id: sched.id,
-        schedule_type: editForm.schedule_type,
-        frequency_count: editForm.schedule_type === 'WEEKLY_FLEX' ? editForm.frequency_count : null,
-        days_of_week:
-          editForm.schedule_type === 'SPECIFIC_DAYS' ? [...editForm.days_of_week] : null,
-        due_time: editForm.show_due_time && editForm.due_time ? editForm.due_time : null,
-      })
-      habit.value = { ...updated, schedule: newSchedule }
-    } else {
-      habit.value = updated
-    }
-    isEditing.value = false
-    await notification('success')
-    toast.add({ title: 'Habit saved', color: 'success', duration: 2000 })
-  } finally {
-    saving.value = false
-  }
+async function onHabitEdited(updated: HabitWithSchedule) {
+  habit.value = updated
+  await notification('success')
+  toast.add({ title: 'Habit saved', color: 'success', duration: 2000 })
 }
 
 // ─── Pause / Resume ───────────────────────────────────────────────────────────
@@ -622,7 +484,6 @@ async function submitLogSheet(value: number) {
 
 onMounted(() => {
   void load()
-  void loadTags()
 })
 </script>
 
@@ -651,6 +512,15 @@ onMounted(() => {
           <p v-if="habit.description" class="text-sm text-(--ui-text-dimmed) truncate">{{ habit.description }}</p>
           <p v-if="habit.why" class="text-sm text-(--ui-text-dimmed) italic truncate">{{ habit.why }}</p>
         </div>
+        <UButton
+          :icon="resolveIcon('pencil-square')"
+          variant="ghost"
+          color="neutral"
+          size="sm"
+          aria-label="Edit habit"
+          class="min-h-[44px] min-w-[44px] flex-shrink-0"
+          @click="openEdit"
+        />
       </div>
 
       <!-- ── Sprout streak hero ──────────────────────────────────────────────── -->
@@ -937,9 +807,6 @@ onMounted(() => {
 
       <!-- ── Actions ────────────────────────────────────────────────────────── -->
       <div class="flex gap-3 pt-1">
-        <UButton variant="outline" color="neutral" class="flex-1 justify-center" @click="openEdit">
-          Edit Habit
-        </UButton>
         <UButton variant="soft" color="error" class="flex-1 justify-center" @click="showArchiveConfirm = true">
           Archive
         </UButton>
@@ -947,151 +814,7 @@ onMounted(() => {
     </template>
 
     <!-- ── Edit modal ─────────────────────────────────────────────────────────── -->
-    <AppModal v-model="isEditing" title="Edit Habit">
-
-          <UFormField label="Name" required>
-            <AppTextField v-model="editForm.name" class="w-full" autofocus />
-          </UFormField>
-
-          <UFormField label="Description">
-            <AppTextArea v-model="editForm.description" placeholder="Optional description" class="w-full" />
-          </UFormField>
-
-          <!-- Why -->
-          <UFormField label="Why is this important?">
-            <AppTextArea v-model="editForm.why" placeholder="What motivates you to build this habit?" class="w-full" />
-          </UFormField>
-
-          <!-- Icon & Color -->
-          <UFormField label="Color">
-            <HabitColorPicker v-model="editForm.color" />
-          </UFormField>
-          <UFormField label="Icon">
-            <HabitIconPicker v-model="editForm.icon" :color="editForm.color" />
-          </UFormField>
-
-          <!-- Tags -->
-          <UFormField label="Tags">
-            <TagInput v-model="editForm.tags" :suggest="suggestHabitTags" />
-          </UFormField>
-
-          <!-- Type selector -->
-          <UFormField label="Type">
-            <TypeSelector
-              v-model="editForm.type"
-              :options="[{value:'BOOLEAN',label:'Yes/No'},{value:'NUMERIC',label:'Target'},{value:'LIMIT',label:'Limit'}]"
-            />
-          </UFormField>
-
-          <!-- Target (NUMERIC / LIMIT only) -->
-          <UFormField v-if="editForm.type !== 'BOOLEAN'" :label="editForm.type === 'NUMERIC' ? 'Target' : 'Limit'">
-            <div class="flex items-center gap-2">
-              <AppTextField
-                :model-value="editForm.target_value"
-                type="number"
-                min="0.1"
-                class="w-28 sm:w-full"
-                @update:model-value="editForm.target_value = Number($event)"
-              />
-              <span class="text-sm text-(--ui-text-dimmed)">
-                {{ editForm.schedule_type === 'WEEKLY_FLEX' ? 'per week' : 'per day' }}
-              </span>
-            </div>
-          </UFormField>
-
-          <!-- Schedule -->
-          <UFormField label="Schedule">
-            <div v-if="editForm.type === 'LIMIT'" class="py-1.5 px-3 rounded-lg text-sm bg-(--ui-bg-elevated) text-(--ui-text-toned) text-center font-medium">
-              Daily
-            </div>
-            <div v-else class="flex gap-2 mb-2">
-              <button
-                v-for="s in availableEditSchedules"
-                :key="s"
-                class="flex-1 py-1.5 rounded-lg text-sm font-medium transition-colors"
-                :class="editForm.schedule_type === s
-                  ? 'bg-primary-600 text-white'
-                  : 'bg-(--ui-bg-elevated) text-(--ui-text-toned)'"
-                @click="editForm.schedule_type = s"
-              >
-                {{ s === 'DAILY' ? 'Daily' : s === 'WEEKLY_FLEX' ? 'Weekly' : 'Specific days' }}
-              </button>
-            </div>
-
-            <div v-if="editForm.schedule_type === 'WEEKLY_FLEX' && editForm.type !== 'NUMERIC'" class="flex items-center gap-2">
-              <span class="text-sm text-(--ui-text-muted)">Times per week:</span>
-              <div class="flex items-center gap-1">
-                <button
-                  class="w-7 h-7 rounded-lg bg-(--ui-bg-elevated) border border-(--ui-border-accented) text-(--ui-text-toned) flex items-center justify-center text-sm"
-                  @click="editForm.frequency_count = Math.max(1, editForm.frequency_count - 1)"
-                >−</button>
-                <span class="w-5 text-center text-sm font-medium">{{ editForm.frequency_count }}</span>
-                <button
-                  class="w-7 h-7 rounded-lg bg-(--ui-bg-elevated) border border-(--ui-border-accented) text-(--ui-text-toned) flex items-center justify-center text-sm"
-                  @click="editForm.frequency_count = Math.min(7, editForm.frequency_count + 1)"
-                >+</button>
-              </div>
-            </div>
-
-            <DayPicker
-              v-if="editForm.schedule_type === 'SPECIFIC_DAYS'"
-              v-model="editForm.days_of_week"
-              :labels="HABIT_DAY_LABELS"
-            />
-          </UFormField>
-
-          <!-- Due time -->
-          <div>
-            <button
-              class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1"
-              @click="editForm.show_due_time = !editForm.show_due_time"
-            >
-              <AppIcon :name="editForm.show_due_time ? 'chevron-down' : 'chevron-right'" class="w-4 h-4" />
-              {{ editForm.show_due_time ? 'Remove due time' : 'Add due time' }}
-            </button>
-            <div v-if="editForm.show_due_time" class="mt-2">
-              <AppTextField v-model="editForm.due_time" type="time" class="w-32" />
-            </div>
-          </div>
-
-          <!-- Annotations (collapsible) -->
-          <div>
-            <button
-              class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1"
-              @click="editShowAnnotations = !editShowAnnotations"
-            >
-              <AppIcon :name="editShowAnnotations ? 'chevron-down' : 'chevron-right'" class="w-4 h-4" />
-              {{ editShowAnnotations ? 'Hide annotations' : editAnnotationEntries.length > 0 ? `Annotations (${editAnnotationEntries.length})` : 'Add annotations' }}
-            </button>
-            <div v-if="editShowAnnotations" class="mt-2 space-y-1.5">
-              <div v-for="(entry, i) in editAnnotationEntries" :key="i" class="flex items-center gap-1.5">
-                <AppTextField v-model="entry.key" placeholder="key" class="w-24 shrink-0" />
-                <span class="text-slate-600 text-xs">:</span>
-                <AppTextField v-model="entry.value" placeholder="value" class="flex-1" />
-                <button class="text-slate-700 hover:text-red-400 transition-colors" @click="removeEditAnnotationEntry(i)">
-                  <AppIcon name="x-mark" class="w-4 h-4" />
-                </button>
-              </div>
-              <button class="text-xs text-(--ui-text-dimmed) hover:text-(--ui-text-muted) flex items-center gap-1" @click="addEditAnnotationEntry">
-                <AppIcon name="plus" class="w-3 h-3" /> Add annotation
-              </button>
-            </div>
-          </div>
-
-          <p v-if="editScheduleError" class="text-sm text-red-400 flex items-center gap-1.5">
-            <AppIcon name="exclamation-circle" class="w-4 h-4 flex-shrink-0" />
-            {{ editScheduleError }}
-          </p>
-
-      <template #footer>
-        <div class="flex gap-2">
-          <UButton variant="soft" color="neutral" class="flex-1" @click="isEditing = false">Cancel</UButton>
-          <UButton class="flex-1" :disabled="!editForm.name.trim() || saving" :loading="saving" @click="saveEdit">
-            Save
-          </UButton>
-        </div>
-      </template>
-    </AppModal>
+    <HabitFormModal v-model="isEditing" mode="edit" :habit="habit" @saved="onHabitEdited" />
 
     <!-- ── Pause modal ────────────────────────────────────────────────────────── -->
     <UModal v-model:open="showPauseModal">

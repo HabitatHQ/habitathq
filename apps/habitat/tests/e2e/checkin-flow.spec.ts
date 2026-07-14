@@ -19,13 +19,16 @@ test.describe('Check-in flow', () => {
     await page.goto('/checkin')
     await page.waitForLoadState('networkidle')
 
+    // "New" creates a blank check-in and lands directly on its inline edit page.
     await page.getByRole('button', { name: 'New' }).click()
-    await expect(page.getByRole('heading', { name: 'New Check-in' })).toBeVisible({ timeout: 8000 })
+    await expect(page.getByRole('heading', { name: 'Edit check-in' })).toBeVisible({ timeout: 8000 })
 
-    await page.getByPlaceholder('Name (e.g. Morning Check-in)').fill('Custom Template')
-    await page.getByRole('button', { name: 'Create' }).click()
+    // Rename via the auto-saving title field, then wait for the "Saved" flash.
+    await page.getByPlaceholder('Check-in name').fill('Custom Template')
+    await expect(page.getByText('Saved')).toBeVisible({ timeout: 5000 })
 
-    await expect(page.getByRole('heading', { name: 'New Check-in' })).not.toBeVisible()
+    // Back on the list, the new check-in shows the chosen name.
+    await page.goto('/checkin')
     await expect(page.getByText('Custom Template')).toBeVisible({ timeout: 8000 })
   })
 })

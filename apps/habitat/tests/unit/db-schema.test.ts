@@ -246,13 +246,13 @@ describe('SCHEMA_CONFIG seeds', () => {
 // ─── Schema config structure ─────────────────────────────────────────────────
 
 describe('SCHEMA_CONFIG', () => {
-  it('has version 23', () => {
-    expect(SCHEMA_CONFIG.version).toBe(23)
+  it('has version 24', () => {
+    expect(SCHEMA_CONFIG.version).toBe(24)
   })
 
-  it('defines migrations for versions 11-23', () => {
+  it('defines migrations for versions 11-24', () => {
     const keys = Object.keys(SCHEMA_CONFIG.migrations ?? {}).map(Number).sort((a, b) => a - b)
-    expect(keys).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23])
+    expect(keys).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24])
   })
 
   it('has seeds array', () => {
@@ -378,5 +378,28 @@ describe('SCHEMA_DDL / migration parity', () => {
     for (const table of ['voice_notes', 'image_notes']) {
       expect(await columnMeta(adapter, table), table).toEqual(await columnMeta(ref, table))
     }
+  })
+
+  it('upgrading a pre-icon (v23) database reproduces the fresh checkin_templates columns exactly', async () => {
+    // Simulate a client stamped at v23 by dropping the icon/color columns, then
+    // run migration 24 through a non-swallowing exec and assert the resulting
+    // columns match a fresh SCHEMA_DDL install.
+    const { adapter } = freshDb()
+    await applyDdl(adapter)
+    await adapter.exec('ALTER TABLE checkin_templates DROP COLUMN icon')
+    await adapter.exec('ALTER TABLE checkin_templates DROP COLUMN color')
+
+    const exec = plainExec(adapter)
+    for (const step of SCHEMA_CONFIG.migrations?.[24] as MigrationStep[]) {
+      if (typeof step === 'function') await step(exec)
+      else await exec(step)
+    }
+
+    const { adapter: ref } = freshDb()
+    await applyDdl(ref)
+
+    expect(await columnMeta(adapter, 'checkin_templates')).toEqual(
+      await columnMeta(ref, 'checkin_templates'),
+    )
   })
 })

@@ -205,11 +205,11 @@ onMounted(async () => {
         </div>
         <div class="flex items-center gap-0.5 mt-1">
           <UButton
-            :icon="resolveIcon('cog-6-tooth')"
+            :icon="resolveIcon('pencil-square')"
             variant="ghost"
             color="neutral"
             size="sm"
-            aria-label="Check-in settings"
+            aria-label="Edit check-in"
             class="min-h-[44px] min-w-[44px]"
             :to="`/checkin/${template.id}`"
           />

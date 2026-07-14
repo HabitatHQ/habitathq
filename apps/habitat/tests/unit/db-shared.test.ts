@@ -149,7 +149,7 @@ function reminderRow(id = 'r1'): Record<string, unknown> {
 }
 
 function checkinTemplateRow(id = 'ct1'): Record<string, unknown> {
-  return { id, title: 'Morning', schedule_type: 'DAILY', days_active: null, response_day_count: 0 }
+  return { id, title: 'Morning', schedule_type: 'DAILY', days_active: null, icon: 'pencil-square', color: '#22d3ee', response_day_count: 0 }
 }
 
 function checkinQuestionRow(id = 'cq1'): Record<string, unknown> {
@@ -434,7 +434,7 @@ describe('createCheckinTemplate', () => {
   it('inserts a template and returns it', async () => {
     const db = new MockDbAdapter()
     db.setRows('WHERE id = ?', [checkinTemplateRow()])
-    await shared.createCheckinTemplate(db, { title: 'Morning', schedule_type: 'DAILY', days_active: null, response_day_count: 0 })
+    await shared.createCheckinTemplate(db, { title: 'Morning', schedule_type: 'DAILY', days_active: null, icon: 'pencil-square', color: '#22d3ee' })
     const insert = db.calls.find(c => c.method === 'exec')!
     expect(insert.sql).toContain('INSERT INTO checkin_templates')
   })
