@@ -11,8 +11,11 @@
         :root {
             --bg: #f8fafc;
             --fg: #0f172a;
+            --muted: #64748b;
             --card-bg: #ffffff;
             --card-border: #e2e8f0;
+            --pillar-bg: #f1f5f9;
+            --pillar-border: #e2e8f0;
             --card-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
             --card-hover-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
             --accent-habitat: #06b6d4;
@@ -24,8 +27,11 @@
             :root {
                 --bg: #020617;
                 --fg: #f8fafc;
+                --muted: #94a3b8;
                 --card-bg: #0f172a;
                 --card-border: #1e293b;
+                --pillar-bg: #0b1220;
+                --pillar-border: #1e293b;
                 --card-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.3);
             }
         }
@@ -43,16 +49,23 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
+            justify-content: flex-start;
             min-height: 100vh;
-            padding: 2rem;
+            padding: 0;
             line-height: 1.5;
         }
 
         .container {
-            max-width: 800px;
+            max-width: none;
             width: 100%;
             text-align: center;
+        }
+
+        /* Below-hero content stays readable; hero itself is full-bleed */
+        .content-wrap {
+            max-width: 1080px;
+            margin: 0 auto;
+            padding: 0 clamp(1.25rem, 4vw, 2.5rem);
         }
 
         h1 {
@@ -64,20 +77,83 @@
 
         p.subtitle {
             font-size: 1.25rem;
-            color: #64748b;
-            margin-bottom: 3rem;
+            color: var(--muted);
+            margin-bottom: 1.5rem;
         }
 
-        @media (prefers-color-scheme: dark) {
-            p.subtitle {
-                color: #94a3b8;
+        p.narrative {
+            font-size: 1.05rem;
+            color: var(--muted);
+            max-width: 600px;
+            margin: 0 auto 3.5rem;
+        }
+
+        .narrative strong {
+            color: var(--fg);
+            font-weight: 600;
+        }
+
+        /* Section heading (eyebrow) */
+        .eyebrow {
+            font-size: 0.8125rem;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 1.5rem;
+        }
+
+        /* Pillars — plain, un-boxed values row; deliberately quieter than
+           the app cards so the entry points stay the focal point. */
+        .pillars {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: clamp(1.5rem, 4vw, 3.5rem);
+            max-width: 900px;
+            margin: 0 auto 4.5rem;
+            text-align: center;
+        }
+
+        .pillar {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.55rem;
+        }
+
+        .pillar .glyph {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--accent-habitat);
+            opacity: 0.85;
+        }
+
+        .pillar h3 {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .pillar p {
+            font-size: 0.9rem;
+            color: var(--muted);
+            max-width: 26ch;
+        }
+
+        @media (max-width: 640px) {
+            .pillars {
+                grid-template-columns: 1fr;
+                gap: 2rem;
+                max-width: 320px;
             }
         }
 
         .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
             gap: 2rem;
+            max-width: 720px;
+            margin: 0 auto;
         }
 
         .card {
@@ -128,14 +204,8 @@
         }
 
         .card p {
-            color: #64748b;
+            color: var(--muted);
             font-size: 1rem;
-        }
-
-        @media (prefers-color-scheme: dark) {
-            .card p {
-                color: #94a3b8;
-            }
         }
 
         .arrow {
@@ -156,7 +226,7 @@
         footer {
             margin-top: 4rem;
             font-size: 0.875rem;
-            color: #94a3b8;
+            color: var(--muted);
         }
 
         svg {
@@ -168,20 +238,394 @@
             stroke-linecap: round;
             stroke-linejoin: round;
         }
+
+        .pillar .glyph svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        /* ============================================================
+           Night-scene hero (Outer Wilds–inspired). Responsive, dark,
+           off-center fire · starfield · smoke · embers · warm+cool glow.
+           Built from gradients so it scales at any size.
+           ============================================================ */
+        .hero {
+            position: relative;
+            width: 100%;
+            border-radius: 0;
+            overflow: hidden;
+            isolation: isolate;
+            color: #f8fafc;
+            text-align: left;
+            padding: clamp(2.25rem, 6vw, 4.5rem);
+            min-height: clamp(420px, 66vh, 580px);
+            margin-bottom: 3.5rem;
+            background:
+                radial-gradient(90% 62% at 76% 98%, rgba(14, 116, 144, 0.26), transparent 62%),
+                radial-gradient(58% 48% at 74% 84%, rgba(245, 158, 11, 0.13), transparent 66%),
+                linear-gradient(180deg, #070d1a 0%, #04070f 55%, #020410 100%);
+        }
+
+        /* Starfield — two layers, offset twinkle for depth */
+        .stars,
+        .stars::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .stars {
+            background-image:
+                radial-gradient(1px 1px at 6% 18%, #cfe4ff, transparent),
+                radial-gradient(1px 1px at 14% 62%, #ffffff, transparent),
+                radial-gradient(1px 1px at 22% 34%, #b7d4ff, transparent),
+                radial-gradient(2px 2px at 9% 78%, #ffffff, transparent),
+                radial-gradient(1px 1px at 30% 12%, #cfe4ff, transparent),
+                radial-gradient(1px 1px at 38% 52%, #ffffff, transparent),
+                radial-gradient(1px 1px at 44% 82%, #a9c7ff, transparent),
+                radial-gradient(1px 1px at 3% 44%, #ffffff, transparent),
+                radial-gradient(2px 2px at 27% 68%, #cfe4ff, transparent),
+                radial-gradient(1px 1px at 48% 26%, #ffffff, transparent),
+                radial-gradient(1px 1px at 52% 8%, #ffffff, transparent),
+                radial-gradient(1px 1px at 58% 40%, #b7d4ff, transparent);
+            animation: twinkle 6s ease-in-out infinite alternate;
+        }
+
+        .stars::after {
+            background-image:
+                radial-gradient(1px 1px at 10% 30%, #ffffff, transparent),
+                radial-gradient(1px 1px at 18% 8%, #bcd6ff, transparent),
+                radial-gradient(1px 1px at 34% 40%, #ffffff, transparent),
+                radial-gradient(1px 1px at 42% 16%, #cfe4ff, transparent),
+                radial-gradient(2px 2px at 5% 62%, #ffffff, transparent),
+                radial-gradient(1px 1px at 24% 88%, #ffffff, transparent),
+                radial-gradient(1px 1px at 46% 60%, #b7d4ff, transparent),
+                radial-gradient(1px 1px at 55% 74%, #ffffff, transparent);
+            animation: twinkle 7.5s ease-in-out infinite alternate-reverse;
+        }
+
+        @keyframes twinkle { from { opacity: 0.32; } to { opacity: 0.78; } }
+
+        /* Faint nebula smudge in the void */
+        .nebula {
+            position: absolute;
+            left: 8%;
+            top: 22%;
+            width: 30%;
+            height: 44%;
+            z-index: 0;
+            background: radial-gradient(closest-side, rgba(70, 96, 150, 0.12), transparent 70%);
+            filter: blur(16px);
+            pointer-events: none;
+        }
+
+        /* Painterly grain overlay */
+        .grain {
+            position: absolute;
+            inset: 0;
+            z-index: 3;
+            pointer-events: none;
+            opacity: 0.06;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+        }
+
+        /* Warm firelight pool */
+        .firelight {
+            position: absolute;
+            z-index: 2;
+            left: 74%;
+            bottom: 16%;
+            width: clamp(200px, 34%, 400px);
+            aspect-ratio: 1;
+            transform: translate(-50%, 40%);
+            background: radial-gradient(closest-side,
+                rgba(255, 241, 209, 0.55) 0%,
+                rgba(248, 178, 84, 0.30) 32%,
+                rgba(245, 158, 11, 0.11) 56%,
+                transparent 76%);
+            filter: blur(7px);
+            animation: firelight 3.4s ease-in-out infinite;
+            pointer-events: none;
+        }
+
+        @keyframes firelight {
+            0%, 100% { opacity: 0.85; transform: translate(-50%, 40%) scale(1); }
+            50%      { opacity: 1;    transform: translate(-50%, 40%) scale(1.06); }
+        }
+
+        /* The fire — small, compact, soft (like the reference). A bright
+           white-hot core does most of the work; a few small tongues lick
+           above it. The golden glow (.firelight) is the real hero. */
+        .fire {
+            position: absolute;
+            z-index: 3;
+            left: 74%;
+            bottom: 17%;
+            width: clamp(24px, 3.2vw, 40px);
+            height: clamp(34px, 4.6vw, 58px);
+            transform: translateX(-50%);
+            filter: blur(0.5px) drop-shadow(0 0 9px rgba(245, 170, 70, 0.4));
+            pointer-events: none;
+        }
+
+        /* white-hot core at the base */
+        .fire::before {
+            content: "";
+            position: absolute;
+            left: 50%;
+            bottom: -8%;
+            transform: translateX(-50%);
+            width: 160%;
+            height: 62%;
+            border-radius: 50%;
+            background: radial-gradient(closest-side, rgba(255, 248, 230, 0.95), rgba(255, 198, 108, 0.55) 42%, transparent 74%);
+            filter: blur(2px);
+            animation: corepulse 2.4s ease-in-out infinite;
+        }
+
+        @keyframes corepulse {
+            0%, 100% { opacity: 0.85; transform: translateX(-50%) scale(1); }
+            50%      { opacity: 1;    transform: translateX(-50%) scale(1.08); }
+        }
+
+        .fire-layer { position: absolute; inset: 0; z-index: 2; }
+
+        .flame {
+            position: absolute;
+            bottom: 0;
+            border-radius: 55% 55% 45% 45% / 78% 78% 40% 40%;
+            transform-origin: 50% 100%;
+            filter: blur(0.7px);
+            opacity: 0.9;
+            animation: fire 2s ease-in-out infinite alternate;
+            animation-delay: var(--d, 0s);
+        }
+
+        .fire-red .flame    { background: #e0400f; }
+        .fire-orange .flame { background: #fb9a22; }
+
+        @keyframes fire {
+            0%   { transform: scaleY(1); }
+            28%  { transform: scaleY(0.74); }
+            38%  { transform: scaleY(0.82); }
+            50%  { transform: scaleY(0.64); }
+            70%  { transform: scaleY(0.95); }
+            82%  { transform: scaleY(0.6); }
+            100% { transform: scaleY(1); }
+        }
+
+        /* Logs — dark silhouettes with a fire-lit top edge, crossed at the base */
+        .logs {
+            position: absolute;
+            z-index: 3;
+            left: 74%;
+            bottom: 12%;
+            width: clamp(60px, 9vw, 94px);
+            height: clamp(13px, 2vw, 18px);
+            transform: translateX(-50%);
+            pointer-events: none;
+        }
+
+        .log {
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            width: clamp(46px, 7vw, 70px);
+            height: clamp(8px, 1.3vw, 12px);
+            border-radius: 999px;
+            background: linear-gradient(180deg, #4a2d1c 0%, #170d07 72%);
+            box-shadow: inset 0 2px 2px rgba(255, 150, 60, 0.35), 0 1px 3px rgba(0, 0, 0, 0.5);
+        }
+
+        .log:nth-child(1) { transform: translateX(-50%) rotate(16deg); }
+        .log:nth-child(2) { transform: translateX(-50%) rotate(-15deg); }
+        .log:nth-child(3) { transform: translateX(-50%) rotate(1deg); bottom: -3px; width: clamp(38px, 6vw, 58px); }
+
+        /* Smoke drifting up and off to the left */
+        .smoke {
+            position: absolute;
+            z-index: 2;
+            left: 72%;
+            bottom: 30%;
+            transform: translateX(-50%);
+            pointer-events: none;
+        }
+
+        .smoke span {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: rgba(200, 210, 225, 0.14);
+            filter: blur(6px);
+            opacity: 0;
+            animation: smoke 6.5s linear infinite;
+        }
+
+        .smoke span:nth-child(2) { animation-delay: 2.2s; }
+        .smoke span:nth-child(3) { animation-delay: 4.4s; }
+
+        @keyframes smoke {
+            0%   { opacity: 0;    transform: translate(-50%, 0) scale(0.6); }
+            20%  { opacity: 0.5; }
+            100% { opacity: 0;    transform: translate(-160%, -150px) scale(2.4); }
+        }
+
+        /* Rising embers */
+        .embers {
+            position: absolute;
+            z-index: 3;
+            left: 74%;
+            bottom: 21%;
+            transform: translateX(-50%);
+            pointer-events: none;
+        }
+
+        .embers span {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            width: 2px;
+            height: 2px;
+            border-radius: 50%;
+            background: #ffcf7a;
+            box-shadow: 0 0 4px 1px rgba(255, 170, 70, 0.7);
+            opacity: 0;
+            animation: ember 3s ease-in infinite;
+        }
+
+        .embers span:nth-child(2) { animation-delay: 0.9s; }
+        .embers span:nth-child(3) { animation-delay: 1.8s; }
+        .embers span:nth-child(4) { animation-delay: 2.5s; }
+
+        @keyframes ember {
+            0%   { opacity: 0;   transform: translate(-50%, 0) scale(1); }
+            20%  { opacity: 1; }
+            100% { opacity: 0;   transform: translate(-340%, -96px) scale(0.4); }
+        }
+
+        /* Hero text sits in the night, upper-left */
+        .hero__content {
+            position: relative;
+            z-index: 4;
+            max-width: 32ch;
+        }
+
+        .hero h1 { color: #f8fafc; }
+        .hero .subtitle { color: #cbd5e1; margin-bottom: 1.25rem; }
+        .hero .narrative { color: #94a3b8; margin: 0; max-width: 38ch; }
+        .hero .narrative strong { color: #e2e8f0; font-weight: 600; }
+
+        /* Mobile: center the text and bring the fire beneath it */
+        @media (max-width: 560px) {
+            .hero {
+                text-align: center;
+                min-height: clamp(500px, 86vh, 600px);
+            }
+            .hero__content {
+                max-width: 100%;
+                margin: 0 auto clamp(150px, 34vh, 220px);
+            }
+            .hero .narrative { margin-left: auto; margin-right: auto; }
+            .firelight, .fire, .smoke, .embers, .logs { left: 50%; }
+            .nebula { left: 4%; top: 10%; }
+        }
+
+        /* Respect reduced-motion — hold the whole scene still */
+        @media (prefers-reduced-motion: reduce) {
+            .card, .card:hover, .card:active, .arrow, .card:hover .arrow {
+                transition: none;
+                transform: none;
+            }
+            .stars, .stars::after, .firelight, .fire::before, .flame,
+            .smoke span, .embers span {
+                animation: none !important;
+            }
+            .smoke span, .embers span { opacity: 0; }
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Habitat HQ</h1>
-        <p class="subtitle">Local-first, privacy-focused apps for your daily life.</p>
-        
+        <section class="hero" aria-label="Habitat HQ">
+            <div class="stars" aria-hidden="true"></div>
+            <div class="nebula" aria-hidden="true"></div>
+            <div class="firelight" aria-hidden="true"></div>
+            <div class="smoke" aria-hidden="true"><span></span><span></span><span></span></div>
+            <div class="embers" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+            <div class="fire" aria-hidden="true">
+                <div class="fire-layer fire-red">
+                    <span class="flame" style="left:14%;width:46%;height:94%;--d:.1s"></span>
+                    <span class="flame" style="left:42%;width:42%;height:76%;--d:.4s"></span>
+                </div>
+                <div class="fire-layer fire-orange">
+                    <span class="flame" style="left:24%;width:38%;height:64%;--d:.25s"></span>
+                    <span class="flame" style="left:46%;width:30%;height:52%;--d:.55s"></span>
+                </div>
+            </div>
+            <div class="logs" aria-hidden="true">
+                <span class="log"></span>
+                <span class="log"></span>
+                <span class="log"></span>
+            </div>
+            <div class="grain" aria-hidden="true"></div>
+            <div class="hero__content">
+                <h1>Habitat HQ</h1>
+                <p class="subtitle">A home for the things you care about.</p>
+                <p class="narrative">
+                    Home base for your everyday life — a small family of private apps that share
+                    one idea: the things you care about should stay <strong>close, calm, and
+                    entirely yours</strong>. Everything lives on your device; nothing leaves unless you send it.
+                </p>
+            </div>
+        </section>
+
+        <div class="content-wrap">
+        <div class="pillars">
+            <div class="pillar">
+                <div class="glyph">
+                    <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                </div>
+                <h3>Local-first, always</h3>
+                <p>Your data lives on your device. No accounts, no servers — export it whenever you like, and it never leaves otherwise.</p>
+            </div>
+
+            <div class="pillar">
+                <div class="glyph">
+                    <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                </div>
+                <h3>Nothing slips</h3>
+                <p>Habits, budgets, the quiet things that pile up. HQ helps you stay on top of what you mean to do — gently, never nagging.</p>
+            </div>
+
+            <div class="pillar">
+                <div class="glyph">
+                    <svg viewBox="0 0 24 24"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"></path><line x1="16" y1="8" x2="2" y2="22"></line><line x1="17.5" y1="15" x2="9" y2="15"></line></svg>
+                </div>
+                <h3>Just enough</h3>
+                <p>Uncluttered by default, more when you ask. No feeds, no guilt, no technological excess.</p>
+            </div>
+        </div>
+
+        <p class="eyebrow">Rooms of one home</p>
+
         <div class="grid">
             <a href="./habitat/" class="card card-habitat">
                 <div class="icon">
-                    <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+                    <!-- Habitat's sprout mark (from app/components/SproutFigure.vue), leafy stage -->
+                    <svg viewBox="0 0 40 44" aria-hidden="true">
+                        <path d="M 8,40 C 12,37 28,37 32,40" stroke-width="3"></path>
+                        <line x1="20" y1="40" x2="20" y2="24" stroke-width="2.5"></line>
+                        <path d="M 20,24 C 11,23 4,29 8,34 C 11,37 19,30 20,24" stroke-width="2.5"></path>
+                        <path d="M 20,24 C 26,20 32,14 30,8 C 28,5 20,13 20,24" stroke-width="2.5"></path>
+                    </svg>
                 </div>
                 <h2>Habitat</h2>
-                <p>Personal habit tracker that lives entirely on your device. No servers, no accounts.</p>
+                <p>Your days. Habits, check-ins, and jots to help you stay on top of what you intend — private and offline.</p>
                 <div class="arrow">
                     <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
                 </div>
@@ -192,7 +636,7 @@
                     <svg viewBox="0 0 24 24"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.5 4 6.5 2 2 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"></path></svg>
                 </div>
                 <h2>Hearth</h2>
-                <p>Personal & family expense tracker with envelope budgeting and split IOUs.</p>
+                <p>Your household. Expenses, envelope budgets, and split IOUs, kept on your devices.</p>
                 <div class="arrow">
                     <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
                 </div>
@@ -202,6 +646,7 @@
         <footer>
             &copy; 2026 Habitat HQ
         </footer>
+        </div>
     </div>
 </body>
 </html>
