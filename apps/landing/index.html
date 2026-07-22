@@ -261,7 +261,7 @@
             min-height: clamp(420px, 66vh, 580px);
             margin-bottom: 3.5rem;
             background:
-                radial-gradient(90% 62% at 76% 98%, rgba(14, 116, 144, 0.26), transparent 62%),
+                radial-gradient(72% 34% at 76% 100%, rgba(14, 116, 144, 0.12), transparent 60%),
                 radial-gradient(58% 48% at 74% 84%, rgba(245, 158, 11, 0.13), transparent 66%),
                 linear-gradient(180deg, #070d1a 0%, #04070f 55%, #020410 100%);
         }
@@ -307,6 +307,39 @@
         }
 
         @keyframes twinkle { from { opacity: 0.32; } to { opacity: 0.78; } }
+
+        /* Occasional shooting stars. Long, staggered cycles so a streak
+           crosses the sky roughly every 7-11s and reads as random. Each
+           streak is only visible for ~1.2s of its cycle. */
+        .shooting {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            overflow: hidden;
+            pointer-events: none;
+        }
+        .shooting span {
+            position: absolute;
+            width: var(--len, 120px);
+            height: 1px;
+            border-radius: 999px;
+            background: linear-gradient(90deg, transparent, rgba(200, 222, 255, 0.9) 88%, #ffffff);
+            filter: drop-shadow(0 0 3px rgba(170, 205, 255, 0.6));
+            opacity: 0;
+            transform: rotate(var(--ang, 20deg)) translateX(0);
+            animation: shoot var(--dur, 24s) linear infinite;
+            animation-delay: var(--delay, 0s);
+        }
+        .shooting span:nth-child(1) { top: 12%; left: 8%;  --len: 130px; --ang: 20deg; --dur: 22s; --delay: 0s;  --travel: 360px; }
+        .shooting span:nth-child(2) { top: 6%;  left: 44%; --len: 100px; --ang: 26deg; --dur: 26s; --delay: 9s;  --travel: 300px; }
+        .shooting span:nth-child(3) { top: 20%; left: 30%; --len: 150px; --ang: 15deg; --dur: 30s; --delay: 17s; --travel: 420px; }
+        @keyframes shoot {
+            0%   { opacity: 0; transform: rotate(var(--ang)) translateX(0); }
+            1.5% { opacity: 1; }
+            5%   { opacity: 1; }
+            8%   { opacity: 0; transform: rotate(var(--ang)) translateX(var(--travel, 360px)); }
+            100% { opacity: 0; transform: rotate(var(--ang)) translateX(var(--travel, 360px)); }
+        }
 
         /* Faint nebula smudge in the void */
         .nebula {
@@ -639,7 +672,15 @@
             max-width: 32ch;
         }
 
-        .hero h1 { color: #f8fafc; }
+        /* Starry title: soft cool gradient fill + faint starlight glow. No motion. */
+        .hero h1 {
+            color: transparent;
+            background-image: linear-gradient(160deg, #ffffff 0%, #e8f1ff 55%, #cfe1ff 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            filter: drop-shadow(0 0 12px rgba(150, 195, 255, 0.22));
+        }
+
         .hero .subtitle { color: #cbd5e1; margin-bottom: 1.25rem; }
         .hero .narrative { color: #94a3b8; margin: 0; max-width: 38ch; }
         .hero .narrative strong { color: #e2e8f0; font-weight: 600; }
@@ -666,10 +707,10 @@
                 transform: none;
             }
             .stars, .stars::after, .firelight, .groundglow, .fire::before, .flame,
-            .logglow, .smoke span, .embers span {
+            .logglow, .smoke span, .embers span, .shooting span {
                 animation: none !important;
             }
-            .smoke span, .embers span { opacity: 0; }
+            .smoke span, .embers span, .shooting span { opacity: 0; }
         }
     </style>
 </head>
@@ -677,6 +718,7 @@
     <div class="container">
         <section class="hero" aria-label="Habitat HQ">
             <div class="stars" aria-hidden="true"></div>
+            <div class="shooting" aria-hidden="true"><span></span><span></span><span></span></div>
             <div class="nebula" aria-hidden="true"></div>
             <div class="campfire" aria-hidden="true">
                 <div class="groundglow"></div>
