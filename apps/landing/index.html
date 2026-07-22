@@ -11,8 +11,11 @@
         :root {
             --bg: #f8fafc;
             --fg: #0f172a;
+            --muted: #64748b;
             --card-bg: #ffffff;
             --card-border: #e2e8f0;
+            --pillar-bg: #f1f5f9;
+            --pillar-border: #e2e8f0;
             --card-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
             --card-hover-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
             --accent-habitat: #06b6d4;
@@ -24,8 +27,11 @@
             :root {
                 --bg: #020617;
                 --fg: #f8fafc;
+                --muted: #94a3b8;
                 --card-bg: #0f172a;
                 --card-border: #1e293b;
+                --pillar-bg: #0b1220;
+                --pillar-border: #1e293b;
                 --card-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.3);
             }
         }
@@ -43,16 +49,23 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
+            justify-content: flex-start;
             min-height: 100vh;
-            padding: 2rem;
+            padding: 0;
             line-height: 1.5;
         }
 
         .container {
-            max-width: 800px;
+            max-width: none;
             width: 100%;
             text-align: center;
+        }
+
+        /* Below-hero content stays readable; hero itself is full-bleed */
+        .content-wrap {
+            max-width: 1080px;
+            margin: 0 auto;
+            padding: 0 clamp(1.25rem, 4vw, 2.5rem);
         }
 
         h1 {
@@ -64,20 +77,83 @@
 
         p.subtitle {
             font-size: 1.25rem;
-            color: #64748b;
-            margin-bottom: 3rem;
+            color: var(--muted);
+            margin-bottom: 1.5rem;
         }
 
-        @media (prefers-color-scheme: dark) {
-            p.subtitle {
-                color: #94a3b8;
+        p.narrative {
+            font-size: 1.05rem;
+            color: var(--muted);
+            max-width: 600px;
+            margin: 0 auto 3.5rem;
+        }
+
+        .narrative strong {
+            color: var(--fg);
+            font-weight: 600;
+        }
+
+        /* Section heading (eyebrow) */
+        .eyebrow {
+            font-size: 0.8125rem;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 1.5rem;
+        }
+
+        /* Pillars — plain, un-boxed values row; deliberately quieter than
+           the app cards so the entry points stay the focal point. */
+        .pillars {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: clamp(1.5rem, 4vw, 3.5rem);
+            max-width: 900px;
+            margin: 0 auto 4.5rem;
+            text-align: center;
+        }
+
+        .pillar {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.55rem;
+        }
+
+        .pillar .glyph {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--accent-habitat);
+            opacity: 0.85;
+        }
+
+        .pillar h3 {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .pillar p {
+            font-size: 0.9rem;
+            color: var(--muted);
+            max-width: 26ch;
+        }
+
+        @media (max-width: 640px) {
+            .pillars {
+                grid-template-columns: 1fr;
+                gap: 2rem;
+                max-width: 320px;
             }
         }
 
         .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
             gap: 2rem;
+            max-width: 720px;
+            margin: 0 auto;
         }
 
         .card {
@@ -128,14 +204,8 @@
         }
 
         .card p {
-            color: #64748b;
+            color: var(--muted);
             font-size: 1rem;
-        }
-
-        @media (prefers-color-scheme: dark) {
-            .card p {
-                color: #94a3b8;
-            }
         }
 
         .arrow {
@@ -156,7 +226,7 @@
         footer {
             margin-top: 4rem;
             font-size: 0.875rem;
-            color: #94a3b8;
+            color: var(--muted);
         }
 
         svg {
@@ -168,20 +238,644 @@
             stroke-linecap: round;
             stroke-linejoin: round;
         }
+
+        .pillar .glyph svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        /* ============================================================
+           Night-scene hero (dark campfire in the void). Responsive, dark,
+           off-center fire · starfield · smoke · embers · warm+cool glow.
+           Built from gradients so it scales at any size.
+           ============================================================ */
+        .hero {
+            position: relative;
+            width: 100%;
+            border-radius: 0;
+            overflow: hidden;
+            isolation: isolate;
+            color: #f8fafc;
+            text-align: left;
+            padding: clamp(2.25rem, 6vw, 4.5rem);
+            min-height: clamp(420px, 66vh, 580px);
+            margin-bottom: 3.5rem;
+            background:
+                radial-gradient(72% 34% at 76% 100%, rgba(14, 116, 144, 0.12), transparent 60%),
+                radial-gradient(58% 48% at 74% 84%, rgba(245, 158, 11, 0.13), transparent 66%),
+                linear-gradient(180deg, #070d1a 0%, #04070f 55%, #020410 100%);
+        }
+
+        /* Starfield — two layers, offset twinkle for depth */
+        .stars,
+        .stars::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .stars {
+            background-image:
+                radial-gradient(1px 1px at 6% 18%, #cfe4ff, transparent),
+                radial-gradient(1px 1px at 14% 62%, #ffffff, transparent),
+                radial-gradient(1px 1px at 22% 34%, #b7d4ff, transparent),
+                radial-gradient(2px 2px at 9% 78%, #ffffff, transparent),
+                radial-gradient(1px 1px at 30% 12%, #cfe4ff, transparent),
+                radial-gradient(1px 1px at 38% 52%, #ffffff, transparent),
+                radial-gradient(1px 1px at 44% 82%, #a9c7ff, transparent),
+                radial-gradient(1px 1px at 3% 44%, #ffffff, transparent),
+                radial-gradient(2px 2px at 27% 68%, #cfe4ff, transparent),
+                radial-gradient(1px 1px at 48% 26%, #ffffff, transparent),
+                radial-gradient(1px 1px at 52% 8%, #ffffff, transparent),
+                radial-gradient(1px 1px at 58% 40%, #b7d4ff, transparent);
+            animation: twinkle 6s ease-in-out infinite alternate;
+        }
+
+        .stars::after {
+            background-image:
+                radial-gradient(1px 1px at 10% 30%, #ffffff, transparent),
+                radial-gradient(1px 1px at 18% 8%, #bcd6ff, transparent),
+                radial-gradient(1px 1px at 34% 40%, #ffffff, transparent),
+                radial-gradient(1px 1px at 42% 16%, #cfe4ff, transparent),
+                radial-gradient(2px 2px at 5% 62%, #ffffff, transparent),
+                radial-gradient(1px 1px at 24% 88%, #ffffff, transparent),
+                radial-gradient(1px 1px at 46% 60%, #b7d4ff, transparent),
+                radial-gradient(1px 1px at 55% 74%, #ffffff, transparent);
+            animation: twinkle 7.5s ease-in-out infinite alternate-reverse;
+        }
+
+        @keyframes twinkle { from { opacity: 0.32; } to { opacity: 0.78; } }
+
+        /* Occasional shooting stars. Long, staggered cycles so a streak
+           crosses the sky roughly every 7-11s and reads as random. Each
+           streak is only visible for ~1.2s of its cycle. */
+        .shooting {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            overflow: hidden;
+            pointer-events: none;
+        }
+        .shooting span {
+            position: absolute;
+            width: var(--len, 120px);
+            height: 1px;
+            border-radius: 999px;
+            background: linear-gradient(90deg, transparent, rgba(200, 222, 255, 0.9) 88%, #ffffff);
+            filter: drop-shadow(0 0 3px rgba(170, 205, 255, 0.6));
+            opacity: 0;
+            transform: rotate(var(--ang, 20deg)) translateX(0);
+            animation: shoot var(--dur, 24s) linear infinite;
+            animation-delay: var(--delay, 0s);
+        }
+        .shooting span:nth-child(1) { top: 12%; left: 8%;  --len: 130px; --ang: 20deg; --dur: 22s; --delay: 0s;  --travel: 360px; }
+        .shooting span:nth-child(2) { top: 6%;  left: 44%; --len: 100px; --ang: 26deg; --dur: 26s; --delay: 9s;  --travel: 300px; }
+        .shooting span:nth-child(3) { top: 20%; left: 30%; --len: 150px; --ang: 15deg; --dur: 30s; --delay: 17s; --travel: 420px; }
+        @keyframes shoot {
+            0%   { opacity: 0; transform: rotate(var(--ang)) translateX(0); }
+            1.5% { opacity: 1; }
+            5%   { opacity: 1; }
+            8%   { opacity: 0; transform: rotate(var(--ang)) translateX(var(--travel, 360px)); }
+            100% { opacity: 0; transform: rotate(var(--ang)) translateX(var(--travel, 360px)); }
+        }
+
+        /* Faint nebula smudge in the void */
+        .nebula {
+            position: absolute;
+            left: 8%;
+            top: 22%;
+            width: 30%;
+            height: 44%;
+            z-index: 0;
+            background: radial-gradient(closest-side, rgba(70, 96, 150, 0.12), transparent 70%);
+            filter: blur(16px);
+            pointer-events: none;
+        }
+
+        /* Painterly grain overlay */
+        .grain {
+            position: absolute;
+            inset: 0;
+            z-index: 3;
+            pointer-events: none;
+            opacity: 0.06;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+        }
+
+        /* ============================================================
+           Campfire — ONE container holds the whole scene (glow, ground,
+           logs, fire, embers, smoke, props). Everything inside is sized in
+           % of this box, so it moves and scales as a single unit and never
+           comes apart on resize. Positioned once; the mobile rule just moves
+           this box.
+           ============================================================ */
+        .campfire {
+            position: absolute;
+            z-index: 2;
+            left: 74%;
+            bottom: 13%;
+            width: clamp(96px, 12vw, 148px);
+            height: clamp(88px, 11vw, 136px);
+            transform: translateX(-50%);
+            overflow: visible;
+            pointer-events: none;
+        }
+
+        /* Warm pool spilling low across the ground */
+        .groundglow {
+            position: absolute;
+            z-index: 1;
+            left: 50%;
+            bottom: 4%;
+            width: 300%;
+            height: 150%;
+            transform: translate(-50%, 26%);
+            background: radial-gradient(ellipse closest-side,
+                rgba(246, 152, 52, 0.22) 0%,
+                rgba(200, 96, 26, 0.09) 46%,
+                transparent 74%);
+            filter: blur(12px);
+            animation: glowpulse 4.2s ease-in-out infinite;
+        }
+
+        /* Radial firelight hugging the flames */
+        .firelight {
+            position: absolute;
+            z-index: 2;
+            left: 50%;
+            bottom: 14%;
+            width: 210%;
+            aspect-ratio: 1;
+            transform: translate(-50%, 50%);
+            background: radial-gradient(closest-side,
+                rgba(255, 247, 226, 0.64) 0%,
+                rgba(255, 198, 108, 0.38) 22%,
+                rgba(243, 142, 36, 0.18) 44%,
+                rgba(176, 78, 22, 0.06) 65%,
+                transparent 80%);
+            filter: blur(7px);
+            animation: firelight 3.4s ease-in-out infinite;
+        }
+
+        @keyframes firelight {
+            0%, 100% { opacity: 0.85; transform: translate(-50%, 50%) scale(1); }
+            50%      { opacity: 1;    transform: translate(-50%, 50%) scale(1.06); }
+        }
+        @keyframes glowpulse {
+            0%, 100% { opacity: 0.85; }
+            50%      { opacity: 1; }
+        }
+
+        /* Small charred patch of ground directly under the stack */
+        .ground {
+            position: absolute;
+            z-index: 1;
+            left: 50%;
+            bottom: 4%;
+            width: 120%;
+            height: 30%;
+            transform: translate(-50%, 30%);
+            border-radius: 50%;
+            background: radial-gradient(ellipse closest-side, rgba(48, 26, 10, 0.9), rgba(10, 8, 6, 0.5) 58%, transparent 80%);
+            filter: blur(2px);
+        }
+
+        /* The fire — small, compact, soft (like the reference). A bright
+           white-hot core does most of the work; a few small tongues lick
+           above it. The golden glow (.firelight) is the real hero. */
+        .fire {
+            position: absolute;
+            z-index: 3;
+            left: 50%;
+            bottom: 22%;
+            width: 30%;
+            height: 46%;
+            transform: translateX(-50%);
+            filter: blur(0.5px) drop-shadow(0 0 9px rgba(245, 170, 70, 0.4));
+        }
+
+        /* white-hot core at the base */
+        .fire::before {
+            content: "";
+            position: absolute;
+            left: 50%;
+            bottom: -12%;
+            transform: translateX(-50%);
+            width: 175%;
+            height: 60%;
+            border-radius: 50%;
+            background: radial-gradient(closest-side, rgba(255, 248, 230, 0.95), rgba(255, 198, 108, 0.55) 42%, transparent 74%);
+            filter: blur(2px);
+            animation: corepulse 2.4s ease-in-out infinite;
+        }
+
+        @keyframes corepulse {
+            0%, 100% { opacity: 0.85; transform: translateX(-50%) scale(1); }
+            50%      { opacity: 1;    transform: translateX(-50%) scale(1.08); }
+        }
+
+        /* Fire built from depth layers: a dark receding back, an orange mid
+           body, and a bright hot core in front — the upper layers use screen
+           blend so their light builds up where they overlap, giving the flame
+           volume instead of reading as one flat shape. */
+        .fire-layer { position: absolute; inset: 0; }
+        .fire-back { z-index: 1; filter: blur(2px); opacity: 0.85; }
+        .fire-mid  { z-index: 2; mix-blend-mode: screen; opacity: 0.82; }
+        .fire-core { z-index: 3; mix-blend-mode: screen; opacity: 0.6; }
+
+        .flame {
+            position: absolute;
+            bottom: 0;
+            border-radius: 50% 50% 46% 46% / 92% 90% 34% 34%;
+            transform-origin: 50% 100%;
+            filter: blur(0.5px);
+            animation: flicker var(--dur, 2.4s) ease-in-out infinite alternate;
+            animation-delay: var(--d, 0s);
+        }
+
+        .fire-back .flame {
+            background: linear-gradient(to top, #d83a0c 0%, #9a1f05 55%, rgba(120, 20, 4, 0) 100%);
+            opacity: 0.9;
+        }
+        .fire-mid .flame {
+            background:
+                radial-gradient(58% 46% at 46% 82%, rgba(255, 228, 150, 0.7), transparent 62%),
+                linear-gradient(to top, #ff7a1e 0%, #e8480f 50%, rgba(180, 50, 8, 0) 100%);
+        }
+        .fire-core .flame,
+        .fire-front .flame {
+            background:
+                radial-gradient(52% 58% at 50% 76%, #fff6dc, rgba(255, 226, 150, 0.55) 46%, transparent 72%),
+                linear-gradient(to top, #ffe488 0%, #ffb63c 55%, rgba(255, 150, 40, 0) 100%);
+            filter: blur(0.8px);
+        }
+
+        /* Small licks that thread up in FRONT of the nearest logs, so the fire
+           weaves through the pile rather than sitting flatly behind it. */
+        .fire-front {
+            position: absolute;
+            z-index: 3;
+            left: 50%;
+            bottom: 29%;
+            width: 44%;
+            height: 24%;
+            transform: translateX(-50%);
+            mix-blend-mode: screen;
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        /* Warm firelight spilled across the top of the log pile — ties the
+           flame to the wood so they read as one lit mass. */
+        .logglow {
+            position: absolute;
+            z-index: 3;
+            left: 50%;
+            bottom: 15%;
+            width: 68%;
+            height: 28%;
+            transform: translateX(-50%);
+            background: radial-gradient(ellipse 60% 72% at 50% 42%,
+                rgba(255, 172, 74, 0.28), rgba(255, 140, 50, 0.08) 46%, transparent 72%);
+            mix-blend-mode: screen;
+            filter: blur(4px);
+            pointer-events: none;
+            animation: glowpulse 4.2s ease-in-out infinite;
+        }
+
+        @keyframes flicker {
+            0%   { transform: translateX(0)   scaleY(1)    scaleX(1);    }
+            22%  { transform: translateX(-3%) scaleY(0.82) scaleX(1.05); }
+            45%  { transform: translateX(2%)  scaleY(1.06) scaleX(0.95); }
+            68%  { transform: translateX(-2%) scaleY(0.8)  scaleX(1.04); }
+            100% { transform: translateX(1%)  scaleY(0.98) scaleX(1);    }
+        }
+
+        /* Logs — two chunky faceted logs crossed in a V inside the ring, cut
+           end-grain facing the viewer, warm-lit along the top. SVG for crisp
+           facets that match the rocks. Sits above the flame base, behind the
+           front rocks. */
+        .logs {
+            position: absolute;
+            z-index: 3;
+            left: 50%;
+            bottom: 7%;
+            width: 72%;
+            height: 40%;
+            transform: translateX(-50%);
+            filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.5));
+        }
+
+        .logs svg {
+            width: 100%;
+            height: 100%;
+            display: block;
+            overflow: visible;
+        }
+
+        /* Base — a ring of angular, faceted low-poly rocks around the pit.
+           Charcoal stones with flat planes
+           and a warm rim-light on their fire-facing top edges. A back row sits
+           behind the flames; a larger front row sits in front of them. Drawn as
+           SVG so the facets stay crisp. */
+        .stones-back,
+        .stones-front {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.5));
+        }
+        .stones-back  { z-index: 2; bottom: 20%; width: 84%; height: 26%; }
+        .stones-front { z-index: 4; bottom: -1%; width: 118%; height: 42%; }
+
+        .stones-back svg,
+        .stones-front svg {
+            width: 100%;
+            height: 100%;
+            display: block;
+            overflow: visible;
+        }
+        /* Each rock is a reusable <g> placed with <use> along the ring; the
+           <use> carries its own fill/stroke presentation attrs so the global
+           svg rule can't force them to currentColor. */
+
+        /* Smoke drifting up and off to the left */
+        .smoke {
+            position: absolute;
+            z-index: 2;
+            left: 46%;
+            bottom: 54%;
+            transform: translateX(-50%);
+        }
+
+        .smoke span {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: rgba(206, 214, 230, 0.30);
+            filter: blur(6px);
+            opacity: 0;
+            animation: smoke 6s linear infinite;
+        }
+
+        .smoke span:nth-child(2) { animation-delay: 2s; }
+        .smoke span:nth-child(3) { animation-delay: 4s; }
+
+        @keyframes smoke {
+            0%   { opacity: 0;    transform: translate(-50%, 0) scale(0.6); }
+            16%  { opacity: 0.9; }
+            65%  { opacity: 0.55; }
+            100% { opacity: 0;    transform: translate(-160%, -150px) scale(2.4); }
+        }
+
+        /* Rising embers */
+        .embers {
+            position: absolute;
+            z-index: 3;
+            left: 50%;
+            bottom: 28%;
+            transform: translateX(-50%);
+        }
+
+        .embers span {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            width: 2px;
+            height: 2px;
+            border-radius: 50%;
+            background: #ffcf7a;
+            box-shadow: 0 0 4px 1px rgba(255, 170, 70, 0.7);
+            opacity: 0;
+            animation: ember 3s ease-in infinite;
+        }
+
+        .embers span:nth-child(2) { animation-delay: 0.9s; }
+        .embers span:nth-child(3) { animation-delay: 1.8s; }
+        .embers span:nth-child(4) { animation-delay: 2.5s; }
+
+        @keyframes ember {
+            0%   { opacity: 0;   transform: translate(-50%, 0) scale(1); }
+            20%  { opacity: 1; }
+            100% { opacity: 0;   transform: translate(-340%, -96px) scale(0.4); }
+        }
+
+        /* Hero text sits in the night, upper-left */
+        .hero__content {
+            position: relative;
+            z-index: 4;
+            max-width: 32ch;
+        }
+
+        /* Starry title: soft cool gradient fill + faint starlight glow. No motion. */
+        .hero h1 {
+            color: transparent;
+            background-image: linear-gradient(160deg, #ffffff 0%, #e8f1ff 55%, #cfe1ff 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            filter: drop-shadow(0 0 12px rgba(150, 195, 255, 0.22));
+        }
+
+        .hero .subtitle { color: #cbd5e1; margin-bottom: 1.25rem; }
+        .hero .narrative { color: #94a3b8; margin: 0; max-width: 38ch; }
+        .hero .narrative strong { color: #e2e8f0; font-weight: 600; }
+
+        /* Mobile: center the text and bring the fire beneath it */
+        @media (max-width: 560px) {
+            .hero {
+                text-align: center;
+                min-height: clamp(500px, 86vh, 600px);
+            }
+            .hero__content {
+                max-width: 100%;
+                margin: 0 auto clamp(150px, 34vh, 220px);
+            }
+            .hero .narrative { margin-left: auto; margin-right: auto; }
+            .campfire { left: 50%; }
+            .nebula { left: 4%; top: 10%; }
+        }
+
+        /* Respect reduced-motion — hold the whole scene still */
+        @media (prefers-reduced-motion: reduce) {
+            .card, .card:hover, .card:active, .arrow, .card:hover .arrow {
+                transition: none;
+                transform: none;
+            }
+            .stars, .stars::after, .firelight, .groundglow, .fire::before, .flame,
+            .logglow, .smoke span, .embers span, .shooting span {
+                animation: none !important;
+            }
+            .smoke span, .embers span, .shooting span { opacity: 0; }
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Habitat HQ</h1>
-        <p class="subtitle">Local-first, privacy-focused apps for your daily life.</p>
-        
+        <section class="hero" aria-label="Habitat HQ">
+            <div class="stars" aria-hidden="true"></div>
+            <div class="shooting" aria-hidden="true"><span></span><span></span><span></span></div>
+            <div class="nebula" aria-hidden="true"></div>
+            <div class="campfire" aria-hidden="true">
+                <div class="groundglow"></div>
+                <div class="ground"></div>
+                <div class="firelight"></div>
+                <div class="stones-back">
+                    <svg viewBox="0 0 200 68" fill="none">
+                        <defs>
+                            <linearGradient id="rgb" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0" stop-color="#262b33"></stop>
+                                <stop offset=".55" stop-color="#171b21"></stop>
+                                <stop offset="1" stop-color="#0a0c10"></stop>
+                            </linearGradient>
+                            <!-- body: dark rock edge all round; facet: cool lit plane;
+                                 rim: warm firelight, only on the top ridge, brightness
+                                 set per-<use> via its inherited stroke -->
+                            <g id="rkb">
+                                <polygon points="-16,0 -18,-14 -9,-25 7,-26 17,-14 14,0" stroke="#080a0e" stroke-width="1"></polygon>
+                                <polygon points="-16,-12 -9,-25 7,-26 4,-16 -9,-15" fill="#2b313a" stroke="none"></polygon>
+                                <polyline points="-18,-14 -9,-25 7,-26 17,-14" fill="none"></polyline>
+                            </g>
+                        </defs>
+                        <use href="#rkb" transform="translate(22,61) rotate(-3) scale(-.74,.74)" fill="url(#rgb)" stroke="rgba(255,170,84,.34)" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"></use>
+                        <use href="#rkb" transform="translate(60,49) rotate(5) scale(.63)"       fill="url(#rgb)" stroke="rgba(255,178,94,.6)"  stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"></use>
+                        <use href="#rkb" transform="translate(97,45) rotate(-2) scale(.6)"       fill="url(#rgb)" stroke="rgba(255,188,110,.85)" stroke-width="2.1" stroke-linejoin="round" stroke-linecap="round"></use>
+                        <use href="#rkb" transform="translate(139,50) rotate(4) scale(-.68,.68)" fill="url(#rgb)" stroke="rgba(255,178,94,.6)"  stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"></use>
+                        <use href="#rkb" transform="translate(176,60) rotate(-4) scale(.71)"     fill="url(#rgb)" stroke="rgba(255,170,84,.34)" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"></use>
+                    </svg>
+                </div>
+                <div class="smoke"><span></span><span></span><span></span></div>
+                <div class="fire">
+                    <div class="fire-layer fire-back">
+                        <span class="flame" style="left:6%;width:56%;height:96%;--d:.1s;--dur:2.6s"></span>
+                        <span class="flame" style="left:40%;width:52%;height:88%;--d:.5s;--dur:2.9s"></span>
+                    </div>
+                    <div class="fire-layer fire-mid">
+                        <span class="flame" style="left:14%;width:40%;height:80%;--d:.25s;--dur:2.2s"></span>
+                        <span class="flame" style="left:30%;width:36%;height:92%;--d:.15s;--dur:2.7s"></span>
+                        <span class="flame" style="left:46%;width:38%;height:70%;--d:.6s;--dur:2.5s"></span>
+                    </div>
+                    <div class="fire-layer fire-core">
+                        <span class="flame" style="left:22%;width:27%;height:80%;--d:.35s;--dur:2s"></span>
+                        <span class="flame" style="left:52%;width:19%;height:52%;--d:.7s;--dur:2.45s"></span>
+                    </div>
+                </div>
+                <div class="logs">
+                    <svg viewBox="0 0 200 90" fill="none">
+                        <defs>
+                            <linearGradient id="logb" x1="0" y1="-9" x2="0" y2="9" gradientUnits="userSpaceOnUse">
+                                <stop offset="0" stop-color="#9a6236"></stop>
+                                <stop offset=".42" stop-color="#6a4224"></stop>
+                                <stop offset="1" stop-color="#341f0e"></stop>
+                            </linearGradient>
+                            <!-- a single textured log: cut end at local origin, body extends +x.
+                                 Dark bark edge, warm top highlight, grain lines + tree rings. -->
+                            <g id="log">
+                                <rect x="3" y="-8.5" width="72" height="17" rx="7"
+                                      fill="url(#logb)" stroke="#241407" stroke-width="1.3" stroke-linejoin="round"></rect>
+                                <rect x="8" y="-7.4" width="62" height="4" rx="2" fill="#b07b48" stroke="none" opacity=".5"></rect>
+                                <path d="M14,-1.5 H68 M18,2.6 H60" stroke="#33200f" stroke-width="1" stroke-linecap="round" opacity=".55"></path>
+                                <ellipse cx="5" cy="0" rx="6.4" ry="9" fill="#7c5330" stroke="#241407" stroke-width="1.3"></ellipse>
+                                <ellipse cx="5.4" cy="0" rx="4" ry="6" fill="#603f23" stroke="#432b17" stroke-width=".7"></ellipse>
+                                <ellipse cx="5.7" cy="0" rx="1.7" ry="2.7" fill="#3a2412" stroke="none"></ellipse>
+                            </g>
+                        </defs>
+                        <use href="#log" transform="translate(40,80) rotate(-6)"></use>
+                        <use href="#log" transform="translate(160,77) rotate(184)"></use>
+                        <use href="#log" transform="translate(50,72) rotate(-17)"></use>
+                        <use href="#log" transform="translate(152,68) rotate(199)"></use>
+                    </svg>
+                </div>
+                <div class="logglow"></div>
+                <div class="fire-front">
+                    <span class="flame" style="left:3%;width:27%;height:70%;--d:.3s;--dur:2.1s"></span>
+                    <span class="flame" style="left:30%;width:25%;height:92%;--d:.6s;--dur:2.35s"></span>
+                    <span class="flame" style="left:60%;width:30%;height:64%;--d:.15s;--dur:1.85s"></span>
+                </div>
+                <div class="stones-front">
+                    <svg viewBox="0 0 240 84" fill="none">
+                        <defs>
+                            <linearGradient id="rgf" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0" stop-color="#333a44"></stop>
+                                <stop offset=".55" stop-color="#20252d"></stop>
+                                <stop offset="1" stop-color="#0b0e12"></stop>
+                            </linearGradient>
+                            <!-- body: dark rock edge; facet: cool lit plane; rim: warm
+                                 firelight only on the top ridge, per-<use> brightness -->
+                            <g id="rkf">
+                                <polygon points="-18,0 -20,-16 -10,-28 8,-29 19,-16 16,0" stroke="#0b0e13" stroke-width="1"></polygon>
+                                <polygon points="-18,-14 -10,-28 8,-29 5,-18 -10,-16" fill="#3d444f" stroke="none"></polygon>
+                                <polyline points="-20,-16 -10,-28 8,-29 19,-16" fill="none"></polyline>
+                            </g>
+                        </defs>
+                        <use href="#rkf" transform="translate(20,67) rotate(-4) scale(.92)"        fill="url(#rgf)" stroke="rgba(255,172,88,.26)" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"></use>
+                        <use href="#rkf" transform="translate(59,77) rotate(3) scale(-1.02,1.02)"  fill="url(#rgf)" stroke="rgba(255,178,94,.44)" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"></use>
+                        <use href="#rkf" transform="translate(99,83) rotate(-2) scale(1.05)"       fill="url(#rgf)" stroke="rgba(255,186,104,.62)" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"></use>
+                        <use href="#rkf" transform="translate(139,81) rotate(3) scale(1.08)"       fill="url(#rgf)" stroke="rgba(255,186,104,.62)" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"></use>
+                        <use href="#rkf" transform="translate(181,74) rotate(-3) scale(-0.98,0.98)" fill="url(#rgf)" stroke="rgba(255,178,94,.44)" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"></use>
+                        <use href="#rkf" transform="translate(214,66) rotate(4) scale(.88)"        fill="url(#rgf)" stroke="rgba(255,172,88,.26)" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"></use>
+                    </svg>
+                </div>
+                <div class="embers"><span></span><span></span><span></span><span></span></div>
+            </div>
+            <div class="grain" aria-hidden="true"></div>
+            <div class="hero__content">
+                <h1>Habitat HQ</h1>
+                <p class="subtitle">A home for the things you care about.</p>
+                <p class="narrative">
+                    A small family of private apps for your everyday life that share
+                    one idea: the things you care about should stay <strong>close, calm, and
+                    entirely yours</strong>. Everything lives on your device; nothing leaves unless you send it.
+                </p>
+            </div>
+        </section>
+
+        <div class="content-wrap">
+        <div class="pillars">
+            <div class="pillar">
+                <div class="glyph">
+                    <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                </div>
+                <h3>Local-first, always</h3>
+                <p>Your data lives on your device. Export it whenever you like, and it never leaves otherwise.</p>
+            </div>
+
+            <div class="pillar">
+                <div class="glyph">
+                    <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                </div>
+                <h3>Nothing slips</h3>
+                <p>Habits, budgets, the quiet things that pile up. HQ helps you stay on top of what you mean to do— gently, never nagging.</p>
+            </div>
+
+            <div class="pillar">
+                <div class="glyph">
+                    <svg viewBox="0 0 24 24"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"></path><line x1="16" y1="8" x2="2" y2="22"></line><line x1="17.5" y1="15" x2="9" y2="15"></line></svg>
+                </div>
+                <h3>Just enough</h3>
+                <p>Uncluttered by default, more when you ask. No feeds, no guilt, no technological excess.</p>
+            </div>
+        </div>
+
+        <p class="eyebrow">The apps in our family</p>
+
         <div class="grid">
             <a href="./habitat/" class="card card-habitat">
                 <div class="icon">
-                    <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+                    <!-- Habitat's sprout mark (from app/components/SproutFigure.vue), leafy stage -->
+                    <svg viewBox="0 0 40 44" aria-hidden="true">
+                        <path d="M 8,40 C 12,37 28,37 32,40" stroke-width="3"></path>
+                        <line x1="20" y1="40" x2="20" y2="24" stroke-width="2.5"></line>
+                        <path d="M 20,24 C 11,23 4,29 8,34 C 11,37 19,30 20,24" stroke-width="2.5"></path>
+                        <path d="M 20,24 C 26,20 32,14 30,8 C 28,5 20,13 20,24" stroke-width="2.5"></path>
+                    </svg>
                 </div>
                 <h2>Habitat</h2>
-                <p>Personal habit tracker that lives entirely on your device. No servers, no accounts.</p>
+                <p>Your days. Habits, check-ins, and jots to help you stay on top of what you intend — private and offline.</p>
                 <div class="arrow">
                     <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
                 </div>
@@ -192,7 +886,7 @@
                     <svg viewBox="0 0 24 24"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.5 4 6.5 2 2 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"></path></svg>
                 </div>
                 <h2>Hearth</h2>
-                <p>Personal & family expense tracker with envelope budgeting and split IOUs.</p>
+                <p>Your household. Expenses, envelope budgets, and split IOUs, kept on your devices.</p>
                 <div class="arrow">
                     <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
                 </div>
@@ -202,6 +896,7 @@
         <footer>
             &copy; 2026 Habitat HQ
         </footer>
+        </div>
     </div>
 </body>
 </html>
