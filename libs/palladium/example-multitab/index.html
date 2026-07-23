@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Palladium · multi-tab OPFS</title>
+    <style>
+      :root { color-scheme: light dark; font: 16px/1.5 system-ui, sans-serif; }
+      body { max-width: 34rem; margin: 3rem auto; padding: 0 1rem; }
+      header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+      h1 { font-size: 1.25rem; margin: 0; }
+      #role {
+        font: 600 0.75rem/1 ui-monospace, monospace; padding: 0.35rem 0.6rem;
+        border-radius: 999px; background: #8883;
+      }
+      #role[data-role="leader"] { background: #16a34a; color: white; }
+      .row { display: flex; gap: 0.5rem; margin: 1rem 0; }
+      input { flex: 1; padding: 0.5rem 0.7rem; font: inherit; border: 1px solid #8886; border-radius: 0.5rem; }
+      button { padding: 0.5rem 0.9rem; font: inherit; border: 0; border-radius: 0.5rem; background: #2563eb; color: white; cursor: pointer; }
+      button.ghost { background: #8883; color: inherit; }
+      ul { list-style: none; padding: 0; margin: 0; }
+      li { padding: 0.5rem 0.7rem; border-bottom: 1px solid #8883; }
+      .muted { color: #8888; font-size: 0.85rem; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Palladium multi-tab notes</h1>
+      <span id="role" data-role="follower">…</span>
+    </header>
+    <p class="muted">
+      One tab owns the OPFS database (Web Lock leader); the rest proxy over BroadcastChannel via
+      Comlink. Open more tabs and close the leader to watch failover.
+    </p>
+    <div class="row">
+      <input id="body" placeholder="Write a note…" autocomplete="off" />
+      <button id="add">Add</button>
+      <button id="clear" class="ghost">Clear</button>
+    </div>
+    <p class="muted"><span id="count">0</span> note(s)</p>
+    <ul id="list"></ul>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

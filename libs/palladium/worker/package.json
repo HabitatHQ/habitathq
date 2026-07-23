@@ -1,0 +1,35 @@
+{
+  "name": "@palladium/worker",
+  "version": "0.0.0",
+  "description": "Multi-tab OPFS ownership bus — Web Locks leader election, Comlink RPC, BroadcastChannel invalidation (spike)",
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./owner": {
+      "import": "./dist/db-owner.js",
+      "types": "./dist/db-owner.d.ts"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "lint": "biome check src",
+    "typecheck": "tsc --noEmit",
+    "verify": "pnpm lint && pnpm typecheck"
+  },
+  "dependencies": {
+    "comlink": "^4.4.2"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.6",
+    "typescript": "^5.7.0"
+  }
+}
