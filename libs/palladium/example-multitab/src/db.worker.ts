@@ -1,9 +1,14 @@
 /**
- * The dedicated worker every tab spawns. One line of glue: hand the OPFS
- * backend to the bus and let it handle leadership, RPC, and invalidation.
+ * The dedicated worker every tab spawns. One line of glue: describe the service
+ * and let the bus handle leadership, RPC, and invalidation.
  */
 
+import type { DbApi } from "@palladium/worker";
 import { startDbOwner } from "@palladium/worker/owner";
-import { createBackend, DB_NAME } from "./backend.js";
+import { createNotesService, DB_NAME } from "./backend.js";
 
-startDbOwner({ dbName: DB_NAME, backend: createBackend() });
+startDbOwner<DbApi>({
+  dbName: DB_NAME,
+  methods: ["query", "mutate"],
+  create: createNotesService,
+});
