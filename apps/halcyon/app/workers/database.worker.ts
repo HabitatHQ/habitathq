@@ -1,4 +1,5 @@
-import { SahPoolAdapter, toDbAdapter } from '@habitathq/db'
+import { toDbAdapter } from '@habitathq/db'
+import { BrowserSqliteAdapter } from '@palladium/sqlite-browser'
 import * as schema from '~/lib/db-schema'
 import * as shared from '~/lib/db-shared'
 import type { WorkerRequest, WorkerResponse } from '~/types/database'
@@ -30,7 +31,9 @@ await (async () => {
   }
 
   try {
-    const storage = new SahPoolAdapter({ directory: '/halcyon', filename: '/halcyon.db' })
+    const storage = new BrowserSqliteAdapter({
+      vfs: { type: 'opfs-sah-pool', directory: '/halcyon', filename: '/halcyon.db' },
+    })
     await storage.open()
 
     const adapter = toDbAdapter(storage)

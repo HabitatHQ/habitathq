@@ -1,4 +1,5 @@
-import { SahPoolAdapter, toDbAdapter } from '@habitathq/db'
+import { toDbAdapter } from '@habitathq/db'
+import { BrowserSqliteAdapter } from '@palladium/sqlite-browser'
 import * as schema from '~/lib/db-schema'
 import type { WorkerResponse } from '~/types/database'
 
@@ -30,7 +31,9 @@ await (async () => {
   }
 
   try {
-    const storage = new SahPoolAdapter({ directory: '/hephaestus', filename: '/hephaestus.db' })
+    const storage = new BrowserSqliteAdapter({
+      vfs: { type: 'opfs-sah-pool', directory: '/hephaestus', filename: '/hephaestus.db' },
+    })
     await storage.open()
 
     const adapter = toDbAdapter(storage)

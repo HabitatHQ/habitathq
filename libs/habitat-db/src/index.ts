@@ -4,4 +4,3 @@
  */
 export type { DbAdapter } from '@palladium/core'
 export { toCapacitorDbAdapter, toDbAdapter } from '@palladium/core'
-export { SahPoolAdapter, type SahPoolConfig } from './sah-pool-adapter.js'
