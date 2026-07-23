@@ -22,8 +22,7 @@
     "verify": "pnpm lint && pnpm typecheck"
   },
   "dependencies": {
-    "@palladium/core": "workspace:*",
-    "@sqlite.org/sqlite-wasm": "3.51.2-build6"
+    "@palladium/core": "workspace:*"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",
