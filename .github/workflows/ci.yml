@@ -41,6 +41,7 @@ jobs:
           pnpm --filter "@palladium/sqlite-browser" build
           pnpm --filter "@palladium/sqlite-capacitor" build
           pnpm --filter "@palladium/nuxt" build
+          pnpm --filter "@palladium/worker" build
 
       - name: Prepare (generate tsconfig)
         run: pnpm --filter ${{ matrix.app }} exec nuxt prepare
