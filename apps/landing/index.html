@@ -565,7 +565,7 @@
             width: 72%;
             height: 40%;
             transform: translateX(-50%);
-            filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.5));
+            filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.42));
         }
 
         .logs svg {
@@ -585,7 +585,9 @@
             position: absolute;
             left: 50%;
             transform: translateX(-50%);
-            filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.5));
+            /* Soft, diffuse shadow so the stones sit in ambient firelight.
+               Smoothness comes from gradient facets, not blur — edges stay crisp. */
+            filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.42));
         }
         .stones-back  { z-index: 2; bottom: 20%; width: 84%; height: 26%; }
         .stones-front { z-index: 4; bottom: -1%; width: 118%; height: 42%; }
@@ -732,20 +734,32 @@
                                 <stop offset=".55" stop-color="#171b21"></stop>
                                 <stop offset="1" stop-color="#0a0c10"></stop>
                             </linearGradient>
+                            <!-- facet gradient: lit plane at the top ridge that fades down
+                                 into the body tone at the seam, so the transition is a smooth
+                                 gradient rather than a hard low-poly edge -->
+                            <linearGradient id="rgbf" x1="0" y1="-26" x2="0" y2="-12" gradientUnits="userSpaceOnUse">
+                                <stop offset="0" stop-color="#333a45"></stop>
+                                <stop offset="1" stop-color="#20252d"></stop>
+                            </linearGradient>
                             <!-- body: dark rock edge all round; facet: cool lit plane;
                                  rim: warm firelight, only on the top ridge, brightness
                                  set per-<use> via its inherited stroke -->
                             <g id="rkb">
                                 <polygon points="-16,0 -18,-14 -9,-25 7,-26 17,-14 14,0" stroke="#080a0e" stroke-width="1"></polygon>
-                                <polygon points="-16,-12 -9,-25 7,-26 4,-16 -9,-15" fill="#2b313a" stroke="none"></polygon>
-                                <polyline points="-18,-14 -9,-25 7,-26 17,-14" fill="none"></polyline>
+                                <polygon points="-16,-12 -9,-25 7,-26 4,-16 -9,-15" fill="url(#rgbf)" stroke="none"></polygon>
+                                <!-- warm firelight on the top ridge as a soft bloom: three
+                                     stacked strokes (wide+faint → thin+bright) give the glow a
+                                     smooth perpendicular falloff instead of one hard line -->
+                                <polyline points="-18,-14 -9,-25 7,-26 17,-14" fill="none" stroke-width="5" stroke-opacity=".14"></polyline>
+                                <polyline points="-18,-14 -9,-25 7,-26 17,-14" fill="none" stroke-width="2.6" stroke-opacity=".4"></polyline>
+                                <polyline points="-18,-14 -9,-25 7,-26 17,-14" fill="none" stroke-width="1.2" stroke-opacity=".9"></polyline>
                             </g>
                         </defs>
-                        <use href="#rkb" transform="translate(22,61) rotate(-3) scale(-.74,.74)" fill="url(#rgb)" stroke="rgba(255,170,84,.34)" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"></use>
-                        <use href="#rkb" transform="translate(60,49) rotate(5) scale(.63)"       fill="url(#rgb)" stroke="rgba(255,178,94,.6)"  stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"></use>
-                        <use href="#rkb" transform="translate(97,45) rotate(-2) scale(.6)"       fill="url(#rgb)" stroke="rgba(255,188,110,.85)" stroke-width="2.1" stroke-linejoin="round" stroke-linecap="round"></use>
-                        <use href="#rkb" transform="translate(139,50) rotate(4) scale(-.68,.68)" fill="url(#rgb)" stroke="rgba(255,178,94,.6)"  stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"></use>
-                        <use href="#rkb" transform="translate(176,60) rotate(-4) scale(.71)"     fill="url(#rgb)" stroke="rgba(255,170,84,.34)" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"></use>
+                        <use href="#rkb" transform="translate(22,61) rotate(-3) scale(-.74,.74)" fill="url(#rgb)" stroke="rgba(255,170,84,.3)" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"></use>
+                        <use href="#rkb" transform="translate(60,49) rotate(5) scale(.63)"       fill="url(#rgb)" stroke="rgba(255,178,94,.52)"  stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"></use>
+                        <use href="#rkb" transform="translate(97,45) rotate(-2) scale(.6)"       fill="url(#rgb)" stroke="rgba(255,188,110,.72)" stroke-width="2.1" stroke-linejoin="round" stroke-linecap="round"></use>
+                        <use href="#rkb" transform="translate(139,50) rotate(4) scale(-.68,.68)" fill="url(#rgb)" stroke="rgba(255,178,94,.52)"  stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"></use>
+                        <use href="#rkb" transform="translate(176,60) rotate(-4) scale(.71)"     fill="url(#rgb)" stroke="rgba(255,170,84,.3)" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"></use>
                     </svg>
                 </div>
                 <div class="smoke"><span></span><span></span><span></span></div>
@@ -772,16 +786,26 @@
                                 <stop offset=".42" stop-color="#6a4224"></stop>
                                 <stop offset="1" stop-color="#341f0e"></stop>
                             </linearGradient>
+                            <!-- top highlight fades into the body instead of a hard band -->
+                            <linearGradient id="loghi" x1="0" y1="-7.4" x2="0" y2="-3" gradientUnits="userSpaceOnUse">
+                                <stop offset="0" stop-color="#b07b48" stop-opacity=".5"></stop>
+                                <stop offset="1" stop-color="#b07b48" stop-opacity="0"></stop>
+                            </linearGradient>
+                            <!-- end-grain as one smooth radial: dark heart out to lit sap-wood,
+                                 replacing the hard concentric tree rings -->
+                            <radialGradient id="logend" cx=".55" cy=".5" r=".6">
+                                <stop offset="0" stop-color="#3a2412"></stop>
+                                <stop offset=".5" stop-color="#5c3c22"></stop>
+                                <stop offset="1" stop-color="#835734"></stop>
+                            </radialGradient>
                             <!-- a single textured log: cut end at local origin, body extends +x.
-                                 Dark bark edge, warm top highlight, grain lines + tree rings. -->
+                                 Dark bark edge, warm top highlight, grain lines + soft end-grain. -->
                             <g id="log">
                                 <rect x="3" y="-8.5" width="72" height="17" rx="7"
-                                      fill="url(#logb)" stroke="#241407" stroke-width="1.3" stroke-linejoin="round"></rect>
-                                <rect x="8" y="-7.4" width="62" height="4" rx="2" fill="#b07b48" stroke="none" opacity=".5"></rect>
-                                <path d="M14,-1.5 H68 M18,2.6 H60" stroke="#33200f" stroke-width="1" stroke-linecap="round" opacity=".55"></path>
-                                <ellipse cx="5" cy="0" rx="6.4" ry="9" fill="#7c5330" stroke="#241407" stroke-width="1.3"></ellipse>
-                                <ellipse cx="5.4" cy="0" rx="4" ry="6" fill="#603f23" stroke="#432b17" stroke-width=".7"></ellipse>
-                                <ellipse cx="5.7" cy="0" rx="1.7" ry="2.7" fill="#3a2412" stroke="none"></ellipse>
+                                      fill="url(#logb)" stroke="rgba(58,34,16,.55)" stroke-width="1" stroke-linejoin="round"></rect>
+                                <rect x="8" y="-7.4" width="62" height="4" rx="2" fill="url(#loghi)" stroke="none"></rect>
+                                <path d="M14,-1.5 H68 M18,2.6 H60" stroke="#33200f" stroke-width="1" stroke-linecap="round" opacity=".34"></path>
+                                <ellipse cx="5" cy="0" rx="6.4" ry="9" fill="url(#logend)" stroke="rgba(58,34,16,.55)" stroke-width="1" stroke-linejoin="round"></ellipse>
                             </g>
                         </defs>
                         <use href="#log" transform="translate(40,80) rotate(-6)"></use>
@@ -804,20 +828,29 @@
                                 <stop offset=".55" stop-color="#20252d"></stop>
                                 <stop offset="1" stop-color="#0b0e12"></stop>
                             </linearGradient>
+                            <!-- lit facet fades into the body tone at the seam (smooth
+                                 gradient instead of a hard plane edge) -->
+                            <linearGradient id="rgff" x1="0" y1="-29" x2="0" y2="-14" gradientUnits="userSpaceOnUse">
+                                <stop offset="0" stop-color="#414954"></stop>
+                                <stop offset="1" stop-color="#2b313b"></stop>
+                            </linearGradient>
                             <!-- body: dark rock edge; facet: cool lit plane; rim: warm
                                  firelight only on the top ridge, per-<use> brightness -->
                             <g id="rkf">
                                 <polygon points="-18,0 -20,-16 -10,-28 8,-29 19,-16 16,0" stroke="#0b0e13" stroke-width="1"></polygon>
-                                <polygon points="-18,-14 -10,-28 8,-29 5,-18 -10,-16" fill="#3d444f" stroke="none"></polygon>
-                                <polyline points="-20,-16 -10,-28 8,-29 19,-16" fill="none"></polyline>
+                                <polygon points="-18,-14 -10,-28 8,-29 5,-18 -10,-16" fill="url(#rgff)" stroke="none"></polygon>
+                                <!-- soft warm-glow bloom on the top ridge (wide+faint → thin+bright) -->
+                                <polyline points="-20,-16 -10,-28 8,-29 19,-16" fill="none" stroke-width="5.5" stroke-opacity=".14"></polyline>
+                                <polyline points="-20,-16 -10,-28 8,-29 19,-16" fill="none" stroke-width="2.8" stroke-opacity=".4"></polyline>
+                                <polyline points="-20,-16 -10,-28 8,-29 19,-16" fill="none" stroke-width="1.3" stroke-opacity=".9"></polyline>
                             </g>
                         </defs>
-                        <use href="#rkf" transform="translate(20,67) rotate(-4) scale(.92)"        fill="url(#rgf)" stroke="rgba(255,172,88,.26)" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"></use>
-                        <use href="#rkf" transform="translate(59,77) rotate(3) scale(-1.02,1.02)"  fill="url(#rgf)" stroke="rgba(255,178,94,.44)" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"></use>
-                        <use href="#rkf" transform="translate(99,83) rotate(-2) scale(1.05)"       fill="url(#rgf)" stroke="rgba(255,186,104,.62)" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"></use>
-                        <use href="#rkf" transform="translate(139,81) rotate(3) scale(1.08)"       fill="url(#rgf)" stroke="rgba(255,186,104,.62)" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"></use>
-                        <use href="#rkf" transform="translate(181,74) rotate(-3) scale(-0.98,0.98)" fill="url(#rgf)" stroke="rgba(255,178,94,.44)" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"></use>
-                        <use href="#rkf" transform="translate(214,66) rotate(4) scale(.88)"        fill="url(#rgf)" stroke="rgba(255,172,88,.26)" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"></use>
+                        <use href="#rkf" transform="translate(20,67) rotate(-4) scale(.92)"        fill="url(#rgf)" stroke="rgba(255,172,88,.22)" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"></use>
+                        <use href="#rkf" transform="translate(59,77) rotate(3) scale(-1.02,1.02)"  fill="url(#rgf)" stroke="rgba(255,178,94,.36)" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"></use>
+                        <use href="#rkf" transform="translate(99,83) rotate(-2) scale(1.05)"       fill="url(#rgf)" stroke="rgba(255,186,104,.52)" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"></use>
+                        <use href="#rkf" transform="translate(139,81) rotate(3) scale(1.08)"       fill="url(#rgf)" stroke="rgba(255,186,104,.52)" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"></use>
+                        <use href="#rkf" transform="translate(181,74) rotate(-3) scale(-0.98,0.98)" fill="url(#rgf)" stroke="rgba(255,178,94,.36)" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"></use>
+                        <use href="#rkf" transform="translate(214,66) rotate(4) scale(.88)"        fill="url(#rgf)" stroke="rgba(255,172,88,.22)" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"></use>
                     </svg>
                 </div>
                 <div class="embers"><span></span><span></span><span></span><span></span></div>
