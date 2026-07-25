@@ -243,7 +243,7 @@ Server filter: `WHERE workspace_id = ? AND (visibility = 'shared' OR owner_user_
 | **shared** (candidates) | `todos` (family grocery / chore list), `bored_activities` (shared activity ideas) |
 | **local-only** (never synced) | `applied_defaults`, `_palladium_seeds` |
 
-> **Everyone gets a workspace (`O12`).** On first sync a user's own workspace is auto-provisioned; personal tables are member-scoped within it (trivially — they're the sole member), shared tables hold their shared lists. Joining a family adds membership to another workspace, where their personal data stays theirs. **Still open (O12):** solo→family *formation/merge* — when two solo users form a family, which workspace shared data lands in and whether existing rows migrate.
+> **Everyone gets a workspace (`O12`).** On first sync a user's own workspace is auto-provisioned; personal tables are member-scoped within it (trivially — they're the sole member), shared tables hold their shared lists. Joining a family adds membership to another workspace, where their personal data stays theirs. **Still open (O12), deferred:** solo→family *formation/merge* mechanics — leaning toward **data-preservation via merge** (existing rows merged into the shared workspace, no data loss), exact logic TBD.
 
 ---
 
@@ -410,7 +410,7 @@ The multi-tenant backend, built **from the start** (`L2` amended, `G5`, `D12`/`D
 | O7 | Account scope across the suite — one Clerk identity **and shared workspaces** across habitat/hearth/halcyon/hephaestus, or per-app? | Open. |
 | O8 | Blob sync — `IDBBlobAdapter` binary (jots voice/image) via `/v1/blobs`, or out of scope for v1? | Open. |
 | ~~O11~~ | ~~Sharing granularity — share all tables, or some personal within a family?~~ | **Resolved (2026-07-25)** — **per-table** `shared`/`personal` via a declarative registry (`D15`/`D16`); habits/journal personal, chores/grocery shared. Per-**row** sharing is out of scope (non-goal). |
-| O12 | **Workspace lifecycle** — *partially resolved:* everyone auto-gets a workspace; personal data is member-scoped within it (`D15`). **Still open:** solo→family formation/merge — which workspace shared data lands in when two solo users form a family, and whether existing rows migrate. | Partly open. |
+| O12 | **Workspace lifecycle** — *partially resolved:* everyone auto-gets a workspace; personal data is member-scoped within it (`D15`). **Still open (deferred):** solo→family formation/merge mechanics. | **Direction (2026-07-25): data-preservation via merge** — no data loss on family formation; existing solo rows are merged into the shared workspace rather than dropped/re-created. Detailed logic TBD later. |
 | O13 | **Membership mechanism** — workspace ↔ Clerk Organization (invites/roles, free-tier limits) vs. bespoke `workspaces`/`memberships` tables? | Open — verify Clerk Org free-tier limits (R7). *(User: undecided.)* |
 | O14 | **Account-switch isolation mechanism (`R-A11`)** — per-account local stores vs. an explicit purge/export gate before switching accounts on one device. | Open. |
 | ~~O9~~ | ~~Completion/checkin data model.~~ | **Resolved** — keep state-as-row-existence + deterministic IDs + idempotent apply for v1 (`L3`). |
