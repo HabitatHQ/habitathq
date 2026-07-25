@@ -50,6 +50,12 @@ await (async () => {
       try {
         switch (req.type) {
           case 'NUKE_OPFS': {
+            // TODO(sync/opfs): DATA-LOSS bug — this iterates the origin OPFS
+            // root and deletes EVERY app's data. All suite apps share one
+            // origin (/habitat, /hearth, /halcyon, /hephaestus), so Halcyon's
+            // "reset data" also wipes the siblings. Scope the delete to
+            // '/halcyon' only, mirroring habitat's fix (commit 24811e7, PR #33).
+            // See libs/palladium/docs/plans/habitat-sync-integration.md follow-ups.
             const root = await navigator.storage.getDirectory()
             // biome-ignore lint/suspicious/noTsIgnore: tsgo and vue-tsc disagree on FileSystemDirectoryHandle iterability
             // @ts-ignore — async-iterable at runtime but not in all lib.dom typings

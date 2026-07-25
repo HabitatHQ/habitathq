@@ -1,82 +1,79 @@
-import { applySchema, dbg, toDbAdapter } from '@palladium/core'
+/**
+ * Habitat's dedicated database worker.
+ *
+ * The multi-tab ownership, leader election, failover, and RPC transport all
+ * live in `@palladium/worker`. This file only describes Habitat's *service*:
+ * open the OPFS database and answer `WorkerRequestBody` dispatches. Exactly one
+ * tab (the leader) opens the DB; every other tab forwards its calls to the
+ * leader and takes over automatically if the leader goes away.
+ */
+
+import { applySchema, type DbAdapter, dbg, toDbAdapter } from '@palladium/core'
 import { BrowserSqliteAdapter } from '@palladium/sqlite-browser'
+import { startDbOwner } from '@palladium/worker/owner'
 import { SCHEMA_CONFIG } from '~/lib/db-schema'
 import * as shared from '~/lib/db-shared'
-import type { WorkerRequest, WorkerResponse } from '~/types/database'
+import type { WorkerRequestBody } from '~/types/database'
 
-await (async () => {
-  async function tryAcquireDbLock(): Promise<boolean> {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      if (attempt > 0) await new Promise((r) => setTimeout(r, 1000))
-      const got = await new Promise<boolean>((resolve) => {
-        void navigator.locks.request('habitat-db', { ifAvailable: true }, (lock) => {
-          if (!lock) {
-            resolve(false)
-            return Promise.resolve()
-          }
-          resolve(true)
-          return new Promise(() => {})
-        })
-      })
-      if (got) return true
-    }
-    return false
-  }
+/**
+ * OPFS directory Habitat's SAH-pool database lives under. The origin's OPFS
+ * root is shared across the suite (habitat/hearth/halcyon/hephaestus deploy
+ * under one origin), so anything touching OPFS must stay scoped to this dir.
+ */
+const OPFS_DIR = 'habitat'
 
-  const hasLock = await tryAcquireDbLock()
+/** The surface Habitat's main thread calls (via `connect<HabitatService>`). */
+export interface HabitatService {
+  /** Resolves once a leader has opened the DB — the main thread's readiness probe. */
+  ping(): Promise<true>
+  /** Run one database request. Handles storage-level ops, delegates the rest. */
+  dispatch(req: WorkerRequestBody): Promise<unknown>
+}
 
-  if (!hasLock) {
-    self.postMessage({ type: 'LOCK_UNAVAILABLE' })
-    return
-  }
-
-  try {
-    dbg('habitat-worker', 'init start')
+startDbOwner<HabitatService>({
+  dbName: 'habitat',
+  methods: ['ping', 'dispatch'],
+  create() {
     const storage = new BrowserSqliteAdapter({
-      vfs: { type: 'opfs-sah-pool', directory: '/habitat', filename: '/habitat.db' },
+      vfs: { type: 'opfs-sah-pool', directory: `/${OPFS_DIR}`, filename: '/habitat.db' },
     })
-    await storage.open()
-    await applySchema(storage, SCHEMA_CONFIG)
+    let adapter: DbAdapter
 
-    const adapter = toDbAdapter(storage)
-    dbg('habitat-worker', 'init complete')
+    return {
+      async open(): Promise<void> {
+        dbg('habitat-worker', 'init start')
+        await storage.open()
+        await applySchema(storage, SCHEMA_CONFIG)
+        adapter = toDbAdapter(storage)
+        dbg('habitat-worker', 'init complete')
+      },
 
-    self.addEventListener('message', async (e: MessageEvent) => {
-      const req = e.data as WorkerRequest
-      let result: unknown
-      try {
+      async ping(): Promise<true> {
+        return true
+      },
+
+      async dispatch(req: WorkerRequestBody): Promise<unknown> {
         switch (req.type) {
           case 'EXPORT_DB':
-            result = storage.serialize()
-            break
+            return storage.serialize()
           case 'NUKE_OPFS': {
+            // Delete ONLY Habitat's OPFS directory. The previous code iterated
+            // the origin's OPFS root and removed every entry — on a shared
+            // origin that also wipes sibling apps' databases. Scope to our dir.
+            //
+            // The adapter is intentionally left open here: this flow never
+            // closes it, so `dispatch` stays usable afterwards (the no-reload
+            // "Wipe only" path). A true in-place wipe that also reclaims the
+            // open SAH-pool files needs adapter-level support (`wipeFiles`) and
+            // is tracked as a follow-up.
             const root = await navigator.storage.getDirectory()
-            // biome-ignore lint/suspicious/noTsIgnore: tsgo and vue-tsc disagree on FileSystemDirectoryHandle iterability
-            // @ts-ignore — async-iterable at runtime but not in all lib.dom typings
-            for await (const [name] of root) {
-              await root.removeEntry(name, { recursive: true }).catch(() => {})
-            }
-            result = null
-            break
+            await root.removeEntry(OPFS_DIR, { recursive: true }).catch(() => {})
+            return null
           }
           default:
-            result = await shared.dispatch(adapter, req)
+            return shared.dispatch(adapter, req)
         }
-        self.postMessage({ id: req.id, ok: true, data: result } satisfies WorkerResponse)
-      } catch (err) {
-        self.postMessage({
-          id: req.id,
-          ok: false,
-          error: err instanceof Error ? err.message : String(err),
-        } satisfies WorkerResponse)
-      }
-    })
-
-    self.postMessage({ type: 'READY' })
-  } catch (err) {
-    self.postMessage({
-      type: 'INIT_ERROR',
-      message: err instanceof Error ? err.message : String(err),
-    })
-  }
-})()
+      },
+    }
+  },
+})

@@ -68,18 +68,21 @@ importers:
       '@palladium/core':
         specifier: workspace:*
         version: link:../../libs/palladium/core
-      '@palladium/nuxt':
-        specifier: workspace:*
-        version: link:../../libs/palladium/nuxt
       '@palladium/sqlite-browser':
         specifier: workspace:*
         version: link:../../libs/palladium/sqlite-browser
       '@palladium/sqlite-capacitor':
         specifier: workspace:*
         version: link:../../libs/palladium/sqlite-capacitor
+      '@palladium/worker':
+        specifier: workspace:*
+        version: link:../../libs/palladium/worker
       '@sqlite.org/sqlite-wasm':
         specifier: 3.51.2-build6
         version: 3.51.2-build6
+      comlink:
+        specifier: ^4.4.2
+        version: 4.4.2
       fflate:
         specifier: ^0.8.2
         version: 0.8.2
