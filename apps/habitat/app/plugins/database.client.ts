@@ -15,6 +15,14 @@ let nativeReady = false
  * Send one request to the database. On native (Capacitor) it runs in-process;
  * on web it goes to whichever tab currently owns the OPFS database, with the
  * `@palladium/worker` bus handling leadership and failover transparently.
+ *
+ * Boundary casts: both dispatchers resolve `Promise<unknown>` — the RPC
+ * boundary is untyped by construction, and `T` is the response shape the
+ * *caller* asserts for this request type (`useDatabase` maps each op to its
+ * result). There is nothing to structurally verify against here, so the
+ * `as Promise<T>` is a deliberate boundary assertion, not error-silencing. The
+ * source of truth for correctness is the caller-side `WorkerRequestBody` → `T`
+ * mapping, not this generic pass-through.
  */
 export function sendToWorker<T>(req: WorkerRequestBody): Promise<T> {
   if (nativeReady) return dispatchNative(req) as Promise<T>

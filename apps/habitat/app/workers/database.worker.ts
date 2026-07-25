@@ -15,6 +15,13 @@ import { SCHEMA_CONFIG } from '~/lib/db-schema'
 import * as shared from '~/lib/db-shared'
 import type { WorkerRequestBody } from '~/types/database'
 
+/**
+ * OPFS directory Habitat's SAH-pool database lives under. The origin's OPFS
+ * root is shared across the suite (habitat/hearth/halcyon/hephaestus deploy
+ * under one origin), so anything touching OPFS must stay scoped to this dir.
+ */
+const OPFS_DIR = 'habitat'
+
 /** The surface Habitat's main thread calls (via `connect<HabitatService>`). */
 export interface HabitatService {
   /** Resolves once a leader has opened the DB — the main thread's readiness probe. */
@@ -28,7 +35,7 @@ startDbOwner<HabitatService>({
   methods: ['ping', 'dispatch'],
   create() {
     const storage = new BrowserSqliteAdapter({
-      vfs: { type: 'opfs-sah-pool', directory: '/habitat', filename: '/habitat.db' },
+      vfs: { type: 'opfs-sah-pool', directory: `/${OPFS_DIR}`, filename: '/habitat.db' },
     })
     let adapter: DbAdapter
 
@@ -50,12 +57,17 @@ startDbOwner<HabitatService>({
           case 'EXPORT_DB':
             return storage.serialize()
           case 'NUKE_OPFS': {
+            // Delete ONLY Habitat's OPFS directory. The previous code iterated
+            // the origin's OPFS root and removed every entry — on a shared
+            // origin that also wipes sibling apps' databases. Scope to our dir.
+            //
+            // The adapter is intentionally left open here: this flow never
+            // closes it, so `dispatch` stays usable afterwards (the no-reload
+            // "Wipe only" path). A true in-place wipe that also reclaims the
+            // open SAH-pool files needs adapter-level support (`wipeFiles`) and
+            // is tracked as a follow-up.
             const root = await navigator.storage.getDirectory()
-            // biome-ignore lint/suspicious/noTsIgnore: tsgo and vue-tsc disagree on FileSystemDirectoryHandle iterability
-            // @ts-ignore — async-iterable at runtime but not in all lib.dom typings
-            for await (const [name] of root) {
-              await root.removeEntry(name, { recursive: true }).catch(() => {})
-            }
+            await root.removeEntry(OPFS_DIR, { recursive: true }).catch(() => {})
             return null
           }
           default:
