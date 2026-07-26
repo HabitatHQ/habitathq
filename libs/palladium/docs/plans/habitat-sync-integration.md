@@ -1,6 +1,6 @@
 # ERD — HabitatHQ Sync Architecture (Palladium + Atrium)
 
-**Status:** Reframed to a **three-layer** architecture + **record-level ACL** + **POC-first** delivery — 2026-07-26 · PR #33 **merged** (`74e11bf`) · prior O1–O14 resolved; the reframe opens O11a / O5a / O12a / O20 / O20a (§8)
+**Status:** Reframed to a **three-layer** architecture + **record-level ACL** + **POC-first** delivery — 2026-07-26 · PR #33 **merged** (`74e11bf`) · prior O1–O14 resolved; the reframe opens O11a / O5a / O12a / O20 (§8)
 **Owner:** Jeel Bhavsar
 **Created:** 2026-07-25 · **Revised:** 2026-07-26
 **PRs:** [#33 — habitat on the @palladium/worker bus](https://github.com/HabitatHQ/habitathq/pull/33) (merged) · [#35 — this ERD](https://github.com/HabitatHQ/habitathq/pull/35)
@@ -88,7 +88,7 @@ The moves:
 | **D18** | **Blob sync in the POC** — `IDBBlobAdapter` binaries (a jot image) via `/v1/blobs`, **ACL-authorized** by Atrium. | Proves binary replication + per-record blob authorization end-to-end. |
 | **D19** | **Family formation = claim-into-existing-workspace (promote-host), data-preservation merge** (O12, §5.6). Re-homed records keep their owner and stay **private by default**; the member opts into sharing afterward. | Reuses the claim path; no server-side merge endpoint; no accidental exposure on merge. |
 | **D20** | **Deliver via a mock-habitat POC example app**, not a real-Habitat migration first. | De-risk the whole stack (hardened Palladium + Atrium + ACL + a Vue client) on a small, disposable surface before the costly real migration. |
-| **D21** | **ACL is set on aggregate roots; children carry `root_id` and inherit** (§7.1, O20a). | Grants stay `O(roots)` not `O(rows)`; "share a list" moves its items atomically; a child is never visible when its root isn't. |
+| **D21** | **ACL is set on aggregate roots; children carry `root_id` and inherit** (§7.1). A child has no ACL of its own; its `owner_user_id` is **audit-only**; the root owner's ACL is the sole authority over child read/write/share. | Grants stay `O(roots)` not `O(rows)`; "share a list" moves its items atomically; a child is never visible when its root isn't; collaborator-created children can't assert their own audience. |
 
 ---
 
@@ -233,15 +233,17 @@ This directly answers npalladium's cases: *"share this note with one member"* (a
 
 *Open design detail (O11a):* where the ACL/grants are indexed and how Atrium filters the change stream efficiently per caller — the POC's core thing to prove.
 
-**ACL transitions (grant / revoke / offline)** — sharing changes over time, so the model must define propagation, not just steady-state visibility. Atrium owns these:
+### 5.4a ACL transitions (grant / revoke / offline)
+
+Sharing changes over time, so the model must define **propagation**, not just steady-state visibility. Atrium owns these:
 
 | Transition | Semantics |
 |---|---|
-| **Grant** (owner shares R with C, or household) | C's stream must **backfill** R and its prior history even though those changes predate C's poll cursor. Atrium serves a **grant-triggered backfill** (surface R's changes to C out of cursor order, or bump them) so C converges to R's current state. |
-| **Revoke** (owner ungrants C) | Atrium **stops** streaming R's future changes to C **and emits a revocation signal** (tombstone-like) so C's client **purges the local copy** of R. Not a normal delete (R still exists for the owner) — a *visibility* removal on C's device. |
+| **Grant** (owner shares R with C, or household) | C must converge R to its current state even though R's history predates C's poll cursor. Atrium serves R's history on a **separate backfill channel, decoupled from the incremental cursor** — the main cursor is **never rewound or bumped** past unrelated changes. Mechanics: (a) backfilled changes carry their **original HLC** and apply **idempotently** via column-LWW (Phase 1b/c), so overlap with later incremental delivery is safe (dedup by `(row_id, column, hlc)`); (b) the client tracks a **per-root backfill watermark** and **acks** it, so an interrupted backfill resumes without re-sending or skipping; (c) once the watermark reaches R's latest HLC, R's future changes flow through the normal incremental cursor. No out-of-order bumping of the shared cursor. |
+| **Revoke** (owner ungrants C) | Atrium **stops** streaming R's future changes to C **and emits a revocation signal** (tombstone-like) so C's client **purges the local copy** of R (and its children — §7.1). Not a normal delete (R still exists for the owner) — a *visibility* removal on C's device. |
 | **Offline write after revoke** | If C edited R offline, then reconnects after being revoked, Atrium **rejects/discards** those writes (C no longer holds a `write` grant) — the client drops them from its outbox on the revocation signal. |
 
-These are the sharp edges of record-level ACL; the POC (Phase 5) must exercise grant-backfill, revoke-purge, and offline-write-after-revoke explicitly. *(Extends O11a.)*
+These are the sharp edges of record-level ACL; the POC (Phase 5) must exercise grant-backfill, revoke-purge, and offline-write-after-revoke explicitly. The backfill channel's cursor-safety leans on Phase 1's **idempotent, commutative column-LWW apply** — that is the precondition that makes replay/overlap safe. *(Extends O11a.)*
 
 ### 5.5 Identity & local-first gating (Clerk, via Atrium)
 
@@ -296,8 +298,26 @@ Layers are largely **parallelizable**: Phase 1–2 (Palladium) and Phase 3 (Atri
 | **Deferred** | Real Habitat migration; hearth/…; native; bootstrap; CRDT; leaving-a-family | — | post-POC |
 
 ### Phase 1 — Harden Palladium's engine sync core (`@palladium/core`)
-- **1a Non-poisoning apply** (`D2a`, G2/G4) · **1b Column-level LWW by HLC** (`D3`, F1) · **1c Durable sync state** (`D2b`, G6). No auth changes.
-- **Verify:** the `it.fails` convergence guard flips green; add non-poisoning + failover-resume tests.
+
+Pure engine correctness — **no auth, no scope, no domain** (those are Phase 2 / Atrium). Everything downstream leans on this: the §5.4a **backfill channel** needs an idempotent, commutative apply, and 1a's split between *seen* and *durably-applied* cursor is exactly what makes grant-backfill cursor-safe. Red→Green TDD against the existing `two-client-sync` harness.
+
+**1a — Non-poisoning apply (`D2a`; G2, G4) — highest severity.**
+- *Problem.* `applyRemote()` (`core/src/engine.ts`) wraps the **whole batch in one `tx()`** (all-or-nothing); `SyncTransport.#poll` (`core/src/sync.ts`) advances `#cursor` **per change, before apply**. One failing op (an FK violation from an out-of-order child/parent, a constraint) rejects the batch — but the cursor has already moved, so the change is **skipped forever** (poison pill).
+- *Change.* Apply **per-change in its own savepoint**; a failed op is **quarantined** (dead-letter / bounded retry), never silently dropped. **Decouple "seen" from "durably applied"**: persist the cursor only up to the **highest contiguous applied HLC**, not every change merely observed. Wrap the apply tx with `PRAGMA defer_foreign_keys = ON` so out-of-order child↔parent within a batch resolve at commit (G4).
+- *Files.* `engine.ts` (`applyRemote`), `sync.ts` (`#poll` cursor logic).
+- *Verify.* A batch with one FK-violating op still applies the rest and does **not** skip the good ops on the next poll; deferred-FK child-then-parent commits clean; the quarantined op is retryable, not lost.
+
+**1b — Column-level LWW by HLC (`D3`; F1) — blocking.**
+- *Problem.* `applyRemote` calls `t.update(table, id, patch)` with **no HLC comparison** — last writer to *arrive* wins, not last to *happen*. Two devices editing the same row concurrently **never reconcile** → permanent divergence (the `it.fails` guard, buglog `sync-no-lww`).
+- *Change.* **Per-column LWW keyed by HLC.** Store a per-`(row, column)` write HLC in `_sync_row_meta` (extend the existing internal table, G8). On apply, **merge column-by-column**: accept a remote column iff its HLC **>** the stored column HLC (deterministic tie-break by `nodeId`), drop stale columns; same rule local↔remote. Update-vs-delete resolved by HLC (delete carries a tombstone HLC). This makes apply **idempotent + commutative** — the precondition for §5.4a backfill replay.
+- *Files.* `engine.ts` (`applyRemote` merge), `hlc.ts` (comparator, `recvHlc`), `_sync_row_meta` schema.
+- *Verify.* The `two-client-sync` `it.fails` convergence guard **flips green**; add a concurrent-column test (A sets col X, B sets col Y at overlapping HLCs → both survive; two writes to col X → higher HLC wins **regardless of arrival order**).
+
+**1c — Durable sync state (`D2b`; G6).**
+- *Problem.* `#cursor`, the engine HLC, and `nodeId` live **in memory**. On leader-worker failover the new leader re-hydrates from **full history** and the `nodeId` **churns** — breaking own-write skip and causal ordering.
+- *Change.* Persist `nodeId` (UUIDv7, minted once), the **durable applied cursor** (from 1a), and the engine HLC to an OPFS-backed `_sync_state`; rehydrate on leadership handoff instead of replaying from zero.
+- *Files.* `sync.ts` (cursor persistence), `engine.ts` (nodeId/HLC load+persist).
+- *Verify.* Kill + restart the leader mid-sync → resumes from the persisted cursor (no full replay, `nodeId` stable, own-writes still skipped).
 
 ### Phase 2 — Generic scoped store + auth seam (`palladium-axum`)
 - Add an **opaque `scope`** to `ChangeStore` + `palladium_changes` (G5); add the **auth-seam trait** (authenticated-scope provider + request-decoration hook) and client wiring in `SyncTransport` (`D11`). **No vendor, no domain.**
@@ -316,9 +336,9 @@ Layers are largely **parallelizable**: Phase 1–2 (Palladium) and Phase 3 (Atri
 
 The smallest surface that exercises **every** ACL path (private / household / per-member) **and** the child-inheritance and blob paths, with nothing that doesn't earn its place. Name: **`burrow`** (a small habitat) — lives at `examples/burrow`, a Vue example app.
 
-**Design decision — ACL is set on aggregate roots; children inherit (`D21`, O20a).** Each syncable entity is either a **root** (owns an ACL) or a **child** (carries a `root_id`; its effective ACL is its root's). "Share this list" grants the *list root*; its items ride along atomically — grants stay `O(roots)`, not `O(rows)`, and a child can never be visible when its root isn't. Atrium resolves a child's audience through `root_id`; the client never grants a child directly.
+**Design decision — ACL is set on aggregate roots; children inherit (`D21`; resolves O20a).** Each syncable entity is either a **root** (owns an ACL) or a **child** (carries a `root_id`; it has **no ACL of its own**). The **root's owner and ACL are the sole access authority** over every child read, write, and sharing operation — including children created by a *collaborator* (a member holding a `write` grant on the root). "Share this list" grants the *list root*; its items ride along atomically — grants stay `O(roots)`, not `O(rows)`, and a child can never be visible when its root isn't. Atrium resolves a child's audience through `root_id`; the client never grants a child directly.
 
-**Schema (fresh, sync-native).** Every row: `id`, `owner_user_id` (Atrium-set from `sub`, `D17`); roots add nothing (ACL is Atrium-side, `D16`); children add `root_id`. No `_sync_*`/ACL columns in app SQLite — sharing truth is Atrium's; the client renders an advisory grant projection Atrium pushes down.
+**Schema (fresh, sync-native).** Every row: `id`, `owner_user_id`, plus children `root_id` (all Atrium-set from `sub` / validated against the root, `D17`). Roots add no ACL columns (ACL is Atrium-side, `D16`). A child's `owner_user_id` is **provenance/audit only** — it records *who created* the row and **carries no access authority**; visibility and grant authority flow exclusively from the child's root. So a collaborator-created `list_item` is authored by the collaborator (audit) yet fully governed by the root owner's ACL — no conflict, because the child never asserts its own audience. No `_sync_*`/ACL columns in app SQLite — sharing truth is Atrium's; the client renders an advisory grant projection Atrium pushes down.
 
 | Table | Role | Sharing class | Proves |
 |---|---|---|---|
@@ -380,11 +400,11 @@ The smallest surface that exercises **every** ACL path (private / household / pe
 
 | # | Question | State |
 |---|---|---|
-| O11a | **ACL storage, filtering & transitions** — where grants (`shares`, household flags) live; how Atrium filters each caller's change stream efficiently; and the **grant-backfill / revoke-purge / offline-write-after-revoke** mechanics (§5.4a). | Open — **the POC's core thing to prove**. |
+| O11a | **ACL storage, filtering & transitions** — where grants (`shares`, household flags) live; how Atrium filters each caller's change stream efficiently (incl. **child `root_id` → root-ACL resolution**, `D21`); and the **grant-backfill / revoke-purge / offline-write-after-revoke** mechanics (§5.4a). | Open — **the POC's core thing to prove**. |
 | O12a | **Merge grant policy** — on family formation, do re-homed shared records keep grants or reset to private? Lean: **reset to private** (safest), owner re-shares. | Leaning reset-to-private (§5.6). |
 | O5a | **Auth-seam contract** — exact shape of Palladium's authenticated-scope provider + request-decoration hook. | Open (Phase 2). |
 | O20 | **POC scope** — which minimal tables/features the mock-habitat app includes to exercise private / household / per-member sharing + a blob. | **Proposed — §7.1** (`burrow`: 3 roots + 3 children + 1 blob; A1–A10 matrix). |
-| O20a | **Child-ACL model** — do children inherit their aggregate root's ACL, or is every row independently owned/shared? | **Leaning root-inheritance** (`D21`, §7.1) — POC to confirm the `root_id` resolution performs. |
+| ~~O20a~~ | **Child-ACL model** — do children inherit their root's ACL, or is every row independently owned/shared? | **Resolved: root-inheritance** (`D21`, §7.1) — child `owner_user_id` is audit-only. *(Filter/index performance of `root_id` resolution folds into O11a.)* |
 | Oprod | Where Atrium + Palladium run in production. | Open (deployment). |
 | ~~O1–O14~~ | Prior questions (tenancy, nodeId, migration, JWT, token plumbing, suite scope, blobs, membership, account-switch, family merge, sharing granularity). | **Resolved** — folded into `D5`–`D20` / §5. |
 
