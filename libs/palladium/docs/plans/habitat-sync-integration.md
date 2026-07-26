@@ -71,10 +71,11 @@ This work sits **on top of PR #33** (the `@palladium/worker` bus migration, now 
 | D13 | **Workspace = tenant; family sharing via memberships + coarse roles**, from v1. Membership / invites / roles are **bespoke in the Palladium server** (`workspaces` / `memberships` / `invites` tables); **Clerk provides identity only** — *not* Clerk Organizations. | O13: Clerk's free-tier Org cap (**100 families × 5 members**) is too tight for a consumer family app and beyond it needs a paid B2B add-on; bespoke has no cap and no per-family cost. A user may belong to several workspaces. |
 | D14 | **Tenancy lives in the `ChangeStore` trait + `palladium_changes` schema** (single multi-tenant store): `workspace_id` always, plus `visibility` (`shared`\|`personal`) + `owner_user_id` for personal rows. Server filter: `workspace_id = ? AND (visibility = 'shared' OR owner_user_id = :caller)`. | Chosen fork for **G5**: one logical store, two scope keys — single source of truth, matches the design docs' `_sync_deltas.workspace_id`. Not per-tenant store instances. Implements `D15`. |
 | D15 | **Two-axis scoping: workspace (tenant) × sharing-class (`shared` \| `personal`).** Within a workspace, `shared` rows replicate to **all** members; `personal` rows carry `owner_user_id` and replicate **only** to that member — one workspace, no data duplication. | O11/O12: a family shares chores/grocery while habits/journal stay private to each member. |
-| D16 | **Declarative sharing-policy registry** — every synced table declares `shared`/`personal` in **one place** (co-located with `SCHEMA_CONFIG`), enforced by a parity test; adding a synced table **forces** a class. | Maintainability (user directive): "which parts are shared vs private" is one editable source of truth, not logic scattered across the write path. A missing class **fails CI**, so personal data can't leak by an unclassified default. |
+| D16 | **Declarative sharing-policy registry** — every synced table declares `shared`/`personal` in **one place** (co-located with `SCHEMA_CONFIG`), enforced by a parity test; adding a synced table **forces** a class. **Declaring a *new* table is one line; *reclassifying* a table that already has data is a versioned migration** (§5.4). | Maintainability (user directive): "which parts are shared vs private" is one editable source of truth, not logic scattered across the write path. A missing class **fails CI**, so personal data can't leak by an unclassified default. |
 | D17 | **Shared Clerk identity across the suite; workspaces scoped per app** (O7). One login spans habitat/hearth/halcyon/hephaestus; a workspace (family) belongs to a **single app**. | One identity (convergence), but each app owns its store + sharing surface — a habitat family ≠ a hearth family; `workspace_id` is per-app. |
 | D18 | **Blob sync in v1** (O8) — `IDBBlobAdapter` binaries (jots voice/image) replicate via the server's `/v1/blobs` routes. | Full-fidelity personal jots across a member's devices. Blobs are `personal`-class → member-scoped. Adds upload/download + storage handling (Phase 5). |
 | D19 | **Family formation = claim-into-existing-workspace (promote-host), data-preservation union** (O12, §5.5). Joining re-homes local rows into the inviter's workspace; **no server-side merge endpoint**. | The existing claim path + owner-scoped personal data + column-LWW give a convergent, lossless merge; re-home is a pure `workspace_id` relabel (`D5`). |
+| D20 | **Server-authoritative scoping (anti-forgery).** On every write the server derives/validates `workspace_id` (vs `memberships`) and `visibility` + `owner_user_id` (vs its own **sharing-policy manifest** + the authenticated `sub`), rejecting/overwriting client-supplied scope metadata; reads are filtered from `(sub, membership, policy)`, not client claims; `/v1/blobs` keys are workspace/owner-scoped + authz-checked. | CodeRabbit: client-stamped scope is forgeable — a malicious client must not write as another member, reclassify a row to leak it, or read another workspace/member. **The server, not the registry stamp, is the security boundary.** |
 
 ---
 
@@ -147,7 +148,7 @@ Source: `docs/DRAFT-ARCH.md` §"Conflict Resolution" + `answers.md` Batches 2/9/
 | Adapter close/reopen half | **Skipped with reason** — this flow never closes the adapter → turned into a `wipeFiles` follow-up. |
 | **Trivial** — `as Promise<T>` casts | **Documented** as a deliberate untyped-RPC-boundary assertion. |
 
-**Status:** comments resolved; awaiting merge by the author/user.
+**Status:** **Merged** as `74e11bf` — all review comments resolved.
 
 ---
 
@@ -186,11 +187,11 @@ A code-level review of the plan's load-bearing assumptions. **These gaps are why
 | R-A2 | **Auth gated on sync intent.** A prompt appears **only on sync opt-in** (a "Sync across devices" toggle / CTA). Discovering the app must not require an account. |
 | R-A3 | **Clerk provides identity** — sign-up, sign-in, session, profile via Clerk's hosted components/SDK. |
 | R-A4 | **Sync scopes to a workspace.** Every change carries `workspace_id`; the server returns only the caller's workspace's changes, and only to verified members. `nodeId` = *device*; Clerk user = *person*; workspace = *tenant*. |
-| R-A5 | **Claim existing local data on first sync** — associate local rows with the **workspace the user creates or joins** and push them (first-sync upload), then normal bidirectional sync. |
+| R-A5 | **Claim existing local data on first sync** — associate local rows with the **workspace the user creates or joins** and push them (first-sync upload), **preserving each table's sharing class** (personal rows stay owner-scoped to the caller; only shared rows reach other members), then normal bidirectional sync. |
 | R-A6 | **Graceful sign-out** — stop the transport, return to local-only; local data stays on the device. |
 | R-A7 | **Create or join a family.** On first sync a user either **creates** a new workspace (becomes owner) or **joins** an existing one via invite. |
 | R-A8 | **Invite members.** An owner can invite others to the workspace (email/link); an invitee joins and their devices sync the shared data. |
-| R-A9 | **Coarse roles (v1): owner / member.** Owner manages membership + invites; both roles read+write all workspace data. Fine-grained per-record permissions are out of scope (`O11`). |
+| R-A9 | **Coarse roles (v1): owner / member.** Owner manages membership + invites; both roles read+write all **shared** data and their **own personal** data (per `D15` — a member never sees another member's personal rows). Fine-grained per-record permissions are out of scope (`O11`). |
 | R-A10 | **Multi-workspace + switch.** A user may belong to several workspaces (e.g. personal + family) and switch the active one; the transport re-scopes to the active `workspace_id`. *(Lifecycle — O12.)* |
 | R-A11 | **Account-switch isolation.** Local data is **bound to the signed-in Clerk account** via a **per-account OPFS store keyed by the Clerk user id** (`O14`); a different sign-in opens a different DB, so it cannot see or claim the previous user's rows. The pre-auth anonymous store is claimed into the account store on first sign-in. |
 
@@ -227,16 +228,21 @@ Launch ─► app works fully, local-only, NO auth UI
 
 Two **orthogonal** axes. **Workspace** = the tenant (everyone auto-gets one, `R-A7`; a family is a workspace with several members). **Sharing class** = a per-table policy: `shared` (every member of the workspace sees it) or `personal` (only the authoring member). This is what lets a family share chores/grocery while each member's habits and journal stay private — **in one workspace, with no data duplication**.
 
-**Mechanism (maintainable, single source of truth — `D16`).** Every synced table declares its class **once**, co-located with `SCHEMA_CONFIG`, and a parity test **fails CI if any synced table is unclassified** — so adding a table forces a shared/personal decision and personal data can never leak through an unclassified default. Flipping a table's class is a one-line change.
+**Mechanism (maintainable, single source of truth — `D16`).** Every synced table declares its class **once**, co-located with `SCHEMA_CONFIG`, and a parity test **fails CI if any synced table is unclassified** — so adding a table forces a shared/personal decision and personal data can never leak through an unclassified default.
 
-**How it scopes (`D15`/`D14`).** The engine reads the registry and stamps each emitted change:
+**Declaring a *new* table's class is one line; *reclassifying* a table that already holds data is a versioned migration**, not a config flip, because the stored scope changes:
+- **personal → shared:** rows lose `owner_user_id` and become visible to **all** members (an authorization change — must be intended), and their deterministic-ID namespace changes `owner+key → workspace+key` (ID rewrite + FK fixup, like `O4`).
+- **shared → personal:** every existing shared row must be **assigned an `owner_user_id`** (whose? — a product decision), and the namespace changes the other way.
+Both run as a one-time transactional migration (backfill/revoke `owner_user_id`, rewrite deterministic IDs, re-emit) and must be reviewed as a privacy change.
+
+**How it scopes (`D15`/`D14`).** The client engine reads the registry and stamps each emitted change (below) for its *local* LWW/scoping — but these stamps are **advisory**: the server re-derives and enforces scope authoritatively (`D20`), never trusting client-supplied `owner_user_id`/`visibility`/`workspace_id`.
 
 | Class | Stamped on the change | Server returns to a member |
 |---|---|---|
 | `shared` | `workspace_id`, `visibility='shared'` | all `shared` rows of the workspace |
 | `personal` | `workspace_id`, `visibility='personal'`, `owner_user_id` | only rows where `owner_user_id = caller` |
 
-Server filter: `WHERE workspace_id = ? AND (visibility = 'shared' OR owner_user_id = :caller)`. Deterministic-ID namespace (`D5`) is `owner_user_id`-based (workspace-independent) for personal tables — two members never collide on a personal natural key, and IDs stay stable across a family re-home (`§5.5`).
+**Server-authoritative (`D20`):** on ingest the server sets `owner_user_id = sub` for personal-class rows (and `NULL`/`shared` for shared-class) **from its own copy of the policy manifest**, validates `workspace_id` against `memberships`, and rejects mismatched/forged metadata — so a client cannot write as another member or reclassify a personal row to leak it. Read filter (derived from `sub`+membership, not client claims): `WHERE workspace_id = ? AND (visibility = 'shared' OR owner_user_id = :caller)`. Deterministic-ID namespace (`D5`) is `owner_user_id`-based (workspace-independent) for personal tables — two members never collide on a personal natural key, and IDs stay stable across a family re-home (`§5.5`).
 
 **Initial Habitat classification** (illustrative — the registry is the source of truth, trivially reconfigurable):
 
@@ -374,7 +380,8 @@ Three coupled, engine-level pieces:
 The multi-tenant backend, built **from the start** (`L2` amended, `G5`, `D12`/`D14`). Rust work on `palladium-axum` + `palladium-core` crates; parallelizable with Phases 1–2.
 
 - **Tenancy in the store (`D14`/`D15`):** widen the `ChangeStore` scope to `insert(scope, change)` / `list_after(scope, after, limit)` + `workspace_id`, `visibility`, `owner_user_id` columns on `palladium_changes` (indexed) + updated Axum handlers + contract tests. Filter: `WHERE workspace_id = ? AND (visibility = 'shared' OR owner_user_id = :caller)`.
-- **Clerk JWT verification (`D12`, `O5`):** verify the token (JWKS/issuer/audience), derive the user + **active workspace (org) claim**, confirm membership, reject otherwise (401/403).
+- **Clerk JWT verification + server-authoritative scope (`D12`/`D20`, `O5`):** verify the token (signature / JWKS / issuer / audience), take the user `sub` and the **`workspace_id` request parameter** (bespoke membership — *no* Clerk org / active-org claim), check it against `memberships`; reject unauthorized as 401/403.
+- **Server holds the sharing-policy manifest (`D16`/`D20`):** configured per app/deployment (same source as the client registry) so the server **sets** `owner_user_id`/`visibility` on writes from `sub` + policy and **rejects forged client metadata** — the client stamps are advisory only.
 - **Membership (`D13`, O13):** build `workspaces` / `memberships` (workspace_id, user_id, role) / `invites` (token, email) tables in `palladium-axum` + invite/accept + coarse owner/member role checks. Clerk = identity only (no Clerk Organizations).
 - **Verify:** **two-workspace isolation** (member of A never receives B's changes; non-member rejected) **and two-member personal isolation** (member B in workspace A never receives member C's `personal` rows). Contract tests for the scoped store.
 
@@ -391,8 +398,8 @@ The multi-tenant backend, built **from the start** (`L2` amended, `G5`, `D12`/`D
 
 - Instantiate `SyncTransport(engine, { serverUrl, pollIntervalMs })` in the leader worker; start after `open()` once authenticated + a workspace is active. On downlink apply → `ctx.invalidate(affectedTables)` → all tabs refetch (delivers PR #33's deferred cross-tab reactivity).
 - Runs against the **workspace-scoped, authenticated** server from Phase 3 (no unscoped single-user stage). A local `palladium dev` may still be used for developer smoke-testing, but the demo is multi-tenant.
-- **Blob sync (`D18`, O8):** replicate `IDBBlobAdapter` binaries (jots voice/image) via the server's `/v1/blobs` routes — upload on local write, fetch on downlink; blobs are `personal`-class → member-scoped. Handle retry + a storage cap.
-- **Verify:** extend the harness to Habitat's schema; **two members × two devices in one workspace** converge (incl. a voice/image jot round-tripping via `/v1/blobs`); a second workspace stays isolated; constraint-violation / failover scenarios pass without poisoning.
+- **Blob sync (`D18`, O8):** replicate `IDBBlobAdapter` binaries (jots voice/image) via the server's `/v1/blobs` routes — upload on local write, fetch on downlink; blobs are `personal`-class → member-scoped. **`/v1/blobs` keys are namespaced by workspace (+ owner for personal) and every read/write is authorized against membership/ownership (`D20`)** — no unauthorized cross-workspace/cross-member fetch. Handle retry + a storage cap.
+- **Verify:** extend the harness to Habitat's schema; **two members × two devices in one workspace** converge (incl. a voice/image jot round-tripping via `/v1/blobs`); a second workspace stays isolated; **cross-workspace + cross-member authorization tests** (a member cannot read another workspace's changes or another member's personal rows/blobs); constraint-violation / failover scenarios pass without poisoning.
 
 ### Phase 6 — Verification (web, multi-user, multi-workspace)
 
