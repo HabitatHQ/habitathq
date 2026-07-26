@@ -1,6 +1,6 @@
 # ERD — HabitatHQ Sync Architecture (Palladium + Atrium)
 
-**Status:** Reframed to a **three-layer** architecture + **record-level ACL** + **POC-first** delivery — 2026-07-26 · PR #33 **merged** (`74e11bf`) · prior O1–O14 resolved; the reframe opens O11a / O5a / O12a / O20 (§8)
+**Status:** Reframed to a **three-layer** architecture + **record-level ACL** + **POC-first** delivery — 2026-07-26 · PR #33 **merged** (`74e11bf`) · prior O1–O14 resolved; the reframe opens O11a / O5a / O12a / O20 / O20a (§8)
 **Owner:** Jeel Bhavsar
 **Created:** 2026-07-25 · **Revised:** 2026-07-26
 **PRs:** [#33 — habitat on the @palladium/worker bus](https://github.com/HabitatHQ/habitathq/pull/33) (merged) · [#35 — this ERD](https://github.com/HabitatHQ/habitathq/pull/35)
@@ -88,6 +88,7 @@ The moves:
 | **D18** | **Blob sync in the POC** — `IDBBlobAdapter` binaries (a jot image) via `/v1/blobs`, **ACL-authorized** by Atrium. | Proves binary replication + per-record blob authorization end-to-end. |
 | **D19** | **Family formation = claim-into-existing-workspace (promote-host), data-preservation merge** (O12, §5.6). Re-homed records keep their owner and stay **private by default**; the member opts into sharing afterward. | Reuses the claim path; no server-side merge endpoint; no accidental exposure on merge. |
 | **D20** | **Deliver via a mock-habitat POC example app**, not a real-Habitat migration first. | De-risk the whole stack (hardened Palladium + Atrium + ACL + a Vue client) on a small, disposable surface before the costly real migration. |
+| **D21** | **ACL is set on aggregate roots; children carry `root_id` and inherit** (§7.1, O20a). | Grants stay `O(roots)` not `O(rows)`; "share a list" moves its items atomically; a child is never visible when its root isn't. |
 
 ---
 
@@ -307,12 +308,52 @@ Layers are largely **parallelizable**: Phase 1–2 (Palladium) and Phase 3 (Atri
 - **Verify:** contract + isolation tests — cross-workspace, cross-member, and **ACL grant/revoke** (a member sees a record only while granted; can't self-grant; can't forge owner).
 
 ### Phase 4 — Mock-habitat POC example app (Vue) ⭐
-- A **minimal Habitat slice** (e.g. `habits` [private], a `list` [household-shareable], `notes` [private, per-member shareable] + one image blob), fresh schema (no legacy migration).
+- A **minimal Habitat slice** — surface fully specified in **§7.1 (O20)**: three aggregate roots (`habits` private-only, `lists` household-shareable, `notes` per-member shareable) + their children + one image blob; fresh schema (no legacy migration).
 - Local-first + `@palladium/core` engine + `SyncTransport` through **Atrium**; Clerk opt-in gating (`R-A1`/`R-A2`); create/join family + invite; **record-level sharing UI**; per-account store (`R-A6`); blob sync (`D18`).
 - **Verify:** builds; default flow shows no auth; opt-in → Clerk + family; sharing UI grants/revokes.
 
+### 7.1 — Mock-habitat POC surface (O20) ⭐
+
+The smallest surface that exercises **every** ACL path (private / household / per-member) **and** the child-inheritance and blob paths, with nothing that doesn't earn its place. Name: **`burrow`** (a small habitat) — lives at `examples/burrow`, a Vue example app.
+
+**Design decision — ACL is set on aggregate roots; children inherit (`D21`, O20a).** Each syncable entity is either a **root** (owns an ACL) or a **child** (carries a `root_id`; its effective ACL is its root's). "Share this list" grants the *list root*; its items ride along atomically — grants stay `O(roots)`, not `O(rows)`, and a child can never be visible when its root isn't. Atrium resolves a child's audience through `root_id`; the client never grants a child directly.
+
+**Schema (fresh, sync-native).** Every row: `id`, `owner_user_id` (Atrium-set from `sub`, `D17`); roots add nothing (ACL is Atrium-side, `D16`); children add `root_id`. No `_sync_*`/ACL columns in app SQLite — sharing truth is Atrium's; the client renders an advisory grant projection Atrium pushes down.
+
+| Table | Role | Sharing class | Proves |
+|---|---|---|---|
+| `habits` | root | **Private-only** (never shareable) | the private floor; owner-scoped deterministic IDs (`D5`) |
+| `completions` | child of `habits` | inherits (private) | child of a **private** root — cascade stays private |
+| `lists` | root | **Household** (`read` / `read-write`) | workspace-wide grant, mixed with private roots in the same app |
+| `list_items` | child of `lists` | inherits (household) | child of a **shared** root — grant/revoke cascades to items atomically |
+| `notes` | root | **Per-member** via `shares(root_id, grantee, perm)` | targeted grant → **backfill**; revoke → **purge**; offline-write-after-revoke → **reject** (§5.4a) |
+| `note_images` | child of `notes` | inherits + **blob** | binary via `/v1/blobs`, **ACL-authorized through the parent note** (`D18`); revoke must purge the blob too |
+
+**UI surface (thin, one screen each).**
+- **Habits** — list + check-off (writes `completions`). No share control (private-only; proves a root can opt *out* of sharing entirely).
+- **Lists** — a list with items + a **"Share with household"** toggle (`read` vs `read-write`).
+- **Notes** — a note with body + **attach image** + a **"Share with member…"** picker (per-member grant, revocable).
+- **Family** — create/join, invite link, member list; per-root share state + **revoke**; account switch (`R-A6`).
+
+**Acceptance matrix** (each row = one ACL mechanic the POC must green; verified in Phase 5):
+
+| # | Scenario | Mechanic proven |
+|---|---|---|
+| A1 | Owner's habit + completions never reach any other member | private floor + private-child cascade |
+| A2 | Owner shares a list household-wide; all members see list **and** items | household grant + child inheritance (atomic) |
+| A3 | Owner downgrades `read-write`→`read`; member's writes rejected | perm enforcement (server-authoritative, `D17`) |
+| A4 | Owner shares a note with member B only; C never sees it; B's history backfills | per-member grant + **grant-backfill** (§5.4a) |
+| A5 | Owner revokes B; note **and** its image purge from B's device | **revoke-purge** cascading to the child blob |
+| A6 | B edited the note offline, reconnects post-revoke | **offline-write-after-revoke reject** |
+| A7 | Image round-trips; B (granted) fetches it, C (not) is refused at `/v1/blobs` | blob ACL via parent (`D18`) |
+| A8 | Two workspaces, no cross-leak; can't self-grant; can't forge `owner_user_id` | isolation + anti-forgery (`D17`) |
+| A9 | Family formation: B's solo burrow data re-homes into A's workspace, private-by-default | claim/merge (§5.6) |
+| A10 | Constraint violation / leader failover mid-sync | non-poisoning apply + resume (`D2a`/`D2b`) |
+
+**Explicitly out of the POC:** categories/reminders/voice-notes/scribbles and the rest of Habitat's ~20 tables (they add domain, not a new ACL path); real Habitat's `db-shared.ts` write volume; CRDT; leaving a family; bootstrap snapshot. Three roots + three children + one blob is the whole minimal proof.
+
 ### Phase 5 — Verify the POC end-to-end
-- **Two members × two devices**: a **private** habit stays private; a **household** list is shared; a **note shared with one member** reaches only them (grant backfills their history); **revoke** purges it from their device and rejects their post-revoke offline writes (per §5.4a); an image round-trips via `/v1/blobs`; cross-workspace/cross-member isolation; family merge (§5.6); constraint-violation / failover pass without poisoning. Feature-flagged; internal dogfooding.
+- **Two members × two devices**, driven by the **§7.1 acceptance matrix (A1–A10)**: private floor + private-child cascade (A1); household grant + atomic child inheritance (A2–A3); per-member grant-backfill / revoke-purge / offline-reject (A4–A6, §5.4a); blob ACL via parent (A7, `D18`); cross-workspace/member isolation + anti-forgery (A8, `D17`); family merge (A9, §5.6); non-poisoning failover (A10, `D2a`/`D2b`). Feature-flagged; internal dogfooding.
 
 ### Deferred (post-POC)
 - **Real Habitat migration** — route `db-shared.ts` writes through the engine (100+ ops, ~6 non-id rewrites, G1), deterministic-ID data migration (O4), schema-parity for `_sync_*` (G8), on the PR #33 worker-bus foundation.
@@ -342,7 +383,8 @@ Layers are largely **parallelizable**: Phase 1–2 (Palladium) and Phase 3 (Atri
 | O11a | **ACL storage, filtering & transitions** — where grants (`shares`, household flags) live; how Atrium filters each caller's change stream efficiently; and the **grant-backfill / revoke-purge / offline-write-after-revoke** mechanics (§5.4a). | Open — **the POC's core thing to prove**. |
 | O12a | **Merge grant policy** — on family formation, do re-homed shared records keep grants or reset to private? Lean: **reset to private** (safest), owner re-shares. | Leaning reset-to-private (§5.6). |
 | O5a | **Auth-seam contract** — exact shape of Palladium's authenticated-scope provider + request-decoration hook. | Open (Phase 2). |
-| O20 | **POC scope** — which minimal tables/features the mock-habitat app includes to exercise private / household / per-member sharing + a blob. | Open (Phase 4) — proposal in §7. |
+| O20 | **POC scope** — which minimal tables/features the mock-habitat app includes to exercise private / household / per-member sharing + a blob. | **Proposed — §7.1** (`burrow`: 3 roots + 3 children + 1 blob; A1–A10 matrix). |
+| O20a | **Child-ACL model** — do children inherit their aggregate root's ACL, or is every row independently owned/shared? | **Leaning root-inheritance** (`D21`, §7.1) — POC to confirm the `root_id` resolution performs. |
 | Oprod | Where Atrium + Palladium run in production. | Open (deployment). |
 | ~~O1–O14~~ | Prior questions (tenancy, nodeId, migration, JWT, token plumbing, suite scope, blobs, membership, account-switch, family merge, sharing granularity). | **Resolved** — folded into `D5`–`D20` / §5. |
 
