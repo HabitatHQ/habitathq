@@ -68,7 +68,7 @@ The moves:
 |---|----------|-----------|
 | D1 | **Write-capture = route through the engine**, not bespoke CDC triggers. | Convergence principle; engine gives HLC + `changes:local` free; `SyncTransport` works natively. |
 | D2 | **Client-side LWW** — each client resolves on `applyRemote`. | HLC is a total order → deterministic convergence. The store does **no** conflict resolution. |
-| D2a | **Remote-apply must be non-poisoning** — **per-op isolation** + `PRAGMA defer_foreign_keys`; **duplicate-specific** resolution (LWW/upsert on the unique key), **not** a blanket `INSERT OR IGNORE`; the poll **cursor advances only past the contiguous applied prefix**; a failed op is **dead-lettered** for bounded retry + surfaced. | **G2/G3/G4**: one violation must not roll back the batch, silently drop a change, or hide a non-duplicate failure. |
+| D2a | **Remote-apply must be non-poisoning** — **per-change isolation** (each `Change` is one HLC-stamped unit, applied atomically in its own savepoint) + `PRAGMA defer_foreign_keys`; **duplicate-specific** resolution (column-LWW on the deterministic PK, `D3`/`D5`), **not** a blanket `INSERT OR IGNORE`; the poll **cursor advances only past the contiguous applied prefix**; a failed change is **dead-lettered** for bounded retry + surfaced. | **G2/G3/G4**: one violation must not roll back other changes, silently drop a change, or hide a non-duplicate failure; a change must not apply partially. |
 | D2b | **Durable sync state** — persist `nodeId` (stable per device), poll cursor, HLC alongside the outbox. | **G6**: survive leader failover without full re-hydration or identity churn. |
 | D3 | **Column-level LWW** via a `_sync_row_meta` (per-column) shadow table. | The documented model; concurrent edits to *different* columns of a row both survive. Fixes **F1**. |
 | D4 | **Deletes LWW'd by HLC in v1** — not escalated. | Simpler; the §2.3 escalation model is documented future work. |
@@ -83,7 +83,7 @@ The moves:
 | **D13** | **Clerk = identity only** (free tier), behind Atrium's implementation of Palladium's auth seam. **Not** Clerk Organizations. | O13: Clerk Orgs free-tier cap (100 families × 5) is too tight; Clerk stays swappable via the seam (Habitat's choice, not Palladium's). |
 | **D14** | **Local-first: auth shown only on sync opt-in.** | Discovery/use must not require an account. |
 | **D15** | **Tenant = workspace (family), scoped per app**; one **shared Clerk identity** across the suite. Membership is **bespoke in Atrium**. | O7: one login across habitat/hearth/…, but a habitat family ≠ a hearth family — each app's Atrium scope is its own. |
-| **D16** | **Record-level ACL sharing** — every record has an `owner_user_id` (default **private**). The owner grants access **household-wide** (all workspace members) or to **specific members** via `shares(row_id, member_id, perm)` (`read`/`write`). | O11 reversed (npalladium #2): supports "share this note with Bob," mixed-visibility tables, and household-wide vs private records — per-record, not per-table. |
+| **D16** | **Record-level ACL sharing** — every record has an `owner_user_id` (default **private**). The owner grants access **household-wide** (all workspace members) or to **specific members** via `shares(root_id, grantee_user_id, perm)` (`read`/`write`). Grants are set at **aggregate-root granularity**; children inherit (`D21`). | O11 reversed (npalladium #2): supports "share this note with Bob," mixed-visibility tables, and household-wide vs private records — per-record, not per-table. |
 | **D17** | **Server-authoritative scoping (anti-forgery)** — **Atrium** derives/validates `owner_user_id` (from the JWT `sub`), workspace membership, and every ACL grant; client-supplied scope/ACL metadata is **advisory**, validated or rejected. Reads are filtered by the caller's effective ACL; `/v1/blobs` is ACL-authorized. | Client stamps are forgeable — a member must not write as another, self-grant access, or read records they weren't shared. **Atrium is the security boundary.** |
 | **D18** | **Blob sync in the POC** — `IDBBlobAdapter` binaries (a jot image) via `/v1/blobs`, **ACL-authorized** by Atrium. | Proves binary replication + per-record blob authorization end-to-end. |
 | **D19** | **Family formation = claim-into-existing-workspace (promote-host), data-preservation merge** (O12, §5.6). Re-homed records keep their owner and stay **private by default**; the member opts into sharing afterward. | Reuses the claim path; no server-side merge endpoint; no accidental exposure on merge. |
@@ -225,9 +225,9 @@ Owns everything app/domain that the earlier draft wrongly put in `palladium-axum
 |---|---|---|
 | **Private** (default) | owner only | — |
 | **Household** | all members of the workspace (`read` or `read/write`) | owner |
-| **Shared-with** | specific members via `shares(row_id, grantee_user_id, perm)` (`read`/`write`) | owner |
+| **Shared-with** | specific members via `shares(root_id, grantee_user_id, perm)` (`read`/`write`) | owner |
 
-**Effective visibility to caller C** = `C == owner` **OR** a household grant **OR** `C ∈ shares(row)`. **Atrium enforces** on read (filter the change stream by the caller's effective ACL) and write (owner or `write` grant; `owner_user_id` from `sub`; grants mutable only by the owner). Client stamps are **advisory** (`D17`).
+**Effective visibility to caller C** (evaluated at the record's **root**, `D21`) = `C == owner` **OR** a household grant **OR** `C ∈ shares(root)`. **Atrium enforces** on read (filter the change stream by the caller's effective ACL) and write (owner or `write` grant; `owner_user_id` from `sub`; grants mutable only by the owner). Client stamps are **advisory** (`D17`).
 
 This directly answers npalladium's cases: *"share this note with one member"* (a `shares` grant), *"some todo lists shared, some private"* and *"some categories household-wide, others personal"* (per-record grant, mixed within a table), all with a private-by-default floor.
 
@@ -240,7 +240,7 @@ Sharing changes over time, so the model must define **propagation**, not just st
 | Transition | Semantics |
 |---|---|
 | **Grant** (owner shares R with C, or household) | C must converge R to its current state even though R's history predates C's poll cursor. Atrium serves R's history on a **separate backfill channel, decoupled from the incremental cursor** — the main cursor is **never rewound or bumped** past unrelated changes. Mechanics: (a) backfilled changes carry their **original HLC** and apply **idempotently** via column-LWW (Phase 1b/c), so overlap with later incremental delivery is safe (dedup by `(row_id, column, hlc)`); (b) the client tracks a **per-root backfill watermark** and **acks** it, so an interrupted backfill resumes without re-sending or skipping; (c) once the watermark reaches R's latest HLC, R's future changes flow through the normal incremental cursor. No out-of-order bumping of the shared cursor. |
-| **Revoke** (owner ungrants C) | Atrium **stops** streaming R's future changes to C **and emits a revocation signal** (tombstone-like) so C's client **purges the local copy** of R (and its children — §7.1). Not a normal delete (R still exists for the owner) — a *visibility* removal on C's device. |
+| **Revoke** (owner ungrants C) | Atrium **stops** streaming R's future changes to C **and emits a revocation signal** (tombstone-like) so C's client **purges the local copy** of R and its children (§7.1) — **including evicting any child blob from `IDBBlobAdapter`**, not just the rows. Not a normal delete (R still exists for the owner) — a *visibility* removal on C's device. |
 | **Offline write after revoke** | If C edited R offline, then reconnects after being revoked, Atrium **rejects/discards** those writes (C no longer holds a `write` grant) — the client drops them from its outbox on the revocation signal. |
 
 These are the sharp edges of record-level ACL; the POC (Phase 5) must exercise grant-backfill, revoke-purge, and offline-write-after-revoke explicitly. The backfill channel's cursor-safety leans on Phase 1's **idempotent, commutative column-LWW apply** — that is the precondition that makes replay/overlap safe. *(Extends O11a.)*
@@ -319,18 +319,55 @@ Pure engine correctness — **no auth, no scope, no domain** (those are Phase 2 
 - *Files.* `sync.ts` (cursor persistence), `engine.ts` (nodeId/HLC load+persist).
 - *Verify.* Kill + restart the leader mid-sync → resumes from the persisted cursor (no full replay, `nodeId` stable, own-writes still skipped).
 
-### Phase 2 — Generic scoped store + auth seam (`palladium-axum`)
-- Add an **opaque `scope`** to `ChangeStore` + `palladium_changes` (G5); add the **auth-seam trait** (authenticated-scope provider + request-decoration hook) and client wiring in `SyncTransport` (`D11`). **No vendor, no domain.**
-- **Verify:** a trivial in-repo seam impl scopes two logical tenants; contract tests.
+### Phase 2 — Generic scoped store + auth seam (`palladium-axum` + core)
 
-### Phase 3 — Build Atrium (Rust)
-- New `atrium` service: **Clerk JWT verification**; `workspaces`/`memberships`/`invites`/roles; **record-level ACL** (`shares`, household/private) with **server-authoritative** owner/grant enforcement (`D17`); implements Palladium's seam; `/v1/blobs` ACL authorization.
-- **Verify:** contract + isolation tests — cross-workspace, cross-member, and **ACL grant/revoke** (a member sees a record only while granted; can't self-grant; can't forge owner).
+Make Palladium **multi-tenant-capable without knowing what a tenant is** — an opaque scope + an auth seam. Still **no vendor, no domain** (that's Atrium).
 
-### Phase 4 — Mock-habitat POC example app (Vue) ⭐
-- A **minimal Habitat slice** — surface fully specified in **§7.1 (O20)**: three aggregate roots (`habits` private-only, `lists` household-shareable, `notes` per-member shareable) + their children + one image blob; fresh schema (no legacy migration).
-- Local-first + `@palladium/core` engine + `SyncTransport` through **Atrium**; Clerk opt-in gating (`R-A1`/`R-A2`); create/join family + invite; **record-level sharing UI**; per-account store (`R-A6`); blob sync (`D18`).
-- **Verify:** builds; default flow shows no auth; opt-in → Clerk + family; sharing UI grants/revokes.
+**2a — Opaque scope on the store (G5).**
+- *Problem.* `ChangeStore` (`crates/palladium-core/src/store.rs`) is **globally scoped**: `insert(&Change)` / `list_after(after, limit)` / `get(id)` take **no tenant dimension**; `AppState<S>` wraps one store; `post_changes`/`get_changes` (`routes/changes.rs`) read/write the whole store.
+- *Change.* Thread an **opaque `Scope`** (newtype over bytes/`String` — Palladium assigns it **no meaning**) through the trait: `insert(scope, &change)`, `list_after(scope, after, limit)`, `get(scope, id)`. Add an **indexed `scope` column** to `palladium_changes`; every query is `WHERE scope = ?`. Cursor format (`{millis}_{counter}_{node_hex}`) is unchanged — pagination is **within a scope**.
+- *Files.* `store.rs` (trait), `palladium-sqlite` / `palladium-postgres` (impls + migration), `routes/changes.rs`, `routes/blobs.rs`, `state.rs`.
+- *Verify.* Two scopes' changes never cross; `list_after` under scope A never returns scope B; contract test over both store impls.
+
+**2b — Auth seam (`D11`).**
+- *Change.* A host-supplied trait `AuthSeam`: `authenticate(request_parts) -> Result<Scope, Reject>` — Palladium calls it on every `/v1/changes` + `/v1/blobs` request to obtain the **authenticated scope**, then uses only that scope. The *implementation* (Clerk, membership, ACL) lives in **Atrium** (Phase 3); Palladium ships only the trait + a trivial in-repo impl for tests. Client side: a **request-decoration hook** in `SyncTransport` (`core/src/sync.ts`) to attach a bearer token to `#poll`/upload fetches (refresh on 401).
+- *Note — selector ≠ scope.* Because a user can belong to **multiple workspaces** (`D15`, `R-A7`), the client attaches an **advisory workspace *selector*** (a workspace id) alongside the token — **not** the opaque Palladium `scope`. Atrium *authorizes* the selector against membership and *derives* the opaque scope; the scope stays a server-side secret (`D11`/`D17`). Switching workspace re-scopes by changing the selector, never by the client naming a scope.
+- *Files.* `palladium-axum` (seam trait, extractor, wiring), `core/src/sync.ts` (decoration hook).
+- *Verify.* A trivial in-repo seam maps two bearer tokens → two scopes; a request with no/invalid token is rejected (401) before touching the store; cross-scope isolation holds end-to-end.
+
+> **Scope granularity is deliberately coarse (workspace-level), *not* per-caller.** Under record-level ACL every workspace member sees a *different* subset (owned + granted), so the scope alone **cannot** isolate members — **Atrium filters per-caller ACL on top** (Phase 3). ⚠️ **This makes `limit`-based pagination a correctness trap** (O11a): if Atrium fetches a scope page then post-filters by ACL, a page of `n` can shrink below `n` and the cursor can stall or skip. The filter must be **pushed into the read** (ACL-aware query) or the scope must be finer — resolved in Phase 3 / O11a, flagged here so Phase 2's seam contract doesn't bake in the naïve shape.
+
+### Phase 3 — Build Atrium (Rust) — the ecosystem backend ⭐ (biggest new build, `D12`/`D17`)
+
+A new Rust service that is the **client-facing gateway**: it authenticates, resolves tenancy + ACL, then reads/writes Palladium's store via the seam. Palladium sits **behind** it, network-private.
+
+**3a — Identity (Clerk, `D13`).** Verify the Clerk JWT per request — fetch + cache **JWKS**, check `iss` / `aud` / `exp` / signature, derive user `sub`. Clerk is swappable behind an internal `IdentityProvider` trait.
+- *Verify.* Valid token → `sub`; expired/wrong-aud/bad-sig → 401; JWKS cache refreshes on rotation.
+
+**3b — Tenancy & membership (bespoke, not Clerk Orgs — Clerk free tier caps Orgs).** Tables: `workspaces`, `memberships(workspace_id, user_id, role)` (`owner`/`member`), `invites(token, email, expires_at)`. Create/join family, invite, accept, workspace switch.
+- *Verify.* Join-via-invite adds a membership; non-members are 403; roles enforced (only `owner` mutates membership).
+
+**3c — Record-level ACL (§5.4, `D16`) + server-authoritative enforcement (`D17`).** Tables: a **roots registry** `record_acl(root_id, owner_user_id, workspace_id, household_perm)` and `shares(root_id, grantee_user_id, perm)`. On **write**: set `owner_user_id` from `sub` (ignore/reject client-supplied owner), require owner-or-`write`-grant, resolve a child's authority via its `root_id` (`D21`). On **read**: emit only changes the caller may see.
+- *Verify.* Owner-only private floor; household visible to all members; `shares` visible only to grantees; can't self-grant; can't forge `owner_user_id`; child inherits root (collaborator-created child included).
+
+**3d — Seam impl + ACL-aware read filter (resolves the Phase 2 ⚠️, O11a).** Atrium implements Palladium's `AuthSeam` and, crucially, **filters the change stream by the caller's effective ACL as part of the read, not after `limit`**. Concrete model for the POC: the workspace is the coarse Palladium `scope`; Atrium maintains an **audience index** (`root_id → {owner, household?, grantees}`) and every syncable change carries its `root_id`, so Atrium can resolve visibility per change. Pagination is made ACL-safe by **filtering before applying `limit`** (Atrium over-reads the scope page, filters, and re-pages against a *stable* HLC cursor) so a caller never gets a short page that stalls the cursor. The **grant-backfill / revoke-purge** channel (§5.4a) is Atrium-side, keyed by the audience index.
+- *Verify.* A `limit=n` poll for a member who may see only every other change still advances correctly and never stalls; grant backfills prior history on a **separate** watermark; revoke purges + rejects post-revoke offline writes.
+
+**3e — Gateway + Palladium privacy (`D11`).** Atrium exposes the **client-facing** `/v1/changes` + `/v1/blobs` (ACL-authorized, `D18`) and proxies to Palladium over a **private** channel (mTLS / service auth); Palladium's endpoints are **not client-reachable** and clients never supply the opaque scope.
+- *Verify.* A direct client→Palladium call is refused at the network boundary; blob GET is 403 for a non-grantee; the app's `SyncTransport.serverUrl` points only at Atrium.
+
+### Phase 4 — Mock-habitat POC example app (Vue) ⭐ (`burrow`)
+
+Surface fully specified in **§7.1 (O20)**; this is the client wiring. Depends on Phases 1 + 3.
+
+**4a — Local-first data layer.** Fresh sync-native schema (§7.1); leader-worker owns OPFS SQLite via `BrowserSqliteAdapter` + the `@palladium/worker` bus (the PR #33 pattern: leader holds the `navigator.locks` lease, followers proxy, `onInvalidate` fans out). Writes route through `@palladium/core`'s `createEngine`/`TxBuilder` (not raw SQL) so the hardened apply (Phase 1) governs both local and remote.
+- *Verify.* Fully usable offline, no account, no auth UI (`R-A1`).
+
+**4b — Sync + auth.** `SyncTransport` (`serverUrl` → **Atrium**, never Palladium) mounted in the leader; a main-thread `getToken()` bridged over the bus feeds the request-decoration hook (Phase 2b); Clerk (`@clerk/vue`) **lazily mounted only on sync opt-in** (`R-A2`). **Per-account OPFS store keyed by Clerk user id** (`R-A6`); anonymous pre-auth store **claimed on first sign-in** (`R-A5`, §5.6).
+- *Verify.* No network/auth until opt-in; opt-in → Clerk sign-in → create/join family; account switch opens a different DB.
+
+**4c — Sharing UI + blobs.** Per-root controls: habits none (private-only), lists **"Share with household"** (`read`/`read-write`), notes **"Share with member…"** picker + **revoke**; each calls Atrium grant endpoints (not a client write to ACL). Note image via `IDBBlobAdapter` → `/v1/blobs` (`D18`). The client renders Atrium's advisory grant projection (§7.1); it never holds ACL truth.
+- *Verify.* Builds; grants/revokes round-trip; a shared note's image syncs to grantees only.
 
 ### 7.1 — Mock-habitat POC surface (O20) ⭐
 
@@ -342,8 +379,8 @@ The smallest surface that exercises **every** ACL path (private / household / pe
 
 | Table | Role | Sharing class | Proves |
 |---|---|---|---|
-| `habits` | root | **Private-only** (never shareable) | the private floor; owner-scoped deterministic IDs (`D5`) |
-| `completions` | child of `habits` | inherits (private) | child of a **private** root — cascade stays private |
+| `habits` | root | **Private-only** (never shareable) | the private floor |
+| `completions` | child of `habits` | inherits (private) | child of a **private** root — cascade stays private; **owner-scoped deterministic IDs** (`D5`) on `(habit_id, date)` — the natural-key UNIQUE hotspot (§3.4, G3) |
 | `lists` | root | **Household** (`read` / `read-write`) | workspace-wide grant, mixed with private roots in the same app |
 | `list_items` | child of `lists` | inherits (household) | child of a **shared** root — grant/revoke cascades to items atomically |
 | `notes` | root | **Per-member** via `shares(root_id, grantee, perm)` | targeted grant → **backfill**; revoke → **purge**; offline-write-after-revoke → **reject** (§5.4a) |
@@ -373,7 +410,9 @@ The smallest surface that exercises **every** ACL path (private / household / pe
 **Explicitly out of the POC:** categories/reminders/voice-notes/scribbles and the rest of Habitat's ~20 tables (they add domain, not a new ACL path); real Habitat's `db-shared.ts` write volume; CRDT; leaving a family; bootstrap snapshot. Three roots + three children + one blob is the whole minimal proof.
 
 ### Phase 5 — Verify the POC end-to-end
-- **Two members × two devices**, driven by the **§7.1 acceptance matrix (A1–A10)**: private floor + private-child cascade (A1); household grant + atomic child inheritance (A2–A3); per-member grant-backfill / revoke-purge / offline-reject (A4–A6, §5.4a); blob ACL via parent (A7, `D18`); cross-workspace/member isolation + anti-forgery (A8, `D17`); family merge (A9, §5.6); non-poisoning failover (A10, `D2a`/`D2b`). Feature-flagged; internal dogfooding.
+- **Harness:** two members × two devices (four engines against one Atrium + Palladium), driven by the **§7.1 acceptance matrix (A1–A10)** as the pass/fail contract: private floor + private-child cascade (A1); household grant + atomic child inheritance + perm-downgrade (A2–A3); per-member grant-backfill / revoke-purge / offline-reject (A4–A6, §5.4a); blob ACL via parent (A7, `D18`); cross-workspace/member isolation + anti-forgery (A8, `D17`); family merge (A9, §5.6); non-poisoning failover (A10, `D2a`/`D2b`).
+- **Also assert:** ACL-safe pagination (a filtered `limit=n` poll never stalls the cursor — the Phase 2 ⚠️ / O11a); a direct client→Palladium request is refused (`D11`); convergence guard (`two-client-sync` `it.fails`) is green.
+- **Exit criteria → real-Habitat go/no-go:** every A-row green + no poison-pill under fault injection ⇒ the architecture is proven and the deferred real-Habitat migration is unblocked. Feature-flagged; internal dogfooding.
 
 ### Deferred (post-POC)
 - **Real Habitat migration** — route `db-shared.ts` writes through the engine (100+ ops, ~6 non-id rewrites, G1), deterministic-ID data migration (O4), schema-parity for `_sync_*` (G8), on the PR #33 worker-bus foundation.
