@@ -1,6 +1,6 @@
 # ERD — HabitatHQ Sync Architecture (Palladium + Atrium)
 
-**Status:** Reframed to a **three-layer** architecture + **record-level ACL** + **POC-first** delivery — 2026-07-26 · PR #33 **merged** (`74e11bf`) · all open questions resolved
+**Status:** Reframed to a **three-layer** architecture + **record-level ACL** + **POC-first** delivery — 2026-07-26 · PR #33 **merged** (`74e11bf`) · prior O1–O14 resolved; the reframe opens O11a / O5a / O12a / O20 (§8)
 **Owner:** Jeel Bhavsar
 **Created:** 2026-07-25 · **Revised:** 2026-07-26
 **PRs:** [#33 — habitat on the @palladium/worker bus](https://github.com/HabitatHQ/habitathq/pull/33) (merged) · [#35 — this ERD](https://github.com/HabitatHQ/habitathq/pull/35)
@@ -72,13 +72,13 @@ The moves:
 | D2b | **Durable sync state** — persist `nodeId` (stable per device), poll cursor, HLC alongside the outbox. | **G6**: survive leader failover without full re-hydration or identity churn. |
 | D3 | **Column-level LWW** via a `_sync_row_meta` (per-column) shadow table. | The documented model; concurrent edits to *different* columns of a row both survive. Fixes **F1**. |
 | D4 | **Deletes LWW'd by HLC in v1** — not escalated. | Simpler; the §2.3 escalation model is documented future work. |
-| D5 | **Deterministic IDs** (`uuidv5(owner_user_id, naturalKey)`) for natural-key tables, applied before they sync. **Owner-scoped, workspace-independent.** | **G3**: converts semantic duplicates into same-row LWW. Owner-scoping keeps a member's IDs **stable when re-homed** on family formation (§5.6) and disjoint across members. |
+| D5 | **Deterministic IDs** (`uuidv5(owner_user_id, naturalKey)`) for natural-key tables, applied before they sync. **Owner-scoped, workspace-independent.** Under record-level ACL **every record has exactly one owner**, so IDs are *always* owner-scoped — there is **no cross-owner shared ID**. Two members creating the "same" logical item in a shared list are **two distinct owned records** (union, no auto-dedupe in v1); cross-member dedupe would need a cross-owner natural key (future). | **G3**: converts a *single owner's* semantic duplicates (their two devices) into same-row LWW, and keeps IDs stable on re-home (§5.6). Convergence is **within one owner's devices** — not across members. |
 | D6 | **UUID PKs**; **UUIDv7** for new IDs. | Valid UUID (satisfies the store), sortable. Avoids **F2**. |
 | D7 | **Exclude `LiveQuery`**; reactivity via the worker bus `onInvalidate`. | `LiveQuery` is `@deprecated` + same-thread + worker-incompatible. |
 | D8 | **Engine runs in the leader worker**; native runs in-process. | Single-writer invariant from PR #33. |
 | D9 | **No CRDT / Yjs in v1.** | Plain structured rows; no rich-text collaboration need yet. |
 | **D10** | **Three-layer architecture** — Palladium (generic) → **Atrium** (ecosystem backend) → apps (clients). | Separation of concerns (npalladium): a generic reusable engine, a domain/auth gateway, thin apps. |
-| **D11** | **Palladium stays generic** — it exposes a **scoped change store** (keyed by an *opaque* tenant scope) + an **auth-seam** trait (an authenticated-scope provider + a request-decoration hook). **No auth vendor, no app domain** enters Palladium. | npalladium #1/#3 + the convergence principle: Palladium is publishable infra; Habitat *chooses* Clerk/workspaces via the seam. |
+| **D11** | **Palladium stays generic** — a **scoped change store** (keyed by an *opaque* tenant scope) + an **auth-seam** trait. **Network-private, Atrium-only:** clients never reach Palladium directly nor supply the scope — Atrium derives + authorizes it. **No auth vendor, no app domain** enters Palladium. | npalladium #1/#3 + the convergence principle: Palladium is publishable infra; the scope is a server-derived secret, not a client input. |
 | **D12** | **Atrium** = the Rust HabitatHQ ecosystem backend: Clerk verification, `workspaces`/`memberships`/`invites`/roles, **record-level ACL authorization**, server-authoritative scoping. It is the **gateway** in front of Palladium's store. | These are *application* concepts, not generic sync — they belong in a dedicated suite backend, not in `palladium-axum`. |
 | **D13** | **Clerk = identity only** (free tier), behind Atrium's implementation of Palladium's auth seam. **Not** Clerk Organizations. | O13: Clerk Orgs free-tier cap (100 families × 5) is too tight; Clerk stays swappable via the seam (Habitat's choice, not Palladium's). |
 | **D14** | **Local-first: auth shown only on sync opt-in.** | Discovery/use must not require an account. |
@@ -159,7 +159,7 @@ Engine-level gaps that shape **Phase 1** (all generic, all still valid).
 |---|---|---|---|
 | **G1** | **Engine op model is PK-only.** | `TxBuilder`/`Op` supports only `insert(row)`/`update(id,patch)`/`delete(id)` — no upserts, no non-id `WHERE`, no multi-row. | The POC schema avoids non-id writes; the real Habitat migration rewrites ~6 as read-ids-then-emit. |
 | **G2** | **`applyRemote` all-or-nothing → poison pill.** | One tx per batch; cursor advanced before apply; rejection unhandled → change skipped forever. | **Phase 1a** non-poisoning apply (`D2a`). Highest-severity. |
-| **G3** | **Natural-key `UNIQUE` + toggle-by-existence fires G2.** | Two devices insert different UUIDs for the same `(habit,date)`. | Deterministic IDs (`D5`). |
+| **G3** | **Natural-key `UNIQUE` + toggle-by-existence fires G2.** | Two **of one owner's** devices insert different UUIDs for the same `(habit,date)`. | Owner-scoped deterministic IDs (`D5`) — converges within an owner's devices; shared-list items across members stay distinct records (no cross-owner dedupe in v1, `D5`). |
 | **G4** | **FK cascades + enforcement ON.** | Out-of-order child insert after parent delete → FK violation → G2. | `PRAGMA defer_foreign_keys` in the apply tx (`D2a`). |
 | **G5** | **`ChangeStore` is globally scoped** — no tenant dimension; `AppState<S>` wraps one store. | Trait/schema take no scope. | **Phase 2**: add a generic **opaque tenant scope** to the store + the **auth seam** (`D11`). *(No Habitat concepts — that's Atrium.)* |
 | **G6** | **Sync state non-durable across leader failover.** | Cursor + HLC in memory; re-hydrate from full history; `nodeId` churn. | Persist `nodeId`/cursor/HLC (`D2b`). |
@@ -203,6 +203,7 @@ Engine-level gaps that shape **Phase 1** (all generic, all still valid).
 
 - **Scoped `ChangeStore`** — `insert(scope, change)` / `list_after(scope, after, limit)`; `palladium_changes` gains one **opaque `scope`** column (indexed). Palladium assigns no meaning to `scope`.
 - **Auth seam** — a trait the host supplies: given a request, return an **authenticated scope** (+ reject). Plus a **request-decoration** hook client-side (attach a bearer token). Palladium calls the seam; the *implementation* (Clerk, membership) lives in Atrium.
+- **Palladium is network-private — Atrium-only.** `/v1/changes` and `/v1/blobs` are **not client-reachable**; only Atrium calls them (private network / mTLS / service auth). **Clients never contact Palladium directly and never supply or select the opaque `scope`** — Atrium *derives* it from the authenticated request and authorizes it before forwarding. The app's `SyncTransport` `serverUrl` points at **Atrium**, which exposes the client-facing sync surface and proxies to Palladium.
 - Result: `palladium-axum` is still publishable, vendor-neutral infra — the convergence principle holds.
 
 ### 5.3 Atrium (Rust) — the HabitatHQ ecosystem backend (`D12`, `D17`)
@@ -230,6 +231,16 @@ Owns everything app/domain that the earlier draft wrongly put in `palladium-axum
 This directly answers npalladium's cases: *"share this note with one member"* (a `shares` grant), *"some todo lists shared, some private"* and *"some categories household-wide, others personal"* (per-record grant, mixed within a table), all with a private-by-default floor.
 
 *Open design detail (O11a):* where the ACL/grants are indexed and how Atrium filters the change stream efficiently per caller — the POC's core thing to prove.
+
+**ACL transitions (grant / revoke / offline)** — sharing changes over time, so the model must define propagation, not just steady-state visibility. Atrium owns these:
+
+| Transition | Semantics |
+|---|---|
+| **Grant** (owner shares R with C, or household) | C's stream must **backfill** R and its prior history even though those changes predate C's poll cursor. Atrium serves a **grant-triggered backfill** (surface R's changes to C out of cursor order, or bump them) so C converges to R's current state. |
+| **Revoke** (owner ungrants C) | Atrium **stops** streaming R's future changes to C **and emits a revocation signal** (tombstone-like) so C's client **purges the local copy** of R. Not a normal delete (R still exists for the owner) — a *visibility* removal on C's device. |
+| **Offline write after revoke** | If C edited R offline, then reconnects after being revoked, Atrium **rejects/discards** those writes (C no longer holds a `write` grant) — the client drops them from its outbox on the revocation signal. |
+
+These are the sharp edges of record-level ACL; the POC (Phase 5) must exercise grant-backfill, revoke-purge, and offline-write-after-revoke explicitly. *(Extends O11a.)*
 
 ### 5.5 Identity & local-first gating (Clerk, via Atrium)
 
@@ -301,7 +312,7 @@ Layers are largely **parallelizable**: Phase 1–2 (Palladium) and Phase 3 (Atri
 - **Verify:** builds; default flow shows no auth; opt-in → Clerk + family; sharing UI grants/revokes.
 
 ### Phase 5 — Verify the POC end-to-end
-- **Two members × two devices**: a **private** habit stays private; a **household** list is shared; a **note shared with one member** reaches only them; **revoke** removes it; an image round-trips via `/v1/blobs`; cross-workspace/cross-member isolation; family merge (§5.6); constraint-violation / failover pass without poisoning. Feature-flag; internal dogfood.
+- **Two members × two devices**: a **private** habit stays private; a **household** list is shared; a **note shared with one member** reaches only them (grant backfills their history); **revoke** purges it from their device and rejects their post-revoke offline writes (per §5.4a); an image round-trips via `/v1/blobs`; cross-workspace/cross-member isolation; family merge (§5.6); constraint-violation / failover pass without poisoning. Feature-flagged; internal dogfooding.
 
 ### Deferred (post-POC)
 - **Real Habitat migration** — route `db-shared.ts` writes through the engine (100+ ops, ~6 non-id rewrites, G1), deterministic-ID data migration (O4), schema-parity for `_sync_*` (G8), on the PR #33 worker-bus foundation.
@@ -328,7 +339,7 @@ Layers are largely **parallelizable**: Phase 1–2 (Palladium) and Phase 3 (Atri
 
 | # | Question | State |
 |---|---|---|
-| O11a | **ACL storage & filtering** — where grants (`shares`, household flags) live and how Atrium filters each caller's change stream efficiently. | Open — **the POC's core thing to prove**. |
+| O11a | **ACL storage, filtering & transitions** — where grants (`shares`, household flags) live; how Atrium filters each caller's change stream efficiently; and the **grant-backfill / revoke-purge / offline-write-after-revoke** mechanics (§5.4a). | Open — **the POC's core thing to prove**. |
 | O12a | **Merge grant policy** — on family formation, do re-homed shared records keep grants or reset to private? Lean: **reset to private** (safest), owner re-shares. | Leaning reset-to-private (§5.6). |
 | O5a | **Auth-seam contract** — exact shape of Palladium's authenticated-scope provider + request-decoration hook. | Open (Phase 2). |
 | O20 | **POC scope** — which minimal tables/features the mock-habitat app includes to exercise private / household / per-member sharing + a blob. | Open (Phase 4) — proposal in §7. |
