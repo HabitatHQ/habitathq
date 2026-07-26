@@ -1,6 +1,6 @@
 # ERD — Habitat ↔ Palladium Sync Integration
 
-**Status:** Phase 0 complete; PR #33 **merged** (`74e11bf`) · Phase 1 next · multi-tenancy (family workspaces) baked in · **all open questions resolved except O12 (deferred)** — 2026-07-26
+**Status:** Phase 0 complete; PR #33 **merged** (`74e11bf`) · Phase 1 next · multi-tenancy (family workspaces) baked in · **all open questions resolved** (O12 family-merge designed in §5.5) — 2026-07-26
 **Owner:** Jeel Bhavsar
 **Created:** 2026-07-25 · **Revised:** 2026-07-26
 **PR:** [#33 — habitat on the @palladium/worker bus](https://github.com/HabitatHQ/habitathq/pull/33) (prerequisite, merged) · [#35 — this ERD](https://github.com/HabitatHQ/habitathq/pull/35)
@@ -60,7 +60,7 @@ This work sits **on top of PR #33** (the `@palladium/worker` bus migration, now 
 | D2b | **Durable sync state** — persist `nodeId` (stable per device), poll cursor, HLC alongside the outbox. | **G6**: survive leader failover without full re-hydration or identity churn. |
 | D3 | **Column-level LWW** via a `_sync_row_meta` (per-column) shadow table. | The documented model; concurrent edits to *different* columns of a row both survive. |
 | D4 | **Deletes LWW'd by HLC in v1** — not escalated (single authoritative policy). | Simpler; the §2.3 escalation model (`onRejected` + `__conflict`) is **documented future work**, explicitly out of v1. Resolves the D4↔§2.3 tension → O3 closed. |
-| D5 | **Deterministic IDs** (`uuidv5(namespace, naturalKey)`) for natural-key tables, applied **before** those tables sync. Namespace = `workspace_id` for **shared** tables, `workspace_id + owner_user_id` for **personal** tables (`D15`). | **G3**: converts semantic duplicates into normal same-row LWW; without it natural-key tables poison the downlink. Two members toggling the same shared row converge; personal rows never collide across members. |
+| D5 | **Deterministic IDs** (`uuidv5(namespace, naturalKey)`) for natural-key tables, applied **before** those tables sync. Namespace = `workspace_id` for **shared** tables, **`owner_user_id` (workspace-independent)** for **personal** tables (`D15`). | **G3**: converts semantic duplicates into same-row LWW. Personal namespace omits `workspace_id` so a member's rows keep **stable IDs when re-homed** on family formation — the merge is a pure relabel (`§5.5`). Two members toggling the same *shared* row converge; personal rows never collide across members (owner-disjoint). |
 | D6 | **UUID PKs** (Habitat conforms); **UUIDv7** for new IDs. | Valid UUID (satisfies the server), sortable (the ULID benefit), matches `_sync_deltas.sync_id`. Avoids **F2**. |
 | D7 | **Exclude `LiveQuery`**; reactivity via bus `onInvalidate`. | `LiveQuery` is `@deprecated` + same-thread + worker-incompatible. |
 | D8 | **Engine runs in the leader worker**; native runs in-process. | Single-writer invariant from PR #33. |
@@ -74,6 +74,7 @@ This work sits **on top of PR #33** (the `@palladium/worker` bus migration, now 
 | D16 | **Declarative sharing-policy registry** — every synced table declares `shared`/`personal` in **one place** (co-located with `SCHEMA_CONFIG`), enforced by a parity test; adding a synced table **forces** a class. | Maintainability (user directive): "which parts are shared vs private" is one editable source of truth, not logic scattered across the write path. A missing class **fails CI**, so personal data can't leak by an unclassified default. |
 | D17 | **Shared Clerk identity across the suite; workspaces scoped per app** (O7). One login spans habitat/hearth/halcyon/hephaestus; a workspace (family) belongs to a **single app**. | One identity (convergence), but each app owns its store + sharing surface — a habitat family ≠ a hearth family; `workspace_id` is per-app. |
 | D18 | **Blob sync in v1** (O8) — `IDBBlobAdapter` binaries (jots voice/image) replicate via the server's `/v1/blobs` routes. | Full-fidelity personal jots across a member's devices. Blobs are `personal`-class → member-scoped. Adds upload/download + storage handling (Phase 5). |
+| D19 | **Family formation = claim-into-existing-workspace (promote-host), data-preservation union** (O12, §5.5). Joining re-homes local rows into the inviter's workspace; **no server-side merge endpoint**. | The existing claim path + owner-scoped personal data + column-LWW give a convergent, lossless merge; re-home is a pure `workspace_id` relabel (`D5`). |
 
 ---
 
@@ -235,7 +236,7 @@ Two **orthogonal** axes. **Workspace** = the tenant (everyone auto-gets one, `R-
 | `shared` | `workspace_id`, `visibility='shared'` | all `shared` rows of the workspace |
 | `personal` | `workspace_id`, `visibility='personal'`, `owner_user_id` | only rows where `owner_user_id = caller` |
 
-Server filter: `WHERE workspace_id = ? AND (visibility = 'shared' OR owner_user_id = :caller)`. Deterministic-ID namespace (`D5`) folds `owner_user_id` in for personal tables, so two members never collide on a personal natural key.
+Server filter: `WHERE workspace_id = ? AND (visibility = 'shared' OR owner_user_id = :caller)`. Deterministic-ID namespace (`D5`) is `owner_user_id`-based (workspace-independent) for personal tables — two members never collide on a personal natural key, and IDs stay stable across a family re-home (`§5.5`).
 
 **Initial Habitat classification** (illustrative — the registry is the source of truth, trivially reconfigurable):
 
@@ -245,7 +246,37 @@ Server filter: `WHERE workspace_id = ? AND (visibility = 'shared' OR owner_user_
 | **shared** (candidates) | `todos` (family grocery / chore list), `bored_activities` (shared activity ideas) |
 | **local-only** (never synced) | `applied_defaults`, `_palladium_seeds` |
 
-> **Everyone gets a workspace (`O12`).** On first sync a user's own workspace is auto-provisioned; personal tables are member-scoped within it (trivially — they're the sole member), shared tables hold their shared lists. Joining a family adds membership to another workspace, where their personal data stays theirs. **Still open (O12), deferred:** solo→family *formation/merge* mechanics — leaning toward **data-preservation via merge** (existing rows merged into the shared workspace, no data loss), exact logic TBD.
+> **Everyone gets a workspace (`O12`).** On first sync a user's own workspace is auto-provisioned; personal tables are member-scoped within it (trivially — they're the sole member), shared tables hold their shared lists. Joining a family adds membership to another workspace, where their personal data stays theirs. Solo→family **formation/merge** is designed in **§5.5**.
+
+### 5.5 Family formation & merge (O12)
+
+**Principle — data-preservation via merge.** Forming or joining a family never deletes or recreates data; every local row is preserved and re-homed into the family workspace.
+
+**Key insight — the merge *is* the claim path, not a new subsystem.** Joining a family = the `R-A5` "claim local data into a workspace" operation aimed at an **existing** workspace instead of a fresh one. Because personal data is `owner_user_id`-scoped and shared data unions, the existing column-LWW + deterministic-ID machinery already produces a convergent, lossless merge. **No server-side merge endpoint** — it reuses `POST /v1/changes`.
+
+**Model — promote-host** (recommended). The **inviter's** workspace becomes the family workspace (inviter = owner); invitees join and re-home their data into it; their old solo workspaces are retired (dormant, optional server GC). *(Alternative: a fresh empty family workspace both migrate into — symmetric but moves more data. Promote-host chosen for least movement; flag if you'd rather the symmetric model.)*
+
+**Formation flow** (Alice invites Bob):
+
+1. Alice's solo workspace `W_A` is designated the family; membership `(W_A, Alice, owner)`.
+2. Alice creates an invite `(W_A, bob@…, token)`; Bob accepts as himself → membership `(W_A, Bob, member)`.
+3. Bob's client runs **claim-into-`W_A`** (once, transactionally): re-stamp each local synced row with `workspace_id = W_A` and emit it as a change to `W_A`'s outbox — personal rows keep `owner_user_id = Bob`; shared rows join the shared set.
+4. Bob's active workspace switches to `W_A`; the transport re-scopes (`O6`). `W_B` is retired.
+5. Alice polls → receives Bob's **shared** rows (union) but **not** his personal rows (owner filter). Symmetric for Bob.
+
+**Why it converges cleanly:**
+
+| Data | On merge | Collision handling |
+|---|---|---|
+| **Personal** (habits, check-ins, jots) | re-homed, `owner_user_id` preserved | none — members are owner-disjoint; personal deterministic IDs are `owner + naturalKey` (**workspace-independent**, `D5`), so re-home is a pure `workspace_id` relabel: stable IDs, no FK fixup, idempotent |
+| **Shared, natural-keyed** | union into shared set | same logical item → same `uuidv5(workspace_id, key)` → dedupe via column-LWW-by-HLC |
+| **Shared, random-PK** (v1 Habitat `todos`, `bored_activities`) | union | distinct UUIDs coexist — **duplicates preserved** (data-preservation); user dedupes manually |
+
+**Idempotency.** Deterministic-ID rows converge on any re-run. Random-PK shared rows are guarded by a one-time **workspace-migration marker** so a re-run can't re-duplicate them. The claim runs in one transaction; a partial failure re-runs safely.
+
+**Data-loss guarantee.** Every local row is uploaded, never deleted; the only intentional collapse is shared *natural-key* LWW dedupe (bounded, documented).
+
+**Deferred (v-next) — *leaving* a family.** The departing member's personal rows (owner = them) re-home to a fresh solo workspace (relabel back); shared rows they contributed **stay** with the family (can't cleanly withdraw). Membership removed; the server stops returning family changes to them.
 
 ---
 
@@ -333,7 +364,7 @@ Three coupled, engine-level pieces:
 - In the leader worker's `create()`, build `createEngine(storage, { nodeId })` + `engine.init(SCHEMA_CONFIG)`.
 - Migrate `db-shared.ts` **writes** from raw `db.exec` to `engine.insert/update/delete/tx`. Reads may stay on ``engine.exec(sql`…`)``.
 - **Rewrite the ~6 non-id-keyed writes (G1)** as read-affected-ids-then-emit; wrap multi-exec operations (e.g. `createHabit` = habit + schedule) in one `engine.tx()` → one atomic, one-Change unit.
-- **Apply deterministic IDs to natural-key tables here (G3, `D5`)** — `completions`, `checkin_entries`, `checkin_completions`, `checkin_responses` — *before* they're sync-eligible. Namespace folds in `owner_user_id` for personal tables. Includes a data migration for existing rows (`O4`).
+- **Apply deterministic IDs to natural-key tables here (G3, `D5`)** — `completions`, `checkin_entries`, `checkin_completions`, `checkin_responses` — *before* they're sync-eligible. Namespace = `owner_user_id` (workspace-independent) for personal tables, `workspace_id` for shared — keeps personal IDs stable across a family re-home (`§5.5`). Includes a data migration for existing rows (`O4`).
 - **Define the sharing-policy registry (`D16`) and stamp `visibility`/`owner_user_id` per class (`D15`)** on emitted changes; add the CI parity test that **every synced table is classified** (`shared`/`personal`/`local-only`).
 - Keep the `HabitatService.dispatch` surface unchanged. Land incrementally by table group.
 - **Verify:** `apps/habitat/tests/unit/*` (incl. `db-schema.test.ts` parity, updated to ignore `_sync_*` — G8) green after each group; app smoke. *(Client-only; parallelizable with Phase 3.)*
@@ -352,7 +383,7 @@ The multi-tenant backend, built **from the start** (`L2` amended, `G5`, `D12`/`D
 - Integrate `@clerk/vue`/`@clerk/nuxt`, lazily mounted. Add the "Sync across devices" opt-in; **no auth UI in the default flow** (`R-A1`/`R-A2`).
 - Sign-in/up only on sync intent; then **create a family (become owner) or join via invite** (`R-A7`); **invite members** (`R-A8`); coarse **owner/member** roles (`R-A9`); **workspace switcher** for multi-workspace users (`R-A10`).
 - Persist a stable `nodeId` per device; attach the JWT **+ active `workspace_id`** to transport requests (main→worker token channel, `O6`); a switch re-scopes the transport.
-- **Claim local data into the chosen workspace on first sync** (`R-A5`): first-sync upload, `personal` tables stamped with the caller as `owner_user_id`.
+- **Claim local data into the chosen workspace on first sync** (`R-A5`): first-sync upload, `personal` tables stamped with the caller as `owner_user_id`. **Joining an existing family = the same claim path pointed at the inviter's workspace** — the data-preservation merge (`D19`, §5.5): re-home local rows (once, transactionally, migration-marker-guarded), personal IDs stay stable, shared rows union.
 - **Account-switch isolation (`R-A11`, `O14`):** bind the local store to the Clerk account; on sign-out + a *different* sign-in on the same profile, the new user must see none of the previous user's rows.
 - **Verify:** default flow shows no auth; opt-in shows Clerk + create/join family; invite→join works; sign-out → local-only (data stays); **A signs out → B signs in on the same profile → B sees none of A's data**. Bundle check that Clerk isn't on the default path.
 
@@ -372,6 +403,7 @@ The multi-tenant backend, built **from the start** (`L2` amended, `G5`, `D12`/`D
 - **Native (Capacitor)** sync + native Clerk auth flow.
 - Bootstrap snapshot endpoint; tombstones/TTL; `onRejected`/`onStaleDelta`.
 - Fine-grained per-record sharing / rich role permissions within a workspace (`O11`).
+- **Leaving a family** (`O12` v-next, §5.5) — re-home a departing member's personal data to a fresh solo workspace; contributed shared rows stay with the family.
 
 ### Follow-ups (separate PRs, orthogonal)
 
@@ -413,7 +445,7 @@ The multi-tenant backend, built **from the start** (`L2` amended, `G5`, `D12`/`D
 | ~~O7~~ | ~~Account scope across the suite.~~ | **Resolved** — **shared Clerk identity** across habitat/hearth/halcyon/hephaestus, **workspaces per app** (`D17`). |
 | ~~O8~~ | ~~Blob sync in v1?~~ | **Resolved — yes, in v1** (`D18`): jots voice/image via `/v1/blobs`, member-scoped (Phase 5). |
 | ~~O11~~ | ~~Sharing granularity — share all tables, or some personal within a family?~~ | **Resolved (2026-07-25)** — **per-table** `shared`/`personal` via a declarative registry (`D15`/`D16`); habits/journal personal, chores/grocery shared. Per-**row** sharing is out of scope (non-goal). |
-| O12 | **Workspace lifecycle** — *partially resolved:* everyone auto-gets a workspace; personal data is member-scoped within it (`D15`). **Still open (deferred):** solo→family formation/merge mechanics. | **Direction (2026-07-25): data-preservation via merge** — no data loss on family formation; existing solo rows are merged into the shared workspace rather than dropped/re-created. Detailed logic TBD later. |
+| ~~O12~~ | ~~Workspace lifecycle / solo→family merge.~~ | **Resolved (2026-07-26)** — everyone auto-gets a workspace; personal data member-scoped (`D15`); **family formation = claim-into-inviter's-workspace, data-preservation union** (`D19`, §5.5): personal rows re-home with stable IDs, shared rows union. *Leaving* a family is v-next. |
 | ~~O13~~ | ~~Membership mechanism — Clerk Organizations vs. bespoke tables.~~ | **Resolved — bespoke** `workspaces`/`memberships`/`invites` in the Palladium server; Clerk = identity only (`D13`). Clerk Orgs rejected (free-tier 100 families × 5 members cap). |
 | ~~O14~~ | ~~Account-switch isolation mechanism (`R-A11`).~~ | **Resolved** — **per-account local store**: the OPFS DB is keyed by the Clerk user id (e.g. `/habitat/<userHash>/…`), so a different sign-in opens a different DB; the pre-auth anonymous store is claimed into the account store on first sign-in; sign-out returns to anonymous. |
 | ~~O9~~ | ~~Completion/checkin data model.~~ | **Resolved** — keep state-as-row-existence + deterministic IDs + idempotent apply for v1 (`L3`). |
