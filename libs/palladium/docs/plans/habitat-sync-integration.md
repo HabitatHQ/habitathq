@@ -1,8 +1,8 @@
 # ERD — Habitat ↔ Palladium Sync Integration
 
-**Status:** Phase 0 complete; PR #33 **merged** (`74e11bf`) · Phase 1 next · **multi-tenancy (family workspaces) now baked in from the start** (amendment 2026-07-25)
+**Status:** Phase 0 complete; PR #33 **merged** (`74e11bf`) · Phase 1 next · multi-tenancy (family workspaces) baked in · **all open questions resolved except O12 (deferred)** — 2026-07-26
 **Owner:** Jeel Bhavsar
-**Created:** 2026-07-25 · **Revised:** 2026-07-25
+**Created:** 2026-07-25 · **Revised:** 2026-07-26
 **PR:** [#33 — habitat on the @palladium/worker bus](https://github.com/HabitatHQ/habitathq/pull/33) (prerequisite, merged) · [#35 — this ERD](https://github.com/HabitatHQ/habitathq/pull/35)
 **Harness:** `libs/palladium/e2e/src/__tests__/two-client-sync.test.ts`
 
@@ -37,7 +37,7 @@ This work sits **on top of PR #33** (the `@palladium/worker` bus migration, now 
 
 - **Per-row / ad-hoc sharing + rich permissions** — sharing is **per-table** (feature-level: whole-table `shared`/`personal`, `D15`/`D16`), not per-row (you can't share one specific habit with one member), and roles are coarse (owner / member). Per-row visibility and role-based permissions are future work. *(O11 resolved at table granularity.)*
 - **Native (Capacitor) sync + native Clerk auth** — web-first; native is a follow-up.
-- **CRDT / Yjs**, bootstrap snapshots, tombstones/TTL, blob sync — documented future work, not v1.
+- **CRDT / Yjs**, bootstrap snapshots, tombstones/TTL — documented future work, not v1. *(Blob sync **is** in v1 — `D18`.)*
 
 > Open items tracked in **§9**. Findings = **F#** (§3.2); gaps = **G#** (§4); decisions = **D#** (§2).
 
@@ -50,7 +50,7 @@ This work sits **on top of PR #33** (the `@palladium/worker` bus migration, now 
 > **(L2)** **Multi-tenancy is foundational** *(amended 2026-07-25)* — the server is **workspace-scoped** (family/household, multi-member) with **Clerk-backed auth** from day one. No unscoped single-user dev-server stage; tenancy is on the v1 critical path (Phase 3).
 > **(L3)** Completion state stays **row-existence + deterministic IDs + idempotent apply** for v1 — no LWW-state-column remodel.
 > **(L4)** **Web-first** — Capacitor sync + native Clerk auth are a follow-up.
-> **(L5)** *(amended 2026-07-25)* **Workspace = tenant**, family sharing is real from v1: memberships + coarse roles (owner/member); a user may belong to several workspaces. Prefer **workspace ↔ Clerk Organization** (D13). Tenancy dimension lives in the `ChangeStore` trait + `palladium_changes` schema (D14).
+> **(L5)** *(amended 2026-07-25)* **Workspace = tenant**, family sharing is real from v1: memberships + coarse roles (owner/member); a user may belong to several workspaces. Membership is **bespoke in the Palladium server** — Clerk = identity only, *not* Clerk Organizations (D13, O13). Tenancy dimension lives in the `ChangeStore` trait + `palladium_changes` schema (D14).
 
 | # | Decision | Rationale |
 |---|----------|-----------|
@@ -68,10 +68,12 @@ This work sits **on top of PR #33** (the `@palladium/worker` bus migration, now 
 | D10 | **Auth via Clerk (free tier)**, not bespoke. | Use a managed identity provider; Palladium ships no auth. |
 | D11 | **Local-first: auth shown only on sync opt-in.** | Product requirement — discovery/use must not require an account. |
 | D12 | **Server verifies the Clerk JWT and scopes every change to a workspace** — and, for personal-class data, to the owning member (`D15`). Foundational, not deferred (`L2`). | Sync must not leak across families/accounts, nor a member's personal data to other members; needs new `palladium-axum` auth middleware + workspace/member scoping. On the v1 critical path (Phase 3). |
-| D13 | **Workspace = tenant; family sharing via memberships + coarse roles**, from v1. Prefer **workspace ↔ Clerk Organization** so membership / invites / roles come from Clerk. | User directive: families share data. Managed membership (Clerk Orgs) over bespoke, extending D10; a user may belong to several workspaces. *(Free-tier org limits — R7; O13.)* |
+| D13 | **Workspace = tenant; family sharing via memberships + coarse roles**, from v1. Membership / invites / roles are **bespoke in the Palladium server** (`workspaces` / `memberships` / `invites` tables); **Clerk provides identity only** — *not* Clerk Organizations. | O13: Clerk's free-tier Org cap (**100 families × 5 members**) is too tight for a consumer family app and beyond it needs a paid B2B add-on; bespoke has no cap and no per-family cost. A user may belong to several workspaces. |
 | D14 | **Tenancy lives in the `ChangeStore` trait + `palladium_changes` schema** (single multi-tenant store): `workspace_id` always, plus `visibility` (`shared`\|`personal`) + `owner_user_id` for personal rows. Server filter: `workspace_id = ? AND (visibility = 'shared' OR owner_user_id = :caller)`. | Chosen fork for **G5**: one logical store, two scope keys — single source of truth, matches the design docs' `_sync_deltas.workspace_id`. Not per-tenant store instances. Implements `D15`. |
 | D15 | **Two-axis scoping: workspace (tenant) × sharing-class (`shared` \| `personal`).** Within a workspace, `shared` rows replicate to **all** members; `personal` rows carry `owner_user_id` and replicate **only** to that member — one workspace, no data duplication. | O11/O12: a family shares chores/grocery while habits/journal stay private to each member. |
 | D16 | **Declarative sharing-policy registry** — every synced table declares `shared`/`personal` in **one place** (co-located with `SCHEMA_CONFIG`), enforced by a parity test; adding a synced table **forces** a class. | Maintainability (user directive): "which parts are shared vs private" is one editable source of truth, not logic scattered across the write path. A missing class **fails CI**, so personal data can't leak by an unclassified default. |
+| D17 | **Shared Clerk identity across the suite; workspaces scoped per app** (O7). One login spans habitat/hearth/halcyon/hephaestus; a workspace (family) belongs to a **single app**. | One identity (convergence), but each app owns its store + sharing surface — a habitat family ≠ a hearth family; `workspace_id` is per-app. |
+| D18 | **Blob sync in v1** (O8) — `IDBBlobAdapter` binaries (jots voice/image) replicate via the server's `/v1/blobs` routes. | Full-fidelity personal jots across a member's devices. Blobs are `personal`-class → member-scoped. Adds upload/download + storage handling (Phase 5). |
 
 ---
 
@@ -189,14 +191,14 @@ A code-level review of the plan's load-bearing assumptions. **These gaps are why
 | R-A8 | **Invite members.** An owner can invite others to the workspace (email/link); an invitee joins and their devices sync the shared data. |
 | R-A9 | **Coarse roles (v1): owner / member.** Owner manages membership + invites; both roles read+write all workspace data. Fine-grained per-record permissions are out of scope (`O11`). |
 | R-A10 | **Multi-workspace + switch.** A user may belong to several workspaces (e.g. personal + family) and switch the active one; the transport re-scopes to the active `workspace_id`. *(Lifecycle — O12.)* |
-| R-A11 | **Account-switch isolation.** Local data is **bound to the signed-in Clerk account**; after sign-out, a *different* account signing in on the same device/profile must **not** see or claim the previous user's local rows. Enforce via per-account local stores (or an explicit purge/export gate before switching). *(Mechanism — O14.)* |
+| R-A11 | **Account-switch isolation.** Local data is **bound to the signed-in Clerk account** via a **per-account OPFS store keyed by the Clerk user id** (`O14`); a different sign-in opens a different DB, so it cannot see or claim the previous user's rows. The pre-auth anonymous store is claimed into the account store on first sign-in. |
 
 ### 5.2 Approach
 
 - **Client SDK:** `@clerk/vue` (or `@clerk/nuxt`) mounted **lazily** — provider/components load only when the sync flow is entered, keeping the default path free of auth UI + bundle weight.
-- **Membership via Clerk Organizations (preferred, D13):** map **workspace ↔ Clerk Organization** so memberships, invites, and roles come from Clerk's managed org features rather than a bespoke table. The Clerk **org id becomes the `workspace_id`**. *(Verify free-tier org / seat limits — R7, O13; fallback is bespoke `workspaces`/`memberships` tables if limits bite.)*
-- **Session token:** Clerk issues a short-lived JWT carrying the **active org (workspace) claim**. `SyncTransport` attaches it as `Authorization: Bearer <jwt>` (it already supports a `fetch` override; extend to inject + refresh on 401).
-- **Server verification (new `palladium-axum` work, largest backend requirement):** verify the Clerk JWT (JWKS/issuer/audience), derive the user **and the active workspace (org) claim**, confirm membership, then scope every read/write to that `workspace_id` in the `ChangeStore` (`D12`/`D14`, `G5`). Does not exist today.
+- **Membership is bespoke in the Palladium server (`D13`, O13):** `workspaces` / `memberships` (`workspace_id`, `user_id`, `role`) / `invites` (`token`, `email`) tables in `palladium-axum`. **Clerk provides identity only** (users, sessions, JWT) — *not* Clerk Organizations, whose free-tier cap (100 families × 5 members) is too tight. We build the invite/role flows.
+- **Session token:** Clerk issues a short-lived JWT identifying the user (`sub`). The **active workspace is selected client-side** and sent alongside (header/param); the server verifies it against the user's `memberships`. `SyncTransport` attaches `Authorization: Bearer <jwt>` (it already supports a `fetch` override; extend to inject + refresh on 401).
+- **Server verification (new `palladium-axum` work, largest backend requirement):** verify the Clerk JWT (JWKS / issuer / audience), derive the user (`sub`), **confirm the requested `workspace_id` against the `memberships` table**, then scope every read/write to that workspace (+ `owner_user_id` for personal rows, `D15`) in the `ChangeStore` (`D12`/`D14`, `G5`). Does not exist today.
 - **Offline auth:** a cached valid session keeps the transport working offline; expired tokens pause uplink (outbox retains) until re-auth.
 
 ### 5.3 UX flow
@@ -281,14 +283,14 @@ Server filter: `WHERE workspace_id = ? AND (visibility = 'shared' OR owner_user_
         └─────────────────────────────────────────────────────────────┘    resolve workspace,
                                                                             scope by workspace_id)
 
- Main thread (any tab): Clerk session (active org = workspace) ──► provides JWT to the transport;
+ Main thread (any tab): Clerk session (user) + active workspace ──► provides JWT to the transport;
  sync UI/opt-in + create-or-join-family gated behind Clerk auth (shown only on sync intent).
 ```
 
 - **Engine + `SyncTransport` live in the leader worker only** (single writer ⇔ single OPFS connection). Followers keep proxying via the bus.
 - Local write → engine → `changes:local` → outbox → POST (Clerk bearer JWT carrying the active workspace).
 - Downlink poll → `applyRemote` (with the new LWW guard) → `ctx.invalidate(affectedTables)` → all tabs refetch. Also delivers PR #33's deferred cross-tab-live reactivity.
-- **Server** verifies the JWT, resolves the caller's **workspace (org) membership**, and scopes every read/write to `workspace_id` **and, for personal-class rows, `owner_user_id`** (`D15`) — a member sees all the workspace's `shared` rows but only their own `personal` rows.
+- **Server** verifies the JWT (user `sub`), confirms the requested workspace against the bespoke **`memberships` table**, and scopes every read/write to `workspace_id` **and, for personal-class rows, `owner_user_id`** (`D15`) — a member sees all the workspace's `shared` rows but only their own `personal` rows.
 - **Native (Capacitor):** same engine + transport over the capacitor adapter, no leader election. *(Deferred, `L4`.)*
 - **Token plumbing:** Clerk session on the main thread; transport in the worker → JWT (+ active `workspace_id`) must be passed in and refreshed via a small main→worker channel / token-provider callback; a workspace switch re-scopes the transport (`O6`).
 
@@ -342,7 +344,7 @@ The multi-tenant backend, built **from the start** (`L2` amended, `G5`, `D12`/`D
 
 - **Tenancy in the store (`D14`/`D15`):** widen the `ChangeStore` scope to `insert(scope, change)` / `list_after(scope, after, limit)` + `workspace_id`, `visibility`, `owner_user_id` columns on `palladium_changes` (indexed) + updated Axum handlers + contract tests. Filter: `WHERE workspace_id = ? AND (visibility = 'shared' OR owner_user_id = :caller)`.
 - **Clerk JWT verification (`D12`, `O5`):** verify the token (JWKS/issuer/audience), derive the user + **active workspace (org) claim**, confirm membership, reject otherwise (401/403).
-- **Membership (`D13`, `O13`):** map **workspace ↔ Clerk Organization** (memberships/invites/roles from Clerk). Fallback: bespoke `workspaces`/`memberships` tables if free-tier org limits bite (`R7`).
+- **Membership (`D13`, O13):** build `workspaces` / `memberships` (workspace_id, user_id, role) / `invites` (token, email) tables in `palladium-axum` + invite/accept + coarse owner/member role checks. Clerk = identity only (no Clerk Organizations).
 - **Verify:** **two-workspace isolation** (member of A never receives B's changes; non-member rejected) **and two-member personal isolation** (member B in workspace A never receives member C's `personal` rows). Contract tests for the scoped store.
 
 ### Phase 4 — Clerk accounts + family/workspace model + local-first gating (client)
@@ -358,7 +360,8 @@ The multi-tenant backend, built **from the start** (`L2` amended, `G5`, `D12`/`D
 
 - Instantiate `SyncTransport(engine, { serverUrl, pollIntervalMs })` in the leader worker; start after `open()` once authenticated + a workspace is active. On downlink apply → `ctx.invalidate(affectedTables)` → all tabs refetch (delivers PR #33's deferred cross-tab reactivity).
 - Runs against the **workspace-scoped, authenticated** server from Phase 3 (no unscoped single-user stage). A local `palladium dev` may still be used for developer smoke-testing, but the demo is multi-tenant.
-- **Verify:** extend the harness to Habitat's schema; **two members × two devices in one workspace** converge; a second workspace stays isolated; constraint-violation / failover scenarios pass without poisoning.
+- **Blob sync (`D18`, O8):** replicate `IDBBlobAdapter` binaries (jots voice/image) via the server's `/v1/blobs` routes — upload on local write, fetch on downlink; blobs are `personal`-class → member-scoped. Handle retry + a storage cap.
+- **Verify:** extend the harness to Habitat's schema; **two members × two devices in one workspace** converge (incl. a voice/image jot round-tripping via `/v1/blobs`); a second workspace stays isolated; constraint-violation / failover scenarios pass without poisoning.
 
 ### Phase 6 — Verification (web, multi-user, multi-workspace)
 
@@ -376,7 +379,7 @@ The multi-tenant backend, built **from the start** (`L2` amended, `G5`, `D12`/`D
 - **Fix the repo-wide NUKE_OPFS bug** in `hearth`/`halcyon`/`hephaestus` (same unscoped origin-root deletion habitat had).
 - Migrate `useNotifications` → `@palladium/notifications-vue`.
 - Optional annotation-driven CRDT (Yjs) for future rich-text fields.
-- Roll engine+transport+auth convergence to hearth / halcyon / hephaestus (Clerk identity likely shared suite-wide — `O7`).
+- Roll engine+transport+auth convergence to hearth / halcyon / hephaestus — **shared Clerk identity across the suite, per-app workspaces** (`D17`, O7 resolved).
 
 ---
 
@@ -392,7 +395,7 @@ The multi-tenant backend, built **from the start** (`L2` amended, `G5`, `D12`/`D
 | R4 | **Remote-apply poison pill (G2/G3/G4)** — highest-severity; a single constraint violation silently drops changes. | Phase 1a mandatory before enabling any real sync. |
 | R5 | ~~Merge conflicts with PR #33.~~ **Resolved** — #33 merged (`74e11bf`); all phases branch from current `main`. | — |
 | R6 | **Tenancy + auth is now on the v1 critical path** (`L2` amended) — a Rust trait/schema redesign **plus** the family/membership model + invite UI. Biggest single scope increase. | Own phase (3), parallelizable with client Phases 1–2; contract + **two-workspace isolation** tests gate it. |
-| R7 | Clerk free-tier limits — **MAU cap ~10k AND Organizations/seat limits** (workspaces = orgs, `D13`) — plus native auth differs from web. | Verify org limits early (Phase 3); bespoke `workspaces`/`memberships` fallback if they bite. Verify native before that phase. |
+| R7 | Clerk free-tier **user** cap (up to ~50k users — fine early; verify) + native auth differs from web. The Org-cap risk is **retired** by choosing bespoke membership (`D13`, O13). | Verify the user cap suffices; verify native auth before that phase. Building bespoke invites/roles is now scope (Phase 3), not a hard limit. |
 | R8 | Effort/altitude — a multi-PR, cross-stack (TS engine + Vue app + Rust server + external auth + membership UI) programme, now **larger** with tenancy in v1. | Scope and sequencing explicitly agreed; phase gates; parallelize client vs server tracks. |
 | R9 | **Shared-workspace concurrent edits by different members** make cross-*user* LWW a real v1 case (not just multi-device single-user) — two family members editing the same row concurrently. | Phase 1 column-LWW-by-HLC + **workspace-scoped deterministic IDs** (D5) handle it; add a concurrent-two-member convergence test. |
 | R10 | **Account-switch data leak (CodeRabbit)** — on a shared device, a new sign-in could see/claim the previous user's local rows; worse now that personal data is member-private. | `R-A11`/`O14`: bind the local store to the account (per-account store or purge-on-switch); test A-out→B-in isolation (Phase 4). |
@@ -402,17 +405,17 @@ The multi-tenant backend, built **from the start** (`L2` amended, `G5`, `D12`/`D
 | # | Question | State |
 |---|---|---|
 | ~~O1~~ | ~~Tenancy model & deployment (G5): single store vs. per-user instances; scope per-user or per-household?~~ | **Resolved (amended 2026-07-25)** — tenant = **workspace** (family, multi-member); `workspace_id` in the `ChangeStore` trait (`D14`); foundational Phase 3 (`L2`). Deployment of `palladium-axum` in prod still TBD. |
-| O2 | `nodeId` lifecycle — how assigned/persisted per device; reset on reinstall? (Also required for failover durability, G6.) | Open. |
+| ~~O2~~ | ~~`nodeId` lifecycle — how assigned/persisted per device.~~ | **Resolved** — a **UUIDv7 minted on first launch**, persisted with the durable sync state (`D2b`) so it survives leader failover/reload; a reinstall/OPFS-wipe mints a new device identity (acceptable). Not user-facing. |
 | ~~O3~~ | ~~Delete semantics — LWW deletes vs. escalation for v1.~~ | **Resolved** — v1 uses HLC LWW deletes (`D4`); escalation (`onRejected`/`__conflict`, §2.3) is deferred future work. |
-| O4 | Existing-data migration for deterministic IDs (Phase 2): backfill + FK cascade; reconcile rows already divergent across devices. | Open. |
-| O5 | Clerk ↔ Rust verification — JWKS/issuer/audience; **active-org (workspace) claim** → change-store scope; membership check. | Open. |
-| O6 | Token plumbing to the worker — main-thread Clerk session → leader worker transport; refresh + 401 + leadership handoff; **re-scope on workspace switch**. | Open. |
-| O7 | Account scope across the suite — one Clerk identity **and shared workspaces** across habitat/hearth/halcyon/hephaestus, or per-app? | Open. |
-| O8 | Blob sync — `IDBBlobAdapter` binary (jots voice/image) via `/v1/blobs`, or out of scope for v1? | Open. |
+| ~~O4~~ | ~~Existing-data migration for deterministic IDs.~~ | **Resolved** — a one-time **transactional PK rewrite** to `uuidv5` ids with FK fixups under `PRAGMA defer_foreign_keys` (Phase 2); rows already divergent across devices collapse to the same id and merge under column-LWW-by-HLC on first upload. |
+| ~~O5~~ | ~~Clerk ↔ Rust verification.~~ | **Resolved** — `palladium-axum` validates the Clerk JWT via **JWKS** (cache by `kid`), checks issuer/audience/expiry, takes the user `sub`, and confirms the requested `workspace_id` against the bespoke **`memberships`** table (`D13`). |
+| ~~O6~~ | ~~Token plumbing to the worker.~~ | **Resolved** — the main thread exposes a **`getToken()` provider** to the leader worker over the bus; the transport calls it (refresh on 401); on leadership handoff the new leader re-establishes it; a **workspace switch** pushes the new active `workspace_id` → transport re-scopes (per-workspace cursor). |
+| ~~O7~~ | ~~Account scope across the suite.~~ | **Resolved** — **shared Clerk identity** across habitat/hearth/halcyon/hephaestus, **workspaces per app** (`D17`). |
+| ~~O8~~ | ~~Blob sync in v1?~~ | **Resolved — yes, in v1** (`D18`): jots voice/image via `/v1/blobs`, member-scoped (Phase 5). |
 | ~~O11~~ | ~~Sharing granularity — share all tables, or some personal within a family?~~ | **Resolved (2026-07-25)** — **per-table** `shared`/`personal` via a declarative registry (`D15`/`D16`); habits/journal personal, chores/grocery shared. Per-**row** sharing is out of scope (non-goal). |
 | O12 | **Workspace lifecycle** — *partially resolved:* everyone auto-gets a workspace; personal data is member-scoped within it (`D15`). **Still open (deferred):** solo→family formation/merge mechanics. | **Direction (2026-07-25): data-preservation via merge** — no data loss on family formation; existing solo rows are merged into the shared workspace rather than dropped/re-created. Detailed logic TBD later. |
-| O13 | **Membership mechanism** — workspace ↔ Clerk Organization (invites/roles, free-tier limits) vs. bespoke `workspaces`/`memberships` tables? | Open — verify Clerk Org free-tier limits (R7). *(User: undecided.)* |
-| O14 | **Account-switch isolation mechanism (`R-A11`)** — per-account local stores vs. an explicit purge/export gate before switching accounts on one device. | Open. |
+| ~~O13~~ | ~~Membership mechanism — Clerk Organizations vs. bespoke tables.~~ | **Resolved — bespoke** `workspaces`/`memberships`/`invites` in the Palladium server; Clerk = identity only (`D13`). Clerk Orgs rejected (free-tier 100 families × 5 members cap). |
+| ~~O14~~ | ~~Account-switch isolation mechanism (`R-A11`).~~ | **Resolved** — **per-account local store**: the OPFS DB is keyed by the Clerk user id (e.g. `/habitat/<userHash>/…`), so a different sign-in opens a different DB; the pre-auth anonymous store is claimed into the account store on first sign-in; sign-out returns to anonymous. |
 | ~~O9~~ | ~~Completion/checkin data model.~~ | **Resolved** — keep state-as-row-existence + deterministic IDs + idempotent apply for v1 (`L3`). |
 | ~~O10~~ | ~~Core-engine hardening ownership.~~ | **Resolved** — in scope here as Phase 1 (`L1`). |
 
