@@ -1,8 +1,8 @@
 # ERD — HabitatHQ Sync Architecture (Palladium + Atrium)
 
-**Status:** Reframed to a **three-layer** architecture + **record-level ACL** + **POC-first** delivery — 2026-07-26 · PR #33 **merged** (`74e11bf`) · prior O1–O14 resolved; the reframe opens O11a / O5a / O12a / O20 (§8)
+**Status:** Reframed to a **three-layer** architecture + **record-level ACL** + **POC-first** delivery — 2026-07-26 · **multi-device identity (`D22`) + timezone-robust UTC-HLC resolution (`D23`) folded in — 2026-08-01** · PR #33 **merged** (`74e11bf`) · prior O1–O14 resolved; the reframe opens O11a / O5a / O12a / O20 (§8)
 **Owner:** Jeel Bhavsar
-**Created:** 2026-07-25 · **Revised:** 2026-07-26
+**Created:** 2026-07-25 · **Revised:** 2026-08-01
 **PRs:** [#33 — habitat on the @palladium/worker bus](https://github.com/HabitatHQ/habitathq/pull/33) (merged) · [#35 — this ERD](https://github.com/HabitatHQ/habitathq/pull/35)
 **Harness:** `libs/palladium/e2e/src/__tests__/two-client-sync.test.ts`
 
@@ -89,6 +89,8 @@ The moves:
 | **D19** | **Family formation = claim-into-existing-workspace (promote-host), data-preservation merge** (O12, §5.6). Re-homed records keep their owner and stay **private by default**; the member opts into sharing afterward. | Reuses the claim path; no server-side merge endpoint; no accidental exposure on merge. |
 | **D20** | **Deliver via a mock-habitat POC example app**, not a real-Habitat migration first. | De-risk the whole stack (hardened Palladium + Atrium + ACL + a Vue client) on a small, disposable surface before the costly real migration. |
 | **D21** | **ACL is set on aggregate roots; children carry `root_id` and inherit** (§7.1). A child has no ACL of its own; its `owner_user_id` is **audit-only**; the root owner's ACL is the sole authority over child read/write/share. | Grants stay `O(roots)` not `O(rows)`; "share a list" moves its items atomically; a child is never visible when its root isn't; collaborator-created children can't assert their own audience. |
+| **D22** | **One user, many devices — device identity is first-class.** Each device mints a stable **`nodeId`** (UUIDv7, `D2b`) that is *also* its **HLC tie-break id** and its **own-write-skip key**. Atrium keeps a **`devices(nodeId, user_id, …)` registry** (Phase 3b): a device self-registers on first authenticated sync; every change is attributable to `(user_id, nodeId)`. **Own-write skip is keyed by `nodeId` (device), never `user_id`** — otherwise a user's second device would ignore the first's edits and they'd never converge. `nodeId` is generic (Palladium/HLC); the *device↔user binding* is domain (Atrium). | Concern #1: a user logged in on N devices must (a) converge across their own devices, (b) have every edit attributable to a device for audit/LWW tie-break, and (c) support future per-device session revocation. Keeping own-write-skip per-device is a **correctness** requirement, not a nicety. |
+| **D23** | **Conflict order is UTC-absolute; local wall-clock is display-only.** The LWW authority is the **HLC**, whose physical component is **UTC epoch millis** (monotonic, timezone-independent) — resolution is correct across members in different timezones **by construction**, with `nodeId` as the deterministic tie-break (`D3`/`D22`). A user-facing edit instant is a **separate `display_ts`** (stored **UTC**, optionally with the originating tz offset), rendered in the *viewer's* local timezone **at the edge** — it is **data, never a conflict input**. | Concern #2, made precise: never resolve conflicts on local wall-clock (a westward-timezone edit could read an *earlier* local time and wrongly lose). "Store local, resolve to UTC on sync, back to local on fetch" is exactly right **for `display_ts`** — and must be kept out of the conflict key. Overloaded "timestamp" split into two canonical terms: **`hlc`** (conflict order) vs **`display_ts`** (presentation). |
 
 ---
 
@@ -212,7 +214,7 @@ Engine-level gaps that shape **Phase 1** (all generic, all still valid).
 Owns everything app/domain that the earlier draft wrongly put in `palladium-axum`:
 
 - **Identity** — verifies the **Clerk** JWT (JWKS / issuer / audience / expiry), derives the user `sub`. Clerk is swappable (`D13`).
-- **Tenancy & membership** — `workspaces` (families, per app), `memberships(workspace_id, user_id, role)`, `invites(token, email)`, coarse `owner`/`member` roles. Bespoke (not Clerk Orgs).
+- **Tenancy, membership & devices** — `workspaces` (families, per app), `memberships(workspace_id, user_id, role)`, `invites(token, email)`, coarse `owner`/`member` roles, and a **`devices(node_id, user_id, …)` registry** (`D22`, multi-device per user). Bespoke (not Clerk Orgs).
 - **Record-level ACL** (§5.4) — owner + grants; authorizes every read/write.
 - **Server-authoritative scoping** (`D17`) — sets `owner_user_id` from `sub`, validates membership + grants, **rejects forged client metadata**, filters reads by the caller's effective ACL. `/v1/blobs` ACL-authorized.
 - **Implements Palladium's auth seam** — translates an authenticated, ACL-filtered request into an opaque Palladium `scope` + change read/write.
@@ -256,8 +258,11 @@ These are the sharp edges of record-level ACL; the POC (Phase 5) must exercise g
 | R-A5 | **Claim local data on first sync** — re-home local rows into the chosen workspace, owner = caller, **private by default** (§5.6). |
 | R-A6 | **Account-switch isolation** — a **per-account OPFS store keyed by the Clerk user id**; a different sign-in opens a different DB; the anonymous pre-auth store is claimed on first sign-in. |
 | R-A7 | **Create or join a family**, **invite** members, coarse **owner/member** roles, **multi-workspace switch** (transport re-scopes). |
+| R-A8 | **Multi-device per user** (`D22`) — a user may be signed in on N devices; all converge, each edit is attributable to a device, and no device ignores a sibling device's edits. The device **self-registers** (`nodeId`) with Atrium on first authenticated sync. |
 
 **Token plumbing** — the main thread exposes a `getToken()` provider to the leader worker over the bus (refresh on 401; re-establish on leadership handoff; re-scope on workspace switch). The **`nodeId`** is a UUIDv7 minted on first launch, persisted with the durable sync state (`D2b`).
+
+**Device identity (`D22`).** The `nodeId` is the device's stable identity end-to-end: HLC tie-break, own-write-skip key, and — once authenticated — the key Atrium stores in its **`devices(nodeId, user_id, first_seen, last_seen, label?)`** registry (Phase 3b). A given user's devices carry **distinct** `nodeId`s, so `SyncTransport`'s own-write skip (which drops changes whose `nodeId` matches self) correctly **still applies a sibling device's changes** — convergence across one user's devices is the same LWW path as across members. The device→user binding lives in Atrium (domain); Palladium only ever sees the opaque `nodeId` inside the HLC. Per-device session revocation is **deferred** (the registry makes it a later add, not a re-architecture).
 
 ### 5.6 Family formation & merge (`D19`, O12)
 
@@ -310,8 +315,9 @@ Pure engine correctness — **no auth, no scope, no domain** (those are Phase 2 
 **1b — Column-level LWW by HLC (`D3`; F1) — blocking.**
 - *Problem.* `applyRemote` calls `t.update(table, id, patch)` with **no HLC comparison** — last writer to *arrive* wins, not last to *happen*. Two devices editing the same row concurrently **never reconcile** → permanent divergence (the `it.fails` guard, buglog `sync-no-lww`).
 - *Change.* **Per-column LWW keyed by HLC.** Store a per-`(row, column)` write HLC in `_sync_row_meta` (extend the existing internal table, G8). On apply, **merge column-by-column**: accept a remote column iff its HLC **>** the stored column HLC (deterministic tie-break by `nodeId`), drop stale columns; same rule local↔remote. Update-vs-delete resolved by HLC (delete carries a tombstone HLC). This makes apply **idempotent + commutative** — the precondition for §5.4a backfill replay.
-- *Files.* `engine.ts` (`applyRemote` merge), `hlc.ts` (comparator, `recvHlc`), `_sync_row_meta` schema.
-- *Verify.* The `two-client-sync` `it.fails` convergence guard **flips green**; add a concurrent-column test (A sets col X, B sets col Y at overlapping HLCs → both survive; two writes to col X → higher HLC wins **regardless of arrival order**).
+- *Timezone correctness (`D23`).* The HLC physical component is **UTC epoch millis** — the total order is **timezone-independent**, so two members editing the same column from different timezones resolve by *true* occurrence order (tie-break `nodeId`), never by local wall-clock. **Do not** feed any local/wall-clock time into the comparator. A user-facing edit instant is a distinct `display_ts` **column** (ordinary data, LWW'd like any other column), stored **UTC** and rendered in the viewer's local tz at the edge — it is never a conflict input. Add an assertion that `createHlc`/`sendHlc` read a UTC epoch source.
+- *Files.* `engine.ts` (`applyRemote` merge), `hlc.ts` (comparator, `recvHlc`, UTC-epoch source assertion), `_sync_row_meta` schema.
+- *Verify.* The `two-client-sync` `it.fails` convergence guard **flips green**; add a concurrent-column test (A sets col X, B sets col Y at overlapping HLCs → both survive; two writes to col X → higher HLC wins **regardless of arrival order**); add a **cross-timezone** test — two engines whose OS clocks report different tz offsets but the same UTC instant resolve identically (the loser is the one with the lower HLC, not the westernmost clock).
 
 **1c — Durable sync state (`D2b`; G6).**
 - *Problem.* `#cursor`, the engine HLC, and `nodeId` live **in memory**. On leader-worker failover the new leader re-hydrates from **full history** and the `nodeId` **churns** — breaking own-write skip and causal ordering.
@@ -344,8 +350,8 @@ A new Rust service that is the **client-facing gateway**: it authenticates, reso
 **3a — Identity (Clerk, `D13`).** Verify the Clerk JWT per request — fetch + cache **JWKS**, check `iss` / `aud` / `exp` / signature, derive user `sub`. Clerk is swappable behind an internal `IdentityProvider` trait.
 - *Verify.* Valid token → `sub`; expired/wrong-aud/bad-sig → 401; JWKS cache refreshes on rotation.
 
-**3b — Tenancy & membership (bespoke, not Clerk Orgs — Clerk free tier caps Orgs).** Tables: `workspaces`, `memberships(workspace_id, user_id, role)` (`owner`/`member`), `invites(token, email, expires_at)`. Create/join family, invite, accept, workspace switch.
-- *Verify.* Join-via-invite adds a membership; non-members are 403; roles enforced (only `owner` mutates membership).
+**3b — Tenancy, membership & devices (bespoke, not Clerk Orgs — Clerk free tier caps Orgs).** Tables: `workspaces`, `memberships(workspace_id, user_id, role)` (`owner`/`member`), `invites(token, email, expires_at)`, and **`devices(node_id PK, user_id, first_seen, last_seen, label?)`** (`D22`). Create/join family, invite, accept, workspace switch; **device self-registration** — on first authenticated sync a device upserts its `node_id` under the JWT `sub` (idempotent; `last_seen` bumped each poll). Atrium can thus attribute every change to `(user_id, node_id)` and later revoke a device.
+- *Verify.* Join-via-invite adds a membership; non-members are 403; roles enforced (only `owner` mutates membership); a device registers once and re-auth is idempotent; a `node_id` bound to user A cannot be claimed by user B.
 
 **3c — Record-level ACL (§5.4, `D16`) + server-authoritative enforcement (`D17`).** Tables: a **roots registry** `record_acl(root_id, owner_user_id, workspace_id, household_perm)` and `shares(root_id, grantee_user_id, perm)`. On **write**: set `owner_user_id` from `sub` (ignore/reject client-supplied owner), require owner-or-`write`-grant, resolve a child's authority via its `root_id` (`D21`). On **read**: emit only changes the caller may see.
 - *Verify.* Owner-only private floor; household visible to all members; `shares` visible only to grantees; can't self-grant; can't forge `owner_user_id`; child inherits root (collaborator-created child included).
@@ -375,7 +381,7 @@ The smallest surface that exercises **every** ACL path (private / household / pe
 
 **Design decision — ACL is set on aggregate roots; children inherit (`D21`; resolves O20a).** Each syncable entity is either a **root** (owns an ACL) or a **child** (carries a `root_id`; it has **no ACL of its own**). The **root's owner and ACL are the sole access authority** over every child read, write, and sharing operation — including children created by a *collaborator* (a member holding a `write` grant on the root). "Share this list" grants the *list root*; its items ride along atomically — grants stay `O(roots)`, not `O(rows)`, and a child can never be visible when its root isn't. Atrium resolves a child's audience through `root_id`; the client never grants a child directly.
 
-**Schema (fresh, sync-native).** Every row: `id`, `owner_user_id`, plus children `root_id` (all Atrium-set from `sub` / validated against the root, `D17`). Roots add no ACL columns (ACL is Atrium-side, `D16`). A child's `owner_user_id` is **provenance/audit only** — it records *who created* the row and **carries no access authority**; visibility and grant authority flow exclusively from the child's root. So a collaborator-created `list_item` is authored by the collaborator (audit) yet fully governed by the root owner's ACL — no conflict, because the child never asserts its own audience. No `_sync_*`/ACL columns in app SQLite — sharing truth is Atrium's; the client renders an advisory grant projection Atrium pushes down.
+**Schema (fresh, sync-native).** Every row: `id`, `owner_user_id`, an optional `display_ts` (UTC edit instant, rendered in the viewer's local tz — presentation only, never a conflict key, `D23`), plus children `root_id` (all Atrium-set from `sub` / validated against the root, `D17`). Roots add no ACL columns (ACL is Atrium-side, `D16`). A child's `owner_user_id` is **provenance/audit only** — it records *who created* the row and **carries no access authority**; visibility and grant authority flow exclusively from the child's root. So a collaborator-created `list_item` is authored by the collaborator (audit) yet fully governed by the root owner's ACL — no conflict, because the child never asserts its own audience. No `_sync_*`/ACL columns in app SQLite — sharing truth is Atrium's; the client renders an advisory grant projection Atrium pushes down.
 
 | Table | Role | Sharing class | Proves |
 |---|---|---|---|
@@ -406,11 +412,13 @@ The smallest surface that exercises **every** ACL path (private / household / pe
 | A8 | Two workspaces, no cross-leak; can't self-grant; can't forge `owner_user_id` | isolation + anti-forgery (`D17`) |
 | A9 | Family formation: B's solo burrow data re-homes into A's workspace, private-by-default | claim/merge (§5.6) |
 | A10 | Constraint violation / leader failover mid-sync | non-poisoning apply + resume (`D2a`/`D2b`) |
+| A11 | **One user, two devices** — edit on device 1 appears on device 2 (not skipped as own-write); each change attributable to its `nodeId`; both registered in Atrium `devices` | per-**device** own-write skip + device registry (`D22`) |
+| A12 | **Two members, different timezones** edit the same shared note column concurrently — both devices converge to the same winner by UTC-HLC order, independent of local wall-clock | timezone-robust LWW (`D23`) |
 
 **Explicitly out of the POC:** categories/reminders/voice-notes/scribbles and the rest of Habitat's ~20 tables (they add domain, not a new ACL path); real Habitat's `db-shared.ts` write volume; CRDT; leaving a family; bootstrap snapshot. Three roots + three children + one blob is the whole minimal proof.
 
 ### Phase 5 — Verify the POC end-to-end
-- **Harness:** two members × two devices (four engines against one Atrium + Palladium), driven by the **§7.1 acceptance matrix (A1–A10)** as the pass/fail contract: private floor + private-child cascade (A1); household grant + atomic child inheritance + perm-downgrade (A2–A3); per-member grant-backfill / revoke-purge / offline-reject (A4–A6, §5.4a); blob ACL via parent (A7, `D18`); cross-workspace/member isolation + anti-forgery (A8, `D17`); family merge (A9, §5.6); non-poisoning failover (A10, `D2a`/`D2b`).
+- **Harness:** two members × two devices (four engines against one Atrium + Palladium), driven by the **§7.1 acceptance matrix (A1–A12)** as the pass/fail contract: private floor + private-child cascade (A1); household grant + atomic child inheritance + perm-downgrade (A2–A3); per-member grant-backfill / revoke-purge / offline-reject (A4–A6, §5.4a); blob ACL via parent (A7, `D18`); cross-workspace/member isolation + anti-forgery (A8, `D17`); family merge (A9, §5.6); non-poisoning failover (A10, `D2a`/`D2b`); **per-device convergence + device registry (A11, `D22`); cross-timezone UTC-HLC LWW (A12, `D23`)**. The four-engine harness is deliberately *two devices per member* precisely to exercise A11.
 - **Also assert:** ACL-safe pagination (a filtered `limit=n` poll never stalls the cursor — the Phase 2 ⚠️ / O11a); a direct client→Palladium request is refused (`D11`); convergence guard (`two-client-sync` `it.fails`) is green.
 - **Exit criteria → real-Habitat go/no-go:** every A-row green + no poison-pill under fault injection ⇒ the architecture is proven and the deferred real-Habitat migration is unblocked. Feature-flagged; internal dogfooding.
 
@@ -442,7 +450,7 @@ The smallest surface that exercises **every** ACL path (private / household / pe
 | O11a | **ACL storage, filtering & transitions** — where grants (`shares`, household flags) live; how Atrium filters each caller's change stream efficiently (incl. **child `root_id` → root-ACL resolution**, `D21`); and the **grant-backfill / revoke-purge / offline-write-after-revoke** mechanics (§5.4a). | Open — **the POC's core thing to prove**. |
 | O12a | **Merge grant policy** — on family formation, do re-homed shared records keep grants or reset to private? Lean: **reset to private** (safest), owner re-shares. | Leaning reset-to-private (§5.6). |
 | O5a | **Auth-seam contract** — exact shape of Palladium's authenticated-scope provider + request-decoration hook. | Open (Phase 2). |
-| O20 | **POC scope** — which minimal tables/features the mock-habitat app includes to exercise private / household / per-member sharing + a blob. | **Proposed — §7.1** (`burrow`: 3 roots + 3 children + 1 blob; A1–A10 matrix). |
+| O20 | **POC scope** — which minimal tables/features the mock-habitat app includes to exercise private / household / per-member sharing + a blob. | **Proposed — §7.1** (`burrow`: 3 roots + 3 children + 1 blob; A1–A12 matrix). |
 | ~~O20a~~ | **Child-ACL model** — do children inherit their root's ACL, or is every row independently owned/shared? | **Resolved: root-inheritance** (`D21`, §7.1) — child `owner_user_id` is audit-only. *(Filter/index performance of `root_id` resolution folds into O11a.)* |
 | Oprod | Where Atrium + Palladium run in production. | Open (deployment). |
 | ~~O1–O14~~ | Prior questions (tenancy, nodeId, migration, JWT, token plumbing, suite scope, blobs, membership, account-switch, family merge, sharing granularity). | **Resolved** — folded into `D5`–`D20` / §5. |
