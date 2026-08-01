@@ -536,3 +536,64 @@ describe("SyncTransport — durable outbox", () => {
     }
   });
 });
+
+describe("SyncTransport — auth decoration (§2b)", () => {
+  it("attaches authHeaders to poll and post requests", async () => {
+    const db = await makeEngine(ALICE);
+    const authSeen: Array<string | null> = [];
+    const fetch: typeof globalThis.fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : (input as URL | Request).toString();
+      authSeen.push(new Headers(init?.headers).get("authorization"));
+      if (init?.method === "POST") return jsonResponse({}, 201);
+      void url;
+      return jsonResponse([]);
+    };
+    const transport = new SyncTransport(db, {
+      serverUrl: SERVER_URL,
+      fetch,
+      authHeaders: () => ({ Authorization: "Bearer tok", "X-Workspace": "w1" }),
+    });
+
+    await transport.start(); // one GET poll
+    await db.insert("notes", { id: "n1", title: "a", updated_at: 1 }); // one POST
+    await Promise.resolve();
+    await transport.stop();
+
+    expect(authSeen.length).toBeGreaterThan(0);
+    expect(authSeen.every((a) => a === "Bearer tok")).toBe(true);
+  });
+
+  it("refreshes the token and retries once on 401", async () => {
+    const db = await makeEngine(ALICE);
+    const refreshFlags: boolean[] = [];
+    const tokensSent: Array<string | null> = [];
+    let firstGet = true;
+    const fetch: typeof globalThis.fetch = async (_input, init) => {
+      if (init?.method === "POST") return jsonResponse({}, 201);
+      tokensSent.push(new Headers(init?.headers).get("authorization"));
+      if (firstGet) {
+        firstGet = false;
+        return new Response("unauthorized", { status: 401 }); // triggers refresh+retry
+      }
+      return jsonResponse([]);
+    };
+    const transport = new SyncTransport(db, {
+      serverUrl: SERVER_URL,
+      fetch,
+      authHeaders: ({ refresh }) => {
+        refreshFlags.push(refresh);
+        return { Authorization: refresh ? "Bearer new" : "Bearer old" };
+      },
+    });
+
+    await transport.start(); // first GET → 401 → refresh → retry
+    await transport.stop();
+
+    // Hook was called with refresh=false then refresh=true; the retry sent the
+    // refreshed token.
+    expect(refreshFlags).toContain(false);
+    expect(refreshFlags).toContain(true);
+    expect(tokensSent).toContain("Bearer old");
+    expect(tokensSent).toContain("Bearer new");
+  });
+});

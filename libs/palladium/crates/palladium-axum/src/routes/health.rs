@@ -72,8 +72,9 @@ where
     S: ChangeStore + Send + Sync + 'static,
     S::Error: std::error::Error + Send + Sync + 'static,
 {
+    // Reachability probe only (limit 0 returns nothing) — scope is irrelevant.
     match store
-        .list_after(&crate::default_scope(), None, Some(0))
+        .list_after(&palladium_core::Scope::new("_health"), None, Some(0))
         .await
     {
         Ok(_) => InstanceStatus {

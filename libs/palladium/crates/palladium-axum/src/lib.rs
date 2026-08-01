@@ -32,20 +32,12 @@
 //! # }
 //! ```
 
+pub(crate) mod auth;
 pub(crate) mod error;
 pub(crate) mod routes;
 pub(crate) mod state;
 
+pub use auth::{AuthRejection, AuthScope, AuthSeam, BearerTokenSeam, StaticScopeSeam};
 pub use error::{AppError, ErrorBody};
 pub use routes::{create_router, ApiDoc};
 pub use state::AppState;
-
-/// The opaque store [`palladium_core::Scope`] used by every request until the
-/// `AuthSeam` (Phase 2b) derives + authorizes a per-request scope from the
-/// authenticated caller. Until then Palladium is a single-tenant store under
-/// this one fixed key — clients still never supply a scope (`D11`).
-// TODO(phase 2b): replace with a scope obtained from the AuthSeam per request.
-#[must_use]
-pub(crate) fn default_scope() -> palladium_core::Scope {
-    palladium_core::Scope::new("default")
-}

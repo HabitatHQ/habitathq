@@ -9,7 +9,7 @@ use axum::{
 use palladium_core::{Change, ChangeStore, Hlc};
 use serde::Deserialize;
 
-use crate::{error::AppError, state::AppState};
+use crate::{auth::AuthScope, error::AppError, state::AppState};
 // `ErrorBody` is referenced only inside `#[utoipa::path]` response body
 // annotations; proc-macro usage is invisible to rustc's unused-import check.
 #[allow(unused_imports)]
@@ -45,6 +45,7 @@ pub(super) struct ListQuery {
 )]
 pub(super) async fn post_changes<S>(
     State(state): State<AppState<S>>,
+    AuthScope(scope): AuthScope,
     Json(change): Json<Change>,
 ) -> Result<impl IntoResponse, AppError>
 where
@@ -53,7 +54,7 @@ where
 {
     state
         .store
-        .insert(&crate::default_scope(), &change)
+        .insert(&scope, &change)
         .await
         .map_err(AppError::internal)?;
     Ok(StatusCode::CREATED)
@@ -76,6 +77,7 @@ where
 )]
 pub(super) async fn get_changes<S>(
     State(state): State<AppState<S>>,
+    AuthScope(scope): AuthScope,
     Query(params): Query<ListQuery>,
 ) -> Result<impl IntoResponse, AppError>
 where
@@ -85,7 +87,7 @@ where
     let after = params.after.as_deref().map(parse_hlc_key).transpose()?;
     let changes = state
         .store
-        .list_after(&crate::default_scope(), after, params.limit)
+        .list_after(&scope, after, params.limit)
         .await
         .map_err(AppError::internal)?;
     Ok(Json(changes))
@@ -171,6 +173,63 @@ mod http_tests {
         let store = SqliteStore::in_memory().await.unwrap();
         let state = AppState::new(store);
         create_router(state, CorsLayer::permissive())
+    }
+
+    /// A router whose auth seam maps `Authorization: Bearer <token>` → scope.
+    async fn app_with_bearer() -> axum::Router {
+        #[allow(clippy::unwrap_used)]
+        let store = SqliteStore::in_memory().await.unwrap();
+        let state = AppState::new(store).with_auth_seam(crate::auth::BearerTokenSeam);
+        create_router(state, CorsLayer::permissive())
+    }
+
+    fn get_changes_req(token: Option<&str>) -> Request<Body> {
+        let mut b = Request::builder().uri("/v1/changes");
+        if let Some(t) = token {
+            b = b.header("authorization", format!("Bearer {t}"));
+        }
+        #[allow(clippy::unwrap_used)]
+        b.body(Body::empty()).unwrap()
+    }
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used)]
+    async fn bearer_seam_scopes_by_token_and_rejects_unauthenticated() {
+        let router = app_with_bearer().await;
+        let change = Change::new(Hlc::new(node(1), 1_000), vec![]);
+        let body = serde_json::to_string(&change).unwrap();
+
+        // POST as alice → stored under scope "alice".
+        let post = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/changes")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer alice")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(post.status(), StatusCode::CREATED);
+
+        // alice sees her change.
+        let resp = router.clone().oneshot(get_changes_req(Some("alice"))).await.unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let alice_changes: Vec<Change> = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(alice_changes.len(), 1);
+
+        // bob sees nothing (scope isolation via the seam).
+        let resp = router.clone().oneshot(get_changes_req(Some("bob"))).await.unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let bob_changes: Vec<Change> = serde_json::from_slice(&bytes).unwrap();
+        assert!(bob_changes.is_empty());
+
+        // No bearer token → 401 before the store is touched.
+        let resp = router.oneshot(get_changes_req(None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     }
 
     // ── GET /v1/changes ──────────────────────────────────────────────────

@@ -87,6 +87,17 @@ export interface SyncTransportOptions {
    * Default: 5.
    */
   readonly maxApplyAttempts?: number;
+  /**
+   * Request-decoration hook: returns headers attached to every server request
+   * — typically `Authorization: Bearer <token>` plus an advisory workspace
+   * *selector* (`D11`/§2b). Called per request so a rotating token is always
+   * fresh; on a `401` the transport re-invokes it once (`refresh: true`) and
+   * retries the request. The opaque store scope is **never** sent — the server
+   * derives it from these headers.
+   */
+  readonly authHeaders?: (ctx: {
+    readonly refresh: boolean;
+  }) => Promise<Record<string, string>> | Record<string, string>;
 }
 
 // ── Outbox table ───────────────────────────────────────────────────────────
@@ -240,6 +251,7 @@ export class SyncTransport<S extends SchemaMap> {
   readonly #pollIntervalMs: number;
   readonly #fetch: typeof globalThis.fetch;
   readonly #maxApplyAttempts: number;
+  readonly #authHeaders?: SyncTransportOptions["authHeaders"];
 
   #cursor: string | null = null;
   #pollHandle: ReturnType<typeof setInterval> | null = null;
@@ -253,6 +265,37 @@ export class SyncTransport<S extends SchemaMap> {
     this.#pollIntervalMs = options.pollIntervalMs ?? 1_000;
     this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.#maxApplyAttempts = Math.max(1, options.maxApplyAttempts ?? 5);
+    this.#authHeaders = options.authHeaders;
+  }
+
+  /**
+   * Fetch with the auth-decoration hook applied. Attaches the headers from
+   * `authHeaders` (bearer token + advisory workspace selector); on a `401` it
+   * re-invokes the hook once with `refresh: true` and retries, so an on-demand
+   * token refresh recovers without dropping the request (`§2b`).
+   *
+   * When no hook is configured this returns the underlying fetch promise
+   * directly — no extra microtask — so timing matches a bare `fetch`.
+   */
+  #fetchWithAuth(input: string, init?: RequestInit): Promise<Response> {
+    if (this.#authHeaders === undefined) return this.#fetch(input, init);
+    return this.#fetchDecorated(this.#authHeaders, input, init);
+  }
+
+  async #fetchDecorated(
+    authHeaders: NonNullable<SyncTransportOptions["authHeaders"]>,
+    input: string,
+    init?: RequestInit,
+  ): Promise<Response> {
+    const send = async (refresh: boolean): Promise<Response> => {
+      const extra = await authHeaders({ refresh });
+      const headers = new Headers(init?.headers);
+      for (const [k, v] of Object.entries(extra)) headers.set(k, v);
+      return this.#fetch(input, { ...init, headers });
+    };
+    const res = await send(false);
+    // One refresh+retry on 401 — the token may have just expired.
+    return res.status === 401 ? send(true) : res;
   }
 
   /**
@@ -384,7 +427,7 @@ export class SyncTransport<S extends SchemaMap> {
    */
   async #tryPost(change: WireChange): Promise<PostOutcome> {
     try {
-      const res = await this.#fetch(`${this.#serverUrl}/v1/changes`, {
+      const res = await this.#fetchWithAuth(`${this.#serverUrl}/v1/changes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(change),
@@ -416,7 +459,7 @@ export class SyncTransport<S extends SchemaMap> {
 
       let changes: WireChange[];
       try {
-        const res = await this.#fetch(url);
+        const res = await this.#fetchWithAuth(url);
         if (!res.ok) return;
         changes = (await res.json()) as WireChange[];
       } catch {
