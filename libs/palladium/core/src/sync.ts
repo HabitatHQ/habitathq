@@ -229,7 +229,11 @@ export class SyncTransport<S extends SchemaMap> {
     await this.#engine.adapter.exec(OUTBOX_DDL, []);
     await this.#drainOutbox();
     this.#unsubscribeLocal = this.#engine.on("changes:local", (payload) => {
-      void this.#postLocal(payload.ops as ReadonlyArray<EngineOp>);
+      void this.#postLocal({
+        ops: payload.ops as ReadonlyArray<EngineOp>,
+        hlc: payload.hlc,
+        changeId: payload.changeId,
+      });
     });
     await this.#poll();
     this.#pollHandle = setInterval(() => {
@@ -287,12 +291,19 @@ export class SyncTransport<S extends SchemaMap> {
    * `_sync_pending_changes` first so it survives a reload if the POST fails
    * or the page is closed mid-flight; the outbox row is deleted on success.
    */
-  async #postLocal(ops: ReadonlyArray<EngineOp>): Promise<void> {
-    const wireOps = ops.flatMap(engineOpToWire);
+  async #postLocal(local: {
+    ops: ReadonlyArray<EngineOp>;
+    hlc: Hlc;
+    changeId: string;
+  }): Promise<void> {
+    const wireOps = local.ops.flatMap(engineOpToWire);
     if (wireOps.length === 0) return;
+    // The engine already minted the HLC + change id inside tx() and stamped
+    // `_sync_row_meta`; reuse them so the outbox row and the shadow-table
+    // metadata agree (a fresh HLC here would break column-LWW comparisons).
     const change: WireChange = {
-      id: crypto.randomUUID(),
-      hlc: this.#engine.nextSendHlc(),
+      id: local.changeId,
+      hlc: local.hlc,
       ops: wireOps,
     };
 
@@ -369,18 +380,17 @@ export class SyncTransport<S extends SchemaMap> {
           continue;
         }
 
-        // Advance the engine's HLC past the remote so subsequent local sends
-        // are causally later, then apply the ops via the suppress-emit path.
-        this.#engine.receiveHlc(change.hlc);
-        const engineOps = change.ops.map(wireOpToEngine<S>);
+        // Apply the whole change as one HLC-stamped unit; applyRemote advances
+        // the engine HLC past the remote and column-LWW-reconciles by hlc.
         // The cast is structural: wireOpToEngine emits the same {type, table,
         // id, data?, patch?} shape Op<S> declares, but TS can't see through
-        // the generic to verify. The runtime values pass through applyRemote's
-        // own validation inside tx().
-        const opsForEngine = engineOps as unknown as Parameters<
-          PalladiumEngine<S>["applyRemote"]
-        >[0];
-        await this.#engine.applyRemote(opsForEngine);
+        // the generic to verify. Runtime values are validated inside applyRemote.
+        const remoteChange = {
+          hlc: change.hlc,
+          id: change.id,
+          ops: change.ops.map(wireOpToEngine<S>),
+        } as unknown as Parameters<PalladiumEngine<S>["applyRemote"]>[0];
+        await this.#engine.applyRemote(remoteChange);
       }
 
       this.#initialHydrationDone = true;

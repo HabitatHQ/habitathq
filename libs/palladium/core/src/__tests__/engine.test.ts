@@ -392,9 +392,16 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
     const cb = vi.fn();
     db.on("changes:local", cb);
 
-    await db.applyRemote([
-      { type: "insert", table: "tasks", id: "t1", data: { id: "t1", name: "remote", done: 0 } },
-    ]);
+    await db.applyRemote({
+      hlc: {
+        wallMs: 1_700_000_000_000,
+        counter: 0,
+        nodeId: "00000000-0000-0000-0000-0000000a11ce",
+      },
+      ops: [
+        { type: "insert", table: "tasks", id: "t1", data: { id: "t1", name: "remote", done: 0 } },
+      ],
+    });
 
     expect(cb).not.toHaveBeenCalled();
   });
@@ -407,9 +414,16 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
     const lqCb = vi.fn();
     lq.on("change", lqCb);
 
-    await db.applyRemote([
-      { type: "insert", table: "tasks", id: "t1", data: { id: "t1", name: "remote", done: 0 } },
-    ]);
+    await db.applyRemote({
+      hlc: {
+        wallMs: 1_700_000_000_000,
+        counter: 0,
+        nodeId: "00000000-0000-0000-0000-0000000a11ce",
+      },
+      ops: [
+        { type: "insert", table: "tasks", id: "t1", data: { id: "t1", name: "remote", done: 0 } },
+      ],
+    });
 
     expect(lqCb).toHaveBeenCalledOnce();
   });
@@ -420,7 +434,14 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
 
     const cb = vi.fn();
     db.on("changes:local", cb);
-    await db.applyRemote([]);
+    await db.applyRemote({
+      hlc: {
+        wallMs: 1_700_000_000_000,
+        counter: 0,
+        nodeId: "00000000-0000-0000-0000-0000000a11ce",
+      },
+      ops: [],
+    });
 
     expect(cb).not.toHaveBeenCalled();
     const rows = await db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks`);
