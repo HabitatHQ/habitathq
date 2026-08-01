@@ -14,7 +14,11 @@
  * to prevent Vite from pre-bundling the WASM module.
  */
 
-import type { StorageAdapter, TransactableStorageAdapter } from "@palladium/core";
+import type {
+  ConstraintDeferringAdapter,
+  StorageAdapter,
+  TransactableStorageAdapter,
+} from "@palladium/core";
 import { dbg } from "@palladium/core";
 import sqlite3InitModule from "@sqlite.org/sqlite-wasm";
 
@@ -39,7 +43,9 @@ function assertIdentifier(name: string): void {
 // biome-ignore lint/suspicious/noExplicitAny: sqlite-wasm types are not exported cleanly
 type Sqlite3Db = any;
 
-export class BrowserSqliteAdapter implements TransactableStorageAdapter {
+export class BrowserSqliteAdapter
+  implements TransactableStorageAdapter, ConstraintDeferringAdapter
+{
   readonly #config: BrowserSqliteConfig;
   #db: Sqlite3Db | null = null;
   // biome-ignore lint/suspicious/noExplicitAny: sqlite-wasm internals
@@ -141,6 +147,11 @@ export class BrowserSqliteAdapter implements TransactableStorageAdapter {
       this.#database.exec("ROLLBACK");
       throw err;
     }
+  }
+
+  /** Defer FK checks to COMMIT (`D2c`). Effective only inside a transaction. */
+  async deferForeignKeys(): Promise<void> {
+    this.#database.exec("PRAGMA defer_foreign_keys = ON");
   }
 
   /**

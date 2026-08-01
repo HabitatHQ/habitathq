@@ -33,8 +33,13 @@ export type { MigrationExec, MigrationStep, SchemaConfig, Seed } from "./migrati
 export { applySchema, applySeeds } from "./migration.js";
 export type { SqlQuery } from "./sql.js";
 export { sql } from "./sql.js";
-export type { SqlValue, StorageAdapter, TransactableStorageAdapter } from "./storage.js";
-export { isTransactable } from "./storage.js";
+export type {
+  ConstraintDeferringAdapter,
+  SqlValue,
+  StorageAdapter,
+  TransactableStorageAdapter,
+} from "./storage.js";
+export { isTransactable, supportsConstraintDeferral } from "./storage.js";
 export type {
   DeleteWireOp,
   InsertWireOp,

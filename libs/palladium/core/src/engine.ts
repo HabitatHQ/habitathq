@@ -19,7 +19,7 @@ import type { SchemaConfig } from "./migration.js";
 import { applySchema } from "./migration.js";
 import type { SqlQuery } from "./sql.js";
 import type { StorageAdapter } from "./storage.js";
-import { isTransactable } from "./storage.js";
+import { isTransactable, supportsConstraintDeferral } from "./storage.js";
 import type { Op, SchemaMap } from "./tx.js";
 import { TxBuilder } from "./tx.js";
 
@@ -342,6 +342,10 @@ export class PalladiumEngine<S extends SchemaMap> {
     const touchedTables = new Set<string>();
     const applyAll = async (adpt: StorageAdapter): Promise<void> => {
       await this.#ensureSyncTables(adpt);
+      // Defer FK checks to commit so out-of-order child/parent ops within this
+      // one change resolve at commit instead of tripping a mid-batch violation
+      // (`G4`/`D2a`); adapter-neutral, no-op when unsupported (`D2c`).
+      if (supportsConstraintDeferral(adpt)) await adpt.deferForeignKeys();
       for (const op of ops) {
         touchedTables.add(String(op.table).toLowerCase());
         await this.#applyRemoteOp(adpt, op, hlc);

@@ -16,7 +16,11 @@
 // built-in in older versions) does not try to resolve it at transform time.
 import { createRequire } from "node:module";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
-import type { StorageAdapter, TransactableStorageAdapter } from "@palladium/core";
+import type {
+  ConstraintDeferringAdapter,
+  StorageAdapter,
+  TransactableStorageAdapter,
+} from "@palladium/core";
 
 const _require = createRequire(import.meta.url);
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
@@ -48,7 +52,7 @@ function coerce(v: unknown): null | number | bigint | string {
   return String(v);
 }
 
-export class NodeSqliteAdapter implements TransactableStorageAdapter {
+export class NodeSqliteAdapter implements TransactableStorageAdapter, ConstraintDeferringAdapter {
   readonly #config: NodeSqliteConfig;
   #db: DatabaseSyncType | null = null;
 
@@ -117,6 +121,11 @@ export class NodeSqliteAdapter implements TransactableStorageAdapter {
       this.#database.exec("ROLLBACK");
       throw err;
     }
+  }
+
+  /** Defer FK checks to COMMIT (`D2c`). Effective only inside a transaction. */
+  async deferForeignKeys(): Promise<void> {
+    this.#database.exec("PRAGMA defer_foreign_keys = ON");
   }
 
   async close(): Promise<void> {
