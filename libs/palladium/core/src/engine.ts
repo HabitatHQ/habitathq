@@ -12,7 +12,7 @@ import { BlobHandle } from "./blob-handle.js";
 import { BlobRegistry } from "./blob-registry.js";
 import { EventEmitter } from "./event-emitter.js";
 import type { Hlc } from "./hlc.js";
-import { compareHlc, createHlc, recvHlc, sendHlc } from "./hlc.js";
+import { compareHlc, createHlc, hlcFromString, hlcToString, recvHlc, sendHlc } from "./hlc.js";
 import { LiveQuery } from "./live-query.js";
 import { MemoryBlobAdapter } from "./memory-blob-adapter.js";
 import type { SchemaConfig } from "./migration.js";
@@ -106,9 +106,22 @@ function metaRowToHlc(row: MetaRow): Hlc {
   return { wallMs: row.hlc_wall_ms, counter: row.hlc_counter, nodeId: row.hlc_node_id };
 }
 
+// ── Durable sync state (`_sync_state`, D2b) ──────────────────────────────────
+
+/** Key-value table holding the durable `nodeId`, engine HLC, and poll cursor. */
+const SYNC_STATE = "_sync_state";
+
+const SYNC_STATE_DDL = `CREATE TABLE IF NOT EXISTS ${SYNC_STATE} (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+)`;
+
+const STATE_NODE_ID = "node_id";
+const STATE_HLC = "hlc";
+
 export class PalladiumEngine<S extends SchemaMap> {
   readonly adapter: StorageAdapter;
-  readonly nodeId: string;
+  #nodeId: string;
   protected readonly emitter = new EventEmitter<EngineEvents<S>>();
   protected status: SyncStatus = "idle";
   readonly #liveQueries = new Set<LiveQuery>();
@@ -117,10 +130,18 @@ export class PalladiumEngine<S extends SchemaMap> {
   readonly blobs: BlobHandle;
 
   /**
-   * Current HLC, lazily initialised on first send/receive. Tracked in-memory only —
-   * if the engine restarts and the wall clock has gone backwards, the next HLC
-   * may not be strictly greater than ones we issued before the restart. A
-   * follow-up commit will persist this to SQLite.
+   * Stable per-device HLC node id. Defaults to the constructor value but is
+   * adopted from durable `_sync_state` on `init()` if a prior session persisted
+   * one (`D2b`) — so it survives leader-worker failover instead of churning.
+   */
+  get nodeId(): string {
+    return this.#nodeId;
+  }
+
+  /**
+   * Current HLC. Loaded from durable `_sync_state` on `init()` and persisted
+   * within each `tx()` / `applyRemote()` transaction (`D2b` atomic checkpoint),
+   * so a restart resumes from the persisted floor and never reissues an HLC.
    */
   #currentHlc: Hlc | null = null;
 
@@ -132,7 +153,7 @@ export class PalladiumEngine<S extends SchemaMap> {
       options && "get" in options && typeof options.get === "function"
         ? { blobAdapter: options as BlobAdapter }
         : ((options as PalladiumEngineOptions | undefined) ?? {});
-    this.nodeId = opts.nodeId ?? crypto.randomUUID();
+    this.#nodeId = opts.nodeId ?? crypto.randomUUID();
     this.blobs = new BlobHandle(opts.blobAdapter ?? new MemoryBlobAdapter(), this.#blobRegistry);
   }
 
@@ -174,22 +195,78 @@ export class PalladiumEngine<S extends SchemaMap> {
    */
   async init(schema?: SchemaConfig): Promise<void> {
     await this.adapter.open();
+    await this.#ensureSyncTables(this.adapter);
+    await this.#loadDurableState();
     if (schema) {
       await applySchema(this.adapter, schema);
+    }
+  }
+
+  /**
+   * Adopt the durable `nodeId` and engine HLC from `_sync_state` (`D2b`). A
+   * prior session's `nodeId` wins over the constructor default so device
+   * identity survives failover; a persisted HLC seeds `#currentHlc` so the next
+   * `nextSendHlc()` is strictly greater than anything issued before the restart
+   * (no HLC reuse). On a fresh store the current `nodeId` is persisted.
+   */
+  async #loadDurableState(): Promise<void> {
+    const persistedNode = await this.getSyncState(STATE_NODE_ID);
+    if (persistedNode === null) {
+      await this.setSyncState(STATE_NODE_ID, this.#nodeId);
+    } else {
+      this.#nodeId = persistedNode;
+    }
+    const persistedHlc = await this.getSyncState(STATE_HLC);
+    if (persistedHlc !== null) {
+      this.#currentHlc = hlcFromString(persistedHlc);
     }
   }
 
   /** Suppresses `"changes:local"` while remote ops are being applied. */
   #suppressLocalEmit = false;
 
-  /** Guards one-time DDL of the `_sync_row_meta` shadow table. */
+  /** Guards one-time DDL of the internal `_sync_*` shadow tables. */
   #syncTablesReady = false;
 
-  /** Idempotently create the column-LWW shadow table (`D3`). */
+  /** Idempotently create the column-LWW + durable-state shadow tables (`D3`/`D2b`). */
   async #ensureSyncTables(adpt: StorageAdapter): Promise<void> {
     if (this.#syncTablesReady) return;
     await adpt.exec(SYNC_ROW_META_DDL, []);
+    await adpt.exec(SYNC_STATE_DDL, []);
     this.#syncTablesReady = true;
+  }
+
+  /**
+   * Read a durable sync-state value (`_sync_state`), or `null` if unset. Used
+   * by the engine (nodeId/HLC) and the sync transport (poll cursor) — keeping
+   * `_sync_state` access adapter-neutral inside core (`D2c`, no SQLite in the
+   * transport).
+   */
+  async getSyncState(key: string): Promise<string | null> {
+    await this.#ensureSyncTables(this.adapter);
+    const rows = await this.adapter.exec<{ value: string }>(
+      `SELECT value FROM ${SYNC_STATE} WHERE key = ?`,
+      [key],
+    );
+    return rows[0]?.value ?? null;
+  }
+
+  /**
+   * Upsert a durable sync-state value. `adpt` defaults to the engine adapter
+   * but a transaction-scoped adapter may be passed so the write commits
+   * atomically with the operation it records (`D2b` atomic checkpoint).
+   */
+  async setSyncState(
+    key: string,
+    value: string,
+    adpt: StorageAdapter = this.adapter,
+  ): Promise<void> {
+    await this.#ensureSyncTables(adpt);
+    await adpt.exec(
+      `INSERT INTO ${SYNC_STATE} (key, value) VALUES (?, ?)
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+      [key, value],
+    );
   }
 
   /**
@@ -222,6 +299,9 @@ export class PalladiumEngine<S extends SchemaMap> {
         await this.#applyOp(adpt, op);
         if (hlc !== null) await this.#stampLocalMeta(adpt, op, hlc);
       }
+      // Checkpoint the advanced HLC in the same transaction as the writes it
+      // stamped (`D2b`), so recovery never reissues an HLC.
+      if (hlc !== null) await this.setSyncState(STATE_HLC, hlcToString(hlc), adpt);
     };
 
     if (isTransactable(this.adapter)) {
@@ -265,6 +345,10 @@ export class PalladiumEngine<S extends SchemaMap> {
       for (const op of ops) {
         touchedTables.add(String(op.table).toLowerCase());
         await this.#applyRemoteOp(adpt, op, hlc);
+      }
+      // Checkpoint the receive-advanced HLC atomically with the apply (`D2b`).
+      if (this.#currentHlc !== null) {
+        await this.setSyncState(STATE_HLC, hlcToString(this.#currentHlc), adpt);
       }
     };
 

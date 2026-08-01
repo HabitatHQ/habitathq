@@ -130,6 +130,9 @@ interface QuarantineState {
   permanent: boolean;
 }
 
+/** `_sync_state` key under which the durable poll cursor is stored (`D2b`). */
+const STATE_CURSOR = "cursor";
+
 interface OutboxRow {
   change_id: string;
   hlc_wall_ms: number;
@@ -260,6 +263,13 @@ export class SyncTransport<S extends SchemaMap> {
     if (this.#pollHandle !== null) return;
     await this.#engine.adapter.exec(OUTBOX_DDL, []);
     await this.#engine.adapter.exec(QUARANTINE_DDL, []);
+    // Resume from the durably-persisted poll cursor (`D2b`): a prior session
+    // already hydrated, so skip the full re-hydration and skip own writes.
+    const savedCursor = await this.#engine.getSyncState(STATE_CURSOR);
+    if (savedCursor !== null) {
+      this.#cursor = savedCursor;
+      this.#initialHydrationDone = true;
+    }
     await this.#drainOutbox();
     this.#unsubscribeLocal = this.#engine.on("changes:local", (payload) => {
       void this.#postLocal({
@@ -420,6 +430,10 @@ export class SyncTransport<S extends SchemaMap> {
         const advanced = await this.#applyOneRemote(change);
         if (!advanced) break;
         this.#cursor = hlcToAfterCursor(change.hlc);
+        // Persist the cursor so a restart resumes here. Not in the same
+        // transaction as the apply, but idempotent apply (1b) makes the small
+        // reapply window on crash harmless.
+        await this.#engine.setSyncState(STATE_CURSOR, this.#cursor);
       }
 
       this.#initialHydrationDone = true;
