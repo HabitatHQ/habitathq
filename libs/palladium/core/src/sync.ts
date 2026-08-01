@@ -81,6 +81,12 @@ export interface SyncTransportOptions {
   readonly pollIntervalMs?: number;
   /** Override `fetch` for tests. */
   readonly fetch?: typeof globalThis.fetch;
+  /**
+   * How many times a change may fail to apply before it is permanently
+   * dead-lettered and the cursor advances past it (`D2a` terminal state).
+   * Default: 5.
+   */
+  readonly maxApplyAttempts?: number;
 }
 
 // ── Outbox table ───────────────────────────────────────────────────────────
@@ -99,6 +105,30 @@ const OUTBOX_DDL = `CREATE TABLE IF NOT EXISTS ${OUTBOX_TABLE} (
   ops TEXT NOT NULL,
   created_at INTEGER NOT NULL
 )`;
+
+/**
+ * Durable dead-letter table for remote changes that fail to apply (`D2a`,
+ * G2). A row records the failing change, its retry count, and whether it has
+ * been permanently skipped so the poll cursor can advance past it on recovery.
+ */
+const QUARANTINE_TABLE = "_sync_quarantine";
+
+const QUARANTINE_DDL = `CREATE TABLE IF NOT EXISTS ${QUARANTINE_TABLE} (
+  change_id TEXT PRIMARY KEY,
+  hlc_wall_ms INTEGER NOT NULL,
+  hlc_counter INTEGER NOT NULL,
+  hlc_node_id TEXT NOT NULL,
+  ops TEXT NOT NULL,
+  attempts INTEGER NOT NULL,
+  permanent INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  updated_at INTEGER NOT NULL
+)`;
+
+interface QuarantineState {
+  attempts: number;
+  permanent: boolean;
+}
 
 interface OutboxRow {
   change_id: string;
@@ -206,6 +236,7 @@ export class SyncTransport<S extends SchemaMap> {
   readonly #serverUrl: string;
   readonly #pollIntervalMs: number;
   readonly #fetch: typeof globalThis.fetch;
+  readonly #maxApplyAttempts: number;
 
   #cursor: string | null = null;
   #pollHandle: ReturnType<typeof setInterval> | null = null;
@@ -218,15 +249,17 @@ export class SyncTransport<S extends SchemaMap> {
     this.#serverUrl = options.serverUrl.replace(/\/+$/, "");
     this.#pollIntervalMs = options.pollIntervalMs ?? 1_000;
     this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
+    this.#maxApplyAttempts = Math.max(1, options.maxApplyAttempts ?? 5);
   }
 
   /**
-   * Provision the outbox table, drain any pending rows from previous
-   * sessions, hydrate from server, then start polling. Idempotent.
+   * Provision the outbox + quarantine tables, drain any pending rows from
+   * previous sessions, hydrate from server, then start polling. Idempotent.
    */
   async start(): Promise<void> {
     if (this.#pollHandle !== null) return;
     await this.#engine.adapter.exec(OUTBOX_DDL, []);
+    await this.#engine.adapter.exec(QUARANTINE_DDL, []);
     await this.#drainOutbox();
     this.#unsubscribeLocal = this.#engine.on("changes:local", (payload) => {
       void this.#postLocal({
@@ -352,7 +385,16 @@ export class SyncTransport<S extends SchemaMap> {
     }
   }
 
-  /** Fetch newer changes from server and apply them locally. */
+  /**
+   * Perform one downlink poll: fetch changes newer than the cursor and apply
+   * them. Public so callers (and tests) can drive a deterministic single sync
+   * step; the periodic timer calls the same path.
+   */
+  async poll(): Promise<void> {
+    return this.#poll();
+  }
+
+  /** Fetch newer changes from server and apply them locally (non-poisoning). */
   async #poll(): Promise<void> {
     if (this.#polling) return;
     this.#polling = true;
@@ -372,30 +414,108 @@ export class SyncTransport<S extends SchemaMap> {
       }
 
       for (const change of changes) {
-        // Advance cursor for every change we see, even own-changes we skip.
+        // Stop advancing the cursor at the first change that isn't durably
+        // resolved this poll, so a transient failure is retried rather than
+        // skipped. `#applyOneRemote` returns false only for such a change.
+        const advanced = await this.#applyOneRemote(change);
+        if (!advanced) break;
         this.#cursor = hlcToAfterCursor(change.hlc);
-
-        // After initial hydration, skip own writes — we already applied them.
-        if (this.#initialHydrationDone && change.hlc.nodeId === this.#engine.nodeId) {
-          continue;
-        }
-
-        // Apply the whole change as one HLC-stamped unit; applyRemote advances
-        // the engine HLC past the remote and column-LWW-reconciles by hlc.
-        // The cast is structural: wireOpToEngine emits the same {type, table,
-        // id, data?, patch?} shape Op<S> declares, but TS can't see through
-        // the generic to verify. Runtime values are validated inside applyRemote.
-        const remoteChange = {
-          hlc: change.hlc,
-          id: change.id,
-          ops: change.ops.map(wireOpToEngine<S>),
-        } as unknown as Parameters<PalladiumEngine<S>["applyRemote"]>[0];
-        await this.#engine.applyRemote(remoteChange);
       }
 
       this.#initialHydrationDone = true;
     } finally {
       this.#polling = false;
     }
+  }
+
+  /**
+   * Apply one polled change with non-poisoning semantics (`D2a`, G2). Returns
+   * `true` when the cursor may advance past this change — it was applied, is
+   * our own already-applied write, or has been permanently dead-lettered —
+   * and `false` when the change failed transiently and should be retried
+   * (so the cursor must not move past it yet).
+   */
+  async #applyOneRemote(change: WireChange): Promise<boolean> {
+    // After initial hydration, skip own writes — we already applied them.
+    if (this.#initialHydrationDone && change.hlc.nodeId === this.#engine.nodeId) {
+      return true;
+    }
+
+    const quarantine = await this.#quarantineState(change.id);
+    // Already permanently dead-lettered: skip past it (terminal state, L71).
+    if (quarantine?.permanent) return true;
+
+    // The cast is structural: wireOpToEngine emits the same {type, table, id,
+    // data?, patch?} shape Op<S> declares, but TS can't see through the generic
+    // to verify. Runtime values are validated inside applyRemote.
+    const remoteChange = {
+      hlc: change.hlc,
+      id: change.id,
+      ops: change.ops.map(wireOpToEngine<S>),
+    } as unknown as Parameters<PalladiumEngine<S>["applyRemote"]>[0];
+
+    try {
+      await this.#engine.applyRemote(remoteChange);
+      if (quarantine !== null) await this.#clearQuarantine(change.id); // recovered
+      return true;
+    } catch (err) {
+      const attempts = await this.#recordFailure(change, err);
+      if (attempts >= this.#maxApplyAttempts) {
+        // Exhausted retries: permanently skip so the cursor is never wedged.
+        await this.#markPermanent(change.id);
+        this.#engine.setStatus("error");
+        return true;
+      }
+      // Transient: leave the cursor here and retry on the next poll.
+      return false;
+    }
+  }
+
+  /** Read the quarantine state for a change, or `null` if not quarantined. */
+  async #quarantineState(changeId: string): Promise<QuarantineState | null> {
+    const rows = await this.#engine.adapter.exec<{ attempts: number; permanent: number }>(
+      `SELECT attempts, permanent FROM ${QUARANTINE_TABLE} WHERE change_id = ?`,
+      [changeId],
+    );
+    const row = rows[0];
+    return row ? { attempts: row.attempts, permanent: row.permanent !== 0 } : null;
+  }
+
+  /** Record (or increment) a failed apply; returns the new attempt count. */
+  async #recordFailure(change: WireChange, err: unknown): Promise<number> {
+    const message = err instanceof Error ? err.message : String(err);
+    await this.#engine.adapter.exec(
+      `INSERT INTO ${QUARANTINE_TABLE}
+         (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, attempts, permanent, last_error, updated_at)
+         VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?)
+       ON CONFLICT (change_id) DO UPDATE SET
+         attempts = attempts + 1,
+         last_error = excluded.last_error,
+         updated_at = excluded.updated_at`,
+      [
+        change.id,
+        change.hlc.wallMs,
+        change.hlc.counter,
+        change.hlc.nodeId,
+        JSON.stringify(change.ops),
+        message,
+        Date.now(),
+      ],
+    );
+    const state = await this.#quarantineState(change.id);
+    return state?.attempts ?? 1;
+  }
+
+  async #markPermanent(changeId: string): Promise<void> {
+    await this.#engine.adapter.exec(
+      `UPDATE ${QUARANTINE_TABLE} SET permanent = 1, updated_at = ? WHERE change_id = ?`,
+      [Date.now(), changeId],
+    );
+  }
+
+  async #clearQuarantine(changeId: string): Promise<void> {
+    await this.#engine.adapter.exec(`DELETE FROM ${QUARANTINE_TABLE} WHERE change_id = ?`, [
+      changeId,
+    ]);
   }
 }
