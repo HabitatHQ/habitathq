@@ -72,7 +72,10 @@ where
     S: ChangeStore + Send + Sync + 'static,
     S::Error: std::error::Error + Send + Sync + 'static,
 {
-    match store.list_after(None, Some(0)).await {
+    match store
+        .list_after(&crate::default_scope(), None, Some(0))
+        .await
+    {
         Ok(_) => InstanceStatus {
             name: "default".into(),
             ok: true,

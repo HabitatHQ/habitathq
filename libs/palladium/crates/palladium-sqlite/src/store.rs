@@ -1,6 +1,6 @@
 //! [`SqliteStore`] — `SQLite`-backed [`ChangeStore`] implementation.
 
-use palladium_core::{Change, ChangeStore, Hlc, InstanceLimits, Op};
+use palladium_core::{Change, ChangeStore, Hlc, InstanceLimits, Op, Scope};
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::{fs, path::PathBuf, str::FromStr};
 use uuid::Uuid;
@@ -12,13 +12,14 @@ use crate::{Error, Result};
 const MIGRATE: &str = "
 CREATE TABLE IF NOT EXISTS palladium_changes (
     id          TEXT    NOT NULL PRIMARY KEY,
+    scope       TEXT    NOT NULL,
     hlc_key     TEXT    NOT NULL,
     hlc_millis  INTEGER NOT NULL,
     hlc_counter INTEGER NOT NULL,
     hlc_node_id TEXT    NOT NULL,
     ops_json    TEXT    NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_changes_hlc ON palladium_changes (hlc_key);
+CREATE INDEX IF NOT EXISTS idx_changes_scope_hlc ON palladium_changes (scope, hlc_key);
 ";
 
 // ── Query strings ──────────────────────────────────────────────────────────
@@ -26,7 +27,8 @@ CREATE INDEX IF NOT EXISTS idx_changes_hlc ON palladium_changes (hlc_key);
 const SELECT_COLS: &str =
     "SELECT id, hlc_millis, hlc_counter, hlc_node_id, ops_json FROM palladium_changes";
 const GET_BY_ID: &str =
-    "SELECT id, hlc_millis, hlc_counter, hlc_node_id, ops_json FROM palladium_changes WHERE id = ?";
+    "SELECT id, hlc_millis, hlc_counter, hlc_node_id, ops_json FROM palladium_changes \
+     WHERE id = ? AND scope = ?";
 
 // ── Lock file ─────────────────────────────────────────────────────────────
 
@@ -174,7 +176,7 @@ impl SqliteStore {
 impl ChangeStore for SqliteStore {
     type Error = Error;
 
-    async fn insert(&self, change: &Change) -> std::result::Result<(), Error> {
+    async fn insert(&self, scope: &Scope, change: &Change) -> std::result::Result<(), Error> {
         let id = change.id.to_string();
         let hlc_key = change.hlc.sort_key();
         let hlc_millis = i64::try_from(change.hlc.millis()).map_err(|_| {
@@ -189,10 +191,11 @@ impl ChangeStore for SqliteStore {
 
         sqlx::query(
             "INSERT OR IGNORE INTO palladium_changes \
-             (id, hlc_key, hlc_millis, hlc_counter, hlc_node_id, ops_json) \
-             VALUES (?, ?, ?, ?, ?, ?)",
+             (id, scope, hlc_key, hlc_millis, hlc_counter, hlc_node_id, ops_json) \
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(id)
+        .bind(scope.as_str())
         .bind(hlc_key)
         .bind(hlc_millis)
         .bind(hlc_counter)
@@ -206,12 +209,14 @@ impl ChangeStore for SqliteStore {
 
     async fn list_after(
         &self,
+        scope: &Scope,
         after: Option<Hlc>,
         limit: Option<u32>,
     ) -> std::result::Result<Vec<Change>, Error> {
         let mut qb = sqlx::QueryBuilder::new(SELECT_COLS);
+        qb.push(" WHERE scope = ").push_bind(scope.as_str().to_owned());
         if let Some(hlc) = after {
-            qb.push(" WHERE hlc_key > ").push_bind(hlc.sort_key());
+            qb.push(" AND hlc_key > ").push_bind(hlc.sort_key());
         }
         qb.push(" ORDER BY hlc_key");
         if let Some(n) = limit {
@@ -221,9 +226,10 @@ impl ChangeStore for SqliteStore {
         rows.into_iter().map(ChangeRow::try_into_change).collect()
     }
 
-    async fn get(&self, id: Uuid) -> std::result::Result<Option<Change>, Error> {
+    async fn get(&self, scope: &Scope, id: Uuid) -> std::result::Result<Option<Change>, Error> {
         let row: Option<ChangeRow> = sqlx::query_as(GET_BY_ID)
             .bind(id.to_string())
+            .bind(scope.as_str())
             .fetch_optional(&self.pool)
             .await?;
         row.map(ChangeRow::try_into_change).transpose()
@@ -304,7 +310,7 @@ mod open_guard_tests {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use palladium_core::{Change, ChangeStore, Hlc, NodeId, Op};
+    use palladium_core::{Change, ChangeStore, Hlc, NodeId, Op, Scope};
     use serde_json::json;
     use uuid::Uuid;
 
@@ -312,6 +318,10 @@ mod tests {
 
     fn node(n: u128) -> NodeId {
         NodeId::from_uuid(Uuid::from_u128(n))
+    }
+
+    fn scope() -> Scope {
+        Scope::new("test-scope")
     }
 
     fn hlc(millis: u64, counter: u32, n: u128) -> Hlc {
@@ -335,14 +345,14 @@ mod tests {
     #[tokio::test]
     async fn list_after_empty_store_returns_empty() {
         let store = mem().await;
-        let result = store.list_after(None, None).await.unwrap();
+        let result = store.list_after(&scope(), None, None).await.unwrap();
         assert!(result.is_empty());
     }
 
     #[tokio::test]
     async fn get_unknown_id_returns_none() {
         let store = mem().await;
-        let result = store.get(Uuid::new_v4()).await.unwrap();
+        let result = store.get(&scope(), Uuid::new_v4()).await.unwrap();
         assert!(result.is_none());
     }
 
@@ -353,8 +363,8 @@ mod tests {
         let store = mem().await;
         let change = Change::new(hlc(1_000, 0, 1), vec![insert_op("todos")]);
 
-        store.insert(&change).await.unwrap();
-        let got = store.get(change.id).await.unwrap();
+        store.insert(&scope(), &change).await.unwrap();
+        let got = store.get(&scope(), change.id).await.unwrap();
         assert_eq!(got.unwrap().id, change.id);
     }
 
@@ -362,9 +372,9 @@ mod tests {
     async fn insert_and_list_all() {
         let store = mem().await;
         let c = Change::new(hlc(1_000, 0, 1), vec![insert_op("todos")]);
-        store.insert(&c).await.unwrap();
+        store.insert(&scope(), &c).await.unwrap();
 
-        let all = store.list_after(None, None).await.unwrap();
+        let all = store.list_after(&scope(), None, None).await.unwrap();
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].id, c.id);
     }
@@ -373,9 +383,9 @@ mod tests {
     async fn insert_duplicate_is_idempotent() {
         let store = mem().await;
         let c = Change::new(hlc(1_000, 0, 1), vec![]);
-        store.insert(&c).await.unwrap();
-        store.insert(&c).await.unwrap(); // second insert must not error
-        let all = store.list_after(None, None).await.unwrap();
+        store.insert(&scope(), &c).await.unwrap();
+        store.insert(&scope(), &c).await.unwrap(); // second insert must not error
+        let all = store.list_after(&scope(), None, None).await.unwrap();
         assert_eq!(all.len(), 1);
     }
 
@@ -391,12 +401,12 @@ mod tests {
         let c2 = Change::new(h2, vec![]);
         let c3 = Change::new(h3, vec![]);
 
-        store.insert(&c1).await.unwrap();
-        store.insert(&c2).await.unwrap();
-        store.insert(&c3).await.unwrap();
+        store.insert(&scope(), &c1).await.unwrap();
+        store.insert(&scope(), &c2).await.unwrap();
+        store.insert(&scope(), &c3).await.unwrap();
 
         // After h1 → should return c2, c3
-        let after_h1 = store.list_after(Some(h1), None).await.unwrap();
+        let after_h1 = store.list_after(&scope(), Some(h1), None).await.unwrap();
         assert_eq!(after_h1.len(), 2);
         assert_eq!(after_h1[0].id, c2.id);
         assert_eq!(after_h1[1].id, c3.id);
@@ -415,11 +425,11 @@ mod tests {
         let c1 = Change::new(h1, vec![]);
         let c2 = Change::new(h2, vec![]);
 
-        store.insert(&c3).await.unwrap();
-        store.insert(&c1).await.unwrap();
-        store.insert(&c2).await.unwrap();
+        store.insert(&scope(), &c3).await.unwrap();
+        store.insert(&scope(), &c1).await.unwrap();
+        store.insert(&scope(), &c2).await.unwrap();
 
-        let all = store.list_after(None, None).await.unwrap();
+        let all = store.list_after(&scope(), None, None).await.unwrap();
         assert_eq!(all.len(), 3);
         assert!(all[0].hlc < all[1].hlc);
         assert!(all[1].hlc < all[2].hlc);
@@ -446,8 +456,8 @@ mod tests {
             ],
         );
 
-        store.insert(&change).await.unwrap();
-        let got = store.get(change.id).await.unwrap().unwrap();
+        store.insert(&scope(), &change).await.unwrap();
+        let got = store.get(&scope(), change.id).await.unwrap().unwrap();
         assert_eq!(got.ops, change.ops);
     }
 
@@ -458,8 +468,8 @@ mod tests {
         let h = Hlc::from_parts(1_234_567_890_000, 99, n);
         let change = Change::new(h, vec![]);
 
-        store.insert(&change).await.unwrap();
-        let got = store.get(change.id).await.unwrap().unwrap();
+        store.insert(&scope(), &change).await.unwrap();
+        let got = store.get(&scope(), change.id).await.unwrap().unwrap();
         assert_eq!(got.hlc, change.hlc);
     }
 
@@ -471,9 +481,9 @@ mod tests {
         let a = mem().await;
         let b = mem().await;
         let change = Change::new(hlc(1_000, 0, 1), vec![]);
-        a.insert(&change).await.unwrap();
+        a.insert(&scope(), &change).await.unwrap();
         // 'b' must not see the change inserted into 'a'
-        assert!(b.list_after(None, None).await.unwrap().is_empty());
+        assert!(b.list_after(&scope(), None, None).await.unwrap().is_empty());
     }
 
     /// A change with zero ops round-trips correctly.
@@ -482,8 +492,8 @@ mod tests {
         let store = mem().await;
         let change = Change::new(hlc(100, 0, 1), vec![]);
         assert!(change.ops.is_empty());
-        store.insert(&change).await.unwrap();
-        let got = store.get(change.id).await.unwrap().unwrap();
+        store.insert(&scope(), &change).await.unwrap();
+        let got = store.get(&scope(), change.id).await.unwrap().unwrap();
         assert!(got.ops.is_empty());
     }
 
@@ -495,18 +505,18 @@ mod tests {
         let mut prev = Hlc::new(n, 1_000);
         for _ in 0..30 {
             let c = Change::new(prev, vec![]);
-            store.insert(&c).await.unwrap();
+            store.insert(&scope(), &c).await.unwrap();
             prev = prev.send(prev.millis() + 1);
         }
 
-        let all = store.list_after(None, None).await.unwrap();
+        let all = store.list_after(&scope(), None, None).await.unwrap();
         assert_eq!(all.len(), 30);
 
         // Walk forward in pages of 10
         let mut cursor = None;
         let mut collected = 0_usize;
         loop {
-            let page = store.list_after(cursor, None).await.unwrap();
+            let page = store.list_after(&scope(), cursor, None).await.unwrap();
             if page.is_empty() {
                 break;
             }
@@ -526,9 +536,9 @@ mod tests {
         let n = node(1);
         let h = Hlc::new(n, 5_000);
         let c = Change::new(h, vec![]);
-        store.insert(&c).await.unwrap();
+        store.insert(&scope(), &c).await.unwrap();
 
-        let after = store.list_after(Some(h), None).await.unwrap();
+        let after = store.list_after(&scope(), Some(h), None).await.unwrap();
         assert!(after.is_empty(), "cursor AT the last HLC should return nothing");
     }
 
@@ -542,10 +552,10 @@ mod tests {
 
         let c1 = Change::new(h1, vec![]);
         let c2 = Change::new(h2, vec![]);
-        store.insert(&c1).await.unwrap();
-        store.insert(&c2).await.unwrap();
+        store.insert(&scope(), &c1).await.unwrap();
+        store.insert(&scope(), &c2).await.unwrap();
 
-        let all = store.list_after(None, None).await.unwrap();
+        let all = store.list_after(&scope(), None, None).await.unwrap();
         assert_eq!(all.len(), 2);
         // Must be sorted: either c1 < c2 or c2 < c1, never equal
         assert_ne!(all[0].hlc, all[1].hlc);
@@ -564,10 +574,10 @@ mod tests {
             if i == 5 {
                 target_id = c.id;
             }
-            store.insert(&c).await.unwrap();
+            store.insert(&scope(), &c).await.unwrap();
             prev = prev.send(prev.millis() + 1);
         }
-        let found = store.get(target_id).await.unwrap();
+        let found = store.get(&scope(), target_id).await.unwrap();
         assert_eq!(found.unwrap().id, target_id);
     }
 
@@ -598,14 +608,14 @@ mod tests {
                 let s = Arc::clone(&store);
                 tokio::spawn(async move {
                     let c = Change::new(hlc(i * 100 + 1_000, 0, u128::from(i) + 1), vec![insert_op("t")]);
-                    s.insert(&c).await
+                    s.insert(&scope(), &c).await
                 })
             })
             .collect();
         for t in tasks {
             t.await.unwrap().unwrap();
         }
-        let all = store.list_after(None, None).await.unwrap();
+        let all = store.list_after(&scope(), None, None).await.unwrap();
         assert_eq!(all.len(), 8);
     }
 
@@ -620,8 +630,8 @@ mod tests {
             value: json!(99),
         }];
         let change = Change::new(hlc(1_000, 0, 1), ops.clone());
-        store.insert(&change).await.unwrap();
-        let got = store.get(change.id).await.unwrap().unwrap();
+        store.insert(&scope(), &change).await.unwrap();
+        let got = store.get(&scope(), change.id).await.unwrap().unwrap();
         assert_eq!(got.ops, ops);
     }
 
@@ -631,8 +641,8 @@ mod tests {
         let store = mem().await;
         let ops = vec![Op::Delete { table: "items".into(), row_id: Uuid::nil() }];
         let change = Change::new(hlc(1_000, 0, 1), ops.clone());
-        store.insert(&change).await.unwrap();
-        let got = store.get(change.id).await.unwrap().unwrap();
+        store.insert(&scope(), &change).await.unwrap();
+        let got = store.get(&scope(), change.id).await.unwrap().unwrap();
         assert_eq!(got.ops, ops);
     }
 
@@ -643,7 +653,7 @@ mod tests {
         let n = node(1);
         let overflowing_hlc = Hlc::from_parts(u64::MAX, 0, n);
         let change = Change::new(overflowing_hlc, vec![]);
-        let result = store.insert(&change).await;
+        let result = store.insert(&scope(), &change).await;
         assert!(result.is_err(), "millis overflow should return an error");
     }
 
@@ -654,11 +664,11 @@ mod tests {
         let n = node(1);
         let mut prev = Hlc::new(n, 1_000);
         for _ in 0..10 {
-            store.insert(&Change::new(prev, vec![])).await.unwrap();
+            store.insert(&scope(), &Change::new(prev, vec![])).await.unwrap();
             prev = prev.send(prev.millis() + 1);
         }
 
-        let page = store.list_after(None, Some(3)).await.unwrap();
+        let page = store.list_after(&scope(), None, Some(3)).await.unwrap();
         assert_eq!(page.len(), 3);
     }
 
@@ -674,13 +684,38 @@ mod tests {
         let h4 = h3.send(4_000);
 
         for h in [h1, h2, h3, h4] {
-            store.insert(&Change::new(h, vec![])).await.unwrap();
+            store.insert(&scope(), &Change::new(h, vec![])).await.unwrap();
         }
 
         // After h1 with limit 2 → h2 and h3 only
-        let page = store.list_after(Some(h1), Some(2)).await.unwrap();
+        let page = store.list_after(&scope(), Some(h1), Some(2)).await.unwrap();
         assert_eq!(page.len(), 2);
         assert_eq!(page[0].hlc, h2);
         assert_eq!(page[1].hlc, h3);
+    }
+
+    /// Two scopes never see each other's changes (the point of the scope
+    /// column, `G5`): `list_after` filters by scope and `get` is scope-checked.
+    #[tokio::test]
+    async fn scopes_are_isolated() {
+        let store = mem().await;
+        let a = Scope::new("scope-a");
+        let b = Scope::new("scope-b");
+        let ca = Change::new(hlc(1_000, 0, 1), vec![insert_op("t")]);
+        let cb = Change::new(hlc(2_000, 0, 1), vec![insert_op("t")]);
+        store.insert(&a, &ca).await.unwrap();
+        store.insert(&b, &cb).await.unwrap();
+
+        // Each scope lists only its own change.
+        let in_a = store.list_after(&a, None, None).await.unwrap();
+        assert_eq!(in_a.len(), 1);
+        assert_eq!(in_a[0].id, ca.id);
+        let in_b = store.list_after(&b, None, None).await.unwrap();
+        assert_eq!(in_b.len(), 1);
+        assert_eq!(in_b[0].id, cb.id);
+
+        // `get` is scope-checked: ca is visible under `a`, invisible under `b`.
+        assert!(store.get(&a, ca.id).await.unwrap().is_some());
+        assert!(store.get(&b, ca.id).await.unwrap().is_none());
     }
 }

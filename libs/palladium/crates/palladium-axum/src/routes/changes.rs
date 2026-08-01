@@ -51,7 +51,11 @@ where
     S: ChangeStore + Send + Sync,
     S::Error: std::error::Error + Send + Sync + 'static,
 {
-    state.store.insert(&change).await.map_err(AppError::internal)?;
+    state
+        .store
+        .insert(&crate::default_scope(), &change)
+        .await
+        .map_err(AppError::internal)?;
     Ok(StatusCode::CREATED)
 }
 
@@ -81,7 +85,7 @@ where
     let after = params.after.as_deref().map(parse_hlc_key).transpose()?;
     let changes = state
         .store
-        .list_after(after, params.limit)
+        .list_after(&crate::default_scope(), after, params.limit)
         .await
         .map_err(AppError::internal)?;
     Ok(Json(changes))

@@ -1,6 +1,6 @@
 //! [`PostgresStore`] — `PostgreSQL`-backed [`ChangeStore`] implementation.
 
-use palladium_core::{Change, ChangeStore, Hlc, InstanceConfig, Op, PostgresIsolation};
+use palladium_core::{Change, ChangeStore, Hlc, InstanceConfig, Op, PostgresIsolation, Scope};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -40,21 +40,22 @@ pub fn validate_identifier(name: &str) -> Result<()> {
 const MIGRATE: &str = "
 CREATE TABLE IF NOT EXISTS palladium_changes (
     id          UUID    NOT NULL PRIMARY KEY,
+    scope       TEXT    NOT NULL,
     hlc_key     TEXT    NOT NULL,
     hlc_millis  BIGINT  NOT NULL,
     hlc_counter BIGINT  NOT NULL,
     hlc_node_id TEXT    NOT NULL,
     ops_json    JSONB   NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_changes_hlc ON palladium_changes (hlc_key);
+CREATE INDEX IF NOT EXISTS idx_changes_scope_hlc ON palladium_changes (scope, hlc_key);
 ";
 
 // ── Query strings ──────────────────────────────────────────────────────────
 
 const SELECT_COLS: &str =
     "SELECT id, hlc_millis, hlc_counter, hlc_node_id, ops_json FROM palladium_changes";
-const GET_BY_ID: &str =
-    "SELECT id, hlc_millis, hlc_counter, hlc_node_id, ops_json FROM palladium_changes WHERE id = $1";
+const GET_BY_ID: &str = "SELECT id, hlc_millis, hlc_counter, hlc_node_id, ops_json \
+     FROM palladium_changes WHERE id = $1 AND scope = $2";
 
 // ── Store ─────────────────────────────────────────────────────────────────
 
@@ -170,7 +171,7 @@ impl PostgresStore {
 impl ChangeStore for PostgresStore {
     type Error = Error;
 
-    async fn insert(&self, change: &Change) -> std::result::Result<(), Error> {
+    async fn insert(&self, scope: &Scope, change: &Change) -> std::result::Result<(), Error> {
         let id = change.id;
         let hlc_key = change.hlc.sort_key();
         let hlc_millis = i64::try_from(change.hlc.millis()).map_err(|_| {
@@ -185,11 +186,12 @@ impl ChangeStore for PostgresStore {
 
         sqlx::query(
             "INSERT INTO palladium_changes \
-             (id, hlc_key, hlc_millis, hlc_counter, hlc_node_id, ops_json) \
-             VALUES ($1, $2, $3, $4, $5, $6) \
+             (id, scope, hlc_key, hlc_millis, hlc_counter, hlc_node_id, ops_json) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7) \
              ON CONFLICT (id) DO NOTHING",
         )
         .bind(id)
+        .bind(scope.as_str())
         .bind(hlc_key)
         .bind(hlc_millis)
         .bind(hlc_counter)
@@ -203,12 +205,14 @@ impl ChangeStore for PostgresStore {
 
     async fn list_after(
         &self,
+        scope: &Scope,
         after: Option<Hlc>,
         limit: Option<u32>,
     ) -> std::result::Result<Vec<Change>, Error> {
         let mut qb = sqlx::QueryBuilder::new(SELECT_COLS);
+        qb.push(" WHERE scope = ").push_bind(scope.as_str().to_owned());
         if let Some(hlc) = after {
-            qb.push(" WHERE hlc_key > ").push_bind(hlc.sort_key());
+            qb.push(" AND hlc_key > ").push_bind(hlc.sort_key());
         }
         qb.push(" ORDER BY hlc_key");
         if let Some(n) = limit {
@@ -218,9 +222,10 @@ impl ChangeStore for PostgresStore {
         rows.into_iter().map(ChangeRow::try_into_change).collect()
     }
 
-    async fn get(&self, id: Uuid) -> std::result::Result<Option<Change>, Error> {
+    async fn get(&self, scope: &Scope, id: Uuid) -> std::result::Result<Option<Change>, Error> {
         let row: Option<ChangeRow> = sqlx::query_as(GET_BY_ID)
             .bind(id)
+            .bind(scope.as_str())
             .fetch_optional(&self.pool)
             .await?;
         row.map(ChangeRow::try_into_change).transpose()
@@ -278,7 +283,7 @@ mod tests {
 
     #[cfg(feature = "integration-tests")]
     mod integration {
-        use palladium_core::{Change, ChangeStore, Hlc, NodeId, Op};
+        use palladium_core::{Change, ChangeStore, Hlc, NodeId, Op, Scope};
         use serde_json::json;
         use sqlx::PgPool;
         use uuid::Uuid;
@@ -305,8 +310,9 @@ mod tests {
                 data: json!({}),
             }]);
 
-            store.insert(&change).await.unwrap();
-            let got = store.get(change.id).await.unwrap();
+            let scope = Scope::new("test-scope");
+            store.insert(&scope, &change).await.unwrap();
+            let got = store.get(&scope, change.id).await.unwrap();
             assert_eq!(got.unwrap().id, change.id);
         }
     }

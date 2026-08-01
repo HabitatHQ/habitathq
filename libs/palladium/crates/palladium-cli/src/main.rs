@@ -15,7 +15,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use palladium_axum::{AppState, create_router};
-use palladium_core::{ChangeStore, ServerConfig};
+use palladium_core::{ChangeStore, Scope, ServerConfig};
 use palladium_sqlite::SqliteStore;
 use tower_http::cors::CorsLayer;
 use tracing::info;
@@ -122,7 +122,8 @@ async fn run_inspect(db_url: &str, limit: usize) -> Result<()> {
     // Pass the limit directly to the store to avoid loading the entire table
     // into memory when only a few rows are needed.
     let store_limit = (limit > 0).then(|| u32::try_from(limit).unwrap_or(u32::MAX));
-    let changes = store.list_after(None, store_limit).await?;
+    // Inspect the default scope (the only one written until the Phase 2b seam).
+    let changes = store.list_after(&Scope::new("default"), None, store_limit).await?;
     for change in &changes {
         let json = serde_json::to_string_pretty(change)?;
         println!("{json}");
