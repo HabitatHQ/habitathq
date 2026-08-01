@@ -56,6 +56,10 @@ enum Command {
         /// When provided, overrides `--db` for multi-instance setups.
         #[arg(long = "instance", value_name = "NAME:PATH")]
         instances: Vec<InstanceArg>,
+
+        /// Auth mode selecting how the request scope is derived.
+        #[arg(long, value_enum, default_value_t = AuthMode::Static)]
+        auth: AuthMode,
     },
 
     /// Manage configured instances.
@@ -64,6 +68,17 @@ enum Command {
         #[command(subcommand)]
         command: InstancesCommand,
     },
+}
+
+/// How the dev server derives the store scope for each request.
+#[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
+enum AuthMode {
+    /// Single-tenant: every request uses one fixed scope (no auth).
+    #[default]
+    Static,
+    /// Multi-tenant: derive the scope from the `Authorization: Bearer <token>`
+    /// header (a stand-in for a real host seam like Atrium).
+    Bearer,
 }
 
 /// Sub-commands for `palladium instances`.
@@ -136,14 +151,22 @@ async fn run_inspect(db_url: &str, limit: usize) -> Result<()> {
 // store, build router, bind socket, log). Splitting yields one-call helpers
 // per branch, which is less readable than the linear flow.
 #[allow(clippy::cognitive_complexity)]
-async fn run_dev(db_url: &str, port: u16, extra_instances: &[InstanceArg]) -> Result<()> {
+async fn run_dev(
+    db_url: &str,
+    port: u16,
+    extra_instances: &[InstanceArg],
+    auth: AuthMode,
+) -> Result<()> {
     // If --instance flags were provided, log them (future: open all and serve).
     for inst in extra_instances {
         info!(name = %inst.name, path = %inst.path, "configured additional instance");
     }
-    info!(%db_url, port, "starting dev server");
+    info!(%db_url, port, ?auth, "starting dev server");
     let store = SqliteStore::open(db_url).await?;
-    let state = AppState::new(store);
+    let state = match auth {
+        AuthMode::Static => AppState::new(store),
+        AuthMode::Bearer => AppState::new(store).with_auth_seam(palladium_axum::BearerTokenSeam),
+    };
     let app = create_router(state, CorsLayer::permissive());
     let addr = format!("0.0.0.0:{port}");
     let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -224,7 +247,11 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Migrate => run_migrate(&cli.db).await,
         Command::Inspect { limit } => run_inspect(&cli.db, limit).await,
-        Command::Dev { port, instances } => run_dev(&cli.db, port, &instances).await,
+        Command::Dev {
+            port,
+            instances,
+            auth,
+        } => run_dev(&cli.db, port, &instances, auth).await,
         Command::Instances {
             command: InstancesCommand::List { config, json },
         } => run_instances_list(config.as_deref(), json).await,
