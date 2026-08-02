@@ -14,6 +14,33 @@ a manual end-to-end demo you can drive by hand with `curl`.
 
 ---
 
+## The easy way: the UI Sync Playground (start here)
+
+If you just want to **see sync work** — no test files, no `curl` — run the visual
+playground. One page shows several independent "devices" (each its own local
+database) syncing through the real server. Type in one, watch it land in the
+others.
+
+```bash
+pnpm install                                               # once, from the repo root
+pnpm --filter @palladium/example-sync-playground demo      # builds + starts server AND UI
+```
+
+Then open **http://localhost:5173**. (First run compiles the Rust CLI; the
+launcher puts cargo on `PATH` for you.)
+
+| In the UI | Proves |
+|---|---|
+| Add a task on **Laptop** → it appears on **Phone** | basic replication |
+| Edit a task's **text** on one device while ticking its **checkbox** on another | column-level LWW merge (both survive) |
+| **Go offline** on two devices, edit the **same** text differently, **go online** | conflict convergence (the F1 fix) |
+| Switch a device's **workspace** to `team-beta` | tenant isolation (no cross-workspace leak) |
+
+Details in `libs/palladium/example-sync-playground/README.md`. The rest of this
+guide is the automated + `curl` proof, if you want it.
+
+---
+
 ## 0. Prerequisites
 
 ```bash
