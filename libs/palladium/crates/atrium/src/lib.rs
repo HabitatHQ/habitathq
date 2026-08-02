@@ -17,6 +17,7 @@ mod http_tests;
 pub mod db;
 pub mod error;
 pub mod identity;
+pub mod registry;
 pub mod state;
 
 pub use db::AtriumDb;

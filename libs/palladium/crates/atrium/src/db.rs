@@ -33,7 +33,61 @@ CREATE TABLE IF NOT EXISTS invites (
     accepted_by  TEXT,
     created_at   INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS records (
+    row_id        TEXT NOT NULL PRIMARY KEY,
+    workspace_id  TEXT NOT NULL,
+    table_name    TEXT NOT NULL,
+    root_id       TEXT,
+    owner_user_id TEXT NOT NULL,
+    sharing       TEXT NOT NULL DEFAULT 'private'
+);
+CREATE INDEX IF NOT EXISTS idx_records_workspace ON records (workspace_id);
+CREATE TABLE IF NOT EXISTS shares (
+    root_id          TEXT NOT NULL,
+    grantee_user_id  TEXT NOT NULL,
+    perm             TEXT NOT NULL,
+    PRIMARY KEY (root_id, grantee_user_id)
+);
+CREATE TABLE IF NOT EXISTS grant_events (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id   TEXT    NOT NULL,
+    root_id   TEXT    NOT NULL,
+    kind      TEXT    NOT NULL,
+    delivered INTEGER NOT NULL DEFAULT 0
+);
 ";
+
+/// Sharing class: private to the owner (default).
+pub const SHARING_PRIVATE: &str = "private";
+/// Sharing class: readable by every workspace member.
+pub const SHARING_HOUSEHOLD_READ: &str = "household_read";
+/// Sharing class: read/write for every workspace member.
+pub const SHARING_HOUSEHOLD_RW: &str = "household_rw";
+/// Per-member grant permission: read-only.
+pub const PERM_READ: &str = "read";
+/// Per-member grant permission: read/write.
+pub const PERM_WRITE: &str = "write";
+/// A grant event: a root became visible to a user (triggers backfill).
+pub const EVENT_GRANT: &str = "grant";
+/// A revoke event: a root became invisible to a user (triggers purge).
+pub const EVENT_REVOKE: &str = "revoke";
+
+/// Ownership + sharing metadata for one synced row (Atrium's ACL truth).
+#[derive(Debug, Clone)]
+pub struct AclRecord {
+    /// The row this record describes.
+    pub row_id: String,
+    /// Owning workspace.
+    pub workspace_id: String,
+    /// Source table (root or child).
+    pub table_name: String,
+    /// For children, the aggregate root they inherit ACL from; `None` for roots.
+    pub root_id: Option<String>,
+    /// Creator (Atrium-set from identity, never the client payload).
+    pub owner_user_id: String,
+    /// Sharing class of a root (`private` / `household_read` / `household_rw`).
+    pub sharing: String,
+}
 
 /// Role of a member within a workspace.
 pub const ROLE_OWNER: &str = "owner";
@@ -241,10 +295,236 @@ impl AtriumDb {
         Ok(rows)
     }
 
-    /// Access the underlying pool (Phase 3b extends the schema on it).
-    #[must_use]
-    pub const fn pool(&self) -> &SqlitePool {
-        &self.pool
+    /// All member ids of `workspace`.
+    ///
+    /// # Errors
+    /// Returns an error if the query fails.
+    pub async fn member_ids(&self, workspace: &str) -> Result<Vec<String>, AtriumError> {
+        let rows = sqlx::query_scalar::<_, String>(
+            "SELECT user_id FROM memberships WHERE workspace_id = ? ORDER BY user_id",
+        )
+        .bind(workspace)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    // ── Record-level ACL (Phase 3b) ─────────────────────────────────────────
+
+    /// Fetch the ACL record for `row_id`, if Atrium has seen it.
+    ///
+    /// # Errors
+    /// Returns an error if the query fails.
+    pub async fn get_record(&self, row_id: &str) -> Result<Option<AclRecord>, AtriumError> {
+        let row = sqlx::query_as::<_, (String, String, String, Option<String>, String, String)>(
+            "SELECT row_id, workspace_id, table_name, root_id, owner_user_id, sharing \
+             FROM records WHERE row_id = ?",
+        )
+        .bind(row_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(
+            |(row_id, workspace_id, table_name, root_id, owner_user_id, sharing)| AclRecord {
+                row_id,
+                workspace_id,
+                table_name,
+                root_id,
+                owner_user_id,
+                sharing,
+            },
+        ))
+    }
+
+    /// Insert an ACL record if absent (idempotent; never changes an owner).
+    ///
+    /// # Errors
+    /// Returns an error if the write fails.
+    pub async fn insert_record(
+        &self,
+        row_id: &str,
+        workspace: &str,
+        table: &str,
+        root_id: Option<&str>,
+        owner: &str,
+    ) -> Result<(), AtriumError> {
+        sqlx::query(
+            "INSERT OR IGNORE INTO records \
+             (row_id, workspace_id, table_name, root_id, owner_user_id, sharing) \
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(row_id)
+        .bind(workspace)
+        .bind(table)
+        .bind(root_id)
+        .bind(owner)
+        .bind(SHARING_PRIVATE)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Set a root's sharing class.
+    ///
+    /// # Errors
+    /// Returns an error if the write fails.
+    pub async fn set_sharing(&self, root_id: &str, sharing: &str) -> Result<(), AtriumError> {
+        sqlx::query("UPDATE records SET sharing = ? WHERE row_id = ?")
+            .bind(sharing)
+            .bind(root_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Grant `grantee` a per-member `perm` on `root_id` (upsert).
+    ///
+    /// # Errors
+    /// Returns an error if the write fails.
+    pub async fn add_share(
+        &self,
+        root_id: &str,
+        grantee: &str,
+        perm: &str,
+    ) -> Result<(), AtriumError> {
+        sqlx::query("INSERT OR REPLACE INTO shares (root_id, grantee_user_id, perm) VALUES (?, ?, ?)")
+            .bind(root_id)
+            .bind(grantee)
+            .bind(perm)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Remove `grantee`'s per-member grant on `root_id`.
+    ///
+    /// # Errors
+    /// Returns an error if the write fails.
+    pub async fn remove_share(&self, root_id: &str, grantee: &str) -> Result<(), AtriumError> {
+        sqlx::query("DELETE FROM shares WHERE root_id = ? AND grantee_user_id = ?")
+            .bind(root_id)
+            .bind(grantee)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// The permission `grantee` holds on `root_id`, if any.
+    ///
+    /// # Errors
+    /// Returns an error if the query fails.
+    pub async fn get_share(
+        &self,
+        root_id: &str,
+        grantee: &str,
+    ) -> Result<Option<String>, AtriumError> {
+        let perm = sqlx::query_scalar::<_, String>(
+            "SELECT perm FROM shares WHERE root_id = ? AND grantee_user_id = ?",
+        )
+        .bind(root_id)
+        .bind(grantee)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(perm)
+    }
+
+    /// Enqueue a grant/revoke event for `user` on `root_id`.
+    ///
+    /// # Errors
+    /// Returns an error if the write fails.
+    pub async fn enqueue_event(
+        &self,
+        user: &str,
+        root_id: &str,
+        kind: &str,
+    ) -> Result<(), AtriumError> {
+        sqlx::query("INSERT INTO grant_events (user_id, root_id, kind) VALUES (?, ?, ?)")
+            .bind(user)
+            .bind(root_id)
+            .bind(kind)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Undelivered `kind` events for `user`, as `(event_id, root_id)`.
+    ///
+    /// # Errors
+    /// Returns an error if the query fails.
+    pub async fn pending_events(
+        &self,
+        user: &str,
+        kind: &str,
+    ) -> Result<Vec<(i64, String)>, AtriumError> {
+        let rows = sqlx::query_as::<_, (i64, String)>(
+            "SELECT id, root_id FROM grant_events \
+             WHERE user_id = ? AND kind = ? AND delivered = 0 ORDER BY id",
+        )
+        .bind(user)
+        .bind(kind)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    /// Mark the given event ids delivered.
+    ///
+    /// # Errors
+    /// Returns an error if a write fails.
+    pub async fn mark_delivered(&self, ids: &[i64]) -> Result<(), AtriumError> {
+        for id in ids {
+            sqlx::query("UPDATE grant_events SET delivered = 1 WHERE id = ?")
+                .bind(id)
+                .execute(&self.pool)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Resolve a row to its aggregate root's ACL record (self, if a root).
+    ///
+    /// # Errors
+    /// Returns an error if a query fails.
+    pub async fn effective_root(&self, row_id: &str) -> Result<Option<AclRecord>, AtriumError> {
+        let Some(rec) = self.get_record(row_id).await? else {
+            return Ok(None);
+        };
+        if let Some(root_id) = rec.root_id.as_deref() {
+            let root_id = root_id.to_owned();
+            self.get_record(&root_id).await
+        } else {
+            Ok(Some(rec))
+        }
+    }
+
+    /// Whether `caller` may **read** `row_id` (via its effective root).
+    ///
+    /// # Errors
+    /// Returns an error if a query fails.
+    pub async fn can_read(&self, caller: &str, row_id: &str) -> Result<bool, AtriumError> {
+        let Some(root) = self.effective_root(row_id).await? else {
+            return Ok(false);
+        };
+        if caller == root.owner_user_id
+            || root.sharing == SHARING_HOUSEHOLD_READ
+            || root.sharing == SHARING_HOUSEHOLD_RW
+        {
+            return Ok(true);
+        }
+        Ok(self.get_share(&root.row_id, caller).await?.is_some())
+    }
+
+    /// Whether `caller` may **write** `row_id` (via its effective root).
+    ///
+    /// # Errors
+    /// Returns an error if a query fails.
+    pub async fn can_write(&self, caller: &str, row_id: &str) -> Result<bool, AtriumError> {
+        let Some(root) = self.effective_root(row_id).await? else {
+            return Ok(false);
+        };
+        if caller == root.owner_user_id || root.sharing == SHARING_HOUSEHOLD_RW {
+            return Ok(true);
+        }
+        Ok(self.get_share(&root.row_id, caller).await?.as_deref() == Some(PERM_WRITE))
     }
 }
 
