@@ -16,13 +16,35 @@ interface Seat {
   device: Device | null;
 }
 
-const serverUrl = ref(DEFAULT_SERVER);
+// Single-device mode: `?single` (or `?device`) renders exactly ONE device, so
+// you can run one device per browser window / per port. Label defaults to the
+// port (e.g. ":5174"); workspace + server are overridable via query params.
+//   http://localhost:5174/?single&label=Phone&workspace=team-beta
+const params = new URLSearchParams(location.search);
+const single = params.has("single") || params.has("device");
+const initialServer = params.get("server") ?? DEFAULT_SERVER;
+const initialWorkspace = params.get("workspace") ?? TOKENS[0];
+const portLabel = location.port ? `:${location.port}` : "device";
+
+const serverUrl = ref(initialServer);
 const serverUp = ref<boolean | null>(null);
-const seats = reactive<Seat[]>([
-  { id: 1, label: "Laptop", token: TOKENS[0], gen: 0, device: null },
-  { id: 2, label: "Phone", token: TOKENS[0], gen: 0, device: null },
-]);
-let nextId = 3;
+const seats = reactive<Seat[]>(
+  single
+    ? [
+        {
+          id: 1,
+          label: params.get("label") ?? portLabel,
+          token: initialWorkspace,
+          gen: 0,
+          device: null,
+        },
+      ]
+    : [
+        { id: 1, label: "Laptop", token: TOKENS[0], gen: 0, device: null },
+        { id: 2, label: "Phone", token: TOKENS[0], gen: 0, device: null },
+      ],
+);
+let nextId = seats.length + 1;
 
 /** (Re)create the device backing a seat, tearing down any previous one. */
 async function mountSeat(seat: Seat): Promise<void> {
@@ -97,8 +119,13 @@ onBeforeUnmount(async () => {
   <div class="page">
     <header class="top">
       <div>
-        <h1>Palladium Sync Playground</h1>
-        <p class="sub">
+        <h1>Palladium Sync {{ single ? "Device" : "Playground" }}</h1>
+        <p v-if="single" class="sub">
+          This window is <strong>one device</strong> ({{ seats[0]?.label }}), with its own local
+          database, syncing through the <code>palladium dev</code> server. Open this app on another
+          port/window to add more devices — they all sync through the same server.
+        </p>
+        <p v-else class="sub">
           Each card is an independent device with its own local database, all syncing through the
           <code>palladium dev</code> server. Type in one — watch it land in the others.
         </p>
@@ -141,7 +168,7 @@ onBeforeUnmount(async () => {
           remove
         </button>
       </div>
-      <button type="button" class="add" @click="addSeat">+ add device</button>
+      <button v-if="!single" type="button" class="add" @click="addSeat">+ add device</button>
     </section>
 
     <footer class="legend">

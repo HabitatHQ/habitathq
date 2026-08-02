@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "server": "node ./scripts/dev-server.mjs",
-    "demo": "node ./scripts/demo.mjs"
+    "demo": "node ./scripts/demo.mjs",
+    "devices": "node ./scripts/devices.mjs"
   },
   "dependencies": {
     "@palladium/core": "workspace:*",

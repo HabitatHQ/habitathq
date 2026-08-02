@@ -27,6 +27,29 @@ pnpm --filter @palladium/example-sync-playground server   # Rust server only
 pnpm --filter @palladium/example-sync-playground dev       # Vite UI only
 ```
 
+### One device per port (separate windows)
+
+The default page shows several device cards at once. To instead run **one
+device per port** — a separate browser window per device, closer to real
+separate machines — use `devices`:
+
+```bash
+pnpm --filter @palladium/example-sync-playground devices 3   # 3 devices (default 2)
+```
+
+It starts the server once and one Vite server per device on consecutive ports,
+then prints the URLs:
+
+- Device 1 → http://localhost:5173/?single
+- Device 2 → http://localhost:5174/?single
+- Device 3 → http://localhost:5175/?single
+
+Each window is a single device (labelled by its port) and they all sync through
+the one server. You don't strictly need separate ports — opening the default
+page (or `/?single`) in multiple browser windows works too, since each page load
+is an independent in-memory client. Single-device mode also honours query params:
+`/?single&label=Phone&workspace=team-beta&server=http://localhost:3000`.
+
 ## What to try (maps 1:1 to the engine's guarantees)
 
 | In the UI | Proves |
