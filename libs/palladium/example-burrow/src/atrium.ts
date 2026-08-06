@@ -183,7 +183,54 @@ async function applyPurges(
 }
 
 /**
- * Build and start one account: a local in-memory SQLite engine plus an
+ * A device's stable node id, persisted per (user, workspace) so a reload keeps
+ * the same identity — the durable sync cursor and own-write skipping both key
+ * off it, so a fresh id every load would re-hydrate and mis-attribute writes.
+ */
+function deviceNodeId(user: string, workspaceId: string): string {
+  const key = `burrow:node:${user}:${workspaceId}`;
+  let id = localStorage.getItem(key);
+  if (!id) {
+    id = newId();
+    localStorage.setItem(key, id);
+  }
+  return id;
+}
+
+/**
+ * Build the local engine, persisting to OPFS (SAH-pool VFS — no COOP/COEP
+ * headers needed) so data survives reloads. Falls back to an in-memory store if
+ * OPFS is unavailable (e.g. private browsing, or two tabs of the *same* user
+ * contending for one SAH pool).
+ */
+async function buildEngine(
+  user: string,
+  workspaceId: string,
+): Promise<PalladiumEngine<BurrowSchema>> {
+  const nodeId = deviceNodeId(user, workspaceId);
+  try {
+    const engine = createEngine<BurrowSchema>(
+      new BrowserSqliteAdapter({
+        // Per-user pool directory so alice's and bob's tabs don't contend.
+        vfs: { type: "opfs-sah-pool", directory: `burrow-${user}`, filename: `${workspaceId}.db` },
+      }),
+      { nodeId },
+    );
+    await engine.init(BURROW_SCHEMA);
+    return engine;
+  } catch (err) {
+    console.warn("burrow: OPFS unavailable, using in-memory store", err);
+    const engine = createEngine<BurrowSchema>(
+      new BrowserSqliteAdapter({ vfs: { type: "memory" } }),
+      { nodeId },
+    );
+    await engine.init(BURROW_SCHEMA);
+    return engine;
+  }
+}
+
+/**
+ * Build and start one account: a local persistent SQLite engine plus an
  * Atrium-aware `SyncTransport`.
  *
  * The transport reuses Palladium's hardened change loop unchanged; Atrium's
@@ -198,14 +245,15 @@ export async function createAccount(opts: {
   pollIntervalMs?: number;
 }): Promise<Account> {
   const serverUrl = opts.serverUrl ?? DEFAULT_SERVER;
-  const engine = createEngine<BurrowSchema>(new BrowserSqliteAdapter({ vfs: { type: "memory" } }), {
-    nodeId: newId(),
-  });
-  await engine.init(BURROW_SCHEMA);
+  const engine = await buildEngine(opts.user, opts.workspaceId);
 
   const transport = new SyncTransport<BurrowSchema>(engine, {
     serverUrl,
     pollIntervalMs: opts.pollIntervalMs ?? 600,
+    // TODO(clerk): swap the dev bearer (`opts.user` is the raw user id) for a
+    // real Clerk session JWT — `Authorization: Bearer ${await clerk.session.getToken()}`.
+    // Atrium's ClerkProvider (JWKS verify) reads `sub` as the user id; no other
+    // change here. The `X-Workspace` selector stays as-is.
     authHeaders: () => ({
       Authorization: `Bearer ${opts.user}`,
       "X-Workspace": opts.workspaceId,

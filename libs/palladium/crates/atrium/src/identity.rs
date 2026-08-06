@@ -40,6 +40,14 @@ pub trait IdentityProvider: Send + Sync + 'static {
     fn authenticate(&self, parts: &Parts) -> Result<UserId, AtriumError>;
 }
 
+// TODO(clerk): add a `ClerkProvider` implementing `IdentityProvider` by
+// verifying a Clerk session JWT against the instance JWKS (RS256): fetch + cache
+// the JWKS (background refresh so `authenticate` stays synchronous, or make the
+// trait async), check `exp`/`iss`/`azp`, and return `UserId(claims.sub)`. It
+// slots in behind the same seam — no ACL or route changes. Wire it in `main.rs`
+// behind a `--auth clerk` flag (env: CLERK_JWKS_URL / CLERK_ISSUER). Until then
+// `DevBearerProvider` simulates the token (the bearer *is* the user id).
+
 /// Dev identity: treats `Authorization: Bearer <user_id>` as the user id.
 ///
 /// A stand-in for real JWT verification so the tenancy + ACL model can be

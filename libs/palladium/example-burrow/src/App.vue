@@ -8,6 +8,10 @@ import NotesSection from "./sections/NotesSection.vue";
 
 const params = new URLSearchParams(location.search);
 const serverUrl = params.get("server") ?? DEFAULT_SERVER;
+// TODO(clerk): this preset-user picker is the dev stand-in for identity. Replace
+// with Clerk sign-in gated on sync opt-in (local-first: no prompt until the user
+// enables sync). `user` becomes the Clerk user id (`sub`); the bearer sent to
+// Atrium becomes the Clerk session JWT (see atrium.ts authHeaders).
 const PRESET_USERS = ["alice", "bob", "carol"];
 
 const user = ref(params.get("user") ?? "");
