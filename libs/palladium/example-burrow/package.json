@@ -1,0 +1,25 @@
+{
+  "name": "@palladium/example-burrow",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "HabitatHQ POC app driving Atrium — local-first sync with family sharing + record ACL",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "atrium": "node ./scripts/atrium.mjs",
+    "demo": "node ./scripts/demo.mjs"
+  },
+  "dependencies": {
+    "@palladium/core": "workspace:*",
+    "@palladium/sqlite-browser": "workspace:*",
+    "@palladium/vue": "workspace:*",
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  }
+}

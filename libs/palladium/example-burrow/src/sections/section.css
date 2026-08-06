@@ -1,0 +1,135 @@
+/* Shared styling for the three aggregate-root sections. Imported once globally
+   from main.ts (Vue scoped @import does not actually scope the imported rules). */
+.card {
+  background: #121722;
+  border: 1px solid #1e2430;
+  border-radius: 12px;
+  padding: 0.9rem 1.1rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-width: 0;
+}
+.card > header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.card h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  flex: 1;
+}
+.badge {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid #2b3242;
+  color: #aeb8cc;
+}
+.badge.private {
+  color: #f4a6b4;
+  border-color: #5a2b3b;
+}
+.badge.household {
+  color: #9bd3a0;
+  border-color: #2f5a37;
+}
+.badge.per-member {
+  color: #a9c2f4;
+  border-color: #2b3f6a;
+}
+.card .hint {
+  margin: 0;
+  color: #6b7488;
+  font-size: 0.8rem;
+}
+.card form {
+  display: flex;
+  gap: 0.4rem;
+}
+.card form input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid #2b3242;
+  border-radius: 8px;
+  background: #0f131b;
+  color: #e7ecf5;
+}
+.card form button,
+.card .btn {
+  font: inherit;
+  padding: 0.35rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid #2b3242;
+  background: #2a68d8;
+  color: white;
+  cursor: pointer;
+}
+.card .btn.subtle {
+  background: #1a212e;
+  color: #cdd6e6;
+}
+.card ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.card li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid #1a2029;
+}
+.card li .done {
+  text-decoration: line-through;
+  opacity: 0.45;
+}
+.card .muted {
+  color: #6b7488;
+  font-size: 0.85rem;
+  border: none;
+}
+.card .sub {
+  margin: 0.3rem 0 0 1.5rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.card .share-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+}
+.card select {
+  font: inherit;
+  background: #0f131b;
+  color: #e7ecf5;
+  border: 1px solid #2b3242;
+  border-radius: 6px;
+  padding: 0.2rem 0.35rem;
+}
+.card .thumbs {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin: 0.3rem 0 0 1.5rem;
+}
+.card .thumbs img {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #2b3242;
+}
