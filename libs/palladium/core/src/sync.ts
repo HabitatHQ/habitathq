@@ -98,6 +98,15 @@ export interface SyncTransportOptions {
   readonly authHeaders?: (ctx: {
     readonly refresh: boolean;
   }) => Promise<Record<string, string>> | Record<string, string>;
+  /**
+   * Adapt a raw `GET /v1/changes` response body into the array of changes to
+   * apply. Defaults to treating the body as a bare `WireChange[]` (the
+   * `palladium-axum` contract). A gateway that wraps changes in an envelope —
+   * e.g. Atrium's `{ changes, purges }` — supplies a decoder here to unwrap it.
+   * The decoder may also run side effects (such as applying server-driven
+   * purges) before returning the change list, so the transport stays generic.
+   */
+  readonly decodeChanges?: (body: unknown) => WireChange[] | Promise<WireChange[]>;
 }
 
 // ── Outbox table ───────────────────────────────────────────────────────────
@@ -252,6 +261,7 @@ export class SyncTransport<S extends SchemaMap> {
   readonly #fetch: typeof globalThis.fetch;
   readonly #maxApplyAttempts: number;
   readonly #authHeaders?: SyncTransportOptions["authHeaders"];
+  readonly #decodeChanges: (body: unknown) => WireChange[] | Promise<WireChange[]>;
 
   #cursor: string | null = null;
   #pollHandle: ReturnType<typeof setInterval> | null = null;
@@ -266,6 +276,7 @@ export class SyncTransport<S extends SchemaMap> {
     this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.#maxApplyAttempts = Math.max(1, options.maxApplyAttempts ?? 5);
     this.#authHeaders = options.authHeaders;
+    this.#decodeChanges = options.decodeChanges ?? ((body) => body as WireChange[]);
   }
 
   /**
@@ -461,7 +472,7 @@ export class SyncTransport<S extends SchemaMap> {
       try {
         const res = await this.#fetchWithAuth(url);
         if (!res.ok) return;
-        changes = (await res.json()) as WireChange[];
+        changes = await this.#decodeChanges(await res.json());
       } catch {
         return;
       }

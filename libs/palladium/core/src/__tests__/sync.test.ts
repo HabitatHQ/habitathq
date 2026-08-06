@@ -219,6 +219,50 @@ describe("SyncTransport — downlink", () => {
     expect(localCb).not.toHaveBeenCalled();
   });
 
+  it("decodeChanges unwraps an envelope and can run purge side effects", async () => {
+    const db = await makeEngine(BOB);
+    const remoteChange: WireChange = {
+      id: "c1",
+      hlc: { wallMs: 1_700_000_000_000, counter: 0, nodeId: ALICE },
+      ops: [
+        {
+          op: "insert",
+          table: "notes",
+          row_id: "n1",
+          data: { id: "n1", title: "enveloped", updated_at: 1 },
+        },
+      ],
+    };
+    let served = false;
+    const { fetch } = makeFakeFetch((call) => {
+      if (call.init?.method === "POST") return jsonResponse({}, 201);
+      if (!served) {
+        served = true;
+        // Atrium-shaped envelope, not a bare array.
+        return jsonResponse({ changes: [remoteChange], purges: ["root-x"] });
+      }
+      return jsonResponse({ changes: [], purges: [] });
+    });
+
+    const purged: string[] = [];
+    const transport = new SyncTransport(db, {
+      serverUrl: SERVER_URL,
+      fetch,
+      decodeChanges: (body) => {
+        const env = body as { changes: WireChange[]; purges?: string[] };
+        purged.push(...(env.purges ?? []));
+        return env.changes;
+      },
+    });
+    await transport.start();
+    await transport.stop();
+
+    const rows = await db.exec<Schema["notes"]>(sql`SELECT * FROM notes`);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.title).toBe("enveloped");
+    expect(purged).toContain("root-x");
+  });
+
   it("advances engine.currentHlc past the remote HLC", async () => {
     const db = await makeEngine(BOB);
     const remoteHlc = { wallMs: 9_999_999_999_999, counter: 7, nodeId: ALICE };
