@@ -58,6 +58,18 @@ export interface WireChange {
   readonly ops: ReadonlyArray<WireOp>;
 }
 
+/** Runtime guard for a decoded change — the transport skips anything else. */
+function isWireChange(value: unknown): value is WireChange {
+  if (typeof value !== "object" || value === null) return false;
+  const c = value as Record<string, unknown>;
+  return (
+    typeof c["id"] === "string" &&
+    typeof c["hlc"] === "object" &&
+    c["hlc"] !== null &&
+    Array.isArray(c["ops"])
+  );
+}
+
 // ── Cursor encoding ─────────────────────────────────────────────────────────
 
 /**
@@ -166,7 +178,11 @@ interface OutboxRow {
 function rowToChange(row: OutboxRow): WireChange {
   return {
     id: row.change_id,
-    hlc: { wallMs: row.hlc_wall_ms, counter: row.hlc_counter, nodeId: row.hlc_node_id },
+    hlc: {
+      wallMs: row.hlc_wall_ms,
+      counter: row.hlc_counter,
+      nodeId: row.hlc_node_id,
+    },
     ops: JSON.parse(row.ops) as WireOp[],
   };
 }
@@ -234,7 +250,9 @@ function wireOpToEngine<S extends SchemaMap>(op: WireOp): EngineOp & { table: ke
     return {
       type: "insert",
       table: op.table as keyof S & string,
-      data: { id: op.row_id, ...op.data } as Record<string, unknown> & { id: string },
+      data: { id: op.row_id, ...op.data } as Record<string, unknown> & {
+        id: string;
+      },
     };
   }
   if (op.op === "update") {
@@ -274,7 +292,11 @@ export class SyncTransport<S extends SchemaMap> {
     this.#serverUrl = options.serverUrl.replace(/\/+$/, "");
     this.#pollIntervalMs = options.pollIntervalMs ?? 1_000;
     this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
-    this.#maxApplyAttempts = Math.max(1, options.maxApplyAttempts ?? 5);
+    // Normalise to a finite positive integer: NaN / Infinity / non-positive
+    // values would make `attempts >= #maxApplyAttempts` never terminate and
+    // wedge the poll cursor on a failing change.
+    const maxAttempts = options.maxApplyAttempts ?? 5;
+    this.#maxApplyAttempts = Number.isInteger(maxAttempts) && maxAttempts >= 1 ? maxAttempts : 5;
     this.#authHeaders = options.authHeaders;
     this.#decodeChanges = options.decodeChanges ?? ((body) => body as WireChange[]);
   }
@@ -472,12 +494,20 @@ export class SyncTransport<S extends SchemaMap> {
       try {
         const res = await this.#fetchWithAuth(url);
         if (!res.ok) return;
-        changes = await this.#decodeChanges(await res.json());
+        const decoded = await this.#decodeChanges(await res.json());
+        // A custom decoder (or a malformed response) can hand back a non-array
+        // or entries that aren't changes; bail poll-safely rather than throwing
+        // mid-loop (which would abort the whole poll and never advance).
+        if (!Array.isArray(decoded)) return;
+        changes = decoded;
       } catch {
         return;
       }
 
       for (const change of changes) {
+        // Drop malformed entries (e.g. `[null]`) so one bad change can't wedge
+        // the poll; a well-formed change carries id + hlc + an ops array.
+        if (!isWireChange(change)) continue;
         // Stop advancing the cursor at the first change that isn't durably
         // resolved this poll, so a transient failure is retried rather than
         // skipped. `#applyOneRemote` returns false only for such a change.
@@ -541,10 +571,10 @@ export class SyncTransport<S extends SchemaMap> {
 
   /** Read the quarantine state for a change, or `null` if not quarantined. */
   async #quarantineState(changeId: string): Promise<QuarantineState | null> {
-    const rows = await this.#engine.adapter.exec<{ attempts: number; permanent: number }>(
-      `SELECT attempts, permanent FROM ${QUARANTINE_TABLE} WHERE change_id = ?`,
-      [changeId],
-    );
+    const rows = await this.#engine.adapter.exec<{
+      attempts: number;
+      permanent: number;
+    }>(`SELECT attempts, permanent FROM ${QUARANTINE_TABLE} WHERE change_id = ?`, [changeId]);
     const row = rows[0];
     return row ? { attempts: row.attempts, permanent: row.permanent !== 0 } : null;
   }

@@ -11,6 +11,12 @@ use uuid::Uuid;
 
 use crate::error::AtriumError;
 
+// TODO(cr/F2, D22): no `devices` registry yet — Atrium can't bind a `nodeId` to
+// its authenticated user, reject cross-user device rebinds, or drive the multi-
+// device audit contract. Add `devices(node_id PK, user_id, created_at)` plus an
+// authenticated upsert that allows many devices per user but rejects another
+// user rebinding an existing node_id, with acceptance tests. Deferred: the POC
+// proves the ACL/sync model; device auditing is a separate feature.
 const MIGRATE: &str = "
 CREATE TABLE IF NOT EXISTS app_users (
     user_id    TEXT NOT NULL PRIMARY KEY
@@ -285,28 +291,34 @@ impl AtriumDb {
     /// [`AtriumError::NotFound`] if the token is unknown or already used;
     /// other errors on write failure.
     pub async fn accept_invite(&self, token: &str, user: &str) -> Result<String, AtriumError> {
+        // Claim the invite atomically inside one transaction: the `UPDATE …
+        // WHERE accepted_by IS NULL RETURNING` consumes the token in a single
+        // step, so two concurrent requests for the same token can't both create
+        // a membership (the loser's UPDATE matches no row → NotFound).
+        let mut tx = self.pool.begin().await?;
         let workspace = sqlx::query_scalar::<_, String>(
-            "SELECT workspace_id FROM invites WHERE token = ? AND accepted_by IS NULL",
+            "UPDATE invites SET accepted_by = ? \
+             WHERE token = ? AND accepted_by IS NULL RETURNING workspace_id",
         )
+        .bind(user)
         .bind(token)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await?
         .ok_or_else(|| AtriumError::NotFound("invite not found or already used".to_owned()))?;
 
-        self.upsert_user(user).await?;
+        sqlx::query("INSERT OR IGNORE INTO app_users (user_id) VALUES (?)")
+            .bind(user)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query(
             "INSERT OR IGNORE INTO memberships (workspace_id, user_id, role) VALUES (?, ?, ?)",
         )
         .bind(&workspace)
         .bind(user)
         .bind(ROLE_MEMBER)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
-        sqlx::query("UPDATE invites SET accepted_by = ? WHERE token = ?")
-            .bind(user)
-            .bind(token)
-            .execute(&self.pool)
-            .await?;
+        tx.commit().await?;
         Ok(workspace)
     }
 

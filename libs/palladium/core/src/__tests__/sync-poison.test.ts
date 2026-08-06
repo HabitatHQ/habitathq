@@ -41,7 +41,14 @@ function good(id: string, hlcMs: number): WireChange {
   return {
     id: `c-${id}`,
     hlc: { wallMs: hlcMs, counter: 0, nodeId: ALICE },
-    ops: [{ op: "insert", table: "notes", row_id: id, data: { id, title: id, updated_at: 1 } }],
+    ops: [
+      {
+        op: "insert",
+        table: "notes",
+        row_id: id,
+        data: { id, title: id, updated_at: 1 },
+      },
+    ],
   };
 }
 
@@ -64,7 +71,8 @@ describe("SyncTransport — non-poisoning apply", () => {
     // With bounded retry the poison eventually dead-letters and n2 lands.
     let polls = 0;
     const fetch: typeof globalThis.fetch = async (input, init) => {
-      const url = typeof input === "string" ? input : (input as URL | Request).toString();
+      const url =
+        typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
       if (init?.method === "POST") return new Response(JSON.stringify({}), { status: 201 });
       if (url.includes("/v1/changes")) {
         polls += 1;
@@ -75,7 +83,10 @@ describe("SyncTransport — non-poisoning apply", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+      return new Response("[]", {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     };
 
     const transport = new SyncTransport(db, {
@@ -115,10 +126,11 @@ describe("SyncTransport — non-poisoning apply", () => {
     for (let i = 0; i < 5; i++) await transport.poll();
     await transport.stop();
 
-    const dl = await db.adapter.exec<{ change_id: string; attempts: number; permanent: number }>(
-      "SELECT change_id, attempts, permanent FROM _sync_quarantine",
-      [],
-    );
+    const dl = await db.adapter.exec<{
+      change_id: string;
+      attempts: number;
+      permanent: number;
+    }>("SELECT change_id, attempts, permanent FROM _sync_quarantine", []);
     expect(dl).toHaveLength(1);
     expect(dl[0]?.change_id).toBe("c-bad");
     expect(dl[0]?.permanent).toBe(1);

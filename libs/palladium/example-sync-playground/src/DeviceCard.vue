@@ -39,8 +39,14 @@ async function toggleTask(task: TaskRow): Promise<void> {
 }
 
 async function editTask(task: TaskRow, event: Event): Promise<void> {
-  const text = (event.target as HTMLElement).textContent?.trim() ?? "";
+  const el = event.target;
+  const text = el instanceof HTMLElement ? (el.textContent?.trim() ?? "") : "";
   if (text && text !== task.text) await props.device.engine.update("tasks", task.id, { text });
+}
+
+function onTokenChange(event: Event): void {
+  const el = event.target;
+  if (el instanceof HTMLSelectElement) emit("change-token", el.value);
 }
 
 async function deleteTask(id: string): Promise<void> {
@@ -70,7 +76,7 @@ async function toggleOnline(): Promise<void> {
       <div class="controls">
         <label class="ws">
           workspace
-          <select :value="token" @change="emit('change-token', ($event.target as HTMLSelectElement).value)">
+          <select :value="token" @change="onTokenChange">
             <option v-for="t in tokens" :key="t" :value="t">{{ t }}</option>
           </select>
         </label>
@@ -185,6 +191,14 @@ header {
   50% {
     opacity: 0.35;
   }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dot.syncing {
+    animation: none;
+  }
+}
+:global(html.reduce-motion) .dot.syncing {
+  animation: none;
 }
 
 .controls {

@@ -80,7 +80,10 @@ describe("SyncTransport — uplink", () => {
 
   it("local insert posts one Change with one wire insert op", async () => {
     const db = await makeEngine(ALICE);
-    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch: fakeFetch.fetch });
+    const transport = new SyncTransport(db, {
+      serverUrl: SERVER_URL,
+      fetch: fakeFetch.fetch,
+    });
 
     await transport.start();
     await db.insert("notes", { id: "n1", title: "hi", updated_at: 1 });
@@ -102,7 +105,10 @@ describe("SyncTransport — uplink", () => {
 
   it("multi-op tx posts one Change carrying all ops in order", async () => {
     const db = await makeEngine(ALICE);
-    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch: fakeFetch.fetch });
+    const transport = new SyncTransport(db, {
+      serverUrl: SERVER_URL,
+      fetch: fakeFetch.fetch,
+    });
 
     await transport.start();
     await db.tx((t) => {
@@ -122,7 +128,10 @@ describe("SyncTransport — uplink", () => {
     const db = await makeEngine(ALICE);
     await db.insert("notes", { id: "n1", title: "old", updated_at: 1 });
 
-    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch: fakeFetch.fetch });
+    const transport = new SyncTransport(db, {
+      serverUrl: SERVER_URL,
+      fetch: fakeFetch.fetch,
+    });
     await transport.start();
     postBodies.length = 0; // ignore the initial insert if it raced
 
@@ -141,7 +150,10 @@ describe("SyncTransport — uplink", () => {
 
   it("HLC counter advances across consecutive local writes in the same ms", async () => {
     const db = await makeEngine(ALICE);
-    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch: fakeFetch.fetch });
+    const transport = new SyncTransport(db, {
+      serverUrl: SERVER_URL,
+      fetch: fakeFetch.fetch,
+    });
 
     vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     await transport.start();
@@ -166,7 +178,10 @@ describe("SyncTransport — uplink", () => {
       }
       return jsonResponse([]);
     });
-    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch: fakeFetch.fetch });
+    const transport = new SyncTransport(db, {
+      serverUrl: SERVER_URL,
+      fetch: fakeFetch.fetch,
+    });
 
     await transport.start();
     await db.insert("notes", { id: "n1", title: "a", updated_at: 1 });
@@ -261,6 +276,30 @@ describe("SyncTransport — downlink", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.title).toBe("enveloped");
     expect(purged).toContain("root-x");
+  });
+
+  it("poll survives a malformed decoded response (non-array, then [null])", async () => {
+    const db = await makeEngine(BOB);
+    // A non-array must bail poll-safely; a `[null]` entry must be skipped, not
+    // throw mid-loop and wedge the poll.
+    const responses: unknown[] = [{ not: "an array" }, [null], []];
+    const { fetch } = makeFakeFetch((call) => {
+      if (call.init?.method === "POST") return jsonResponse({}, 201);
+      return jsonResponse(responses.shift() ?? []);
+    });
+    const transport = new SyncTransport(db, {
+      serverUrl: SERVER_URL,
+      pollIntervalMs: 30,
+      fetch,
+      // Identity decoder: hand the raw body straight to the transport.
+      decodeChanges: (body) => body as WireChange[],
+    });
+    await transport.start();
+    await new Promise((r) => setTimeout(r, 90));
+    await transport.stop();
+
+    const rows = await db.exec<Schema["notes"]>(sql`SELECT * FROM notes`);
+    expect(rows).toHaveLength(0);
   });
 
   it("advances engine.currentHlc past the remote HLC", async () => {

@@ -25,6 +25,10 @@ const inviteToken = ref<string | null>(null);
 const joinToken = ref("");
 const busy = ref(false);
 const errorMsg = ref<string | null>(null);
+// Monotonic token so only the latest mountWorkspace() call may commit its
+// result — a faster earlier click can't leave the engine and the header
+// pointing at different workspaces.
+let mountSeq = 0;
 
 async function refreshWorkspaces(): Promise<void> {
   if (!api.value) return;
@@ -46,17 +50,24 @@ async function tearDown(): Promise<void> {
 
 async function mountWorkspace(workspaceId: string): Promise<void> {
   if (!user.value) return;
+  const seq = ++mountSeq;
   busy.value = true;
   errorMsg.value = null;
   try {
     await tearDown();
+    if (seq !== mountSeq) return; // superseded during teardown
     activeWorkspace.value = workspaceId;
-    account.value = markRaw(await createAccount({ user: user.value, workspaceId, serverUrl }));
+    const next = markRaw(await createAccount({ user: user.value, workspaceId, serverUrl }));
+    if (seq !== mountSeq) {
+      await next.transport.stop(); // a newer mount won; drop this one
+      return;
+    }
+    account.value = next;
     if (api.value) members.value = await api.value.members(workspaceId);
   } catch (err) {
     errorMsg.value = String(err);
   } finally {
-    busy.value = false;
+    if (seq === mountSeq) busy.value = false;
   }
 }
 
@@ -132,13 +143,14 @@ watch(user, () => {
     <!-- Identity (dev bearer stand-in for Clerk) -->
     <section class="panel">
       <h2>Who are you?</h2>
-      <div class="row">
+      <div class="row" role="group" aria-label="Select a user">
         <button
           v-for="u in PRESET_USERS"
           :key="u"
           type="button"
           class="pill"
           :class="{ active: user === u }"
+          :aria-pressed="user === u"
           @click="chooseUser(u)"
         >
           {{ u }}
@@ -150,13 +162,15 @@ watch(user, () => {
     <!-- Family / workspace -->
     <section v-if="user" class="panel">
       <h2>Family</h2>
-      <div class="row">
+      <div class="row" role="group" aria-label="Select a family workspace">
         <button
           v-for="ws in workspaces"
           :key="ws"
           type="button"
           class="pill"
           :class="{ active: ws === activeWorkspace }"
+          :aria-pressed="ws === activeWorkspace"
+          :disabled="busy"
           @click="mountWorkspace(ws)"
         >
           #{{ shortWs(ws) }}
@@ -267,6 +281,7 @@ body {
   cursor: pointer;
   border-radius: 999px;
   padding: 0.3rem 0.8rem;
+  min-height: 44px; /* accessible touch target */
   border: 1px solid #2b3242;
   background: #1a212e;
   color: #cdd6e6;

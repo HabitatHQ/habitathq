@@ -123,7 +123,16 @@ export class NodeSqliteAdapter implements TransactableStorageAdapter, Constraint
     }
   }
 
-  /** Defer FK checks to COMMIT (`D2c`). Effective only inside a transaction. */
+  /**
+   * Defer FK checks to COMMIT (`D2c`). Effective only inside a transaction.
+   *
+   * TODO(cr/F20): SQLite defaults `PRAGMA foreign_keys` to OFF, so this deferral
+   * currently guards nothing — `open()` would need `PRAGMA foreign_keys = ON`
+   * (here and in the browser adapter for all VFS types) to actually enforce.
+   * Deferred deliberately: turning enforcement on repo-wide can surface latent
+   * violations in the habitat app's existing schema/seeds, so it needs its own
+   * validated migration rather than riding in on this sync PR.
+   */
   async deferForeignKeys(): Promise<void> {
     this.#database.exec("PRAGMA defer_foreign_keys = ON");
   }

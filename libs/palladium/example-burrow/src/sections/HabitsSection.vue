@@ -27,6 +27,7 @@ const doneByHabit = computed(() => {
 });
 
 const newHabit = ref("");
+const toggling = new Set<string>(); // habit ids with an in-flight toggle
 
 async function addHabit(): Promise<void> {
   const name = newHabit.value.trim();
@@ -36,11 +37,25 @@ async function addHabit(): Promise<void> {
 }
 
 async function toggleToday(habit: HabitRow): Promise<void> {
-  const existing = doneByHabit.value.get(habit.id);
-  if (existing) {
-    await engine.update("completions", existing.id, { done: existing.done === 1 ? 0 : 1 });
-  } else {
-    await engine.insert("completions", { id: newId(), root_id: habit.id, day: today, done: 1 });
+  // The `doneByHabit` map lags behind the live query, so two rapid toggles
+  // could both observe "no completion" and both insert a duplicate. Guard with
+  // an in-flight set and read the current row straight from the store rather
+  // than the async projection.
+  if (toggling.has(habit.id)) return;
+  toggling.add(habit.id);
+  try {
+    const rows = await engine.adapter.exec<{ id: string; done: number }>(
+      "SELECT id, done FROM completions WHERE root_id = ? AND day = ? LIMIT 1",
+      [habit.id, today],
+    );
+    const existing = rows[0];
+    if (existing) {
+      await engine.update("completions", existing.id, { done: existing.done === 1 ? 0 : 1 });
+    } else {
+      await engine.insert("completions", { id: newId(), root_id: habit.id, day: today, done: 1 });
+    }
+  } finally {
+    toggling.delete(habit.id);
   }
 }
 </script>

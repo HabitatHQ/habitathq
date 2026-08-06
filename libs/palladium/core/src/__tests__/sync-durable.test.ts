@@ -67,14 +67,15 @@ describe("durable sync state — nodeId + HLC across restart", () => {
     await engine2.init(SCHEMA);
 
     expect(engine2.nodeId).toBe(nodeId1); // adopted, not the constructor value
-    expect(engine2.currentHlc).not.toBeNull();
+    const resumed = engine2.currentHlc;
+    expect(resumed).not.toBeNull();
+    expect(hlc1).not.toBeNull();
+    if (resumed === null || hlc1 === null) throw new Error("expected non-null HLCs after restart");
     // Resumed at (or after) the persisted HLC — never reset to zero.
-    expect(
-      compareHlc(engine2.currentHlc as NonNullable<typeof hlc1>, hlc1 as NonNullable<typeof hlc1>),
-    ).toBeGreaterThanOrEqual(0);
+    expect(compareHlc(resumed, hlc1)).toBeGreaterThanOrEqual(0);
     // The next send is strictly greater than the pre-restart HLC (no reuse).
     const next = engine2.nextSendHlc();
-    expect(compareHlc(next, hlc1 as NonNullable<typeof hlc1>)).toBe(1);
+    expect(compareHlc(next, hlc1)).toBe(1);
     await engine2.adapter.close();
   });
 });
@@ -114,7 +115,10 @@ describe("durable sync state — poll cursor across transport restart", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+      return new Response("[]", {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     };
     const t1 = new SyncTransport(db, { serverUrl: SERVER_URL, fetch: fetch1 });
     await t1.start();
@@ -128,8 +132,13 @@ describe("durable sync state — poll cursor across transport restart", () => {
     const seenUrls: string[] = [];
     const fetch2: typeof globalThis.fetch = async (input, init) => {
       if (init?.method === "POST") return new Response("{}", { status: 201 });
-      seenUrls.push(typeof input === "string" ? input : (input as URL | Request).toString());
-      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+      seenUrls.push(
+        typeof input === "string" ? input : input instanceof Request ? input.url : input.href,
+      );
+      return new Response("[]", {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     };
     const t2 = new SyncTransport(db, { serverUrl: SERVER_URL, fetch: fetch2 });
     await t2.start();

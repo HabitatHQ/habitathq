@@ -69,6 +69,19 @@
   background: #2a68d8;
   color: white;
   cursor: pointer;
+  min-height: 44px; /* accessible touch target */
+}
+
+/* Clip an element visually while keeping it focusable and in the a11y tree
+   (used for the file input that the 📎 label triggers). Unlike `hidden`, a
+   keyboard/screen-reader user can still reach the control. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .card .btn.subtle {
   background: #1a212e;

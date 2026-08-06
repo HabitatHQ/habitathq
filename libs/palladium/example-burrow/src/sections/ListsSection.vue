@@ -77,16 +77,19 @@ async function setSharing(list: ListRow, cls: string): Promise<void> {
       <li v-for="l in lists" :key="l.id" style="flex-direction: column; align-items: stretch">
         <div class="share-row">
           <strong style="flex: 1">{{ l.name }}</strong>
-          <button
-            v-for="cls in ['private', 'household_read', 'household_rw']"
-            :key="cls"
-            type="button"
-            class="btn subtle"
-            :style="sharing.get(l.id) === cls ? 'outline: 1px solid #2a68d8' : ''"
-            @click="setSharing(l, cls)"
-          >
-            {{ cls === 'private' ? 'private' : cls === 'household_read' ? 'read' : 'read+write' }}
-          </button>
+          <div role="group" :aria-label="`Sharing for ${l.name}`" class="share-row">
+            <button
+              v-for="cls in ['private', 'household_read', 'household_rw']"
+              :key="cls"
+              type="button"
+              class="btn subtle"
+              :aria-pressed="sharing.get(l.id) === cls"
+              :style="sharing.get(l.id) === cls ? 'outline: 1px solid #2a68d8' : ''"
+              @click="setSharing(l, cls)"
+            >
+              {{ cls === 'private' ? 'private' : cls === 'household_read' ? 'read' : 'read+write' }}
+            </button>
+          </div>
         </div>
         <ul class="sub">
           <li v-for="it in itemsByList.get(l.id) ?? []" :key="it.id">

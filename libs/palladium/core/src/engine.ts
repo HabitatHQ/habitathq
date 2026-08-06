@@ -103,7 +103,11 @@ interface MetaRow {
 }
 
 function metaRowToHlc(row: MetaRow): Hlc {
-  return { wallMs: row.hlc_wall_ms, counter: row.hlc_counter, nodeId: row.hlc_node_id };
+  return {
+    wallMs: row.hlc_wall_ms,
+    counter: row.hlc_counter,
+    nodeId: row.hlc_node_id,
+  };
 }
 
 // ── Durable sync state (`_sync_state`, D2b) ──────────────────────────────────
@@ -312,6 +316,14 @@ export class PalladiumEngine<S extends SchemaMap> {
 
     await this.#notifyLiveQueries([...touchedTables]);
 
+    // TODO(cr/F21): `#suppressLocalEmit` is an instance flag set across
+    // applyRemote()'s await window. A tx() that reaches this check while an
+    // applyRemote() is mid-transaction would skip its own "changes:local"
+    // emit, silently dropping the uplink for that write. Fix by serialising
+    // tx() and applyRemote() on a shared promise chain (so their windows can't
+    // overlap) or by threading the suppression flag through the write path
+    // instead of the instance. Deferred: needs a dedicated concurrency test;
+    // not hot-patched here to avoid destabilising the shared engine.
     if (!this.#suppressLocalEmit && hlc !== null) {
       this.emitter.emit("changes:local", {
         ops,
@@ -559,7 +571,9 @@ export class PalladiumEngine<S extends SchemaMap> {
   async #stampLocalMeta(adpt: StorageAdapter, op: Op<S>, hlc: Hlc): Promise<void> {
     const table = String(op.table);
     if (op.type === "insert") {
-      const data = op.data as unknown as Record<string, unknown> & { id: string };
+      const data = op.data as unknown as Record<string, unknown> & {
+        id: string;
+      };
       await this.#clearTombstone(adpt, table, data.id);
       await this.#stampCols(adpt, table, data.id, Object.keys(data), hlc);
     } else if (op.type === "update") {
@@ -633,6 +647,15 @@ export class PalladiumEngine<S extends SchemaMap> {
     const existing = await adpt.exec(`SELECT 1 FROM ${table} WHERE id = ? LIMIT 1`, [data.id]);
     if (existing.length === 0) {
       // Brand-new row: insert the full payload so NOT NULL columns are set.
+      // TODO(cr/F22): if a higher-HLC update for this row arrived first, it
+      // stamped column metadata but couldn't store its value (patch is a no-op
+      // on an absent row). This insert then overwrites both value and metadata
+      // for those columns, losing the newer update permanently. The correct fix
+      // is to buffer updates for not-yet-present rows (or persist their values)
+      // rather than stamp metadata for a row that doesn't exist — stamping only
+      // `winning` here would keep the metadata but still restore the stale
+      // value, so a minimal patch would paper over it. Deferred to a dedicated
+      // CRDT-ordering fix with coverage.
       await this._putRow(adpt, table, data.id, data);
       await this.#stampCols(adpt, table, data.id, Object.keys(data), hlc);
     } else {

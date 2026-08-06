@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { sql } from "@palladium/core";
 import { useLiveQuery } from "@palladium/vue";
-import { computed, ref, watch } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 import type { Account, AtriumApi } from "../atrium.js";
 import { newId } from "../atrium.js";
 import type { NoteImageRow, NoteRow } from "../schema.js";
@@ -33,6 +33,7 @@ const newTitle = ref("");
 const grantee = ref(new Map<string, string>());
 const perm = ref(new Map<string, "read" | "write">());
 const thumbs = ref(new Map<string, string>()); // blob_id → object URL
+const inFlight = new Set<string>(); // blob_ids currently being fetched
 const err = ref<string | null>(null);
 
 async function addNote(): Promise<void> {
@@ -86,14 +87,29 @@ async function attachImage(note: NoteRow, event: Event): Promise<void> {
 }
 
 async function loadThumb(blobId: string): Promise<void> {
-  if (thumbs.value.has(blobId)) return;
-  const blob = await props.api.getBlob(blobId);
-  if (blob) {
-    thumbs.value.set(blobId, URL.createObjectURL(blob));
-    // reassign to trigger reactive re-render of the thumbnail grid
-    thumbs.value = new Map(thumbs.value);
+  // Guard against a re-entrant fetch for the same blob: without the in-flight
+  // set, a watcher that fires twice before the first `getBlob` resolves would
+  // create two object URLs and leak the first.
+  if (thumbs.value.has(blobId) || inFlight.has(blobId)) return;
+  inFlight.add(blobId);
+  try {
+    const blob = await props.api.getBlob(blobId);
+    if (blob && !thumbs.value.has(blobId)) {
+      const next = new Map(thumbs.value);
+      next.set(blobId, URL.createObjectURL(blob));
+      // reassign to trigger reactive re-render of the thumbnail grid
+      thumbs.value = next;
+    }
+  } finally {
+    inFlight.delete(blobId);
   }
 }
+
+// Release every object URL when the section unmounts (workspace/user switch) so
+// the blobs don't stay pinned in memory for the document's lifetime.
+onUnmounted(() => {
+  for (const url of thumbs.value.values()) URL.revokeObjectURL(url);
+});
 
 // Fetch any blob bytes we don't have yet whenever the image rows change (new
 // local attach, or a sync/backfill from another member).
@@ -136,8 +152,14 @@ watch(
           <button type="button" class="btn subtle" @click="shareNote(n)">grant</button>
           <button type="button" class="btn subtle" @click="unshareNote(n)">revoke</button>
           <label class="btn subtle" style="cursor: pointer">
-            📎 image
-            <input type="file" accept="image/*" hidden @change="attachImage(n, $event)" />
+            <span aria-hidden="true">📎</span> image
+            <input
+              type="file"
+              accept="image/*"
+              class="visually-hidden"
+              :aria-label="`Attach an image to ${n.title}`"
+              @change="attachImage(n, $event)"
+            />
           </label>
         </div>
         <div v-if="(imagesByNote.get(n.id) ?? []).length" class="thumbs">

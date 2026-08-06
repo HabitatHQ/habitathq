@@ -37,4 +37,12 @@ const status = useSyncStatus(props.engine);
     opacity: 0.35;
   }
 }
+@media (prefers-reduced-motion: reduce) {
+  .dot.syncing {
+    animation: none;
+  }
+}
+:global(html.reduce-motion) .dot.syncing {
+  animation: none;
+}
 </style>

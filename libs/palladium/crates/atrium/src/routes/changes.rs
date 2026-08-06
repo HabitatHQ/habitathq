@@ -141,6 +141,13 @@ pub(super) async fn post_changes(
     let workspace = workspace_of(&headers)?;
     let db = state.db();
     db.require_member(&workspace, user.as_str()).await?;
+    // TODO(cr/F10): `authorize_and_record` writes ACL metadata into Atrium's DB
+    // as it authorises each op, but the change log lives in a *separate* store,
+    // so this is not atomic: if `changes().insert` below fails, the metadata
+    // persists without a corresponding change. `insert_record` is INSERT-OR-
+    // IGNORE (idempotent) and the POC posts one row per change, so a retry re-
+    // authorises cleanly; full atomicity needs both facts in one store (or a
+    // durable rollback) and is deferred with the two-service prod topology.
     for op in &change.ops {
         authorize_and_record(db, &workspace, user.as_str(), op).await?;
     }
@@ -189,6 +196,13 @@ pub(super) async fn get_changes(
 
     // Grant-backfill: surface each newly-granted root's full history, out of
     // cursor order, so the caller converges to the shared state.
+    //
+    // TODO(cr/F9): events are marked delivered as soon as this handler builds a
+    // response, before the client confirms receipt. If the connection drops
+    // afterwards, a grantee can miss backfill history or a revoked client can
+    // miss its purge. A stronger contract returns durable event ids and marks
+    // them delivered only on an explicit client ack, keeping backfill/purge
+    // idempotent until then. Deferred: at-most-once is acceptable for the POC.
     let grants = db.pending_events(user.as_str(), EVENT_GRANT).await?;
     if !grants.is_empty() {
         let history = state

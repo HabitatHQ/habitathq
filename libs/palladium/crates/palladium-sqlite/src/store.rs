@@ -9,6 +9,12 @@ use crate::{Error, Result};
 
 // ── Schema migration ──────────────────────────────────────────────────────
 
+// TODO(cr/F1): `CREATE TABLE IF NOT EXISTS` does not add `scope` to a table that
+// predates it, so the `(scope, hlc_key)` index would fail on a pre-`scope` DB.
+// Palladium is pre-release and the change store is created fresh (no shipped
+// scope-less databases), so an in-place `ALTER TABLE … ADD COLUMN scope … +
+// backfill 'default'` guarded upgrade is deferred to the first release that
+// must migrate an existing store. Mirror it in the Postgres store when added.
 const MIGRATE: &str = "
 CREATE TABLE IF NOT EXISTS palladium_changes (
     id          TEXT    NOT NULL PRIMARY KEY,

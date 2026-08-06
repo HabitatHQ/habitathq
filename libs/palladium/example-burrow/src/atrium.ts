@@ -1,4 +1,4 @@
-import type { PalladiumEngine, WireChange } from "@palladium/core";
+import type { Op, PalladiumEngine, RemoteChange, WireChange } from "@palladium/core";
 import { createEngine, SyncTransport } from "@palladium/core";
 import { BrowserSqliteAdapter } from "@palladium/sqlite-browser";
 import { BURROW_SCHEMA, type BurrowSchema, CHILD_TABLES, ROOT_TABLES } from "./schema.js";
@@ -68,7 +68,9 @@ export class AtriumApi {
 
   /** Create a workspace; the caller becomes its owner. Returns the new id. */
   async createWorkspace(): Promise<string> {
-    const { id } = await this.#json<{ id: string }>("/v1/workspaces", { method: "POST" });
+    const { id } = await this.#json<{ id: string }>("/v1/workspaces", {
+      method: "POST",
+    });
     return id;
   }
 
@@ -159,7 +161,7 @@ async function applyPurges(
   rootIds: string[],
 ): Promise<void> {
   for (const rootId of rootIds) {
-    const ops: { type: "delete"; table: string; id: string }[] = [];
+    const ops: Op<BurrowSchema>[] = [];
     for (const child of CHILD_TABLES) {
       const rows = await engine.adapter.exec<{ id: string }>(
         `SELECT id FROM ${child} WHERE root_id = ?`,
@@ -175,9 +177,11 @@ async function applyPurges(
       for (const { id } of rows) ops.push({ type: "delete", table: root, id });
     }
     if (ops.length === 0) continue;
-    const change = { id: newId(), hlc: engine.nextSendHlc(), ops } as unknown as Parameters<
-      PalladiumEngine<BurrowSchema>["applyRemote"]
-    >[0];
+    const change: RemoteChange<BurrowSchema> = {
+      id: newId(),
+      hlc: engine.nextSendHlc(),
+      ops,
+    };
     await engine.applyRemote(change);
   }
 }
@@ -189,12 +193,18 @@ async function applyPurges(
  */
 function deviceNodeId(user: string, workspaceId: string): string {
   const key = `burrow:node:${user}:${workspaceId}`;
-  let id = localStorage.getItem(key);
-  if (!id) {
-    id = newId();
+  try {
+    const existing = localStorage.getItem(key);
+    if (existing) return existing;
+    const id = newId();
     localStorage.setItem(key, id);
+    return id;
+  } catch {
+    // Storage blocked (private browsing / disabled site data). A per-session id
+    // is fine for the POC — the durable cursor simply re-hydrates on reload —
+    // and letting the SecurityError escape would defeat the in-memory fallback.
+    return newId();
   }
-  return id;
 }
 
 /**
@@ -212,7 +222,11 @@ async function buildEngine(
     const engine = createEngine<BurrowSchema>(
       new BrowserSqliteAdapter({
         // Per-user pool directory so alice's and bob's tabs don't contend.
-        vfs: { type: "opfs-sah-pool", directory: `burrow-${user}`, filename: `${workspaceId}.db` },
+        vfs: {
+          type: "opfs-sah-pool",
+          directory: `burrow-${user}`,
+          filename: `${workspaceId}.db`,
+        },
       }),
       { nodeId },
     );

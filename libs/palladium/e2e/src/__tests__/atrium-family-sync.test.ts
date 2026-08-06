@@ -20,7 +20,9 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import {
   createEngine,
+  type Op,
   type PalladiumEngine,
+  type RemoteChange,
   type SchemaConfig,
   SyncTransport,
   sql,
@@ -45,7 +47,12 @@ type BurrowSchema = {
   lists: { id: string; name: string; created_at: number };
   list_items: { id: string; root_id: string; text: string; done: number };
   notes: { id: string; title: string; body: string; created_at: number };
-  note_images: { id: string; root_id: string; blob_id: string; caption: string };
+  note_images: {
+    id: string;
+    root_id: string;
+    blob_id: string;
+    caption: string;
+  };
 };
 
 const ROOT_TABLES = ["habits", "lists", "notes"] as const;
@@ -84,7 +91,10 @@ async function waitForReady(url: string, timeoutMs = 30_000): Promise<void> {
 }
 
 beforeAll(async () => {
-  execFileSync("cargo", ["build", "-p", "atrium"], { cwd: ROOT, stdio: "inherit" });
+  execFileSync("cargo", ["build", "-p", "atrium"], {
+    cwd: ROOT,
+    stdio: "inherit",
+  });
   tmpDir = await mkdtemp(join(tmpdir(), "atrium-e2e-"));
   server = spawn(
     BINARY,
@@ -144,9 +154,16 @@ async function family(): Promise<string> {
 }
 
 const share = (owner: string, root: string, grantee: string, perm: "read" | "write") =>
-  rest("POST", "/v1/shares", owner, { root_id: root, grantee_user_id: grantee, perm });
+  rest("POST", "/v1/shares", owner, {
+    root_id: root,
+    grantee_user_id: grantee,
+    perm,
+  });
 const unshare = (owner: string, root: string, grantee: string) =>
-  rest("DELETE", "/v1/shares", owner, { root_id: root, grantee_user_id: grantee });
+  rest("DELETE", "/v1/shares", owner, {
+    root_id: root,
+    grantee_user_id: grantee,
+  });
 const setSharing = (owner: string, root: string, cls: string) =>
   rest("PATCH", `/v1/records/${root}/sharing`, owner, { class: cls });
 
@@ -203,7 +220,7 @@ interface Client {
 
 async function applyPurges(engine: PalladiumEngine<BurrowSchema>, roots: string[]): Promise<void> {
   for (const rootId of roots) {
-    const ops: { type: "delete"; table: string; id: string }[] = [];
+    const ops: Op<BurrowSchema>[] = [];
     for (const child of CHILD_TABLES) {
       const rows = await engine.adapter.exec<{ id: string }>(
         `SELECT id FROM ${child} WHERE root_id = ?`,
@@ -219,9 +236,11 @@ async function applyPurges(engine: PalladiumEngine<BurrowSchema>, roots: string[
       for (const { id } of rows) ops.push({ type: "delete", table: root, id });
     }
     if (ops.length === 0) continue;
-    const change = { id: newId(), hlc: engine.nextSendHlc(), ops } as unknown as Parameters<
-      PalladiumEngine<BurrowSchema>["applyRemote"]
-    >[0];
+    const change: RemoteChange<BurrowSchema> = {
+      id: newId(),
+      hlc: engine.nextSendHlc(),
+      ops,
+    };
     await engine.applyRemote(change);
   }
 }
@@ -283,7 +302,11 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
     const bob = track(await makeClient("bob", ws));
 
     const habit = newId();
-    await alice1.engine.insert("habits", { id: habit, name: "Meditate", created_at: Date.now() });
+    await alice1.engine.insert("habits", {
+      id: habit,
+      name: "Meditate",
+      created_at: Date.now(),
+    });
     const comp = newId();
     await alice1.engine.insert("completions", {
       id: comp,
@@ -308,9 +331,18 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
     const bob = track(await makeClient("bob", ws));
 
     const list = newId();
-    await alice.engine.insert("lists", { id: list, name: "Groceries", created_at: Date.now() });
+    await alice.engine.insert("lists", {
+      id: list,
+      name: "Groceries",
+      created_at: Date.now(),
+    });
     const item = newId();
-    await alice.engine.insert("list_items", { id: item, root_id: list, text: "Milk", done: 0 });
+    await alice.engine.insert("list_items", {
+      id: item,
+      root_id: list,
+      text: "Milk",
+      done: 0,
+    });
     await waitServerHas("alice", ws, item);
 
     await sleep(POLL_MS * 6);
@@ -327,9 +359,18 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
     const bob = track(await makeClient("bob", ws));
 
     const list = newId();
-    await alice.engine.insert("lists", { id: list, name: "Chores", created_at: Date.now() });
+    await alice.engine.insert("lists", {
+      id: list,
+      name: "Chores",
+      created_at: Date.now(),
+    });
     const item = newId();
-    await alice.engine.insert("list_items", { id: item, root_id: list, text: "v0", done: 0 });
+    await alice.engine.insert("list_items", {
+      id: item,
+      root_id: list,
+      text: "v0",
+      done: 0,
+    });
     await waitServerHas("alice", ws, item);
 
     expect((await setSharing("alice", list, "household_rw")).status).toBe(200);
@@ -347,7 +388,9 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
     // Downgrade to read-only; bob's next write is rejected server-side.
     expect((await setSharing("alice", list, "household_read")).status).toBe(200);
     await sleep(POLL_MS * 3);
-    await bob.engine.update("list_items", item, { text: "v2-should-be-rejected" });
+    await bob.engine.update("list_items", item, {
+      text: "v2-should-be-rejected",
+    });
 
     await sleep(POLL_MS * 8);
     const rows = await alice.engine.exec<{ text: string }>(
