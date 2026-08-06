@@ -1,12 +1,13 @@
 //! HTTP handlers and the client-facing [`Router`] factory.
 
+mod blobs;
 mod changes;
 mod health;
 mod shares;
 mod workspaces;
 
 use axum::{
-    routing::{get, patch, post},
+    routing::{get, patch, post, put},
     Router,
 };
 use tower_http::cors::CorsLayer;
@@ -22,6 +23,7 @@ use crate::state::AtriumState;
 /// - `POST /v1/invites/:token/accept`
 /// - `POST /v1/changes`, `GET /v1/changes` (ACL-filtered, `{changes, purges}`)
 /// - `POST /v1/shares`, `DELETE /v1/shares`, `PATCH /v1/records/:root_id/sharing`
+/// - `PUT /v1/blobs/:blob_id`, `GET /v1/blobs/:blob_id` (note-inherited ACL)
 ///
 /// `cors` controls cross-origin access (use [`CorsLayer::permissive`] in dev).
 pub fn create_router(state: AtriumState, cors: CorsLayer) -> Router {
@@ -45,6 +47,10 @@ pub fn create_router(state: AtriumState, cors: CorsLayer) -> Router {
         .route(
             "/v1/records/:root_id/sharing",
             patch(shares::set_sharing),
+        )
+        .route(
+            "/v1/blobs/:blob_id",
+            put(blobs::put_blob).get(blobs::get_blob),
         )
         .with_state(state)
         .layer(cors)

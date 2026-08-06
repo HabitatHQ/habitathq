@@ -55,6 +55,15 @@ CREATE TABLE IF NOT EXISTS grant_events (
     kind      TEXT    NOT NULL,
     delivered INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS blobs (
+    blob_id       TEXT    NOT NULL PRIMARY KEY,
+    workspace_id  TEXT    NOT NULL,
+    note_id       TEXT    NOT NULL,
+    owner_user_id TEXT    NOT NULL,
+    content_type  TEXT    NOT NULL,
+    bytes         BLOB    NOT NULL,
+    created_at    INTEGER NOT NULL
+);
 ";
 
 /// Sharing class: private to the owner (default).
@@ -87,6 +96,26 @@ pub struct AclRecord {
     pub owner_user_id: String,
     /// Sharing class of a root (`private` / `household_read` / `household_rw`).
     pub sharing: String,
+}
+
+/// A stored blob (e.g. a `note_images` payload) and its parent-note linkage.
+///
+/// Blob bytes travel outside the JSON change stream; the blob inherits its ACL
+/// from `note_id` (the owning aggregate root, `D18`).
+#[derive(Debug, Clone)]
+pub struct BlobRecord {
+    /// The blob's id (client-chosen UUID).
+    pub blob_id: String,
+    /// Owning workspace.
+    pub workspace_id: String,
+    /// The note (aggregate root) whose ACL gates this blob.
+    pub note_id: String,
+    /// Uploader (Atrium-set from identity, never the client payload).
+    pub owner_user_id: String,
+    /// MIME type to echo back on read.
+    pub content_type: String,
+    /// Raw bytes.
+    pub bytes: Vec<u8>,
 }
 
 /// Role of a member within a workspace.
@@ -525,6 +554,63 @@ impl AtriumDb {
             return Ok(true);
         }
         Ok(self.get_share(&root.row_id, caller).await?.as_deref() == Some(PERM_WRITE))
+    }
+
+    // ── Blob channel (Phase 3c) ─────────────────────────────────────────────
+
+    /// Store (or replace) a blob linked to `note_id` (`D18`). Authorization is
+    /// the caller's responsibility — this only persists.
+    ///
+    /// # Errors
+    /// Returns an error if the write fails.
+    pub async fn put_blob(
+        &self,
+        blob_id: &str,
+        workspace: &str,
+        note_id: &str,
+        owner: &str,
+        content_type: &str,
+        bytes: &[u8],
+    ) -> Result<(), AtriumError> {
+        sqlx::query(
+            "INSERT OR REPLACE INTO blobs \
+             (blob_id, workspace_id, note_id, owner_user_id, content_type, bytes, created_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(blob_id)
+        .bind(workspace)
+        .bind(note_id)
+        .bind(owner)
+        .bind(content_type)
+        .bind(bytes)
+        .bind(now_millis())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Fetch a blob and its note linkage, if present.
+    ///
+    /// # Errors
+    /// Returns an error if the query fails.
+    pub async fn get_blob(&self, blob_id: &str) -> Result<Option<BlobRecord>, AtriumError> {
+        let row = sqlx::query_as::<_, (String, String, String, String, String, Vec<u8>)>(
+            "SELECT blob_id, workspace_id, note_id, owner_user_id, content_type, bytes \
+             FROM blobs WHERE blob_id = ?",
+        )
+        .bind(blob_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(
+            |(blob_id, workspace_id, note_id, owner_user_id, content_type, bytes)| BlobRecord {
+                blob_id,
+                workspace_id,
+                note_id,
+                owner_user_id,
+                content_type,
+                bytes,
+            },
+        ))
     }
 }
 

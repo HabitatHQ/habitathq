@@ -129,6 +129,49 @@ async fn set_sharing(app: &Router, owner: &str, root: Uuid, class: &str) -> Stat
     call(app, "PATCH", &format!("/v1/records/{root}/sharing"), Some(owner), None, Some(body)).await.0
 }
 
+// ── blob channel (Phase 3c) ─────────────────────────────────────────────────
+
+/// Fire a request with raw bytes and arbitrary headers; return status + body.
+async fn call_bytes(
+    app: &Router,
+    method: &str,
+    uri: &str,
+    bearer: Option<&str>,
+    extra: &[(&str, &str)],
+    body: Option<Vec<u8>>,
+) -> (StatusCode, Vec<u8>) {
+    let mut builder = Request::builder().method(method).uri(uri);
+    if let Some(t) = bearer {
+        builder = builder.header(AUTHORIZATION, format!("Bearer {t}"));
+    }
+    for (k, v) in extra {
+        builder = builder.header(*k, *v);
+    }
+    let req_body = body.map_or_else(Body::empty, Body::from);
+    let resp = app.clone().oneshot(builder.body(req_body).unwrap()).await.unwrap();
+    let status = resp.status();
+    let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    (status, bytes.to_vec())
+}
+
+async fn put_blob(app: &Router, user: &str, ws: &str, note: Uuid, blob_id: &str, bytes: &[u8]) -> StatusCode {
+    let note = note.to_string();
+    call_bytes(
+        app,
+        "PUT",
+        &format!("/v1/blobs/{blob_id}"),
+        Some(user),
+        &[("x-workspace", ws), ("x-note", &note), (CONTENT_TYPE.as_str(), "image/png")],
+        Some(bytes.to_vec()),
+    )
+    .await
+    .0
+}
+
+async fn get_blob(app: &Router, user: &str, blob_id: &str) -> (StatusCode, Vec<u8>) {
+    call_bytes(app, "GET", &format!("/v1/blobs/{blob_id}"), Some(user), &[], None).await
+}
+
 /// Whether the envelope's `changes` contain any op targeting `row`.
 fn sees(env: &Value, row: Uuid) -> bool {
     let target = row.to_string();
@@ -279,6 +322,60 @@ async fn a6_offline_write_after_revoke_rejected() {
         StatusCode::FORBIDDEN,
         "a write after revoke is rejected"
     );
+}
+
+#[tokio::test]
+async fn a7_blob_inherits_note_acl() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let (note, ch) = root_insert("notes");
+    post_change(&app, "alice", &ws, ch).await;
+
+    let blob = Uuid::new_v4().to_string();
+    let png: &[u8] = b"\x89PNG\r\n\x1a\n";
+
+    // owner uploads and reads her own blob
+    assert_eq!(put_blob(&app, "alice", &ws, note, &blob, png).await, StatusCode::CREATED);
+    let (status, got) = get_blob(&app, "alice", &blob).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(got.as_slice(), png, "owner reads her own blob bytes");
+
+    // a member without a grant cannot read it
+    assert_eq!(get_blob(&app, "bob", &blob).await.0, StatusCode::FORBIDDEN);
+
+    // a read grant on the note surfaces its blob to bob …
+    assert_eq!(share(&app, "alice", note, "bob", "read").await, StatusCode::OK);
+    let (status, got) = get_blob(&app, "bob", &blob).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(got.as_slice(), png, "read grant on the note surfaces its blob");
+
+    // … but a read grant is not enough to upload a new blob …
+    let blob2 = Uuid::new_v4().to_string();
+    assert_eq!(put_blob(&app, "bob", &ws, note, &blob2, png).await, StatusCode::FORBIDDEN);
+    // … and a non-grantee still cannot read.
+    assert_eq!(get_blob(&app, "carol", &blob).await.0, StatusCode::FORBIDDEN);
+
+    // a write grant lets bob upload through the note's ACL
+    assert_eq!(share(&app, "alice", note, "bob", "write").await, StatusCode::OK);
+    assert_eq!(put_blob(&app, "bob", &ws, note, &blob2, png).await, StatusCode::CREATED);
+}
+
+#[tokio::test]
+async fn a7_blob_rejects_unknown_or_non_root_note() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let blob = Uuid::new_v4().to_string();
+
+    // a note Atrium has never seen → 404
+    let missing = Uuid::new_v4();
+    assert_eq!(put_blob(&app, "alice", &ws, missing, &blob, b"x").await, StatusCode::NOT_FOUND);
+
+    // a child row is not a valid blob anchor → 400
+    let (note, ch) = root_insert("notes");
+    post_change(&app, "alice", &ws, ch).await;
+    let (img, ch2) = child_insert("note_images", note);
+    post_change(&app, "alice", &ws, ch2).await;
+    assert_eq!(put_blob(&app, "alice", &ws, img, &blob, b"x").await, StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
