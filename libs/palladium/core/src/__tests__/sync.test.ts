@@ -302,6 +302,29 @@ describe("SyncTransport — downlink", () => {
     expect(rows).toHaveLength(0);
   });
 
+  it("poll() before start() provisions tables and can quarantine a bad change", async () => {
+    const db = await makeEngine(BOB);
+    // Insert omits NOT NULL `title` → apply throws → must be quarantinable, which
+    // needs `_sync_quarantine`. Before the fix, poll() without start() rejected
+    // with "no such table".
+    const poison: WireChange = {
+      id: "c1",
+      hlc: { wallMs: 1_700_000_000_000, counter: 0, nodeId: ALICE },
+      ops: [{ op: "insert", table: "notes", row_id: "n1", data: { id: "n1" } }],
+    };
+    const { fetch } = makeFakeFetch(() => jsonResponse([poison]));
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+
+    // Drive a single poll directly, without start().
+    await expect(transport.poll()).resolves.toBeUndefined();
+
+    const dl = await db.adapter.exec<{ change_id: string }>(
+      "SELECT change_id FROM _sync_quarantine",
+      [],
+    );
+    expect(dl.map((r) => r.change_id)).toContain("c1");
+  });
+
   it("advances engine.currentHlc past the remote HLC", async () => {
     const db = await makeEngine(BOB);
     const remoteHlc = { wallMs: 9_999_999_999_999, counter: 7, nodeId: ALICE };

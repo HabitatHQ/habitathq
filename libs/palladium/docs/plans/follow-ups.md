@@ -47,23 +47,20 @@ impl + one header change. Nothing in the ACL/sync/UI model needs to change.
 
 ## 2. Deferred CodeRabbit findings
 
-### 2a. Core CRDT / concurrency correctness (real bugs — need dedicated fixes)
+### 2a. Core CRDT / concurrency correctness
 
-These are genuine correctness issues in the Phase-1 engine. They were **not**
-hot-patched: the minimal fixes would either destabilise the shared engine (which
-the shipping Habitat app depends on) or paper over the symptom. Each needs a
-focused fix **with a regression test**.
-
-- **F21 — concurrent `applyRemote` can drop a local change event.**
-  `libs/palladium/core/src/engine.ts:319` (`TODO(cr/F21)`). `#suppressLocalEmit`
-  is an instance flag held across `applyRemote()`'s await window; a `tx()` that
-  commits inside that window skips its `"changes:local"` emit, so the write is
-  never uploaded (silent divergence). Fix: serialise `tx()` and `applyRemote()`
-  on a shared promise chain, or thread the suppression flag through the write
-  path instead of the instance.
+- **F21 — concurrent `applyRemote` could drop a local change event. ✅ FIXED**
+  (round 2). `tx()` and `applyRemote()` now run their write critical-sections
+  through a shared `#serialize` promise chain in `engine.ts`, so their
+  `#suppressLocalEmit` windows can't overlap; live-query notification stays
+  outside the chain to avoid subscriber-reentrancy deadlock. Regression test:
+  `engine.test.ts` "a local tx concurrent with applyRemote still emits
+  changes:local (F21)".
 - **F22 — a remote insert after a remote update discards the newer update.**
-  `libs/palladium/core/src/engine.ts:650` (`TODO(cr/F22)`). When an update for a
-  not-yet-present row arrives first, it stamps column metadata but can't store
+  ⛔ still deferred (needs update-buffering — a focused fix + tests, not a
+  hot-patch). `libs/palladium/core/src/engine.ts:650` (`TODO(cr/F22)`). When an
+  update for a not-yet-present row arrives first, it stamps column metadata but
+  can't store
   its value (patch is a no-op on an absent row); a later lower-HLC insert then
   overwrites both value and metadata. Correct fix: **buffer updates for absent
   rows** (or persist their values) rather than stamp metadata for a row that

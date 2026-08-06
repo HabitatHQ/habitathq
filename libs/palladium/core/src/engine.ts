@@ -232,6 +232,25 @@ export class PalladiumEngine<S extends SchemaMap> {
   /** Guards one-time DDL of the internal `_sync_*` shadow tables. */
   #syncTablesReady = false;
 
+  /**
+   * Serialises the write critical-sections of `tx()` and `applyRemote()` so
+   * their `#suppressLocalEmit` windows can never overlap (F21): a `tx()`
+   * committing inside `applyRemote()`'s await window used to observe the
+   * suppression flag and silently drop its `"changes:local"` emit. Each section
+   * runs to completion before the next begins; a failure doesn't wedge the
+   * chain. Live-query notification stays OUTSIDE this chain, so a subscriber
+   * that calls back into `tx()`/`applyRemote()` can't deadlock.
+   */
+  #writeChain: Promise<unknown> = Promise.resolve();
+  #serialize<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.#writeChain.then(fn, fn);
+    this.#writeChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
   /** Idempotently create the column-LWW + durable-state shadow tables (`D3`/`D2b`). */
   async #ensureSyncTables(adpt: StorageAdapter): Promise<void> {
     if (this.#syncTablesReady) return;
@@ -291,47 +310,44 @@ export class PalladiumEngine<S extends SchemaMap> {
     }
     const ops = builder.build();
     const touchedTables = new Set<string>();
-    // One HLC per change (only minted when there is something to stamp).
-    const hlc = ops.length > 0 ? this.nextSendHlc() : null;
     const changeId = crypto.randomUUID();
 
-    const applyAll = async (adpt: StorageAdapter): Promise<void> => {
-      await this.#ensureSyncTables(adpt);
-      for (const op of ops) {
-        // Lowercase to match extractTables(), which normalises SQL identifiers.
-        touchedTables.add(String(op.table).toLowerCase());
-        await this.#applyOp(adpt, op);
-        if (hlc !== null) await this.#stampLocalMeta(adpt, op, hlc);
-      }
-      // Checkpoint the advanced HLC in the same transaction as the writes it
-      // stamped (`D2b`), so recovery never reissues an HLC.
-      if (hlc !== null) await this.setSyncState(STATE_HLC, hlcToString(hlc), adpt);
-    };
+    await this.#serialize(async () => {
+      // One HLC per change (only minted when there is something to stamp).
+      const hlc = ops.length > 0 ? this.nextSendHlc() : null;
 
-    if (isTransactable(this.adapter)) {
-      await this.adapter.transaction(applyAll);
-    } else {
-      await applyAll(this.adapter);
-    }
+      const applyAll = async (adpt: StorageAdapter): Promise<void> => {
+        await this.#ensureSyncTables(adpt);
+        for (const op of ops) {
+          // Lowercase to match extractTables(), which normalises SQL identifiers.
+          touchedTables.add(String(op.table).toLowerCase());
+          await this.#applyOp(adpt, op);
+          if (hlc !== null) await this.#stampLocalMeta(adpt, op, hlc);
+        }
+        // Checkpoint the advanced HLC in the same transaction as the writes it
+        // stamped (`D2b`), so recovery never reissues an HLC.
+        if (hlc !== null) await this.setSyncState(STATE_HLC, hlcToString(hlc), adpt);
+      };
+
+      if (isTransactable(this.adapter)) {
+        await this.adapter.transaction(applyAll);
+      } else {
+        await applyAll(this.adapter);
+      }
+
+      // Emit inside the serialized section so `#suppressLocalEmit` is stable —
+      // no concurrent applyRemote() can be toggling it here (F21).
+      if (!this.#suppressLocalEmit && hlc !== null) {
+        this.emitter.emit("changes:local", {
+          ops,
+          touchedTables: [...touchedTables],
+          hlc,
+          changeId,
+        });
+      }
+    });
 
     await this.#notifyLiveQueries([...touchedTables]);
-
-    // TODO(cr/F21): `#suppressLocalEmit` is an instance flag set across
-    // applyRemote()'s await window. A tx() that reaches this check while an
-    // applyRemote() is mid-transaction would skip its own "changes:local"
-    // emit, silently dropping the uplink for that write. Fix by serialising
-    // tx() and applyRemote() on a shared promise chain (so their windows can't
-    // overlap) or by threading the suppression flag through the write path
-    // instead of the instance. Deferred: needs a dedicated concurrency test;
-    // not hot-patched here to avoid destabilising the shared engine.
-    if (!this.#suppressLocalEmit && hlc !== null) {
-      this.emitter.emit("changes:local", {
-        ops,
-        touchedTables: [...touchedTables],
-        hlc,
-        changeId,
-      });
-    }
   }
 
   /**
@@ -348,36 +364,40 @@ export class PalladiumEngine<S extends SchemaMap> {
   async applyRemote(change: RemoteChange<S>): Promise<void> {
     const { hlc, ops } = change;
     if (ops.length === 0) return;
-    // Keep the local clock causally ahead of anything we've observed.
-    this.receiveHlc(hlc);
 
     const touchedTables = new Set<string>();
-    const applyAll = async (adpt: StorageAdapter): Promise<void> => {
-      await this.#ensureSyncTables(adpt);
-      // Defer FK checks to commit so out-of-order child/parent ops within this
-      // one change resolve at commit instead of tripping a mid-batch violation
-      // (`G4`/`D2a`); adapter-neutral, no-op when unsupported (`D2c`).
-      if (supportsConstraintDeferral(adpt)) await adpt.deferForeignKeys();
-      for (const op of ops) {
-        touchedTables.add(String(op.table).toLowerCase());
-        await this.#applyRemoteOp(adpt, op, hlc);
-      }
-      // Checkpoint the receive-advanced HLC atomically with the apply (`D2b`).
-      if (this.#currentHlc !== null) {
-        await this.setSyncState(STATE_HLC, hlcToString(this.#currentHlc), adpt);
-      }
-    };
+    // Serialised against tx() so their suppression windows never overlap (F21).
+    await this.#serialize(async () => {
+      // Keep the local clock causally ahead of anything we've observed.
+      this.receiveHlc(hlc);
 
-    this.#suppressLocalEmit = true;
-    try {
-      if (isTransactable(this.adapter)) {
-        await this.adapter.transaction(applyAll);
-      } else {
-        await applyAll(this.adapter);
+      const applyAll = async (adpt: StorageAdapter): Promise<void> => {
+        await this.#ensureSyncTables(adpt);
+        // Defer FK checks to commit so out-of-order child/parent ops within this
+        // one change resolve at commit instead of tripping a mid-batch violation
+        // (`G4`/`D2a`); adapter-neutral, no-op when unsupported (`D2c`).
+        if (supportsConstraintDeferral(adpt)) await adpt.deferForeignKeys();
+        for (const op of ops) {
+          touchedTables.add(String(op.table).toLowerCase());
+          await this.#applyRemoteOp(adpt, op, hlc);
+        }
+        // Checkpoint the receive-advanced HLC atomically with the apply (`D2b`).
+        if (this.#currentHlc !== null) {
+          await this.setSyncState(STATE_HLC, hlcToString(this.#currentHlc), adpt);
+        }
+      };
+
+      this.#suppressLocalEmit = true;
+      try {
+        if (isTransactable(this.adapter)) {
+          await this.adapter.transaction(applyAll);
+        } else {
+          await applyAll(this.adapter);
+        }
+      } finally {
+        this.#suppressLocalEmit = false;
       }
-    } finally {
-      this.#suppressLocalEmit = false;
-    }
+    });
 
     await this.#notifyLiveQueries([...touchedTables]);
   }

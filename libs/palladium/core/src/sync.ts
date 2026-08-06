@@ -58,15 +58,35 @@ export interface WireChange {
   readonly ops: ReadonlyArray<WireOp>;
 }
 
-/** Runtime guard for a decoded change — the transport skips anything else. */
+/**
+ * Runtime guard for a decoded change — the transport skips anything else.
+ *
+ * Validates the envelope shape the downlink depends on: a string `id`, an HLC
+ * with a string `nodeId` + numeric `wallMs`/`counter` (so `hlcToAfterCursor`
+ * and own-write skipping work), and an `ops` array whose entries at least name
+ * their kind. Deep per-op field validation stays in `applyRemote`, which
+ * quarantines a malformed op rather than throwing — so this guard only has to
+ * keep the poll loop itself from crashing on a bad shape.
+ */
 function isWireChange(value: unknown): value is WireChange {
   if (typeof value !== "object" || value === null) return false;
   const c = value as Record<string, unknown>;
-  return (
-    typeof c["id"] === "string" &&
-    typeof c["hlc"] === "object" &&
-    c["hlc"] !== null &&
-    Array.isArray(c["ops"])
+  if (typeof c["id"] !== "string" || !Array.isArray(c["ops"])) return false;
+  const hlc = c["hlc"];
+  if (typeof hlc !== "object" || hlc === null) return false;
+  const h = hlc as Record<string, unknown>;
+  if (
+    typeof h["nodeId"] !== "string" ||
+    typeof h["wallMs"] !== "number" ||
+    typeof h["counter"] !== "number"
+  ) {
+    return false;
+  }
+  return c["ops"].every(
+    (op) =>
+      typeof op === "object" &&
+      op !== null &&
+      typeof (op as Record<string, unknown>)["op"] === "string",
   );
 }
 
@@ -286,6 +306,20 @@ export class SyncTransport<S extends SchemaMap> {
   #polling = false;
   #initialHydrationDone = false;
   #unsubscribeLocal: (() => void) | null = null;
+  #tablesReady = false;
+
+  /**
+   * Idempotently provision the durable outbox + quarantine tables. Called by
+   * both `start()` and the public `poll()` so a caller that drives a single
+   * `poll()` before `start()` doesn't hit a missing `_sync_quarantine` when a
+   * remote change needs to be quarantined.
+   */
+  async #ensureTables(): Promise<void> {
+    if (this.#tablesReady) return;
+    await this.#engine.adapter.exec(OUTBOX_DDL, []);
+    await this.#engine.adapter.exec(QUARANTINE_DDL, []);
+    this.#tablesReady = true;
+  }
 
   constructor(engine: PalladiumEngine<S>, options: SyncTransportOptions) {
     this.#engine = engine;
@@ -337,8 +371,7 @@ export class SyncTransport<S extends SchemaMap> {
    */
   async start(): Promise<void> {
     if (this.#pollHandle !== null) return;
-    await this.#engine.adapter.exec(OUTBOX_DDL, []);
-    await this.#engine.adapter.exec(QUARANTINE_DDL, []);
+    await this.#ensureTables();
     // Resume from the durably-persisted poll cursor (`D2b`): a prior session
     // already hydrated, so skip the full re-hydration and skip own writes.
     const savedCursor = await this.#engine.getSyncState(STATE_CURSOR);
@@ -477,6 +510,9 @@ export class SyncTransport<S extends SchemaMap> {
    * step; the periodic timer calls the same path.
    */
   async poll(): Promise<void> {
+    // A caller may drive a single poll() without start(); make sure the outbox
+    // + quarantine tables exist first so a quarantined change has somewhere to go.
+    await this.#ensureTables();
     return this.#poll();
   }
 

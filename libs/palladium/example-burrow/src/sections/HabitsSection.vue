@@ -29,6 +29,19 @@ const doneByHabit = computed(() => {
 const newHabit = ref("");
 const toggling = new Set<string>(); // habit ids with an in-flight toggle
 
+/**
+ * Deterministic, format-valid UUID from (habit, day). Two devices toggling the
+ * same habit on the same day derive the *same* completion id, so the rows
+ * converge under LWW instead of piling up as duplicates (there's no UNIQUE
+ * constraint on the child, and a constraint would risk poisoning remote apply).
+ */
+async function completionId(habitId: string, day: string): Promise<string> {
+  const data = new TextEncoder().encode(`completion:${habitId}:${day}`);
+  const digest = await crypto.subtle.digest("SHA-1", data);
+  const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
 async function addHabit(): Promise<void> {
   const name = newHabit.value.trim();
   if (!name) return;
@@ -52,7 +65,8 @@ async function toggleToday(habit: HabitRow): Promise<void> {
     if (existing) {
       await engine.update("completions", existing.id, { done: existing.done === 1 ? 0 : 1 });
     } else {
-      await engine.insert("completions", { id: newId(), root_id: habit.id, day: today, done: 1 });
+      const id = await completionId(habit.id, today);
+      await engine.insert("completions", { id, root_id: habit.id, day: today, done: 1 });
     }
   } finally {
     toggling.delete(habit.id);
@@ -68,17 +82,18 @@ async function toggleToday(habit: HabitRow): Promise<void> {
       <input v-model="newHabit" placeholder="New habit…" />
       <button type="submit">Add</button>
     </form>
-    <ul>
-      <li v-for="h in habits" :key="h.id">
+    <ul role="list">
+      <li v-for="h in habits" :key="h.id" role="listitem">
         <input
           type="checkbox"
+          class="touch"
           :checked="doneByHabit.get(h.id)?.done === 1"
           :aria-label="`${h.name} done today`"
           @change="toggleToday(h)"
         />
         <span :class="{ done: doneByHabit.get(h.id)?.done === 1 }">{{ h.name }}</span>
       </li>
-      <li v-if="habits.length === 0" class="muted">No habits yet.</li>
+      <li v-if="habits.length === 0" class="muted" role="listitem">No habits yet.</li>
     </ul>
   </section>
 </template>

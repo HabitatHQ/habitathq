@@ -28,9 +28,15 @@ struct Cli {
 
     /// Address to bind. Defaults to loopback: the dev bearer identity treats
     /// the token as the user id, so a non-loopback bind lets any reachable
-    /// client impersonate any user. Only widen this on a trusted network.
+    /// client impersonate any user.
     #[arg(long, default_value = "127.0.0.1")]
     host: String,
+
+    /// Opt in to binding a non-loopback `--host` with the dev bearer identity.
+    /// Without this, Atrium refuses to start on a non-loopback address so it
+    /// can't be exposed to an untrusted network by accident.
+    #[arg(long)]
+    insecure_allow_remote: bool,
 }
 
 /// Whether `host` names a loopback interface (safe for the dev identity).
@@ -53,11 +59,23 @@ async fn main() -> Result<()> {
     // TODO(clerk): `DevBearerProvider` trusts the bearer *as* the user id, so it
     // must never face an untrusted network. Once the ClerkProvider (JWKS verify)
     // lands, select it via a `--auth clerk` flag for non-loopback binds.
+    //
+    // Fail closed: refuse a non-loopback bind unless the operator explicitly
+    // opts in, so the dev identity can't be exposed by accident.
     if !is_loopback(&cli.host) {
+        if !cli.insecure_allow_remote {
+            anyhow::bail!(
+                "refusing to bind non-loopback address {host} with the dev bearer identity: \
+                 any reachable client could impersonate any user. Pass \
+                 --insecure-allow-remote to override on a trusted network (or use a verified \
+                 identity provider).",
+                host = cli.host,
+            );
+        }
         tracing::warn!(
             host = %cli.host,
-            "binding a NON-loopback address with the dev bearer identity — any \
-             reachable client can impersonate any user. Use only on a trusted network."
+            "binding a NON-loopback address with the dev bearer identity (--insecure-allow-remote) \
+             — any reachable client can impersonate any user. Use only on a trusted network."
         );
     }
 
@@ -66,7 +84,13 @@ async fn main() -> Result<()> {
     let state = AtriumState::new(db, changes, DevBearerProvider);
     let app = create_router(state, CorsLayer::permissive());
 
-    let addr = format!("{}:{}", cli.host, cli.port);
+    // An IPv6 literal host (e.g. `::1`) must be bracketed in `host:port` form;
+    // IPv4 and hostnames pass through unchanged.
+    let addr = if cli.host.parse::<std::net::Ipv6Addr>().is_ok() {
+        format!("[{}]:{}", cli.host, cli.port)
+    } else {
+        format!("{}:{}", cli.host, cli.port)
+    };
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     info!(%addr, "listening");
     axum::serve(listener, app).await?;

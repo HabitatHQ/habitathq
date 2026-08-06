@@ -406,6 +406,36 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
     expect(cb).not.toHaveBeenCalled();
   });
 
+  it("a local tx concurrent with applyRemote still emits changes:local (F21)", async () => {
+    const db = makeDbWithSchema();
+    await db.init(SCHEMA);
+
+    const cb = vi.fn();
+    db.on("changes:local", cb);
+
+    // Fire a remote apply and a local write together. Serialisation must keep
+    // the local write's emit from being swallowed by applyRemote's suppression
+    // window — the bug this guards was a silently-dropped uplink.
+    await Promise.all([
+      db.applyRemote({
+        hlc: {
+          wallMs: 1_700_000_000_000,
+          counter: 0,
+          nodeId: "00000000-0000-0000-0000-0000000a11ce",
+        },
+        ops: [
+          { type: "insert", table: "tasks", id: "r1", data: { id: "r1", name: "remote", done: 0 } },
+        ],
+      }),
+      db.insert("tasks", { id: "l1", name: "local", done: 0 }),
+    ]);
+
+    // The local write emitted exactly once; the remote apply emitted nothing.
+    expect(cb).toHaveBeenCalledTimes(1);
+    const rows = await db.exec<Schema["tasks"]>(sql`SELECT id FROM tasks ORDER BY id`);
+    expect(rows.map((r) => r.id)).toEqual(["l1", "r1"]);
+  });
+
   it("applyRemote still notifies live queries on touched tables", async () => {
     const db = makeDbWithSchema();
     await db.init(SCHEMA);
