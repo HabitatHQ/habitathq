@@ -130,9 +130,42 @@ impl + one header change. Nothing in the ACL/sync/UI model needs to change.
   fine, but two tabs of the *same* user + workspace contend for one SAH pool
   (falls back to in-memory). Real multi-tab needs the OPFS worker bus (PR #33
   lineage) as the single leader. Fine for the demo (alice tab + bob tab).
-- **Live 2-tab eyeball.** Phase 5 is verified headlessly; a human run of the
-  `pnpm --filter @palladium/example-burrow demo` flow (see burrow `README.md`)
-  is still worth doing once.
+- **Live 2-tab eyeball. ✅ DONE.** Ran the full alice+bob flow in Chrome against
+  a live Atrium: private floor, household grant (+ child), per-member
+  grant→backfill, revoke→purge, and reload/rehydrate all behaved correctly. One
+  bug found + fixed during that run (returning-user workspace list, below).
 - **Prod topology (`Oprod`).** ERD §5.2's two-service private-network split
   (Atrium ⇄ a separate `palladium-axum`) is the eventual production deployment;
   the POC embeds the store as a library. Deferred.
+
+## 4. Self-review findings (burrow POC + sync interaction)
+
+From a CodeRabbit-style self-review + the live browser run. One fixed inline;
+the rest are low-severity POC polish, tracked here.
+
+- **Returning user saw an empty family list on reload. ✅ FIXED** (`App.vue`).
+  `refreshWorkspaces()` only ran via `watch(user)`, which doesn't fire for the
+  initial URL-preset `?user=`, so a reload showed no families and no way back to
+  a joined workspace. Fixed with `{ immediate: true }`. Verified live: bob's
+  family reappears and rehydrates on reload.
+- **Client sync cursor can regress after a grant.** `changes.rs` grant-backfill
+  appends older-HLC changes after newer ones, and `SyncTransport.#poll` sets the
+  cursor to each applied change's HLC with no monotonic guard — so the cursor
+  moves backward once per grant, forcing a redundant (idempotent) re-fetch on the
+  next poll. Self-heals; fix is a one-line monotonic-max guard on the client
+  cursor. Medium; worth doing with the F9 delivery work.
+- **`crypto.subtle` assumed present** (`HabitsSection.completionId`). Works on
+  `localhost` (a secure context) but is `undefined` over plain-HTTP LAN origins,
+  where toggling a habit would throw. Guard with a `crypto.randomUUID()` fallback
+  if the demo ever needs to run off-localhost.
+- **New-list-item input doesn't clear after add** (`ListsSection`). `draftItem`
+  is a `Map` inside a `ref`; `.set()` mutation isn't reactive, so the typed text
+  lingers. Use a reactive record or reassign the Map. UX only.
+- **Orphan blob on failed row insert** (`NotesSection.attachImage`). The blob is
+  PUT before the `note_images` row insert; if the insert throws, the blob is
+  stored with no referencing row. Minor; acceptable for the POC.
+- **`today` captured at mount** (`HabitsSection`). A session left open past
+  midnight writes completions under the previous day. Recompute per toggle.
+- **Object URL created after unmount leaks** (`NotesSection.loadThumb`). If a
+  `getBlob` resolves after the component unmounts, its object URL escapes the
+  `onUnmounted` revoke. Guard with a cancelled flag. Minor.

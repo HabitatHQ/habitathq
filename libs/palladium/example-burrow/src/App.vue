@@ -127,9 +127,12 @@ const otherMembers = computed(() =>
   members.value.filter((m) => m.user_id !== user.value).map((m) => m.user_id),
 );
 
+// `immediate` so a URL-preset user (`?user=`) loads their existing families on
+// first paint — otherwise a returning user sees an empty family list on reload
+// and can't get back to a workspace they already belong to.
 watch(user, () => {
   void refreshWorkspaces();
-});
+}, { immediate: true });
 </script>
 
 <template>
