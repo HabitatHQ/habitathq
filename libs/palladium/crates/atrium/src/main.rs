@@ -62,20 +62,13 @@ async fn main() -> Result<()> {
     //
     // Fail closed: refuse a non-loopback bind unless the operator explicitly
     // opts in, so the dev identity can't be exposed by accident.
-    if !is_loopback(&cli.host) {
-        if !cli.insecure_allow_remote {
-            anyhow::bail!(
-                "refusing to bind non-loopback address {host} with the dev bearer identity: \
-                 any reachable client could impersonate any user. Pass \
-                 --insecure-allow-remote to override on a trusted network (or use a verified \
-                 identity provider).",
-                host = cli.host,
-            );
-        }
-        tracing::warn!(
-            host = %cli.host,
-            "binding a NON-loopback address with the dev bearer identity (--insecure-allow-remote) \
-             — any reachable client can impersonate any user. Use only on a trusted network."
+    // Fail closed on an obviously-remote host string before opening anything.
+    if !is_loopback(&cli.host) && !cli.insecure_allow_remote {
+        anyhow::bail!(
+            "refusing to bind non-loopback host {host} with the dev bearer identity: \
+             any reachable client could impersonate any user. Pass --insecure-allow-remote \
+             to override on a trusted network (or use a verified identity provider).",
+            host = cli.host,
         );
     }
 
@@ -92,7 +85,27 @@ async fn main() -> Result<()> {
         format!("{}:{}", cli.host, cli.port)
     };
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    info!(%addr, "listening");
+
+    // Authoritatively validate the *resolved* bound address, not just the host
+    // string: a hostname (or an unusual `/etc/hosts`) can map `localhost`/a name
+    // to a non-loopback IP that the textual check above would wave through.
+    let bound = listener.local_addr()?;
+    if !bound.ip().is_loopback() {
+        if !cli.insecure_allow_remote {
+            anyhow::bail!(
+                "refusing to serve on non-loopback address {bound} with the dev bearer identity: \
+                 any reachable client could impersonate any user. Pass --insecure-allow-remote \
+                 to override on a trusted network (or use a verified identity provider)."
+            );
+        }
+        tracing::warn!(
+            %bound,
+            "serving the dev bearer identity on a NON-loopback address \
+             (--insecure-allow-remote) — any reachable client can impersonate any user."
+        );
+    }
+
+    info!(%bound, "listening");
     axum::serve(listener, app).await?;
     Ok(())
 }

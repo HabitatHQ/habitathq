@@ -342,6 +342,35 @@ describe("SyncTransport — downlink", () => {
     expect(seen.some((u) => u.includes(`after=${cursor}`))).toBe(true);
   });
 
+  it("concurrent start()/poll() initialize exactly once", async () => {
+    const db = await makeEngine(BOB);
+    await db.setSyncState("cursor", "saved-cursor");
+
+    // Count how many times the outbox DDL runs — init must fire once even when
+    // start() and poll() overlap (both would otherwise pass the flag check).
+    const adapter = db.adapter;
+    const origExec = adapter.exec.bind(adapter);
+    let outboxDdlCount = 0;
+    adapter.exec = ((sqlText: string, params: unknown[]) => {
+      if (
+        typeof sqlText === "string" &&
+        sqlText.includes("CREATE TABLE IF NOT EXISTS _sync_pending_changes")
+      ) {
+        outboxDdlCount += 1;
+      }
+      return origExec(sqlText, params as never);
+    }) as typeof adapter.exec;
+
+    const { fetch } = makeFakeFetch(() => jsonResponse([]));
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+
+    await Promise.all([transport.start(), transport.poll()]);
+    await transport.stop();
+
+    expect(outboxDdlCount).toBe(1);
+    expect(db.currentHlc).toBeNull(); // cursor restore didn't corrupt clock state
+  });
+
   it("advances engine.currentHlc past the remote HLC", async () => {
     const db = await makeEngine(BOB);
     const remoteHlc = { wallMs: 9_999_999_999_999, counter: 7, nodeId: ALICE };

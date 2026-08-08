@@ -307,6 +307,7 @@ export class SyncTransport<S extends SchemaMap> {
   #initialHydrationDone = false;
   #unsubscribeLocal: (() => void) | null = null;
   #initialized = false;
+  #initPromise: Promise<void> | null = null;
 
   /**
    * Once-only transport init: provision the durable outbox + quarantine tables
@@ -314,18 +315,33 @@ export class SyncTransport<S extends SchemaMap> {
    * the public `poll()`, so a caller that drives a single `poll()` before
    * `start()` both has a `_sync_quarantine` to write to and resumes from the
    * saved cursor instead of re-fetching the full history from scratch.
+   *
+   * Concurrency-safe: the work runs once behind a shared in-flight promise, so
+   * overlapping `start()`/`poll()` callers await the same init rather than both
+   * running the DDL + cursor restore and racing on `#cursor`. The promise is
+   * cleared on failure so a later call can retry.
    */
-  async #ensureInitialized(): Promise<void> {
-    if (this.#initialized) return;
-    await this.#engine.adapter.exec(OUTBOX_DDL, []);
-    await this.#engine.adapter.exec(QUARANTINE_DDL, []);
-    const savedCursor = await this.#engine.getSyncState(STATE_CURSOR);
-    if (savedCursor !== null) {
-      // A prior session already hydrated; resume after the cursor and skip own writes.
-      this.#cursor = savedCursor;
-      this.#initialHydrationDone = true;
+  #ensureInitialized(): Promise<void> {
+    if (this.#initialized) return Promise.resolve();
+    if (this.#initPromise === null) this.#initPromise = this.#runInit();
+    return this.#initPromise;
+  }
+
+  async #runInit(): Promise<void> {
+    try {
+      await this.#engine.adapter.exec(OUTBOX_DDL, []);
+      await this.#engine.adapter.exec(QUARANTINE_DDL, []);
+      const savedCursor = await this.#engine.getSyncState(STATE_CURSOR);
+      if (savedCursor !== null) {
+        // A prior session already hydrated; resume after the cursor and skip own writes.
+        this.#cursor = savedCursor;
+        this.#initialHydrationDone = true;
+      }
+      this.#initialized = true;
+    } catch (err) {
+      this.#initPromise = null; // allow a retry after a transient failure
+      throw err;
     }
-    this.#initialized = true;
   }
 
   constructor(engine: PalladiumEngine<S>, options: SyncTransportOptions) {

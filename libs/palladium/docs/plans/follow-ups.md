@@ -38,14 +38,20 @@ UI flow.
   (`TODO(clerk)`). Implement `IdentityProvider` by verifying a Clerk session JWT.
   **Validation contract** (all must hold, else reject): RS256 signature against
   the instance JWKS, matched by the token's `kid`; `exp`/`nbf` within a small
-  clock-skew leeway (~60s); `iss` equals the Clerk issuer; `azp`/`aud` in the
-  allowed set; then take `sub` as the `UserId`. Cache the JWKS with periodic +
-  on-unknown-`kid` refresh (handle key rotation), and fail closed if the JWKS is
-  unavailable. **Open design decision:** the trait is currently synchronous, so
-  either (a) background-refresh the JWKS into a cache and verify synchronously,
-  or (b) make `authenticate` async and update the `Caller` extractor. Wire behind
-  `--auth clerk` in `main.rs` (env `CLERK_JWKS_URL` / `CLERK_ISSUER` /
-  `CLERK_AUDIENCE`); see `main.rs:53`.
+  clock-skew leeway (~60s); `iss` equals the Clerk issuer; then take `sub` as the
+  `UserId`. **`aud` and `azp` are distinct and validated separately** (per
+  Clerk's manual-JWT-verification guide): `aud` (audience) must equal the
+  configured `CLERK_AUDIENCE`; `azp` (authorized party / origin) must be in a
+  separate `CLERK_AUTHORIZED_PARTIES` allow-list — and decide the policy for a
+  **missing `azp`** (Clerk may omit it; either require it or allow-when-absent,
+  explicitly). Cache the JWKS with periodic + on-unknown-`kid` refresh (handle
+  key rotation), and fail closed if the JWKS is unavailable. Tests must include
+  **negative cases** for a wrong `aud` and a wrong/absent `azp`. **Open design
+  decision:** the trait is currently synchronous, so either (a) background-refresh
+  the JWKS into a cache and verify synchronously, or (b) make `authenticate`
+  async and update the `Caller` extractor. Wire behind `--auth clerk` in
+  `main.rs` (env `CLERK_JWKS_URL` / `CLERK_ISSUER` / `CLERK_AUDIENCE` /
+  `CLERK_AUTHORIZED_PARTIES`); see `main.rs:53`.
 - **burrow bearer** — `libs/palladium/example-burrow/src/atrium.ts:267`
   (`TODO(clerk)`). Swap the dev bearer for `await clerk.session.getToken()`.
 - **burrow sign-in gating** — `libs/palladium/example-burrow/src/App.vue:11`
