@@ -25,6 +25,20 @@ import { TxBuilder } from "./tx.js";
 
 export type SyncStatus = "idle" | "syncing" | "error" | "offline";
 
+/** A plain, unquoted SQL identifier: a leading letter/underscore then word chars. */
+const SQL_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Guard a table or column name that will be interpolated into SQL. Used at the
+ * remote-apply boundary, where names come from an untrusted change — anything
+ * that isn't a plain identifier is rejected before it can reach a query.
+ */
+function assertSqlIdentifier(name: string): void {
+  if (!SQL_IDENTIFIER.test(name)) {
+    throw new Error(`invalid SQL identifier in remote change: ${JSON.stringify(name)}`);
+  }
+}
+
 export interface ChangesLocal<S extends SchemaMap = SchemaMap> {
   /** The ops as they came out of the `tx()` builder, in order. */
   readonly ops: ReadonlyArray<Op<S>>;
@@ -636,9 +650,17 @@ export class PalladiumEngine<S extends SchemaMap> {
    */
   async #applyRemoteOp(adpt: StorageAdapter, op: Op<S>, hlc: Hlc): Promise<void> {
     const table = String(op.table);
+    // Remote ops arrive from an untrusted peer/server, and the table + column
+    // names are interpolated into SQL (`SELECT … FROM ${table}`, `INSERT …
+    // (${cols})`). Reject anything that isn't a plain identifier so a malicious
+    // change can't inject SQL — the throw quarantines the change (D2a) rather
+    // than corrupting the local store.
+    assertSqlIdentifier(table);
     if (op.type === "insert") {
+      for (const col of Object.keys(op.data)) assertSqlIdentifier(col);
       await this.#applyRemoteInsert(adpt, table, op, hlc);
     } else if (op.type === "update") {
+      for (const col of Object.keys(op.patch)) assertSqlIdentifier(col);
       await this.#applyRemoteUpdate(adpt, table, op, hlc);
     } else {
       await this.#applyRemoteDelete(adpt, table, op.id, hlc);

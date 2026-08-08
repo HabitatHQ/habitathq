@@ -2,8 +2,10 @@
 
 Tracks everything **not** done on the Habitat↔Palladium sync branch
 (`docs/habitat-sync-erd`, PR #36): remaining features, and the CodeRabbit
-findings that were consciously deferred rather than fixed. Each deferred item
-has a matching `TODO(cr/…)` or `TODO(clerk)` marker in the code — grep for it.
+findings that were consciously deferred rather than fixed. Each **code-level**
+deferred item has a matching `TODO(cr/…)` or `TODO(clerk)` marker in the code —
+grep for it. Docs-only items (§2d won't-fixes) and the §3 follow-ups carry their
+rationale inline here rather than a code marker.
 
 Companion to the ERD: [`habitat-sync-integration.md`](./habitat-sync-integration.md).
 
@@ -18,24 +20,32 @@ Companion to the ERD: [`habitat-sync-integration.md`](./habitat-sync-integration
 | 5 — headless A1–A7 acceptance matrix (real client stack) | ✅ done (7/7) |
 | **Clerk** — real identity | ⛔ **not started** (scheduled last) |
 
-The CodeRabbit review (PR #36) surfaced 30 findings; ~18 were fixed in
-`fix: address CodeRabbit review (PR #36)`. The rest are below.
+CodeRabbit reviewed PR #36 across three rounds. Most findings were fixed in the
+`fix: address CodeRabbit review …` commits; the ones consciously **deferred** (or
+won't-fixed, with reasons) are inventoried below.
 
 ---
 
 ## 1. Clerk — the one remaining feature
 
-Deliberately deferred to last. The seam is built; Clerk slots in as one trait
-impl + one header change. Nothing in the ACL/sync/UI model needs to change.
+Deliberately deferred to last. The seam is built so the **ACL and sync contracts
+stay stable** — Atrium's identity provider and the client's auth wiring change,
+but no record-ACL, change-store, or workspace logic does. Concretely: one new
+`IdentityProvider` impl on the server, and (client) the bearer header + a sign-in
+UI flow.
 
 - **`ClerkProvider` (Atrium)** — `libs/palladium/crates/atrium/src/identity.rs:43`
-  (`TODO(clerk)`). Implement `IdentityProvider` by verifying a Clerk session JWT
-  against the instance JWKS (RS256): check `exp`/`iss`/`azp`, return
-  `UserId(claims.sub)`. **Open design decision:** the trait is currently
-  synchronous, so either (a) background-refresh the JWKS into a cache and verify
-  synchronously, or (b) make `authenticate` async and update the `Caller`
-  extractor. Wire behind `--auth clerk` in `main.rs` (env `CLERK_JWKS_URL` /
-  `CLERK_ISSUER`); see `main.rs:53`.
+  (`TODO(clerk)`). Implement `IdentityProvider` by verifying a Clerk session JWT.
+  **Validation contract** (all must hold, else reject): RS256 signature against
+  the instance JWKS, matched by the token's `kid`; `exp`/`nbf` within a small
+  clock-skew leeway (~60s); `iss` equals the Clerk issuer; `azp`/`aud` in the
+  allowed set; then take `sub` as the `UserId`. Cache the JWKS with periodic +
+  on-unknown-`kid` refresh (handle key rotation), and fail closed if the JWKS is
+  unavailable. **Open design decision:** the trait is currently synchronous, so
+  either (a) background-refresh the JWKS into a cache and verify synchronously,
+  or (b) make `authenticate` async and update the `Caller` extractor. Wire behind
+  `--auth clerk` in `main.rs` (env `CLERK_JWKS_URL` / `CLERK_ISSUER` /
+  `CLERK_AUDIENCE`); see `main.rs:53`.
 - **burrow bearer** — `libs/palladium/example-burrow/src/atrium.ts:267`
   (`TODO(clerk)`). Swap the dev bearer for `await clerk.session.getToken()`.
 - **burrow sign-in gating** — `libs/palladium/example-burrow/src/App.vue:11`
@@ -47,15 +57,16 @@ impl + one header change. Nothing in the ACL/sync/UI model needs to change.
 
 ## 2. Deferred CodeRabbit findings
 
+> **Already fixed in later review rounds (here for reference, not deferred):**
+> **F21** concurrent `applyRemote` dropping a local emit — `tx()`/`applyRemote()`
+> now serialise their write sections through a shared `#serialize` chain
+> (`engine.test.ts` regression test). Round 3 also fixed: a **SQL-identifier
+> guard** so a malicious remote change can't inject via a table/column name
+> (`assertSqlIdentifier` at the apply boundary + test), and **`poll()` now
+> restores the durable cursor** before polling (shared `#ensureInitialized`).
+
 ### 2a. Core CRDT / concurrency correctness
 
-- **F21 — concurrent `applyRemote` could drop a local change event. ✅ FIXED**
-  (round 2). `tx()` and `applyRemote()` now run their write critical-sections
-  through a shared `#serialize` promise chain in `engine.ts`, so their
-  `#suppressLocalEmit` windows can't overlap; live-query notification stays
-  outside the chain to avoid subscriber-reentrancy deadlock. Regression test:
-  `engine.test.ts` "a local tx concurrent with applyRemote still emits
-  changes:local (F21)".
 - **F22 — a remote insert after a remote update discards the newer update.**
   ⛔ still deferred (needs update-buffering — a focused fix + tests, not a
   hot-patch). `libs/palladium/core/src/engine.ts:650` (`TODO(cr/F22)`). When an
@@ -80,9 +91,10 @@ impl + one header change. Nothing in the ACL/sync/UI model needs to change.
   `libs/palladium/crates/atrium/src/routes/changes.rs:144` (`TODO(cr/F10)`). ACL
   metadata (Atrium DB) and the change log (separate store) aren't written in one
   transaction; a failed `changes().insert` leaves orphan metadata. Mitigated
-  today by INSERT-OR-IGNORE idempotency + one-row-per-change; full atomicity
-  needs both facts in one store (or a durable rollback), which lands with the
-  two-service prod topology (`Oprod`).
+  today by INSERT-OR-IGNORE idempotency + one-row-per-change. Full atomicity is a
+  distinct piece of work — write both facts in one store or add a durable
+  rollback path. (It is **not** solved by the `Oprod` topology in §3, which only
+  moves where the two stores run.)
 - **F2 — no `devices` registry (D22).**
   `libs/palladium/crates/atrium/src/db.rs:14` (`TODO(cr/F2)`). Atrium can't bind
   a `nodeId` to its user, reject cross-user device rebinds, or drive multi-device
@@ -116,10 +128,13 @@ impl + one header change. Nothing in the ACL/sync/UI model needs to change.
   repo-wide); `vue-tsc` still catches genuinely unused symbols; `biome.json` is
   strict JSON here so the rationale can't live inline (it's in the fix commit).
   Revisit if Biome ships template-aware usage (biomejs/biome#1854).
-- **F5 / F6 — haptics + 44px touch targets in `example-sync-playground`.** The
-  playground is a desktop developer tool, not the shipped mobile app;
-  `useHaptics` isn't available there and the mobile touch-target guideline
-  doesn't apply. (The same a11y items **were** applied to `burrow`.)
+- **Haptics (`useHaptics`) in the Palladium examples** — flagged on both
+  `example-sync-playground` and `burrow/HabitsSection.vue`. Won't-fix: these are
+  developer/POC examples in the framework-agnostic `libs/palladium/*`, not the
+  shipped Habitat mobile app; `useHaptics` is a Habitat-app composable and isn't
+  available (or meaningful) here. The touch-target + reduced-motion a11y items
+  from the same guideline **were** applied to `burrow`; the 44px items on the
+  desktop `playground` are similarly out of scope.
 
 ---
 
@@ -140,8 +155,9 @@ impl + one header change. Nothing in the ACL/sync/UI model needs to change.
 
 ## 4. Self-review findings (burrow POC + sync interaction)
 
-From a CodeRabbit-style self-review + the live browser run. One fixed inline;
-the rest are low-severity POC polish, tracked here.
+From a CodeRabbit-style self-review + the live browser run. One fixed inline; the
+rest are POC polish — all low-severity **except** the cursor-regression item
+below, which is Medium.
 
 - **Returning user saw an empty family list on reload. ✅ FIXED** (`App.vue`).
   `refreshWorkspaces()` only ran via `watch(user)`, which doesn't fire for the
@@ -156,11 +172,10 @@ the rest are low-severity POC polish, tracked here.
   cursor. Medium; worth doing with the F9 delivery work.
 - **`crypto.subtle` assumed present** (`HabitsSection.completionId`). Works on
   `localhost` (a secure context) but is `undefined` over plain-HTTP LAN origins,
-  where toggling a habit would throw. Guard with a `crypto.randomUUID()` fallback
-  if the demo ever needs to run off-localhost.
-- **New-list-item input doesn't clear after add** (`ListsSection`). `draftItem`
-  is a `Map` inside a `ref`; `.set()` mutation isn't reactive, so the typed text
-  lingers. Use a reactive record or reassign the Map. UX only.
+  where toggling a habit would throw. If the demo ever runs off-localhost, fall
+  back to a **deterministic** pure-JS hash (e.g. FNV-1a → UUID-shaped) — **not**
+  `crypto.randomUUID()`, which would reintroduce the duplicate-completion race
+  this id was designed to prevent.
 - **Orphan blob on failed row insert** (`NotesSection.attachImage`). The blob is
   PUT before the `note_images` row insert; if the insert throws, the blob is
   stored with no referencing row. Minor; acceptable for the POC.

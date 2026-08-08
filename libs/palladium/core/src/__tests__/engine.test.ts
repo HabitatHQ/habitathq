@@ -436,6 +436,30 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
     expect(rows.map((r) => r.id)).toEqual(["l1", "r1"]);
   });
 
+  it("rejects a remote op whose table name is not a plain identifier (SQL-injection guard)", async () => {
+    const db = makeDbWithSchema();
+    await db.init(SCHEMA);
+
+    // A malicious peer sends a table name crafted to break out of the query.
+    await expect(
+      db.applyRemote({
+        hlc: { wallMs: 1, counter: 0, nodeId: "00000000-0000-0000-0000-0000000a11ce" },
+        ops: [
+          {
+            type: "insert",
+            table: "tasks; DROP TABLE tasks; --",
+            id: "x",
+            data: { id: "x", name: "n", done: 0 },
+          },
+        ],
+      }),
+    ).rejects.toThrow(/invalid SQL identifier/);
+
+    // The real table is untouched (the change never reached a query).
+    const rows = await db.exec<Schema["tasks"]>(sql`SELECT id FROM tasks`);
+    expect(rows).toHaveLength(0);
+  });
+
   it("applyRemote still notifies live queries on touched tables", async () => {
     const db = makeDbWithSchema();
     await db.init(SCHEMA);

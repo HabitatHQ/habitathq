@@ -306,19 +306,26 @@ export class SyncTransport<S extends SchemaMap> {
   #polling = false;
   #initialHydrationDone = false;
   #unsubscribeLocal: (() => void) | null = null;
-  #tablesReady = false;
+  #initialized = false;
 
   /**
-   * Idempotently provision the durable outbox + quarantine tables. Called by
-   * both `start()` and the public `poll()` so a caller that drives a single
-   * `poll()` before `start()` doesn't hit a missing `_sync_quarantine` when a
-   * remote change needs to be quarantined.
+   * Once-only transport init: provision the durable outbox + quarantine tables
+   * AND restore the persisted poll cursor (`D2b`). Called by both `start()` and
+   * the public `poll()`, so a caller that drives a single `poll()` before
+   * `start()` both has a `_sync_quarantine` to write to and resumes from the
+   * saved cursor instead of re-fetching the full history from scratch.
    */
-  async #ensureTables(): Promise<void> {
-    if (this.#tablesReady) return;
+  async #ensureInitialized(): Promise<void> {
+    if (this.#initialized) return;
     await this.#engine.adapter.exec(OUTBOX_DDL, []);
     await this.#engine.adapter.exec(QUARANTINE_DDL, []);
-    this.#tablesReady = true;
+    const savedCursor = await this.#engine.getSyncState(STATE_CURSOR);
+    if (savedCursor !== null) {
+      // A prior session already hydrated; resume after the cursor and skip own writes.
+      this.#cursor = savedCursor;
+      this.#initialHydrationDone = true;
+    }
+    this.#initialized = true;
   }
 
   constructor(engine: PalladiumEngine<S>, options: SyncTransportOptions) {
@@ -371,14 +378,7 @@ export class SyncTransport<S extends SchemaMap> {
    */
   async start(): Promise<void> {
     if (this.#pollHandle !== null) return;
-    await this.#ensureTables();
-    // Resume from the durably-persisted poll cursor (`D2b`): a prior session
-    // already hydrated, so skip the full re-hydration and skip own writes.
-    const savedCursor = await this.#engine.getSyncState(STATE_CURSOR);
-    if (savedCursor !== null) {
-      this.#cursor = savedCursor;
-      this.#initialHydrationDone = true;
-    }
+    await this.#ensureInitialized();
     await this.#drainOutbox();
     this.#unsubscribeLocal = this.#engine.on("changes:local", (payload) => {
       void this.#postLocal({
@@ -510,9 +510,10 @@ export class SyncTransport<S extends SchemaMap> {
    * step; the periodic timer calls the same path.
    */
   async poll(): Promise<void> {
-    // A caller may drive a single poll() without start(); make sure the outbox
-    // + quarantine tables exist first so a quarantined change has somewhere to go.
-    await this.#ensureTables();
+    // A caller may drive a single poll() without start(); provision tables and
+    // restore the persisted cursor first, so this poll resumes from the saved
+    // position instead of re-fetching the whole history.
+    await this.#ensureInitialized();
     return this.#poll();
   }
 

@@ -325,6 +325,23 @@ describe("SyncTransport — downlink", () => {
     expect(dl.map((r) => r.change_id)).toContain("c1");
   });
 
+  it("poll() before start() resumes from the persisted cursor", async () => {
+    const db = await makeEngine(BOB);
+    // Simulate a prior session that saved a poll cursor.
+    const cursor = "prior-session-cursor";
+    await db.setSyncState("cursor", cursor);
+
+    const seen: string[] = [];
+    const { fetch } = makeFakeFetch((call) => {
+      seen.push(call.input);
+      return jsonResponse([]);
+    });
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+
+    await transport.poll(); // no start()
+    expect(seen.some((u) => u.includes(`after=${cursor}`))).toBe(true);
+  });
+
   it("advances engine.currentHlc past the remote HLC", async () => {
     const db = await makeEngine(BOB);
     const remoteHlc = { wallMs: 9_999_999_999_999, counter: 7, nodeId: ALICE };
