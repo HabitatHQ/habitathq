@@ -139,6 +139,9 @@ export interface SyncTransportOptions {
    * purges) before returning the change list, so the transport stays generic.
    */
   readonly decodeChanges?: (body: unknown) => WireChange[] | Promise<WireChange[]>;
+
+  /** Opaque post-apply acknowledgement hook for the decoded response body. */
+  readonly acknowledgeChanges?: (body: unknown) => Promise<void>;
 }
 
 // ── Outbox table ───────────────────────────────────────────────────────────
@@ -246,7 +249,7 @@ function engineOpToWire(op: EngineOp): WireOp[] {
         op: "insert",
         table: String(op.table),
         row_id: op.data.id,
-        data: op.data,
+        data: { ...op.data, id: op.data.id },
       },
     ];
   }
@@ -270,7 +273,7 @@ function wireOpToEngine<S extends SchemaMap>(op: WireOp): EngineOp & { table: ke
     return {
       type: "insert",
       table: op.table as keyof S & string,
-      data: { id: op.row_id, ...op.data } as Record<string, unknown> & {
+      data: { ...op.data, id: op.row_id } as Record<string, unknown> & {
         id: string;
       },
     };
@@ -299,6 +302,7 @@ export class SyncTransport<S extends SchemaMap> {
   readonly #fetch: typeof globalThis.fetch;
   readonly #maxApplyAttempts: number;
   readonly #authHeaders?: SyncTransportOptions["authHeaders"];
+  readonly #acknowledgeChanges?: SyncTransportOptions["acknowledgeChanges"];
   readonly #decodeChanges: (body: unknown) => WireChange[] | Promise<WireChange[]>;
 
   #cursor: string | null = null;
@@ -355,7 +359,8 @@ export class SyncTransport<S extends SchemaMap> {
     const maxAttempts = options.maxApplyAttempts ?? 5;
     this.#maxApplyAttempts = Number.isInteger(maxAttempts) && maxAttempts >= 1 ? maxAttempts : 5;
     this.#authHeaders = options.authHeaders;
-    this.#decodeChanges = options.decodeChanges ?? ((body) => body as WireChange[]);
+    this.#acknowledgeChanges = options.acknowledgeChanges;
+    this.#decodeChanges = options.decodeChanges ?? ((body) => (Array.isArray(body) ? body : []));
   }
 
   /**
@@ -544,13 +549,12 @@ export class SyncTransport<S extends SchemaMap> {
           : `${this.#serverUrl}/v1/changes?after=${this.#cursor}`;
 
       let changes: WireChange[];
+      let responseBody: unknown;
       try {
         const res = await this.#fetchWithAuth(url);
         if (!res.ok) return;
-        const decoded = await this.#decodeChanges(await res.json());
-        // A custom decoder (or a malformed response) can hand back a non-array
-        // or entries that aren't changes; bail poll-safely rather than throwing
-        // mid-loop (which would abort the whole poll and never advance).
+        responseBody = await res.json();
+        const decoded = await this.#decodeChanges(responseBody);
         if (!Array.isArray(decoded)) return;
         changes = decoded;
       } catch {
@@ -558,22 +562,17 @@ export class SyncTransport<S extends SchemaMap> {
       }
 
       for (const change of changes) {
-        // Drop malformed entries (e.g. `[null]`) so one bad change can't wedge
-        // the poll; a well-formed change carries id + hlc + an ops array.
         if (!isWireChange(change)) continue;
-        // Stop advancing the cursor at the first change that isn't durably
-        // resolved this poll, so a transient failure is retried rather than
-        // skipped. `#applyOneRemote` returns false only for such a change.
-        const advanced = await this.#applyOneRemote(change);
+        const nextCursor = hlcToAfterCursor(change.hlc);
+        const advanced = await this.#applyOneRemote(change, nextCursor);
         if (!advanced) break;
-        this.#cursor = hlcToAfterCursor(change.hlc);
-        // Persist the cursor so a restart resumes here. Not in the same
-        // transaction as the apply, but idempotent apply (1b) makes the small
-        // reapply window on crash harmless.
-        await this.#engine.setSyncState(STATE_CURSOR, this.#cursor);
+        if (this.#cursor === null || nextCursor > this.#cursor) this.#cursor = nextCursor;
       }
 
       this.#initialHydrationDone = true;
+      if (this.#acknowledgeChanges !== undefined) {
+        await this.#acknowledgeChanges(responseBody);
+      }
     } finally {
       this.#polling = false;
     }
@@ -586,7 +585,7 @@ export class SyncTransport<S extends SchemaMap> {
    * and `false` when the change failed transiently and should be retried
    * (so the cursor must not move past it yet).
    */
-  async #applyOneRemote(change: WireChange): Promise<boolean> {
+  async #applyOneRemote(change: WireChange, cursor: string): Promise<boolean> {
     // After initial hydration, skip own writes — we already applied them.
     if (this.#initialHydrationDone && change.hlc.nodeId === this.#engine.nodeId) {
       return true;
@@ -596,9 +595,9 @@ export class SyncTransport<S extends SchemaMap> {
     // Already permanently dead-lettered: skip past it (terminal state, L71).
     if (quarantine?.permanent) return true;
 
-    // The cast is structural: wireOpToEngine emits the same {type, table, id,
-    // data?, patch?} shape Op<S> declares, but TS can't see through the generic
-    // to verify. Runtime values are validated inside applyRemote.
+    if (change.ops.some((op) => !this.#engine.hasTable(op.table))) {
+      throw new Error("remote change references an unknown table");
+    }
     const remoteChange = {
       hlc: change.hlc,
       id: change.id,
@@ -606,18 +605,16 @@ export class SyncTransport<S extends SchemaMap> {
     } as unknown as Parameters<PalladiumEngine<S>["applyRemote"]>[0];
 
     try {
-      await this.#engine.applyRemote(remoteChange);
-      if (quarantine !== null) await this.#clearQuarantine(change.id); // recovered
+      await this.#engine.applyRemote(remoteChange, cursor);
+      if (quarantine !== null) await this.#clearQuarantine(change.id);
       return true;
     } catch (err) {
       const attempts = await this.#recordFailure(change, err);
       if (attempts >= this.#maxApplyAttempts) {
-        // Exhausted retries: permanently skip so the cursor is never wedged.
         await this.#markPermanent(change.id);
         this.#engine.setStatus("error");
         return true;
       }
-      // Transient: leave the cursor here and retry on the next poll.
       return false;
     }
   }

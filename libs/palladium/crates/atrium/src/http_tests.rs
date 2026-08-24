@@ -11,7 +11,6 @@ use axum::{
     },
     Router,
 };
-use palladium_sqlite::SqliteStore;
 use serde_json::{json, Value};
 use tower::ServiceExt;
 use tower_http::cors::CorsLayer;
@@ -21,9 +20,8 @@ use crate::{create_router, AtriumDb, AtriumState, DevBearerProvider};
 
 async fn app() -> Router {
     let db = AtriumDb::in_memory().await.unwrap();
-    let changes = SqliteStore::in_memory().await.unwrap();
     create_router(
-        AtriumState::new(db, changes, DevBearerProvider),
+        AtriumState::new(db, DevBearerProvider),
         CorsLayer::permissive(),
     )
 }
@@ -48,7 +46,11 @@ async fn call(
         builder = builder.header(CONTENT_TYPE, "application/json");
     }
     let req_body = body.map_or_else(Body::empty, |v| Body::from(v.to_string()));
-    let resp = app.clone().oneshot(builder.body(req_body).unwrap()).await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(builder.body(req_body).unwrap())
+        .await
+        .unwrap();
     let status = resp.status();
     let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
     let value = if bytes.is_empty() {
@@ -71,13 +73,19 @@ fn wrap(ops: &Value) -> Value {
 
 fn root_insert(table: &str) -> (Uuid, Value) {
     let row = Uuid::new_v4();
-    (row, wrap(&json!([{ "op": "insert", "table": table, "row_id": row, "data": { "id": row } }])))
+    (
+        row,
+        wrap(&json!([{ "op": "insert", "table": table, "row_id": row, "data": { "id": row } }])),
+    )
 }
 
 fn child_insert(table: &str, root: Uuid) -> (Uuid, Value) {
     let row = Uuid::new_v4();
     let data = json!({ "id": row, "root_id": root });
-    (row, wrap(&json!([{ "op": "insert", "table": table, "row_id": row, "data": data }])))
+    (
+        row,
+        wrap(&json!([{ "op": "insert", "table": table, "row_id": row, "data": data }])),
+    )
 }
 
 fn update(table: &str, row: Uuid) -> Value {
@@ -96,37 +104,89 @@ async fn create_workspace(app: &Router, user: &str) -> String {
 async fn family(app: &Router) -> String {
     let ws = create_workspace(app, "alice").await;
     for member in ["bob", "carol"] {
-        let (_, invite) =
-            call(app, "POST", &format!("/v1/workspaces/{ws}/invites"), Some("alice"), None, None).await;
+        let (_, invite) = call(
+            app,
+            "POST",
+            &format!("/v1/workspaces/{ws}/invites"),
+            Some("alice"),
+            None,
+            None,
+        )
+        .await;
         let token = invite["token"].as_str().unwrap().to_owned();
-        let (status, _) =
-            call(app, "POST", &format!("/v1/invites/{token}/accept"), Some(member), None, None).await;
+        let (status, _) = call(
+            app,
+            "POST",
+            &format!("/v1/invites/{token}/accept"),
+            Some(member),
+            None,
+            None,
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
     }
     ws
 }
 
 async fn post_change(app: &Router, user: &str, ws: &str, change: Value) -> StatusCode {
-    call(app, "POST", "/v1/changes", Some(user), Some(ws), Some(change)).await.0
+    call(
+        app,
+        "POST",
+        "/v1/changes",
+        Some(user),
+        Some(ws),
+        Some(change),
+    )
+    .await
+    .0
 }
 
 async fn get_env(app: &Router, user: &str, ws: &str) -> Value {
-    call(app, "GET", "/v1/changes", Some(user), Some(ws), None).await.1
+    call(app, "GET", "/v1/changes", Some(user), Some(ws), None)
+        .await
+        .1
 }
 
-async fn share(app: &Router, owner: &str, root: Uuid, grantee: &str, perm: &str) -> StatusCode {
+async fn share(
+    app: &Router,
+    owner: &str,
+    ws: &str,
+    root: Uuid,
+    grantee: &str,
+    perm: &str,
+) -> StatusCode {
     let body = json!({ "root_id": root, "grantee_user_id": grantee, "perm": perm });
-    call(app, "POST", "/v1/shares", Some(owner), None, Some(body)).await.0
+    call(app, "POST", "/v1/shares", Some(owner), Some(ws), Some(body))
+        .await
+        .0
 }
 
-async fn unshare(app: &Router, owner: &str, root: Uuid, grantee: &str) -> StatusCode {
+async fn unshare(app: &Router, owner: &str, ws: &str, root: Uuid, grantee: &str) -> StatusCode {
     let body = json!({ "root_id": root, "grantee_user_id": grantee });
-    call(app, "DELETE", "/v1/shares", Some(owner), None, Some(body)).await.0
+    call(
+        app,
+        "DELETE",
+        "/v1/shares",
+        Some(owner),
+        Some(ws),
+        Some(body),
+    )
+    .await
+    .0
 }
 
-async fn set_sharing(app: &Router, owner: &str, root: Uuid, class: &str) -> StatusCode {
+async fn set_sharing(app: &Router, owner: &str, ws: &str, root: Uuid, class: &str) -> StatusCode {
     let body = json!({ "class": class });
-    call(app, "PATCH", &format!("/v1/records/{root}/sharing"), Some(owner), None, Some(body)).await.0
+    call(
+        app,
+        "PATCH",
+        &format!("/v1/records/{root}/sharing"),
+        Some(owner),
+        Some(ws),
+        Some(body),
+    )
+    .await
+    .0
 }
 
 // ── blob channel (Phase 3c) ─────────────────────────────────────────────────
@@ -148,20 +208,35 @@ async fn call_bytes(
         builder = builder.header(*k, *v);
     }
     let req_body = body.map_or_else(Body::empty, Body::from);
-    let resp = app.clone().oneshot(builder.body(req_body).unwrap()).await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(builder.body(req_body).unwrap())
+        .await
+        .unwrap();
     let status = resp.status();
     let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
     (status, bytes.to_vec())
 }
 
-async fn put_blob(app: &Router, user: &str, ws: &str, note: Uuid, blob_id: &str, bytes: &[u8]) -> StatusCode {
+async fn put_blob(
+    app: &Router,
+    user: &str,
+    ws: &str,
+    note: Uuid,
+    blob_id: &str,
+    bytes: &[u8],
+) -> StatusCode {
     let note = note.to_string();
     call_bytes(
         app,
         "PUT",
         &format!("/v1/blobs/{blob_id}"),
         Some(user),
-        &[("x-workspace", ws), ("x-note", &note), (CONTENT_TYPE.as_str(), "image/png")],
+        &[
+            ("x-workspace", ws),
+            ("x-note", &note),
+            (CONTENT_TYPE.as_str(), "image/png"),
+        ],
         Some(bytes.to_vec()),
     )
     .await
@@ -169,7 +244,15 @@ async fn put_blob(app: &Router, user: &str, ws: &str, note: Uuid, blob_id: &str,
 }
 
 async fn get_blob(app: &Router, user: &str, blob_id: &str) -> (StatusCode, Vec<u8>) {
-    call_bytes(app, "GET", &format!("/v1/blobs/{blob_id}"), Some(user), &[], None).await
+    call_bytes(
+        app,
+        "GET",
+        &format!("/v1/blobs/{blob_id}"),
+        Some(user),
+        &[],
+        None,
+    )
+    .await
 }
 
 /// Whether the envelope's `changes` contain any op targeting `row`.
@@ -177,9 +260,10 @@ fn sees(env: &Value, row: Uuid) -> bool {
     let target = row.to_string();
     env["changes"].as_array().is_some_and(|changes| {
         changes.iter().any(|c| {
-            c["ops"]
-                .as_array()
-                .is_some_and(|ops| ops.iter().any(|o| o["row_id"].as_str() == Some(target.as_str())))
+            c["ops"].as_array().is_some_and(|ops| {
+                ops.iter()
+                    .any(|o| o["row_id"].as_str() == Some(target.as_str()))
+            })
         })
     })
 }
@@ -200,7 +284,10 @@ async fn two_workspaces_are_isolated() {
     let w1 = create_workspace(&app, "alice").await;
     let w2 = create_workspace(&app, "bob").await;
     let (habit, change) = root_insert("habits");
-    assert_eq!(post_change(&app, "alice", &w1, change).await, StatusCode::CREATED);
+    assert_eq!(
+        post_change(&app, "alice", &w1, change).await,
+        StatusCode::CREATED
+    );
     assert!(sees(&get_env(&app, "alice", &w1).await, habit));
     assert!(!sees(&get_env(&app, "bob", &w2).await, habit));
 }
@@ -216,9 +303,24 @@ async fn non_member_is_forbidden() {
 #[tokio::test]
 async fn missing_credentials_are_rejected() {
     let app = app().await;
-    assert_eq!(call(&app, "GET", "/v1/changes", None, Some("w"), None).await.0, StatusCode::UNAUTHORIZED);
-    assert_eq!(call(&app, "POST", "/v1/workspaces", None, None, None).await.0, StatusCode::UNAUTHORIZED);
-    assert_eq!(call(&app, "GET", "/v1/changes", Some("alice"), None, None).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        call(&app, "GET", "/v1/changes", None, Some("w"), None)
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        call(&app, "POST", "/v1/workspaces", None, None, None)
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        call(&app, "GET", "/v1/changes", Some("alice"), None, None)
+            .await
+            .0,
+        StatusCode::BAD_REQUEST
+    );
 }
 
 // ── record-level ACL acceptance matrix (Phase 3b, §7.1) ─────────────────────
@@ -228,14 +330,26 @@ async fn a1_private_floor_and_child_cascade() {
     let app = app().await;
     let ws = family(&app).await;
     let (habit, ch) = root_insert("habits");
-    assert_eq!(post_change(&app, "alice", &ws, ch).await, StatusCode::CREATED);
+    assert_eq!(
+        post_change(&app, "alice", &ws, ch).await,
+        StatusCode::CREATED
+    );
     let (comp, ch2) = child_insert("completions", habit);
-    assert_eq!(post_change(&app, "alice", &ws, ch2).await, StatusCode::CREATED);
+    assert_eq!(
+        post_change(&app, "alice", &ws, ch2).await,
+        StatusCode::CREATED
+    );
 
     let alice = get_env(&app, "alice", &ws).await;
-    assert!(sees(&alice, habit) && sees(&alice, comp), "owner sees her own");
+    assert!(
+        sees(&alice, habit) && sees(&alice, comp),
+        "owner sees her own"
+    );
     let bob = get_env(&app, "bob", &ws).await;
-    assert!(!sees(&bob, habit), "a private habit never reaches another member");
+    assert!(
+        !sees(&bob, habit),
+        "a private habit never reaches another member"
+    );
     assert!(!sees(&bob, comp), "nor its private child completion");
 }
 
@@ -248,11 +362,20 @@ async fn a2_household_grant_includes_children() {
     let (item, ch2) = child_insert("list_items", list);
     post_change(&app, "alice", &ws, ch2).await;
 
-    assert!(!sees(&get_env(&app, "bob", &ws).await, list), "private before sharing");
-    assert_eq!(set_sharing(&app, "alice", list, "household_read").await, StatusCode::OK);
+    assert!(
+        !sees(&get_env(&app, "bob", &ws).await, list),
+        "private before sharing"
+    );
+    assert_eq!(
+        set_sharing(&app, "alice", &ws, list, "household_read").await,
+        StatusCode::OK
+    );
     let bob = get_env(&app, "bob", &ws).await;
     assert!(sees(&bob, list), "household grant backfills the list");
-    assert!(sees(&bob, item), "and its items ride along (child inheritance)");
+    assert!(
+        sees(&bob, item),
+        "and its items ride along (child inheritance)"
+    );
 }
 
 #[tokio::test]
@@ -264,13 +387,19 @@ async fn a3_downgrade_rejects_member_writes() {
     let (item, ch2) = child_insert("list_items", list);
     post_change(&app, "alice", &ws, ch2).await;
 
-    assert_eq!(set_sharing(&app, "alice", list, "household_rw").await, StatusCode::OK);
+    assert_eq!(
+        set_sharing(&app, "alice", &ws, list, "household_rw").await,
+        StatusCode::OK
+    );
     assert_eq!(
         post_change(&app, "bob", &ws, update("list_items", item)).await,
         StatusCode::CREATED,
         "read-write household member may write"
     );
-    assert_eq!(set_sharing(&app, "alice", list, "household_read").await, StatusCode::OK);
+    assert_eq!(
+        set_sharing(&app, "alice", &ws, list, "household_read").await,
+        StatusCode::OK
+    );
     assert_eq!(
         post_change(&app, "bob", &ws, update("list_items", item)).await,
         StatusCode::FORBIDDEN,
@@ -284,10 +413,19 @@ async fn a4_per_member_grant_and_backfill() {
     let ws = family(&app).await;
     let (note, ch) = root_insert("notes");
     post_change(&app, "alice", &ws, ch).await;
-    assert_eq!(share(&app, "alice", note, "bob", "read").await, StatusCode::OK);
+    assert_eq!(
+        share(&app, "alice", &ws, note, "bob", "read").await,
+        StatusCode::OK
+    );
 
-    assert!(sees(&get_env(&app, "bob", &ws).await, note), "grantee backfills the note");
-    assert!(!sees(&get_env(&app, "carol", &ws).await, note), "a non-grantee never sees it");
+    assert!(
+        sees(&get_env(&app, "bob", &ws).await, note),
+        "grantee backfills the note"
+    );
+    assert!(
+        !sees(&get_env(&app, "carol", &ws).await, note),
+        "a non-grantee never sees it"
+    );
 }
 
 #[tokio::test]
@@ -296,11 +434,17 @@ async fn a5_revoke_purges() {
     let ws = family(&app).await;
     let (note, ch) = root_insert("notes");
     post_change(&app, "alice", &ws, ch).await;
-    share(&app, "alice", note, "bob", "read").await;
+    share(&app, "alice", &ws, note, "bob", "read").await;
     let _ = get_env(&app, "bob", &ws).await; // bob consumes the grant
 
-    assert_eq!(unshare(&app, "alice", note, "bob").await, StatusCode::OK);
-    assert!(purged(&get_env(&app, "bob", &ws).await, note), "revoke tells bob to purge the note");
+    assert_eq!(
+        unshare(&app, "alice", &ws, note, "bob").await,
+        StatusCode::OK
+    );
+    assert!(
+        purged(&get_env(&app, "bob", &ws).await, note),
+        "revoke tells bob to purge the note"
+    );
 }
 
 #[tokio::test]
@@ -309,14 +453,14 @@ async fn a6_offline_write_after_revoke_rejected() {
     let ws = family(&app).await;
     let (note, ch) = root_insert("notes");
     post_change(&app, "alice", &ws, ch).await;
-    share(&app, "alice", note, "bob", "write").await;
+    share(&app, "alice", &ws, note, "bob", "write").await;
     assert_eq!(
         post_change(&app, "bob", &ws, update("notes", note)).await,
         StatusCode::CREATED,
         "bob may write while granted"
     );
 
-    unshare(&app, "alice", note, "bob").await;
+    unshare(&app, "alice", &ws, note, "bob").await;
     assert_eq!(
         post_change(&app, "bob", &ws, update("notes", note)).await,
         StatusCode::FORBIDDEN,
@@ -335,7 +479,10 @@ async fn a7_blob_inherits_note_acl() {
     let png: &[u8] = b"\x89PNG\r\n\x1a\n";
 
     // owner uploads and reads her own blob
-    assert_eq!(put_blob(&app, "alice", &ws, note, &blob, png).await, StatusCode::CREATED);
+    assert_eq!(
+        put_blob(&app, "alice", &ws, note, &blob, png).await,
+        StatusCode::CREATED
+    );
     let (status, got) = get_blob(&app, "alice", &blob).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(got.as_slice(), png, "owner reads her own blob bytes");
@@ -344,20 +491,39 @@ async fn a7_blob_inherits_note_acl() {
     assert_eq!(get_blob(&app, "bob", &blob).await.0, StatusCode::FORBIDDEN);
 
     // a read grant on the note surfaces its blob to bob …
-    assert_eq!(share(&app, "alice", note, "bob", "read").await, StatusCode::OK);
+    assert_eq!(
+        share(&app, "alice", &ws, note, "bob", "read").await,
+        StatusCode::OK
+    );
     let (status, got) = get_blob(&app, "bob", &blob).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(got.as_slice(), png, "read grant on the note surfaces its blob");
+    assert_eq!(
+        got.as_slice(),
+        png,
+        "read grant on the note surfaces its blob"
+    );
 
     // … but a read grant is not enough to upload a new blob …
     let blob2 = Uuid::new_v4().to_string();
-    assert_eq!(put_blob(&app, "bob", &ws, note, &blob2, png).await, StatusCode::FORBIDDEN);
+    assert_eq!(
+        put_blob(&app, "bob", &ws, note, &blob2, png).await,
+        StatusCode::FORBIDDEN
+    );
     // … and a non-grantee still cannot read.
-    assert_eq!(get_blob(&app, "carol", &blob).await.0, StatusCode::FORBIDDEN);
+    assert_eq!(
+        get_blob(&app, "carol", &blob).await.0,
+        StatusCode::FORBIDDEN
+    );
 
     // a write grant lets bob upload through the note's ACL
-    assert_eq!(share(&app, "alice", note, "bob", "write").await, StatusCode::OK);
-    assert_eq!(put_blob(&app, "bob", &ws, note, &blob2, png).await, StatusCode::CREATED);
+    assert_eq!(
+        share(&app, "alice", &ws, note, "bob", "write").await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        put_blob(&app, "bob", &ws, note, &blob2, png).await,
+        StatusCode::CREATED
+    );
 }
 
 #[tokio::test]
@@ -368,14 +534,20 @@ async fn a7_blob_rejects_unknown_or_non_root_note() {
 
     // a note Atrium has never seen → 404
     let missing = Uuid::new_v4();
-    assert_eq!(put_blob(&app, "alice", &ws, missing, &blob, b"x").await, StatusCode::NOT_FOUND);
+    assert_eq!(
+        put_blob(&app, "alice", &ws, missing, &blob, b"x").await,
+        StatusCode::NOT_FOUND
+    );
 
     // a child row is not a valid blob anchor → 400
     let (note, ch) = root_insert("notes");
     post_change(&app, "alice", &ws, ch).await;
     let (img, ch2) = child_insert("note_images", note);
     post_change(&app, "alice", &ws, ch2).await;
-    assert_eq!(put_blob(&app, "alice", &ws, img, &blob, b"x").await, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        put_blob(&app, "alice", &ws, img, &blob, b"x").await,
+        StatusCode::BAD_REQUEST
+    );
 }
 
 #[tokio::test]
@@ -391,10 +563,102 @@ async fn a8_anti_forgery() {
         StatusCode::FORBIDDEN
     );
     // … nor re-insert its id to forge ownership …
-    let forged = wrap(&json!([{ "op": "insert", "table": "habits", "row_id": habit, "data": { "id": habit } }]));
-    assert_eq!(post_change(&app, "bob", &ws, forged).await, StatusCode::FORBIDDEN);
+    let forged = wrap(
+        &json!([{ "op": "insert", "table": "habits", "row_id": habit, "data": { "id": habit } }]),
+    );
+    assert_eq!(
+        post_change(&app, "bob", &ws, forged).await,
+        StatusCode::FORBIDDEN
+    );
     // … nor share a record they do not own.
     let (note, ch2) = root_insert("notes");
     post_change(&app, "alice", &ws, ch2).await;
-    assert_eq!(share(&app, "bob", note, "carol", "read").await, StatusCode::FORBIDDEN);
+    assert_eq!(
+        share(&app, "bob", &ws, note, "carol", "read").await,
+        StatusCode::FORBIDDEN
+    );
+}
+
+#[tokio::test]
+async fn events_remain_pending_until_workspace_ack() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let (note, change) = root_insert("notes");
+    assert_eq!(
+        post_change(&app, "alice", &ws, change).await,
+        StatusCode::CREATED
+    );
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/v1/shares",
+        Some("alice"),
+        Some(&ws),
+        Some(json!({ "root_id": note, "grantee_user_id": "bob", "perm": "read" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let first = get_env(&app, "bob", &ws).await;
+    let event_id = first["events"][0]["id"].as_i64().unwrap();
+    let second = get_env(&app, "bob", &ws).await;
+    assert_eq!(second["events"][0]["id"].as_i64(), Some(event_id));
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/v1/changes/events/ack",
+        Some("bob"),
+        Some(&ws),
+        Some(json!({ "event_ids": [event_id] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(get_env(&app, "bob", &ws).await["events"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+}
+
+#[tokio::test]
+async fn event_ack_cannot_cross_workspace_or_caller() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let (note, change) = root_insert("notes");
+    post_change(&app, "alice", &ws, change).await;
+    call(
+        &app,
+        "POST",
+        "/v1/shares",
+        Some("alice"),
+        Some(&ws),
+        Some(json!({ "root_id": note, "grantee_user_id": "bob", "perm": "read" })),
+    )
+    .await;
+    let event_id = get_env(&app, "bob", &ws).await["events"][0]["id"]
+        .as_i64()
+        .unwrap();
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/v1/changes/events/ack",
+        Some("carol"),
+        Some(&ws),
+        Some(json!({ "event_ids": [event_id] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let other = create_workspace(&app, "dave").await;
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/v1/changes/events/ack",
+        Some("dave"),
+        Some(&other),
+        Some(json!({ "event_ids": [event_id] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        get_env(&app, "bob", &ws).await["events"][0]["id"].as_i64(),
+        Some(event_id)
+    );
 }

@@ -6,7 +6,6 @@
 use anyhow::Result;
 use atrium::{create_router, AtriumDb, AtriumState, DevBearerProvider};
 use clap::Parser;
-use palladium_sqlite::SqliteStore;
 use tower_http::cors::CorsLayer;
 use tracing::info;
 
@@ -14,13 +13,9 @@ use tracing::info;
 #[derive(Debug, Parser)]
 #[command(version, about)]
 struct Cli {
-    /// Atrium's tenancy/ACL database URL.
+    /// The unified Atrium tenancy, ACL, and changes database URL.
     #[arg(long, default_value = "sqlite:atrium.db", env = "ATRIUM_DB")]
     atrium_db: String,
-
-    /// The embedded Palladium change-store database URL.
-    #[arg(long, default_value = "sqlite:atrium-changes.db", env = "ATRIUM_CHANGES_DB")]
-    changes_db: String,
 
     /// Port to listen on.
     #[arg(long, default_value_t = 4000)]
@@ -42,7 +37,9 @@ struct Cli {
 /// Whether `host` names a loopback interface (safe for the dev identity).
 fn is_loopback(host: &str) -> bool {
     matches!(host, "localhost" | "::1")
-        || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
 }
 
 #[tokio::main]
@@ -51,7 +48,6 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     info!(
         atrium_db = %cli.atrium_db,
-        changes_db = %cli.changes_db,
         port = cli.port,
         "starting atrium (dev bearer identity)"
     );
@@ -73,8 +69,7 @@ async fn main() -> Result<()> {
     }
 
     let db = AtriumDb::open(&cli.atrium_db).await?;
-    let changes = SqliteStore::open(&cli.changes_db).await?;
-    let state = AtriumState::new(db, changes, DevBearerProvider);
+    let state = AtriumState::new(db, DevBearerProvider);
     let app = create_router(state, CorsLayer::permissive());
 
     // An IPv6 literal host (e.g. `::1`) must be bracketed in `host:port` form;

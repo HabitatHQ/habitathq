@@ -58,7 +58,7 @@ pub(super) async fn put_blob(
     db.require_member(&workspace, user.as_str()).await?;
 
     let note = db
-        .get_record(&note_id)
+        .get_record(&workspace, &note_id)
         .await?
         .ok_or_else(|| AtriumError::NotFound(format!("note {note_id} not found")))?;
     if note.workspace_id != workspace {
@@ -67,13 +67,16 @@ pub(super) async fn put_blob(
         ));
     }
     if note.root_id.is_some()
-        || !matches!(registry::role_of(&note.table_name), Some(TableRole::Root(_)))
+        || !matches!(
+            registry::role_of(&note.table_name),
+            Some(TableRole::Root(_))
+        )
     {
         return Err(AtriumError::BadRequest(
             "blobs attach to a root note".to_owned(),
         ));
     }
-    if !db.can_write(user.as_str(), &note_id).await? {
+    if !db.can_write(&workspace, user.as_str(), &note_id).await? {
         return Err(AtriumError::Forbidden(format!(
             "no write access to note {note_id}"
         )));
@@ -83,8 +86,15 @@ pub(super) async fn put_blob(
         .get(CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or(DEFAULT_CONTENT_TYPE);
-    db.put_blob(&blob_id, &workspace, &note_id, user.as_str(), content_type, &body)
-        .await?;
+    db.put_blob(
+        &blob_id,
+        &workspace,
+        &note_id,
+        user.as_str(),
+        content_type,
+        &body,
+    )
+    .await?;
     Ok(StatusCode::CREATED)
 }
 
@@ -105,7 +115,10 @@ pub(super) async fn get_blob(
         .await?
         .ok_or_else(|| AtriumError::NotFound(format!("blob {blob_id} not found")))?;
     db.require_member(&blob.workspace_id, user.as_str()).await?;
-    if !db.can_read(user.as_str(), &blob.note_id).await? {
+    if !db
+        .can_read(&blob.workspace_id, user.as_str(), &blob.note_id)
+        .await?
+    {
         return Err(AtriumError::Forbidden(format!(
             "no read access to blob {blob_id}"
         )));

@@ -56,7 +56,7 @@ async function toggleItem(it: ListItemRow): Promise<void> {
 async function setSharing(list: ListRow, cls: string): Promise<void> {
   err.value = null;
   try {
-    await props.api.setSharing(list.id, cls);
+    await props.api.setSharing(props.account.workspaceId, list.id, cls);
     sharing.value.set(list.id, cls);
   } catch (e) {
     err.value = String(e);

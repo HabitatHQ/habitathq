@@ -33,6 +33,8 @@ const newTitle = ref("");
 const grantee = ref(new Map<string, string>());
 const perm = ref(new Map<string, "read" | "write">());
 const thumbs = ref(new Map<string, string>()); // blob_id → object URL
+const wantedBlobIds = new Set<string>();
+let acceptingThumbs = true;
 const inFlight = new Set<string>(); // blob_ids currently being fetched
 const err = ref<string | null>(null);
 
@@ -48,7 +50,12 @@ async function shareNote(note: NoteRow): Promise<void> {
   if (!to) return;
   err.value = null;
   try {
-    await props.api.share(note.id, to, perm.value.get(note.id) ?? "read");
+    await props.api.share(
+      props.account.workspaceId,
+      note.id,
+      to,
+      perm.value.get(note.id) ?? "read",
+    );
     emit("shared");
   } catch (e) {
     err.value = String(e);
@@ -60,7 +67,7 @@ async function unshareNote(note: NoteRow): Promise<void> {
   if (!to) return;
   err.value = null;
   try {
-    await props.api.unshare(note.id, to);
+    await props.api.unshare(props.account.workspaceId, note.id, to);
     emit("shared");
   } catch (e) {
     err.value = String(e);
@@ -94,7 +101,7 @@ async function loadThumb(blobId: string): Promise<void> {
   inFlight.add(blobId);
   try {
     const blob = await props.api.getBlob(blobId);
-    if (blob && !thumbs.value.has(blobId)) {
+    if (blob && acceptingThumbs && wantedBlobIds.has(blobId) && !thumbs.value.has(blobId)) {
       const next = new Map(thumbs.value);
       next.set(blobId, URL.createObjectURL(blob));
       // reassign to trigger reactive re-render of the thumbnail grid
@@ -106,17 +113,34 @@ async function loadThumb(blobId: string): Promise<void> {
 }
 
 // Release every object URL when the section unmounts (workspace/user switch) so
-// the blobs don't stay pinned in memory for the document's lifetime.
+// the blobs don't stay pinned in memory for the document's lifetime. Prevent an
+// in-flight fetch from creating a new URL after this cleanup.
 onUnmounted(() => {
+  acceptingThumbs = false;
+  wantedBlobIds.clear();
   for (const url of thumbs.value.values()) URL.revokeObjectURL(url);
+  thumbs.value = new Map();
 });
 
 // Fetch any blob bytes we don't have yet whenever the image rows change (new
-// local attach, or a sync/backfill from another member).
+// local attach, or a sync/backfill from another member), and immediately
+// release URLs once their last referencing row disappears.
 watch(
   images,
   (rows) => {
-    for (const img of rows) void loadThumb(img.blob_id);
+    wantedBlobIds.clear();
+    for (const img of rows) wantedBlobIds.add(img.blob_id);
+
+    const next = new Map(thumbs.value);
+    for (const [blobId, url] of next) {
+      if (!wantedBlobIds.has(blobId)) {
+        URL.revokeObjectURL(url);
+        next.delete(blobId);
+      }
+    }
+    if (next.size !== thumbs.value.size) thumbs.value = next;
+
+    for (const blobId of wantedBlobIds) void loadThumb(blobId);
   },
   { immediate: true },
 );

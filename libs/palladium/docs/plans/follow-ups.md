@@ -110,14 +110,12 @@ UI flow.
 
 ### 2c. Infra / migration (pre-release hardening)
 
-- **F1 — store `scope` upgrade migration.**
-  `libs/palladium/crates/palladium-sqlite/src/store.rs:12` (`TODO(cr/F1)`).
-  `CREATE TABLE IF NOT EXISTS` won't add `scope` to a pre-`scope` table, so the
-  `(scope, hlc_key)` index would fail on an in-place upgrade. Palladium is
-  pre-release with no shipped scope-less DBs, so a guarded `ALTER TABLE … ADD
-  COLUMN scope … + backfill 'default'` is deferred to the first release that
-  must migrate an existing store. **Mirror in `palladium-postgres/src/store.rs`
-  when added.**
+- **F1 — store `scope` upgrade migration. ✅ RESOLVED.** SQLite and PostgreSQL
+  now perform idempotent in-place upgrades: legacy rows are backfilled into the
+  documented `"default"` scope before the scope/HLC index is created. New
+  stores and schema-isolated PostgreSQL connections use the same migration path.
+  A live PostgreSQL integration test remains an environment prerequisite and is
+  intentionally not run in this review worktree.
 - **F20 — FK deferral without FK enforcement.**
   `libs/palladium/sqlite-node/src/adapter.ts:129` (`TODO(cr/F20)`). SQLite
   defaults `PRAGMA foreign_keys` OFF, so `deferForeignKeys()` currently guards

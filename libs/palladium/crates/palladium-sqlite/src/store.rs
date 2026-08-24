@@ -7,26 +7,39 @@ use uuid::Uuid;
 
 use crate::{Error, Result};
 
-// ── Schema migration ──────────────────────────────────────────────────────
-
-// TODO(cr/F1): `CREATE TABLE IF NOT EXISTS` does not add `scope` to a table that
-// predates it, so the `(scope, hlc_key)` index would fail on a pre-`scope` DB.
-// Palladium is pre-release and the change store is created fresh (no shipped
-// scope-less databases), so an in-place `ALTER TABLE … ADD COLUMN scope … +
-// backfill 'default'` guarded upgrade is deferred to the first release that
-// must migrate an existing store. Mirror it in the Postgres store when added.
-const MIGRATE: &str = "
+const MIGRATE_CREATE: &str = "
 CREATE TABLE IF NOT EXISTS palladium_changes (
-    id          TEXT    NOT NULL PRIMARY KEY,
-    scope       TEXT    NOT NULL,
-    hlc_key     TEXT    NOT NULL,
-    hlc_millis  INTEGER NOT NULL,
+    id TEXT NOT NULL PRIMARY KEY,
+    scope TEXT,
+    hlc_key TEXT NOT NULL,
+    hlc_millis INTEGER NOT NULL,
     hlc_counter INTEGER NOT NULL,
-    hlc_node_id TEXT    NOT NULL,
-    ops_json    TEXT    NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_changes_scope_hlc ON palladium_changes (scope, hlc_key);
-";
+    hlc_node_id TEXT NOT NULL,
+    ops_json TEXT NOT NULL
+)";
+
+async fn migrate(pool: &SqlitePool) -> Result<()> {
+    sqlx::query(MIGRATE_CREATE).execute(pool).await?;
+    let columns: Vec<(String,)> = sqlx::query_as(
+        "SELECT name FROM pragma_table_info('palladium_changes') WHERE name = 'scope'",
+    )
+    .fetch_all(pool)
+    .await?;
+    if columns.is_empty() {
+        sqlx::query("ALTER TABLE palladium_changes ADD COLUMN scope TEXT")
+            .execute(pool)
+            .await?;
+    }
+    sqlx::query("UPDATE palladium_changes SET scope = 'default' WHERE scope IS NULL")
+        .execute(pool)
+        .await?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_changes_scope_hlc ON palladium_changes (scope, hlc_key)",
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
 
 // ── Query strings ──────────────────────────────────────────────────────────
 
@@ -53,9 +66,10 @@ impl LockFile {
     /// already exists; `Err(Error::Io)` for any other I/O error.
     fn acquire(db_path: &std::path::Path) -> Result<Self> {
         let mut lock_path = db_path.to_path_buf();
-        let ext = lock_path
-            .extension()
-            .map_or_else(|| "lock".to_owned(), |e| format!("{}.lock", e.to_string_lossy()));
+        let ext = lock_path.extension().map_or_else(
+            || "lock".to_owned(),
+            |e| format!("{}.lock", e.to_string_lossy()),
+        );
         lock_path.set_extension(&ext);
         match fs::OpenOptions::new()
             .write(true)
@@ -63,11 +77,9 @@ impl LockFile {
             .open(&lock_path)
         {
             Ok(_) => Ok(Self { path: lock_path }),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                Err(Error::Core(palladium_core::Error::InstanceAlreadyOpen(
-                    db_path.display().to_string(),
-                )))
-            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(Error::Core(
+                palladium_core::Error::InstanceAlreadyOpen(db_path.display().to_string()),
+            )),
             Err(e) => Err(Error::Io(e)),
         }
     }
@@ -113,8 +125,7 @@ impl SqliteStore {
     pub async fn open_with_limits(url: &str, limits: &InstanceLimits) -> Result<Self> {
         // Strip the sqlite: scheme to get the raw path.
         let path_str = url.strip_prefix("sqlite:").unwrap_or(url);
-        let is_memory =
-            path_str.contains(":memory:") || path_str.contains("mode=memory");
+        let is_memory = path_str.contains(":memory:") || path_str.contains("mode=memory");
 
         let (open_guard, lock_file) = if is_memory {
             // In-memory: each call uses a unique URL (via in_memory()), so the
@@ -123,8 +134,7 @@ impl SqliteStore {
             (guard, None)
         } else {
             // File-backed: canonicalise to avoid symlink aliasing.
-            let canonical = fs::canonicalize(path_str)
-                .unwrap_or_else(|_| PathBuf::from(path_str));
+            let canonical = fs::canonicalize(path_str).unwrap_or_else(|_| PathBuf::from(path_str));
             let canonical_str = canonical.display().to_string();
             let guard = palladium_core::register(&canonical_str)?;
             let lock = LockFile::acquire(&canonical)?;
@@ -146,7 +156,7 @@ impl SqliteStore {
             .connect_with(opts)
             .await?;
 
-        sqlx::query(MIGRATE).execute(&pool).await?;
+        migrate(&pool).await?;
 
         Ok(Self {
             pool,
@@ -186,10 +196,7 @@ impl ChangeStore for SqliteStore {
         let id = change.id.to_string();
         let hlc_key = change.hlc.sort_key();
         let hlc_millis = i64::try_from(change.hlc.millis()).map_err(|_| {
-            Error::InvalidData(format!(
-                "hlc_millis {} overflows i64",
-                change.hlc.millis()
-            ))
+            Error::InvalidData(format!("hlc_millis {} overflows i64", change.hlc.millis()))
         })?;
         let hlc_counter = i64::from(change.hlc.counter());
         let hlc_node_id = change.hlc.node_id().to_string();
@@ -220,7 +227,8 @@ impl ChangeStore for SqliteStore {
         limit: Option<u32>,
     ) -> std::result::Result<Vec<Change>, Error> {
         let mut qb = sqlx::QueryBuilder::new(SELECT_COLS);
-        qb.push(" WHERE scope = ").push_bind(scope.as_str().to_owned());
+        qb.push(" WHERE scope = ")
+            .push_bind(scope.as_str().to_owned());
         if let Some(hlc) = after {
             qb.push(" AND hlc_key > ").push_bind(hlc.sort_key());
         }
@@ -320,7 +328,7 @@ mod tests {
     use serde_json::json;
     use uuid::Uuid;
 
-    use super::SqliteStore;
+    use super::{migrate, SqliteStore};
 
     fn node(n: u128) -> NodeId {
         NodeId::from_uuid(Uuid::from_u128(n))
@@ -545,7 +553,10 @@ mod tests {
         store.insert(&scope(), &c).await.unwrap();
 
         let after = store.list_after(&scope(), Some(h), None).await.unwrap();
-        assert!(after.is_empty(), "cursor AT the last HLC should return nothing");
+        assert!(
+            after.is_empty(),
+            "cursor AT the last HLC should return nothing"
+        );
     }
 
     /// Two changes with the same (millis, counter) but different `node_id`s
@@ -599,9 +610,36 @@ mod tests {
         // Second open of the same URL returns InstanceAlreadyOpen.
         let err = SqliteStore::open(&url).await.unwrap_err();
         assert!(
-            matches!(err, crate::Error::Core(palladium_core::Error::InstanceAlreadyOpen(_))),
+            matches!(
+                err,
+                crate::Error::Core(palladium_core::Error::InstanceAlreadyOpen(_))
+            ),
             "expected InstanceAlreadyOpen, got {err:?}"
         );
+    }
+    #[tokio::test]
+    async fn legacy_scope_column_is_backfilled() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::query(
+            "CREATE TABLE palladium_changes (
+                id TEXT PRIMARY KEY, hlc_key TEXT NOT NULL, hlc_millis INTEGER NOT NULL,
+                hlc_counter INTEGER NOT NULL, hlc_node_id TEXT NOT NULL, ops_json TEXT NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO palladium_changes (id, hlc_key, hlc_millis, hlc_counter, hlc_node_id, ops_json) VALUES ('id', 'k', 1, 0, 'n', '[]')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        migrate(&pool).await.unwrap();
+        let scope: String = sqlx::query_scalar("SELECT scope FROM palladium_changes")
+            .fetch_optional(&pool)
+            .await
+            .unwrap()
+            .unwrap_or_default();
+        assert_eq!(scope, "default");
     }
 
     /// Inserting from multiple concurrent tasks must not corrupt the store.
@@ -613,7 +651,10 @@ mod tests {
             .map(|i| {
                 let s = Arc::clone(&store);
                 tokio::spawn(async move {
-                    let c = Change::new(hlc(i * 100 + 1_000, 0, u128::from(i) + 1), vec![insert_op("t")]);
+                    let c = Change::new(
+                        hlc(i * 100 + 1_000, 0, u128::from(i) + 1),
+                        vec![insert_op("t")],
+                    );
                     s.insert(&scope(), &c).await
                 })
             })
@@ -645,7 +686,10 @@ mod tests {
     #[tokio::test]
     async fn delete_ops_round_trip() {
         let store = mem().await;
-        let ops = vec![Op::Delete { table: "items".into(), row_id: Uuid::nil() }];
+        let ops = vec![Op::Delete {
+            table: "items".into(),
+            row_id: Uuid::nil(),
+        }];
         let change = Change::new(hlc(1_000, 0, 1), ops.clone());
         store.insert(&scope(), &change).await.unwrap();
         let got = store.get(&scope(), change.id).await.unwrap().unwrap();
@@ -670,7 +714,10 @@ mod tests {
         let n = node(1);
         let mut prev = Hlc::new(n, 1_000);
         for _ in 0..10 {
-            store.insert(&scope(), &Change::new(prev, vec![])).await.unwrap();
+            store
+                .insert(&scope(), &Change::new(prev, vec![]))
+                .await
+                .unwrap();
             prev = prev.send(prev.millis() + 1);
         }
 
@@ -690,7 +737,10 @@ mod tests {
         let h4 = h3.send(4_000);
 
         for h in [h1, h2, h3, h4] {
-            store.insert(&scope(), &Change::new(h, vec![])).await.unwrap();
+            store
+                .insert(&scope(), &Change::new(h, vec![]))
+                .await
+                .unwrap();
         }
 
         // After h1 with limit 2 → h2 and h3 only

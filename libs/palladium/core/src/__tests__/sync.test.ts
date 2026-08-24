@@ -490,6 +490,40 @@ describe("SyncTransport — downlink", () => {
     const cursor = hlcToAfterCursor(c1.hlc);
     expect(seenUrls[1]).toBe(`${SERVER_URL}/v1/changes?after=${cursor}`);
   });
+  it("forces wire insert data.id to row_id and acknowledges after apply", async () => {
+    const db = await makeEngine(BOB);
+    const change: WireChange = {
+      id: "mismatch",
+      hlc: { wallMs: 1_700_000_000_010, counter: 0, nodeId: ALICE },
+      ops: [
+        {
+          op: "insert",
+          table: "notes",
+          row_id: "authorized",
+          data: { id: "conflicting", title: "ok", updated_at: 1 },
+        },
+      ],
+    };
+    const order: string[] = [];
+    const { fetch } = makeFakeFetch((call) => {
+      if (call.init?.method === "POST") return jsonResponse({}, 201);
+      if (order.length === 0) return jsonResponse([change]);
+      return jsonResponse([]);
+    });
+    const transport = new SyncTransport(db, {
+      serverUrl: SERVER_URL,
+      fetch,
+      acknowledgeChanges: async () => {
+        const rows = await db.exec<Schema["notes"]>(sql`SELECT * FROM notes`);
+        order.push(`ack:${rows.length}`);
+      },
+    });
+    await transport.start();
+    await transport.stop();
+    const rows = await db.exec<Schema["notes"]>(sql`SELECT * FROM notes`);
+    expect(rows[0]?.id).toBe("authorized");
+    expect(order).toEqual(["ack:1"]);
+  });
 });
 
 describe("SyncTransport — lifecycle", () => {

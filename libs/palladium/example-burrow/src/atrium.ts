@@ -1,4 +1,4 @@
-import type { Op, PalladiumEngine, RemoteChange, WireChange } from "@palladium/core";
+import type { PalladiumEngine, WireChange } from "@palladium/core";
 import { createEngine, SyncTransport } from "@palladium/core";
 import { BrowserSqliteAdapter } from "@palladium/sqlite-browser";
 import { BURROW_SCHEMA, type BurrowSchema, CHILD_TABLES, ROOT_TABLES } from "./schema.js";
@@ -10,9 +10,16 @@ export const newId = (): string => crypto.randomUUID();
 export const DEFAULT_SERVER = "http://localhost:4000";
 
 /** Atrium's `GET /v1/changes` envelope (extends the bare palladium-axum array). */
+interface ChangeEvent {
+  readonly id: number;
+  readonly kind: "grant" | "revoke";
+  readonly root_id: string;
+}
+
 interface ChangesEnvelope {
   changes: WireChange[];
   purges: string[];
+  events?: ChangeEvent[];
 }
 
 /** A workspace member as returned by `GET /v1/workspaces/:id/members`. */
@@ -100,25 +107,33 @@ export class AtriumApi {
   }
 
   /** Grant a specific member read/write on a per-member root (e.g. a note). */
-  async share(rootId: string, grantee: string, perm: "read" | "write"): Promise<void> {
+  async share(
+    workspaceId: string,
+    rootId: string,
+    grantee: string,
+    perm: "read" | "write",
+  ): Promise<void> {
     await this.#json("/v1/shares", {
       method: "POST",
+      headers: { "X-Workspace": workspaceId },
       body: JSON.stringify({ root_id: rootId, grantee_user_id: grantee, perm }),
     });
   }
 
   /** Revoke a member's per-member grant (enqueues a purge for them). */
-  async unshare(rootId: string, grantee: string): Promise<void> {
+  async unshare(workspaceId: string, rootId: string, grantee: string): Promise<void> {
     await this.#json("/v1/shares", {
       method: "DELETE",
+      headers: { "X-Workspace": workspaceId },
       body: JSON.stringify({ root_id: rootId, grantee_user_id: grantee }),
     });
   }
 
   /** Set a household root's sharing class (`private` | `household_read` | `household_rw`). */
-  async setSharing(rootId: string, sharingClass: string): Promise<void> {
+  async setSharing(workspaceId: string, rootId: string, sharingClass: string): Promise<void> {
     await this.#json(`/v1/records/${rootId}/sharing`, {
       method: "PATCH",
+      headers: { "X-Workspace": workspaceId },
       body: JSON.stringify({ class: sharingClass }),
     });
   }
@@ -148,41 +163,31 @@ export class AtriumApi {
 }
 
 /**
- * Apply server-driven purges (revoked roots) to the local store.
- *
- * A purge is a *local* deletion: we must not re-POST it (the caller just lost
- * write access). Routing it through `applyRemote` deletes the rows, refreshes
- * live queries, and — crucially — suppresses the `changes:local` event so the
- * transport never tries to sync it back. A fresh HLC guarantees the delete wins
- * LWW against any local row it removes.
+ * Apply server-driven purges as local-only removals. `purgeLocal` clears the
+ * row and sync metadata, refreshes live queries, and never emits `changes:local`
+ * or creates an outbound outbox change.
  */
 async function applyPurges(
   engine: PalladiumEngine<BurrowSchema>,
   rootIds: string[],
 ): Promise<void> {
   for (const rootId of rootIds) {
-    const ops: Op<BurrowSchema>[] = [];
+    const rows: Array<{ table: keyof BurrowSchema & string; id: string }> = [];
     for (const child of CHILD_TABLES) {
-      const rows = await engine.adapter.exec<{ id: string }>(
+      const childRows = await engine.adapter.exec<{ id: string }>(
         `SELECT id FROM ${child} WHERE root_id = ?`,
         [rootId],
       );
-      for (const { id } of rows) ops.push({ type: "delete", table: child, id });
+      for (const { id } of childRows) rows.push({ table: child, id });
     }
     for (const root of ROOT_TABLES) {
-      const rows = await engine.adapter.exec<{ id: string }>(
+      const rootRows = await engine.adapter.exec<{ id: string }>(
         `SELECT id FROM ${root} WHERE id = ?`,
         [rootId],
       );
-      for (const { id } of rows) ops.push({ type: "delete", table: root, id });
+      for (const { id } of rootRows) rows.push({ table: root, id });
     }
-    if (ops.length === 0) continue;
-    const change: RemoteChange<BurrowSchema> = {
-      id: newId(),
-      hlc: engine.nextSendHlc(),
-      ops,
-    };
-    await engine.applyRemote(change);
+    for (const row of rows) await engine.purgeLocal(row.table, row.id);
   }
 }
 
@@ -273,9 +278,26 @@ export async function createAccount(opts: {
       "X-Workspace": opts.workspaceId,
     }),
     decodeChanges: async (body) => {
+      if (Array.isArray(body)) return body as WireChange[];
       const env = body as ChangesEnvelope;
       if (env.purges?.length) await applyPurges(engine, env.purges);
       return env.changes ?? [];
+    },
+    acknowledgeChanges: async (body) => {
+      const env = body as ChangesEnvelope;
+      const eventIds = (env.events ?? []).map((event) => event.id);
+      if (eventIds.length === 0) return;
+      await fetch(`${serverUrl.replace(/\/+$/, "")}/v1/changes/events/ack`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${opts.user}`,
+          "X-Workspace": opts.workspaceId,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ event_ids: eventIds }),
+      }).then((res) => {
+        if (!res.ok) throw new Error(`POST /v1/changes/events/ack → ${res.status}`);
+      });
     },
   });
   await transport.start();

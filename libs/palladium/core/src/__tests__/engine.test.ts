@@ -517,4 +517,18 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
     const payload = cb.mock.calls[0]?.[0] as { touchedTables: string[] };
     expect(payload.touchedTables.sort()).toEqual(["comments", "tasks"]);
   });
+  it("buffers absent-row updates and replays them after insert", async () => {
+    const db = makeDbWithSchema();
+    await db.init(SCHEMA);
+    await db.applyRemote({
+      hlc: { wallMs: 2000, counter: 0, nodeId: "remote" },
+      ops: [{ type: "update", table: "tasks", id: "t1", patch: { name: "new" } }],
+    });
+    await db.applyRemote({
+      hlc: { wallMs: 1000, counter: 0, nodeId: "remote" },
+      ops: [{ type: "insert", table: "tasks", id: "t1", data: { id: "t1", name: "old", done: 0 } }],
+    });
+    const rows = await db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks WHERE id = 't1'`);
+    expect(rows[0]?.name).toBe("new");
+  });
 });

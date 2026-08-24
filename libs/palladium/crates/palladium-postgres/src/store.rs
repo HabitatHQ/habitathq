@@ -37,131 +37,133 @@ pub fn validate_identifier(name: &str) -> Result<()> {
 
 // ── Schema migration ──────────────────────────────────────────────────────
 
-const MIGRATE: &str = "
-CREATE TABLE IF NOT EXISTS palladium_changes (
-    id          UUID    NOT NULL PRIMARY KEY,
-    scope       TEXT    NOT NULL,
-    hlc_key     TEXT    NOT NULL,
-    hlc_millis  BIGINT  NOT NULL,
-    hlc_counter BIGINT  NOT NULL,
-    hlc_node_id TEXT    NOT NULL,
-    ops_json    JSONB   NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_changes_scope_hlc ON palladium_changes (scope, hlc_key);
-";
+const DEFAULT_SCOPE: &str = "default";
+const CHANGE_TABLE: &str = "palladium_changes";
 
-// ── Query strings ──────────────────────────────────────────────────────────
+fn quote_identifier(name: &str) -> Result<String> {
+    validate_identifier(name)?;
+    Ok(format!("\"{name}\""))
+}
 
-const SELECT_COLS: &str =
-    "SELECT id, hlc_millis, hlc_counter, hlc_node_id, ops_json FROM palladium_changes";
-const GET_BY_ID: &str = "SELECT id, hlc_millis, hlc_counter, hlc_node_id, ops_json \
-     FROM palladium_changes WHERE id = $1 AND scope = $2";
+fn change_table(schema: &str) -> Result<String> {
+    Ok(format!(
+        "{}.{}",
+        quote_identifier(schema)?,
+        quote_identifier(CHANGE_TABLE)?
+    ))
+}
+
+fn migration_queries(table: &str) -> [String; 5] {
+    [
+        format!(
+            "CREATE TABLE IF NOT EXISTS {table} (
+                id          UUID    NOT NULL PRIMARY KEY,
+                scope       TEXT    NOT NULL,
+                hlc_key     TEXT    NOT NULL,
+                hlc_millis  BIGINT  NOT NULL,
+                hlc_counter BIGINT  NOT NULL,
+                hlc_node_id TEXT    NOT NULL,
+                ops_json    JSONB   NOT NULL
+            )"
+        ),
+        format!("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS scope TEXT"),
+        format!("UPDATE {table} SET scope = $1 WHERE scope IS NULL"),
+        format!("ALTER TABLE {table} ALTER COLUMN scope SET NOT NULL"),
+        format!("CREATE INDEX IF NOT EXISTS idx_changes_scope_hlc ON {table} (scope, hlc_key)"),
+    ]
+}
 
 // ── Store ─────────────────────────────────────────────────────────────────
 
 /// `PostgreSQL`-backed persistent store for [`Change`]s.
-///
-/// Use [`PostgresStore::connect`] to create a store from a connection URL,
-/// or [`PostgresStore::from_pool`] to reuse an existing [`PgPool`].
 #[derive(Debug)]
 pub struct PostgresStore {
     pool: PgPool,
+    table: String,
     _open_guard: Option<palladium_core::OpenGuard>,
 }
 
 impl PostgresStore {
-    /// Connect to `PostgreSQL` at `url` and migrate the schema.
+    /// Connect to the default `public` schema and migrate its change table.
     ///
     /// # Errors
-    /// Returns an error if the connection or migration fails.
+    /// Returns an error if the connection, instance registration, or migration fails.
     pub async fn connect(url: &str) -> Result<Self> {
         let guard = palladium_core::register(url)?;
         let pool = PgPool::connect(url).await?;
         Self::migrate(&pool).await?;
         Ok(Self {
             pool,
+            table: format!("\"public\".\"{CHANGE_TABLE}\""),
             _open_guard: Some(guard),
         })
     }
 
-    /// Connect to `PostgreSQL` using the given [`InstanceConfig`].
-    ///
-    /// Applies schema or database isolation depending on
-    /// [`InstanceConfig::postgres`] settings.
+    /// Connect with instance isolation and migrate that instance's change table.
     ///
     /// # Errors
-    /// Returns an error if the connection, schema creation, or migration fails.
+    /// Returns an error if configuration validation, connection, registration, or migration fails.
     pub async fn connect_with_config(cfg: &InstanceConfig) -> Result<Self> {
         let guard = palladium_core::register(&cfg.path)?;
-
         let postgres_opts = cfg.postgres.as_ref();
-        let isolation = postgres_opts
-            .map_or(&PostgresIsolation::Schema, |p| &p.isolation);
-
-        match isolation {
-            PostgresIsolation::Schema => {
-                let schema = postgres_opts
-                    .and_then(|p| p.schema.as_deref())
-                    .unwrap_or(&cfg.name);
-                validate_identifier(schema)?;
-                let pool = sqlx::postgres::PgPoolOptions::new()
-                    .max_connections(cfg.limits.pool_size)
-                    .acquire_timeout(std::time::Duration::from_secs(
-                        cfg.limits.acquire_timeout_secs,
-                    ))
-                    .idle_timeout(std::time::Duration::from_secs(
-                        cfg.limits.idle_timeout_secs,
-                    ))
-                    .connect(&cfg.path)
-                    .await?;
-                // Create schema and set search_path.
-                sqlx::query(&format!("CREATE SCHEMA IF NOT EXISTS {schema}"))
-                    .execute(&pool)
-                    .await?;
-                sqlx::query(&format!("SET search_path TO {schema}"))
-                    .execute(&pool)
-                    .await?;
-                Self::migrate(&pool).await?;
-                Ok(Self {
-                    pool,
-                    _open_guard: Some(guard),
-                })
-            }
-            PostgresIsolation::Db => {
-                let pool = sqlx::postgres::PgPoolOptions::new()
-                    .max_connections(cfg.limits.pool_size)
-                    .acquire_timeout(std::time::Duration::from_secs(
-                        cfg.limits.acquire_timeout_secs,
-                    ))
-                    .idle_timeout(std::time::Duration::from_secs(
-                        cfg.limits.idle_timeout_secs,
-                    ))
-                    .connect(&cfg.path)
-                    .await?;
-                Self::migrate(&pool).await?;
-                Ok(Self {
-                    pool,
-                    _open_guard: Some(guard),
-                })
-            }
+        let isolation = postgres_opts.map_or(&PostgresIsolation::Schema, |p| &p.isolation);
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(cfg.limits.pool_size)
+            .acquire_timeout(std::time::Duration::from_secs(
+                cfg.limits.acquire_timeout_secs,
+            ))
+            .idle_timeout(std::time::Duration::from_secs(cfg.limits.idle_timeout_secs))
+            .connect(&cfg.path)
+            .await?;
+        let schema = match isolation {
+            PostgresIsolation::Schema => postgres_opts
+                .and_then(|p| p.schema.as_deref())
+                .unwrap_or(&cfg.name),
+            PostgresIsolation::Db => "public",
+        };
+        let table = change_table(schema)?;
+        if matches!(isolation, PostgresIsolation::Schema) {
+            sqlx::query(&format!(
+                "CREATE SCHEMA IF NOT EXISTS {}",
+                quote_identifier(schema)?
+            ))
+            .execute(&pool)
+            .await?;
         }
+        Self::migrate_table(&pool, &table).await?;
+        Ok(Self {
+            pool,
+            table,
+            _open_guard: Some(guard),
+        })
     }
 
-    /// Wrap an existing connection pool (schema must already be migrated).
+    /// Construct a public-schema store from an already-configured pool.
     #[must_use]
-    pub const fn from_pool(pool: PgPool) -> Self {
+    pub fn from_pool(pool: PgPool) -> Self {
         Self {
             pool,
+            table: format!("\"public\".\"{CHANGE_TABLE}\""),
             _open_guard: None,
         }
     }
 
-    /// Run schema migrations against `pool`.
+    /// Migrate the default `public` schema change table.
     ///
     /// # Errors
-    /// Returns an error if the migration query fails.
+    /// Returns an error if the migration statements fail.
     pub async fn migrate(pool: &PgPool) -> Result<()> {
-        sqlx::query(MIGRATE).execute(pool).await?;
+        Self::migrate_table(pool, &format!("\"public\".\"{CHANGE_TABLE}\"")).await
+    }
+
+    async fn migrate_table(pool: &PgPool, table: &str) -> Result<()> {
+        for (index, query) in migration_queries(table).iter().enumerate() {
+            let mut q = sqlx::query(query);
+            if index == 2 {
+                q = q.bind(DEFAULT_SCOPE);
+            }
+            q.execute(pool).await?;
+        }
         Ok(())
     }
 }
@@ -175,30 +177,27 @@ impl ChangeStore for PostgresStore {
         let id = change.id;
         let hlc_key = change.hlc.sort_key();
         let hlc_millis = i64::try_from(change.hlc.millis()).map_err(|_| {
-            Error::InvalidData(format!(
-                "hlc_millis {} overflows i64",
-                change.hlc.millis()
-            ))
+            Error::InvalidData(format!("hlc_millis {} overflows i64", change.hlc.millis()))
         })?;
         let hlc_counter = i64::from(change.hlc.counter());
         let hlc_node_id = change.hlc.node_id().to_string();
         let ops_json = serde_json::to_value(&change.ops)?;
 
-        sqlx::query(
-            "INSERT INTO palladium_changes \
-             (id, scope, hlc_key, hlc_millis, hlc_counter, hlc_node_id, ops_json) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7) \
-             ON CONFLICT (id) DO NOTHING",
-        )
-        .bind(id)
-        .bind(scope.as_str())
-        .bind(hlc_key)
-        .bind(hlc_millis)
-        .bind(hlc_counter)
-        .bind(hlc_node_id)
-        .bind(ops_json)
-        .execute(&self.pool)
-        .await?;
+        let query = format!(
+            "INSERT INTO {} (id, scope, hlc_key, hlc_millis, hlc_counter, hlc_node_id, ops_json)
+             VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING",
+            self.table
+        );
+        sqlx::query(&query)
+            .bind(id)
+            .bind(scope.as_str())
+            .bind(hlc_key)
+            .bind(hlc_millis)
+            .bind(hlc_counter)
+            .bind(hlc_node_id)
+            .bind(ops_json)
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }
@@ -209,8 +208,11 @@ impl ChangeStore for PostgresStore {
         after: Option<Hlc>,
         limit: Option<u32>,
     ) -> std::result::Result<Vec<Change>, Error> {
-        let mut qb = sqlx::QueryBuilder::new(SELECT_COLS);
-        qb.push(" WHERE scope = ").push_bind(scope.as_str().to_owned());
+        let mut qb = sqlx::QueryBuilder::new(format!(
+            "SELECT id, hlc_millis, hlc_counter, hlc_node_id, ops_json FROM {} WHERE scope = ",
+            self.table
+        ));
+        qb.push_bind(scope.as_str().to_owned());
         if let Some(hlc) = after {
             qb.push(" AND hlc_key > ").push_bind(hlc.sort_key());
         }
@@ -221,9 +223,12 @@ impl ChangeStore for PostgresStore {
         let rows: Vec<ChangeRow> = qb.build_query_as().fetch_all(&self.pool).await?;
         rows.into_iter().map(ChangeRow::try_into_change).collect()
     }
-
     async fn get(&self, scope: &Scope, id: Uuid) -> std::result::Result<Option<Change>, Error> {
-        let row: Option<ChangeRow> = sqlx::query_as(GET_BY_ID)
+        let query = format!(
+            "SELECT id, hlc_millis, hlc_counter, hlc_node_id, ops_json FROM {} WHERE id = $1 AND scope = $2",
+            self.table
+        );
+        let row: Option<ChangeRow> = sqlx::query_as(&query)
             .bind(id)
             .bind(scope.as_str())
             .fetch_optional(&self.pool)
@@ -248,7 +253,11 @@ impl ChangeRow {
         let hlc = Hlc::from_db_parts(self.hlc_millis, self.hlc_counter, &self.hlc_node_id)
             .map_err(Error::InvalidData)?;
         let ops: Vec<Op> = serde_json::from_value(self.ops_json)?;
-        Ok(Change { id: self.id, hlc, ops })
+        Ok(Change {
+            id: self.id,
+            hlc,
+            ops,
+        })
     }
 }
 
@@ -278,6 +287,15 @@ mod tests {
         assert!(super::validate_identifier("1starts_with_digit").is_err());
         assert!(super::validate_identifier("semi;colon").is_err());
     }
+    #[test]
+    fn migration_qualifies_schema_and_backfills_legacy_scope() {
+        let table = super::change_table("tenant_a").unwrap();
+        let queries = super::migration_queries(&table);
+        assert!(queries[0].contains("\"tenant_a\".\"palladium_changes\""));
+        assert!(queries[1].contains("ADD COLUMN IF NOT EXISTS scope"));
+        assert!(queries[2].contains("WHERE scope IS NULL"));
+        assert_eq!(super::quote_identifier("bad-name").is_err(), true);
+    }
 
     // ── Integration tests (require DATABASE_URL) ─────────────────────────
 
@@ -304,11 +322,14 @@ mod tests {
             let store = PostgresStore::from_pool(pool);
             PostgresStore::migrate(&store.pool).await.unwrap();
 
-            let change = Change::new(hlc(1_000, 0, 1), vec![Op::Insert {
-                table: "test".into(),
-                row_id: Uuid::new_v4(),
-                data: json!({}),
-            }]);
+            let change = Change::new(
+                hlc(1_000, 0, 1),
+                vec![Op::Insert {
+                    table: "test".into(),
+                    row_id: Uuid::new_v4(),
+                    data: json!({}),
+                }],
+            );
 
             let scope = Scope::new("test-scope");
             store.insert(&scope, &change).await.unwrap();

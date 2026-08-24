@@ -20,9 +20,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import {
   createEngine,
-  type Op,
   type PalladiumEngine,
-  type RemoteChange,
   type SchemaConfig,
   SyncTransport,
   sql,
@@ -32,7 +30,7 @@ import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 const ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "../../../../../");
-const BINARY = join(ROOT, "target", "debug", "atrium");
+const BINARY = join(process.env.CARGO_TARGET_DIR ?? join(ROOT, "target"), "debug", "atrium");
 const PORT = 13_760;
 const BASE_URL = `http://localhost:${PORT}`;
 const POLL_MS = 150;
@@ -96,18 +94,10 @@ beforeAll(async () => {
     stdio: "inherit",
   });
   tmpDir = await mkdtemp(join(tmpdir(), "atrium-e2e-"));
-  server = spawn(
-    BINARY,
-    [
-      "--atrium-db",
-      "sqlite:atrium.db",
-      "--changes-db",
-      "sqlite:atrium-changes.db",
-      "--port",
-      String(PORT),
-    ],
-    { cwd: tmpDir, stdio: "pipe" },
-  );
+  server = spawn(BINARY, ["--atrium-db", "sqlite:atrium.db", "--port", String(PORT)], {
+    cwd: tmpDir,
+    stdio: "pipe",
+  });
   server.stderr?.on("data", (c: Buffer) => process.stderr.write(`[atrium] ${c}`));
   await waitForReady(`${BASE_URL}/v1/health`);
 }, 120_000);
@@ -153,19 +143,30 @@ async function family(): Promise<string> {
   return ws;
 }
 
-const share = (owner: string, root: string, grantee: string, perm: "read" | "write") =>
-  rest("POST", "/v1/shares", owner, {
-    root_id: root,
-    grantee_user_id: grantee,
-    perm,
-  });
-const unshare = (owner: string, root: string, grantee: string) =>
-  rest("DELETE", "/v1/shares", owner, {
-    root_id: root,
-    grantee_user_id: grantee,
-  });
-const setSharing = (owner: string, root: string, cls: string) =>
-  rest("PATCH", `/v1/records/${root}/sharing`, owner, { class: cls });
+const share = (
+  owner: string,
+  workspace: string,
+  root: string,
+  grantee: string,
+  perm: "read" | "write",
+) =>
+  rest(
+    "POST",
+    "/v1/shares",
+    owner,
+    { root_id: root, grantee_user_id: grantee, perm },
+    { "X-Workspace": workspace },
+  );
+const unshare = (owner: string, workspace: string, root: string, grantee: string) =>
+  rest(
+    "DELETE",
+    "/v1/shares",
+    owner,
+    { root_id: root, grantee_user_id: grantee },
+    { "X-Workspace": workspace },
+  );
+const setSharing = (owner: string, workspace: string, root: string, cls: string) =>
+  rest("PATCH", `/v1/records/${root}/sharing`, owner, { class: cls }, { "X-Workspace": workspace });
 
 async function putBlob(
   user: string,
@@ -220,31 +221,24 @@ interface Client {
 
 async function applyPurges(engine: PalladiumEngine<BurrowSchema>, roots: string[]): Promise<void> {
   for (const rootId of roots) {
-    const ops: Op<BurrowSchema>[] = [];
+    const rows: Array<{ table: keyof BurrowSchema & string; id: string }> = [];
     for (const child of CHILD_TABLES) {
-      const rows = await engine.adapter.exec<{ id: string }>(
+      const childRows = await engine.adapter.exec<{ id: string }>(
         `SELECT id FROM ${child} WHERE root_id = ?`,
         [rootId],
       );
-      for (const { id } of rows) ops.push({ type: "delete", table: child, id });
+      for (const { id } of childRows) rows.push({ table: child, id });
     }
     for (const root of ROOT_TABLES) {
-      const rows = await engine.adapter.exec<{ id: string }>(
+      const rootRows = await engine.adapter.exec<{ id: string }>(
         `SELECT id FROM ${root} WHERE id = ?`,
         [rootId],
       );
-      for (const { id } of rows) ops.push({ type: "delete", table: root, id });
+      for (const { id } of rootRows) rows.push({ table: root, id });
     }
-    if (ops.length === 0) continue;
-    const change: RemoteChange<BurrowSchema> = {
-      id: newId(),
-      hlc: engine.nextSendHlc(),
-      ops,
-    };
-    await engine.applyRemote(change);
+    for (const row of rows) await engine.purgeLocal(row.table, row.id);
   }
 }
-
 async function makeClient(user: string, ws: string): Promise<Client> {
   const engine = createEngine<BurrowSchema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }), {
     nodeId: newId(),
@@ -255,9 +249,27 @@ async function makeClient(user: string, ws: string): Promise<Client> {
     pollIntervalMs: POLL_MS,
     authHeaders: () => ({ Authorization: `Bearer ${user}`, "X-Workspace": ws }),
     decodeChanges: async (body) => {
+      if (Array.isArray(body)) return body as WireChange[];
       const env = body as { changes: WireChange[]; purges: string[] };
       if (env.purges?.length) await applyPurges(engine, env.purges);
       return env.changes ?? [];
+    },
+    acknowledgeChanges: async (body) => {
+      const env = body as {
+        events?: Array<{ id: number; kind: "grant" | "revoke"; root_id: string }>;
+      };
+      const eventIds = (env.events ?? []).map((event) => event.id);
+      if (eventIds.length === 0) return;
+      const res = await rest(
+        "POST",
+        "/v1/changes/events/ack",
+        user,
+        { event_ids: eventIds },
+        {
+          "X-Workspace": ws,
+        },
+      );
+      if (!res.ok) throw new Error(`event ack failed: ${res.status}`);
     },
   });
   await transport.start();
@@ -348,7 +360,7 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
     await sleep(POLL_MS * 6);
     expect(await count(bob, "lists", list)).toBe(0); // private before sharing
 
-    expect((await setSharing("alice", list, "household_read")).status).toBe(200);
+    expect((await setSharing("alice", ws, list, "household_read")).status).toBe(200);
     await waitUntil(async () => (await count(bob, "lists", list)) === 1);
     await waitUntil(async () => (await count(bob, "list_items", item)) === 1);
   });
@@ -373,7 +385,7 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
     });
     await waitServerHas("alice", ws, item);
 
-    expect((await setSharing("alice", list, "household_rw")).status).toBe(200);
+    expect((await setSharing("alice", ws, list, "household_rw")).status).toBe(200);
     await waitUntil(async () => (await count(bob, "list_items", item)) === 1);
 
     // While RW, bob's write converges back to alice.
@@ -386,7 +398,7 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
     });
 
     // Downgrade to read-only; bob's next write is rejected server-side.
-    expect((await setSharing("alice", list, "household_read")).status).toBe(200);
+    expect((await setSharing("alice", ws, list, "household_read")).status).toBe(200);
     await sleep(POLL_MS * 3);
     await bob.engine.update("list_items", item, {
       text: "v2-should-be-rejected",
@@ -414,7 +426,7 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
     });
     await waitServerHas("alice", ws, note);
 
-    expect((await share("alice", note, "bob", "read")).status).toBe(200);
+    expect((await share("alice", ws, note, "bob", "read")).status).toBe(200);
     await waitUntil(async () => (await count(bob, "notes", note)) === 1);
 
     await sleep(POLL_MS * 6);
@@ -434,11 +446,16 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
       created_at: Date.now(),
     });
     await waitServerHas("alice", ws, note);
-    await share("alice", note, "bob", "read");
+    await share("alice", ws, note, "bob", "read");
     await waitUntil(async () => (await count(bob, "notes", note)) === 1);
 
-    expect((await unshare("alice", note, "bob")).status).toBe(200);
+    expect((await unshare("alice", ws, note, "bob")).status).toBe(200);
     await waitUntil(async () => (await count(bob, "notes", note)) === 0);
+    const pending = await bob.engine.adapter.exec<{ n: number }>(
+      "SELECT COUNT(*) AS n FROM _sync_pending_changes",
+      [],
+    );
+    expect(pending[0]?.n ?? 0).toBe(0); // a server purge is never an outbound delete
   });
 
   it("A6: an offline write after revoke is rejected and purged", async () => {
@@ -454,13 +471,13 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
       created_at: Date.now(),
     });
     await waitServerHas("alice", ws, note);
-    await share("alice", note, "bob", "write");
+    await share("alice", ws, note, "bob", "write");
     await waitUntil(async () => (await count(bob, "notes", note)) === 1);
 
     // bob goes offline and edits, then alice revokes before he reconnects.
     await bob.transport.stop();
     await bob.engine.update("notes", note, { body: "bob-offline-edit" });
-    await unshare("alice", note, "bob");
+    await unshare("alice", ws, note, "bob");
 
     await bob.transport.start(); // drains outbox (rejected) + receives the purge
     await waitUntil(async () => (await count(bob, "notes", note)) === 0);
@@ -491,7 +508,7 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
     expect((await getBlob("alice", blob)).text).toBe("PNGDATA"); // owner reads
     expect((await getBlob("bob", blob)).status).toBe(403); // member, no grant
 
-    await share("alice", note, "bob", "read");
+    await share("alice", ws, note, "bob", "read");
     expect((await getBlob("bob", blob)).text).toBe("PNGDATA"); // read grant → blob
     expect((await getBlob("carol", blob)).status).toBe(403); // never granted
   });
