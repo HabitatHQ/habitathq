@@ -4,19 +4,19 @@
 #![allow(clippy::unwrap_used)]
 
 use axum::{
-    body::{to_bytes, Body},
-    http::{
-        header::{AUTHORIZATION, CONTENT_TYPE},
-        Request, StatusCode,
-    },
     Router,
+    body::{Body, to_bytes},
+    http::{
+        Request, StatusCode,
+        header::{AUTHORIZATION, CONTENT_TYPE},
+    },
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tower::ServiceExt;
 use tower_http::cors::CorsLayer;
 use uuid::Uuid;
 
-use crate::{create_router, AtriumDb, AtriumState, DevBearerProvider};
+use crate::{AtriumDb, AtriumState, DevBearerProvider, create_router};
 
 async fn app() -> Router {
     let db = AtriumDb::in_memory().await.unwrap();
@@ -612,10 +612,12 @@ async fn events_remain_pending_until_workspace_ack() {
     )
     .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
-    assert!(get_env(&app, "bob", &ws).await["events"]
-        .as_array()
-        .unwrap()
-        .is_empty());
+    assert!(
+        get_env(&app, "bob", &ws).await["events"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[tokio::test]
@@ -682,21 +684,17 @@ async fn append_cursor_returns_a_late_older_hlc_change() {
         post_change(&app, "alice", &ws, change(first, 2_000)).await,
         StatusCode::CREATED
     );
-    assert_eq!(
-        post_change(&app, "alice", &ws, change(late, 1_000)).await,
-        StatusCode::CREATED
-    );
-
     let first_page = get_env(&app, "alice", &ws).await;
     assert_eq!(
         first_page["changes"][0]["ops"][0]["row_id"],
         first.to_string()
     );
+    let after = first_page["cursor"].as_str().unwrap();
+
     assert_eq!(
-        first_page["changes"][1]["ops"][0]["row_id"],
-        late.to_string()
+        post_change(&app, "alice", &ws, change(late, 1_000)).await,
+        StatusCode::CREATED
     );
-    let after = first_page["changes"][0]["cursor"].as_str().unwrap();
     let (_, resumed) = call(
         &app,
         "GET",
@@ -707,7 +705,7 @@ async fn append_cursor_returns_a_late_older_hlc_change() {
     )
     .await;
     assert_eq!(resumed["changes"][0]["ops"][0]["row_id"], late.to_string());
-    assert_eq!(resumed["cursor"], first_page["changes"][1]["cursor"]);
+    assert_eq!(resumed["cursor"], "2");
 }
 
 #[tokio::test]
@@ -747,4 +745,18 @@ async fn change_cannot_mix_aggregate_roots_or_spoof_a_member_node() {
         post_change(&app, "alice", &ws, mixed).await,
         StatusCode::BAD_REQUEST
     );
+}
+
+#[tokio::test]
+async fn changes_cursor_advances_when_acl_hides_raw_page() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let (_, hidden) = root_insert("lists");
+    assert_eq!(
+        post_change(&app, "alice", &ws, hidden).await,
+        StatusCode::CREATED
+    );
+    let env = get_env(&app, "bob", &ws).await;
+    assert_eq!(env["changes"].as_array().unwrap().len(), 0);
+    assert_eq!(env["cursor"], "1");
 }

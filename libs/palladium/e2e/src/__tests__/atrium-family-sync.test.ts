@@ -308,6 +308,63 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
     await Promise.all(clients.splice(0).map((c) => c.stop()));
   });
 
+  it("delivers a later-appended lower-HLC change exactly once", async () => {
+    const ws = await family();
+    const high = newId();
+    const low = newId();
+
+    const highChange: WireChange = {
+      id: newId(),
+      hlc: { wallMs: 100, counter: 0, nodeId: newId() },
+      ops: [
+        {
+          op: "insert",
+          table: "habits",
+          row_id: high,
+          data: { id: high, name: "High HLC", created_at: 100 },
+        },
+      ],
+    };
+    expect(
+      (await rest("POST", "/v1/changes", "alice", highChange, { "X-Workspace": ws })).status,
+    ).toBe(201);
+
+    const first = (await (
+      await rest("GET", "/v1/changes", "alice", undefined, { "X-Workspace": ws })
+    ).json()) as { changes: WireChange[]; cursor: string };
+    expect(first.changes.map((change) => change.id)).toContain(highChange.id);
+
+    const lowChange: WireChange = {
+      id: newId(),
+      hlc: { wallMs: 50, counter: 0, nodeId: newId() },
+      ops: [
+        {
+          op: "insert",
+          table: "habits",
+          row_id: low,
+          data: { id: low, name: "Low HLC", created_at: 50 },
+        },
+      ],
+    };
+    expect(
+      (await rest("POST", "/v1/changes", "alice", lowChange, { "X-Workspace": ws })).status,
+    ).toBe(201);
+
+    const second = (await (
+      await rest("GET", `/v1/changes?after=${first.cursor}`, "alice", undefined, {
+        "X-Workspace": ws,
+      })
+    ).json()) as { changes: WireChange[]; cursor: string };
+    expect(second.changes.map((change) => change.id)).toEqual([lowChange.id]);
+
+    const third = (await (
+      await rest("GET", `/v1/changes?after=${second.cursor}`, "alice", undefined, {
+        "X-Workspace": ws,
+      })
+    ).json()) as { changes: WireChange[] };
+    expect(third.changes).toEqual([]);
+  });
+
   it("A1: private floor + child cascade, and multi-device convergence", async () => {
     const ws = await family();
     const alice1 = track(await makeClient("alice", ws));

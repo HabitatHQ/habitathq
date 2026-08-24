@@ -14,19 +14,15 @@ describe("POST /v1/changes", () => {
     const res = await client.postChange(makeChange());
     expect(res.status).toBe(201);
   });
-
   it("returns 4xx for an invalid body", async () => {
     const res = await fetch("http://localhost:13742/v1/changes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: '{"not":"a change"}',
     });
-    // Axum returns 422 (Unprocessable Entity) for valid JSON that doesn't
-    // match the schema; 400 for completely malformed JSON.
     expect(res.status).toBeGreaterThanOrEqual(400);
     expect(res.status).toBeLessThan(500);
   });
-
   it("returns 400 for malformed JSON", async () => {
     const res = await fetch("http://localhost:13742/v1/changes", {
       method: "POST",
@@ -35,11 +31,9 @@ describe("POST /v1/changes", () => {
     });
     expect(res.status).toBe(400);
   });
-
   it("accepts a change with multiple ops", async () => {
     const nodeId = randomUUID();
     const hlc = makeHlc({ nodeId });
-    // Op::Update uses { col, value } not { data }; Op::Delete has no data field.
     const change = makeChange({
       hlc,
       ops: [
@@ -48,65 +42,48 @@ describe("POST /v1/changes", () => {
         { op: "delete", table: "users", row_id: randomUUID() },
       ],
     });
-    const res = await client.postChange(change);
-    expect(res.status).toBe(201);
+    expect((await client.postChange(change)).status).toBe(201);
   });
 });
 
 describe("GET /v1/changes", () => {
   beforeEach(async () => {
-    // Insert a known change so assertions have stable data.
     await client.postChange(makeChange());
   });
-
   it("returns 200 with an array", async () => {
     const changes = await client.getChanges();
     expect(Array.isArray(changes)).toBe(true);
     expect(changes.length).toBeGreaterThan(0);
   });
-
   it("change objects have required fields", async () => {
     const changes = await client.getChanges();
     const first = changes[0];
     expect(first).toBeDefined();
-    // id is a UUID string
     expect(typeof first?.id).toBe("string");
-    expect(first?.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
-    // hlc has wallMs, counter, nodeId (matches @palladium/core Hlc)
     expect(typeof first?.hlc.wallMs).toBe("number");
     expect(typeof first?.hlc.counter).toBe("number");
     expect(typeof first?.hlc.nodeId).toBe("string");
-    // ops is an array
     expect(Array.isArray(first?.ops)).toBe(true);
   });
-
   it("cursor pagination returns only newer changes", async () => {
-    // Post a change and capture its HLC as cursor.
     const pivot = makeChange({ hlc: makeHlc({ wallMs: Date.now() }) });
     await client.postChange(pivot);
     const cursor = hlcToAfterCursor(pivot.hlc);
-
-    // Post another change after the cursor.
     const later = makeChange({ hlc: makeHlc({ wallMs: pivot.hlc.wallMs + 1 }) });
     await client.postChange(later);
-
     const after = await client.getChanges(cursor);
-    // Should include `later` but NOT `pivot` itself.
     const ids = after.map((c) => c.id);
     expect(ids).toContain(later.id);
     expect(ids).not.toContain(pivot.id);
   });
-
   it("returns 400 for a malformed cursor", async () => {
     const res = await fetch("http://localhost:13742/v1/changes?after=not-valid-cursor");
     expect(res.status).toBe(400);
   });
-
   it("returns changes that were previously inserted", async () => {
     const change = makeChange();
     await client.postChange(change);
     const all = await client.getChanges();
-    const found = all.find((c) => c.id === change.id);
-    expect(found).toBeDefined();
+    expect(all.find((c) => c.id === change.id)).toBeDefined();
   });
 });

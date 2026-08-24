@@ -12,7 +12,7 @@
 use std::{str::FromStr, time::SystemTime};
 
 use palladium_core::{Change, Hlc, Op};
-use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
+use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 use uuid::Uuid;
 
 use crate::{
@@ -83,7 +83,12 @@ CREATE TABLE IF NOT EXISTS palladium_changes (
     hlc_millis INTEGER NOT NULL,
     hlc_counter INTEGER NOT NULL,
     hlc_node_id TEXT NOT NULL,
-    ops_json TEXT NOT NULL
+    ops_json TEXT NOT NULL,
+    append_seq INTEGER
+);
+CREATE TABLE IF NOT EXISTS atrium_append_sequence (
+    id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+    next_seq INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS blobs (
     blob_id TEXT NOT NULL PRIMARY KEY,
@@ -147,6 +152,13 @@ pub struct BlobRecord {
     pub bytes: Vec<u8>,
 }
 
+/// A stored change together with Atrium's durable append sequence.
+#[derive(Debug, Clone)]
+pub struct SequencedChange {
+    pub append_seq: i64,
+    pub change: Change,
+}
+
 /// Milliseconds since the Unix epoch (0 if the clock predates the epoch).
 fn now_millis() -> i64 {
     SystemTime::now()
@@ -178,6 +190,7 @@ impl AtriumDb {
         sqlx::query(MIGRATE).execute(&pool).await?;
         Self::upgrade_workspace_qualified_schema(&pool).await?;
         Self::upgrade_change_cursor_schema(&pool).await?;
+        Self::upgrade_change_append_sequence(&pool).await?;
         Ok(Self { pool })
     }
 
@@ -229,6 +242,19 @@ impl AtriumDb {
             .eq(expected.iter().copied()))
     }
 
+    async fn table_has_column(
+        pool: &SqlitePool,
+        table: &str,
+        column: &str,
+    ) -> Result<bool, AtriumError> {
+        Ok(sqlx::query_scalar::<_, String>(&format!(
+            "SELECT name FROM pragma_table_info('{table}') WHERE name = ?"
+        ))
+        .bind(column)
+        .fetch_optional(pool)
+        .await?
+        .is_some())
+    }
     /// Rebuild legacy global-id ACL tables once, preserving resolvable rows.
     async fn upgrade_workspace_qualified_schema(pool: &SqlitePool) -> Result<(), AtriumError> {
         let records_current =
@@ -346,6 +372,57 @@ impl AtriumDb {
         Ok(())
     }
 
+    /// Add a durable, server-assigned append cursor to legacy change history.
+    async fn upgrade_change_append_sequence(pool: &SqlitePool) -> Result<(), AtriumError> {
+        let has_append_seq =
+            Self::table_has_column(pool, "palladium_changes", "append_seq").await?;
+        let mut tx = pool.begin().await?;
+        if !has_append_seq {
+            sqlx::query("ALTER TABLE palladium_changes ADD COLUMN append_seq INTEGER")
+                .execute(&mut *tx)
+                .await?;
+        }
+        sqlx::query(
+            "WITH numbered AS (
+                SELECT id, ROW_NUMBER() OVER (ORDER BY rowid) AS ordinal
+                FROM palladium_changes
+                WHERE append_seq IS NULL
+            ),
+            base AS (
+                SELECT COALESCE(MAX(append_seq), 0) AS value
+                FROM palladium_changes
+            )
+            UPDATE palladium_changes
+            SET append_seq = (
+                SELECT base.value + numbered.ordinal
+                FROM numbered CROSS JOIN base
+                WHERE numbered.id = palladium_changes.id
+            )
+            WHERE append_seq IS NULL",
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT OR IGNORE INTO atrium_append_sequence (id, next_seq)
+             VALUES (1, COALESCE((SELECT MAX(append_seq) FROM palladium_changes), 0))",
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_changes_append_seq
+             ON palladium_changes (append_seq)",
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_changes_scope_append_seq
+             ON palladium_changes (scope, append_seq)",
+        )
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
     /// Open an ephemeral, uniquely-named in-memory database (for tests).
     #[cfg(test)]
     pub async fn in_memory() -> Result<Self, AtriumError> {
@@ -780,7 +857,7 @@ impl AtriumDb {
         caller: &str,
         change: &Change,
     ) -> Result<(), AtriumError> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
         let node_id = change.hlc.node_id().to_string();
         sqlx::query(
             "INSERT OR IGNORE INTO member_nodes (workspace_id, user_id, node_id)
@@ -930,24 +1007,39 @@ impl AtriumDb {
                 change.hlc.millis()
             ))
         })?;
+        let change_id = change.id.to_string();
+        if sqlx::query_scalar::<_, i64>("SELECT append_seq FROM palladium_changes WHERE id = ?")
+            .bind(&change_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .is_some()
+        {
+            tx.commit().await?;
+            return Ok(());
+        }
         let ops_json = serde_json::to_string(&change.ops).map_err(AtriumError::internal)?;
-        let append_cursor: i64 =
-            sqlx::query_scalar("SELECT COALESCE(MAX(append_cursor), 0) + 1 FROM palladium_changes")
-                .fetch_one(&mut *tx)
-                .await?;
-        sqlx::query(
-            "INSERT OR IGNORE INTO palladium_changes
-             (id, scope, append_cursor, hlc_key, hlc_millis, hlc_counter, hlc_node_id, ops_json)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        let append_seq = sqlx::query_scalar::<_, i64>(
+            "UPDATE atrium_append_sequence
+             SET next_seq = next_seq + 1
+             WHERE id = 1
+             RETURNING next_seq",
         )
-        .bind(change.id.to_string())
+        .fetch_one(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO palladium_changes
+             (id, scope, append_cursor, hlc_key, hlc_millis, hlc_counter, hlc_node_id, ops_json, append_seq)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(change_id)
         .bind(workspace)
-        .bind(append_cursor)
+        .bind(append_seq)
         .bind(change.hlc.sort_key())
         .bind(hlc_millis)
         .bind(i64::from(change.hlc.counter()))
         .bind(change.hlc.node_id().to_string())
         .bind(ops_json)
+        .bind(append_seq)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
@@ -957,31 +1049,32 @@ impl AtriumDb {
     pub async fn list_changes(
         &self,
         workspace: &str,
-        after: Option<i64>,
+        after: i64,
         limit: Option<u32>,
-    ) -> Result<Vec<(i64, Change)>, AtriumError> {
+    ) -> Result<Vec<SequencedChange>, AtriumError> {
         let mut query = sqlx::QueryBuilder::new(
-            "SELECT append_cursor, id, hlc_millis, hlc_counter, hlc_node_id, ops_json
+            "SELECT id, hlc_millis, hlc_counter, hlc_node_id, ops_json, append_seq
              FROM palladium_changes WHERE scope = ",
         );
         query.push_bind(workspace);
-        if let Some(cursor) = after {
-            query.push(" AND append_cursor > ").push_bind(cursor);
-        }
-        query.push(" ORDER BY append_cursor");
+        query.push(" AND append_seq > ").push_bind(after);
+        query.push(" ORDER BY append_seq");
         if let Some(limit) = limit {
             query.push(" LIMIT ").push_bind(i64::from(limit));
         }
-        let rows: Vec<(i64, String, i64, i64, String, String)> =
+        let rows: Vec<(String, i64, i64, String, String, i64)> =
             query.build_query_as().fetch_all(&self.pool).await?;
         rows.into_iter()
-            .map(|(cursor, id, millis, counter, node_id, ops_json)| {
+            .map(|(id, millis, counter, node_id, ops_json, append_seq)| {
                 let id = Uuid::parse_str(&id).map_err(AtriumError::internal)?;
                 let hlc = Hlc::from_db_parts(millis, counter, &node_id)
                     .map_err(AtriumError::BadRequest)?;
                 let ops: Vec<Op> =
                     serde_json::from_str(&ops_json).map_err(AtriumError::internal)?;
-                Ok((cursor, Change { id, hlc, ops }))
+                Ok(SequencedChange {
+                    append_seq,
+                    change: Change { id, hlc, ops },
+                })
             })
             .collect()
     }
@@ -1028,7 +1121,6 @@ impl AtriumDb {
         .await?;
         Ok(())
     }
-
     pub async fn get_blob(&self, blob_id: &str) -> Result<Option<BlobRecord>, AtriumError> {
         let row = sqlx::query_as::<_, (String, String, String, String, String, Vec<u8>)>(
             "SELECT blob_id, workspace_id, note_id, owner_user_id, content_type, bytes
@@ -1053,7 +1145,48 @@ impl AtriumDb {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
+    use palladium_core::{Change, Hlc, NodeId, Op};
+    use serde_json::json;
+    use uuid::Uuid;
+
     use super::{AtriumDb, ROLE_MEMBER, ROLE_OWNER};
+
+    fn root_change(id: Uuid, row_id: Uuid, millis: u64) -> Change {
+        Change {
+            id,
+            hlc: Hlc::new(NodeId::from_uuid(Uuid::from_u128(1)), millis),
+            ops: vec![Op::Insert {
+                table: "lists".to_owned(),
+                row_id,
+                data: json!({ "id": row_id }),
+            }],
+        }
+    }
+
+    #[tokio::test]
+    async fn append_sequence_orders_late_old_hlc_and_duplicate_once() {
+        let db = AtriumDb::in_memory().await.unwrap();
+        let workspace = db.create_workspace("alice").await.unwrap();
+        let first = root_change(Uuid::new_v4(), Uuid::new_v4(), 2_000);
+        let late = root_change(Uuid::new_v4(), Uuid::new_v4(), 1_000);
+        db.authorize_and_append_change(&workspace, "alice", &first)
+            .await
+            .unwrap();
+        db.authorize_and_append_change(&workspace, "alice", &late)
+            .await
+            .unwrap();
+        let (left, right) = tokio::join!(
+            db.authorize_and_append_change(&workspace, "alice", &late),
+            db.authorize_and_append_change(&workspace, "alice", &late)
+        );
+        left.unwrap();
+        right.unwrap();
+        let history = db.list_changes(&workspace, 0, None).await.unwrap();
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].change.id, first.id);
+        assert_eq!(history[1].change.id, late.id);
+        assert_eq!(history[1].append_seq, 2);
+    }
 
     #[tokio::test]
     async fn create_workspace_makes_creator_owner() {
@@ -1098,9 +1231,10 @@ mod tests {
         db.put_blob("blob", "workspace", "note", "owner", "image/png", b"bytes")
             .await
             .unwrap();
-        assert!(db
-            .put_blob("blob", "workspace", "note", "owner", "image/jpeg", b"bytes")
-            .await
-            .is_err());
+        assert!(
+            db.put_blob("blob", "workspace", "note", "owner", "image/jpeg", b"bytes")
+                .await
+                .is_err()
+        );
     }
 }

@@ -254,9 +254,14 @@ describe("SyncTransport — downlink", () => {
       if (!served) {
         served = true;
         // Atrium-shaped envelope, not a bare array.
-        return jsonResponse({ changes: [remoteChange], purges: ["root-x"] });
+        return jsonResponse({
+          changes: [remoteChange],
+          cursor: "1",
+          purges: ["root-x"],
+          events: [],
+        });
       }
-      return jsonResponse({ changes: [], purges: [] });
+      return jsonResponse({ changes: [], cursor: "1", purges: [], events: [] });
     });
 
     const purged: string[] = [];
@@ -325,26 +330,24 @@ describe("SyncTransport — downlink", () => {
     expect(dl.map((r) => r.change_id)).toContain("c1");
   });
 
-  it("poll() before start() resumes from the persisted cursor", async () => {
+  it("ignores a legacy HLC cursor and starts from the new append cursor key", async () => {
     const db = await makeEngine(BOB);
-    // Simulate a prior session that saved a poll cursor.
-    const cursor = "prior-session-cursor";
-    await db.setSyncState("cursor", cursor);
-
+    await db.setSyncState("cursor", "legacy-hlc-cursor");
     const seen: string[] = [];
     const { fetch } = makeFakeFetch((call) => {
       seen.push(call.input);
-      return jsonResponse([]);
+      return jsonResponse({ changes: [], cursor: "0", purges: [], events: [] });
     });
     const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
-
-    await transport.poll(); // no start()
-    expect(seen.some((u) => u.includes(`after=${cursor}`))).toBe(true);
+    await transport.poll();
+    expect(seen[0]).toBe(`${SERVER_URL}/v1/changes`);
+    expect(await db.getSyncState("append_cursor_v1")).toBe("0");
+    await transport.stop();
   });
 
   it("concurrent start()/poll() initialize exactly once", async () => {
     const db = await makeEngine(BOB);
-    await db.setSyncState("cursor", "saved-cursor");
+    await db.setSyncState("append_cursor_v1", "0");
 
     // Count how many times the outbox DDL runs — init must fire once even when
     // start() and poll() overlap (both would otherwise pass the flag check).
@@ -891,5 +894,174 @@ describe("SyncTransport — auth decoration (§2b)", () => {
     expect(refreshFlags).toContain(true);
     expect(tokensSent).toContain("Bearer old");
     expect(tokensSent).toContain("Bearer new");
+  });
+});
+
+describe("SyncTransport — Atrium append cursor", () => {
+  it("persists an envelope cursor after applying all changes", async () => {
+    const db = await makeEngine(BOB);
+    const change: WireChange = {
+      id: "atrium-c1",
+      hlc: { wallMs: 1_700_000_000_000, counter: 0, nodeId: ALICE },
+      ops: [
+        {
+          op: "insert",
+          table: "notes",
+          row_id: "atrium-n1",
+          data: { id: "atrium-n1", title: "envelope", updated_at: 1 },
+        },
+      ],
+    };
+    const { fetch } = makeFakeFetch((call) =>
+      call.init?.method === "POST"
+        ? jsonResponse({}, 201)
+        : jsonResponse({ changes: [change], cursor: "42", purges: [], events: [] }),
+    );
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await transport.poll();
+    expect(await db.getSyncState("append_cursor_v1")).toBe("42");
+    await transport.stop();
+  });
+
+  it("rejects a malformed envelope cursor without advancing durable state", async () => {
+    const db = await makeEngine(BOB);
+    const { fetch } = makeFakeFetch(() =>
+      jsonResponse({ changes: [], cursor: "-1", purges: [], events: [] }),
+    );
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await transport.poll();
+    expect(await db.getSyncState("append_cursor_v1")).toBeNull();
+    await transport.stop();
+  });
+
+  it("syncOnce drains the durable outbox without starting a timer", async () => {
+    const db = await makeEngine(ALICE);
+    const methods: Array<string | undefined> = [];
+    const { fetch } = makeFakeFetch((call) => {
+      methods.push(call.init?.method);
+      return call.init?.method === "POST"
+        ? jsonResponse({}, 201)
+        : jsonResponse({ changes: [], cursor: "0", purges: [], events: [] });
+    });
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await transport.poll();
+    await db.adapter.exec(
+      `INSERT INTO _sync_pending_changes
+       (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        "single-step",
+        1,
+        0,
+        ALICE,
+        JSON.stringify([
+          {
+            op: "insert",
+            table: "notes",
+            row_id: "n1",
+            data: { id: "n1", title: "queued", updated_at: 1 },
+          },
+        ]),
+        "unversioned",
+        1,
+      ],
+    );
+
+    await transport.syncOnce();
+
+    expect(methods).toContain("POST");
+    expect(await db.adapter.exec("SELECT change_id FROM _sync_pending_changes", [])).toHaveLength(
+      0,
+    );
+    await transport.stop();
+  });
+});
+
+describe("SyncTransport — outbox schema compatibility", () => {
+  it("posts a fingerprint-mismatched change when its columns still exist", async () => {
+    const db = await makeEngine(ALICE);
+    const posted: WireChange[] = [];
+    const { fetch } = makeFakeFetch((call) => {
+      if (call.init?.method === "POST") {
+        posted.push(JSON.parse(String(call.init.body)) as WireChange);
+        return jsonResponse({}, 201);
+      }
+      return jsonResponse([]);
+    });
+    const transport = new SyncTransport(db, {
+      serverUrl: SERVER_URL,
+      fetch,
+      schemaFingerprint: "current",
+    });
+    await transport.poll();
+    await db.adapter.exec(
+      `INSERT INTO _sync_pending_changes
+       (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        "compatible-old-schema",
+        1,
+        0,
+        ALICE,
+        JSON.stringify([
+          {
+            op: "insert",
+            table: "notes",
+            row_id: "n1",
+            data: { id: "n1", title: "queued", updated_at: 1 },
+          },
+        ]),
+        "old",
+        1,
+      ],
+    );
+    await transport.start();
+    expect(posted.map((change) => change.id)).toContain("compatible-old-schema");
+    expect(await db.adapter.exec("SELECT change_id FROM _sync_outbox_quarantine", [])).toHaveLength(
+      0,
+    );
+    await transport.stop();
+  });
+
+  it("quarantines a fingerprint-mismatched change with an unknown column", async () => {
+    const db = await makeEngine(ALICE);
+    const posted: WireChange[] = [];
+    const { fetch } = makeFakeFetch((call) => {
+      if (call.init?.method === "POST") {
+        posted.push(JSON.parse(String(call.init.body)) as WireChange);
+        return jsonResponse({}, 201);
+      }
+      return jsonResponse([]);
+    });
+    const transport = new SyncTransport(db, {
+      serverUrl: SERVER_URL,
+      fetch,
+      schemaFingerprint: "current",
+    });
+    await transport.poll();
+    await db.adapter.exec(
+      `INSERT INTO _sync_pending_changes
+       (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        "incompatible-old-schema",
+        1,
+        0,
+        ALICE,
+        JSON.stringify([
+          { op: "update", table: "notes", row_id: "n1", col: "removed_column", value: "x" },
+        ]),
+        "old",
+        1,
+      ],
+    );
+    await transport.start();
+    expect(posted).toHaveLength(0);
+    const quarantined = await db.adapter.exec<{ change_id: string }>(
+      "SELECT change_id FROM _sync_outbox_quarantine",
+      [],
+    );
+    expect(quarantined.map((row) => row.change_id)).toContain("incompatible-old-schema");
+    await transport.stop();
   });
 });

@@ -1,15 +1,15 @@
 //! Workspace-scoped change proxy with record-level ACL.
 
 use axum::{
+    Json,
     extract::{Query, State},
     http::{HeaderMap, StatusCode},
-    Json,
 };
 use palladium_core::Change;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    db::{AtriumDb, PendingEvent, EVENT_GRANT, EVENT_REVOKE},
+    db::{AtriumDb, EVENT_GRANT, EVENT_REVOKE, PendingEvent},
     error::AtriumError,
     identity::Caller,
     state::AtriumState,
@@ -29,7 +29,7 @@ fn workspace_of(headers: &HeaderMap) -> Result<String, AtriumError> {
 
 #[derive(Debug, Deserialize)]
 pub(super) struct ListQuery {
-    after: Option<i64>,
+    after: Option<String>,
     limit: Option<u32>,
 }
 
@@ -39,18 +39,11 @@ pub(super) struct AckRequest {
 }
 
 #[derive(Debug, Serialize)]
-pub(super) struct WireChange {
-    #[serde(flatten)]
-    change: Change,
-    cursor: String,
-}
-
-#[derive(Debug, Serialize)]
 pub(super) struct ChangesResponse {
-    changes: Vec<WireChange>,
+    changes: Vec<Change>,
+    cursor: String,
     purges: Vec<String>,
     events: Vec<PendingEvent>,
-    cursor: Option<String>,
 }
 
 async fn change_root(
@@ -111,19 +104,30 @@ pub(super) async fn get_changes(
     let workspace = workspace_of(&headers)?;
     let db = state.db();
     db.require_member(&workspace, user.as_str()).await?;
-    let after = params.after;
+
+    let after = match params.after.as_deref() {
+        None => 0,
+        Some(value) if !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()) => {
+            value
+                .parse::<i64>()
+                .map_err(|err| AtriumError::BadRequest(err.to_string()))?
+        }
+        Some(_) => {
+            return Err(AtriumError::BadRequest(
+                "after must be a non-negative decimal sequence".to_owned(),
+            ));
+        }
+    };
     let history = db.list_changes(&workspace, after, params.limit).await?;
     let cursor = history
         .last()
-        .map(|(cursor, _)| cursor.to_string())
-        .or_else(|| after.map(|cursor| cursor.to_string()));
+        .map_or(after, |entry| entry.append_seq)
+        .to_string();
     let mut changes = Vec::new();
-    for (append_cursor, change) in history {
+    for entry in history {
+        let change = entry.change;
         if change_visible(db, &workspace, user.as_str(), &change).await? {
-            changes.push(WireChange {
-                change,
-                cursor: append_cursor.to_string(),
-            });
+            changes.push(change);
         }
     }
     let events = db.pending_events(&workspace, user.as_str()).await?;
@@ -132,19 +136,14 @@ pub(super) async fn get_changes(
         .filter(|event| event.kind == EVENT_GRANT)
         .collect();
     if !grants.is_empty() {
-        for (append_cursor, change) in db.list_changes(&workspace, None, None).await? {
-            if changes
-                .iter()
-                .any(|existing| existing.change.id == change.id)
-            {
+        for entry in db.list_changes(&workspace, 0, None).await? {
+            let change = entry.change;
+            if changes.iter().any(|existing| existing.id == change.id) {
                 continue;
             }
             if let Some(root) = change_root(db, &workspace, &change).await? {
                 if grants.iter().any(|event| event.root_id == root) {
-                    changes.push(WireChange {
-                        change,
-                        cursor: append_cursor.to_string(),
-                    });
+                    changes.push(change);
                 }
             }
         }
@@ -158,9 +157,9 @@ pub(super) async fn get_changes(
     purges.dedup();
     Ok(Json(ChangesResponse {
         changes,
+        cursor,
         purges,
         events,
-        cursor,
     }))
 }
 

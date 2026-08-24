@@ -37,11 +37,79 @@ impl Change {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use serde_json::json;
+    use serde::Deserialize;
+    use serde_json::{json, Value};
     use uuid::Uuid;
 
     use super::Change;
     use crate::{Hlc, NodeId, Op};
+
+    #[derive(Deserialize)]
+    struct ChangesEnvelope {
+        changes: Vec<Change>,
+        cursor: String,
+        #[serde(default)]
+        purges: Vec<Value>,
+        #[serde(default)]
+        events: Vec<Value>,
+    }
+
+    #[derive(Deserialize)]
+    struct InvalidFixture {
+        input: Value,
+        expected_classification: String,
+    }
+
+    fn classify_fixture(input: &Value) -> &'static str {
+        if let Some(cursor) = input.get("cursor").and_then(Value::as_str) {
+            return if cursor.parse::<u64>().is_err() {
+                "invalid_cursor"
+            } else {
+                "valid"
+            };
+        }
+        if input
+            .get("hlc")
+            .map_or(true, |hlc| serde_json::from_value::<Hlc>(hlc.clone()).is_err())
+        {
+            return "invalid_hlc";
+        }
+        if input
+            .get("ops")
+            .map_or(true, |ops| serde_json::from_value::<Vec<Op>>(ops.clone()).is_err())
+        {
+            return "invalid_op";
+        }
+        "valid"
+    }
+
+    #[test]
+    fn shared_wire_fixtures_round_trip_and_classify_invalid_inputs() {
+        let envelope: ChangesEnvelope = serde_json::from_str(include_str!(
+            "../../../protocol-fixtures/changes-envelope.valid.json"
+        ))
+        .unwrap();
+        let change = envelope.changes.first().unwrap();
+        let encoded = serde_json::to_value(change).unwrap();
+        let decoded: Change = serde_json::from_value(encoded.clone()).unwrap();
+
+        assert_eq!(&decoded, change);
+        assert_eq!(encoded, serde_json::to_value(change).unwrap());
+        assert_eq!(envelope.cursor.parse::<u64>().unwrap(), 42);
+        assert!(envelope.purges.is_empty());
+        assert!(envelope.events.is_empty());
+
+        let invalid: Vec<InvalidFixture> = serde_json::from_str(include_str!(
+            "../../../protocol-fixtures/wire-invalid.json"
+        ))
+        .unwrap();
+        for fixture in invalid {
+            assert_eq!(
+                classify_fixture(&fixture.input),
+                fixture.expected_classification
+            );
+        }
+    }
 
     fn node1() -> NodeId {
         NodeId::from_uuid(Uuid::from_u128(1))

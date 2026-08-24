@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PalladiumEngine } from "../engine.js";
 import { compareHlc } from "../hlc.js";
 import type { SchemaConfig } from "../migration.js";
-import { hlcToAfterCursor, SyncTransport, type WireChange } from "../sync.js";
+import { SyncTransport, type WireChange } from "../sync.js";
 
 interface Schema {
   notes: { id: string; title: string; updated_at: number };
@@ -110,12 +110,15 @@ describe("durable sync state — poll cursor across transport restart", () => {
       if (init?.method === "POST") return new Response("{}", { status: 201 });
       if (!served) {
         served = true;
-        return new Response(JSON.stringify([c1]), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({ changes: [c1], cursor: "1", purges: [], events: [] }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
       }
-      return new Response("[]", {
+      return new Response(JSON.stringify({ changes: [], cursor: "1", purges: [], events: [] }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -124,8 +127,8 @@ describe("durable sync state — poll cursor across transport restart", () => {
     await t1.start();
     await t1.stop();
 
-    const cursor = hlcToAfterCursor(c1.hlc);
-    expect(await db.getSyncState("cursor")).toBe(cursor);
+    const cursor = "1";
+    expect(await db.getSyncState("append_cursor_v1")).toBe(cursor);
 
     // Second transport session over the same store: it must resume from the
     // persisted cursor — the very first GET carries ?after=<cursor>.
