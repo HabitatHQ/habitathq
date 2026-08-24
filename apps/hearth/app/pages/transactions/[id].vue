@@ -117,7 +117,6 @@ watch(
   { immediate: true },
 )
 
-
 async function submit() {
   if (!amountNum.value) {
     error.value = 'Please enter an amount'
