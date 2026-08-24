@@ -56,13 +56,57 @@ export interface WireChange {
   readonly id: string;
   readonly hlc: Hlc;
   readonly ops: ReadonlyArray<WireOp>;
+  /** Server-assigned durable append cursor, when provided by the server. */
+  readonly cursor?: string;
+}
+
+/**
+ * Runtime guard for a decoded change — the transport skips anything else.
+ *
+ * Validates the envelope shape the downlink depends on: a string `id`, an HLC
+ * with a string `nodeId` + numeric `wallMs`/`counter` (so `hlcToAfterCursor`
+ * and own-write skipping work), and an `ops` array whose entries at least name
+ * their kind. Deep per-op field validation stays in `applyRemote`, which
+ * quarantines a malformed op rather than throwing — so this guard only has to
+ * keep the poll loop itself from crashing on a bad shape.
+ */
+function isWireChange(value: unknown): value is WireChange {
+  if (typeof value !== "object" || value === null) return false;
+  const c = value as Record<string, unknown>;
+  if (typeof c["id"] !== "string" || !Array.isArray(c["ops"])) return false;
+  if (c["cursor"] !== undefined && typeof c["cursor"] !== "string") return false;
+  const hlc = c["hlc"];
+  if (typeof hlc !== "object" || hlc === null) return false;
+  const h = hlc as Record<string, unknown>;
+  if (
+    typeof h["nodeId"] !== "string" ||
+    typeof h["wallMs"] !== "number" ||
+    typeof h["counter"] !== "number"
+  ) {
+    return false;
+  }
+  return c["ops"].every(
+    (op) =>
+      typeof op === "object" &&
+      op !== null &&
+      typeof (op as Record<string, unknown>)["op"] === "string",
+  );
 }
 
 // ── Cursor encoding ─────────────────────────────────────────────────────────
 
 /**
- * Encode an [`Hlc`] as the lexicographic cursor accepted by the server's
- * `GET /v1/changes?after=` query parameter.
+ * Atrium's append cursor is an unsigned decimal sequence number. It is
+ * deliberately independent of an HLC: HLCs resolve conflicts but cannot
+ * order history entries appended by offline clients.
+ */
+function isAppendCursor(value: unknown): value is string {
+  return typeof value === "string" && /^\d+$/u.test(value);
+}
+
+/**
+ * Encode an [`Hlc`] as the lexicographic cursor accepted by generic
+ * HLC-cursor servers' `GET /v1/changes?after=` query parameter.
  *
  * Format: `{wallMs:020}_{counter:010}_{nodeIdHex:032x}` — sortable as a string.
  */
@@ -81,6 +125,45 @@ export interface SyncTransportOptions {
   readonly pollIntervalMs?: number;
   /** Override `fetch` for tests. */
   readonly fetch?: typeof globalThis.fetch;
+  /**
+   * How many times a change may fail to apply before it is permanently
+   * dead-lettered and the cursor advances past it (`D2a` terminal state).
+   * Default: 5.
+   */
+  readonly maxApplyAttempts?: number;
+  /**
+   * Stable identifier for the active application schema. Stored with each
+   * durable outbox row for diagnostics when a later schema rejects it.
+   * Defaults to `"unversioned"` when the application does not expose one.
+   */
+  readonly schemaFingerprint?: string;
+  /**
+   * Request-decoration hook: returns headers attached to every server request
+   * — typically `Authorization: Bearer <token>` plus an advisory workspace
+   * *selector* (`D11`/§2b). Called per request so a rotating token is always
+   * fresh; on a `401` the transport re-invokes it once (`refresh: true`) and
+   * retries the request. The opaque store scope is **never** sent — the server
+   * derives it from these headers.
+   */
+  readonly authHeaders?: (ctx: {
+    readonly refresh: boolean;
+  }) => Promise<Record<string, string>> | Record<string, string>;
+  /**
+   * Adapt a raw `GET /v1/changes` response body into the array of changes to
+   * apply. Defaults to bare `WireChange[]` and Atrium's
+   * `{ changes, cursor, purges, events }` envelope. A gateway may supply a
+   * decoder to unwrap another response shape or apply side effects before the
+   * transport applies its changes.
+   */
+  readonly decodeChanges?: (
+    body: unknown,
+  ) =>
+    | WireChange[]
+    | { readonly changes: WireChange[]; readonly cursor?: string | null }
+    | Promise<WireChange[] | { readonly changes: WireChange[]; readonly cursor?: string | null }>;
+
+  /** Opaque post-apply acknowledgement hook for the decoded response body. */
+  readonly acknowledgeChanges?: (body: unknown) => Promise<void>;
 }
 
 // ── Outbox table ───────────────────────────────────────────────────────────
@@ -97,8 +180,54 @@ const OUTBOX_DDL = `CREATE TABLE IF NOT EXISTS ${OUTBOX_TABLE} (
   hlc_counter INTEGER NOT NULL,
   hlc_node_id TEXT NOT NULL,
   ops TEXT NOT NULL,
+  schema_fingerprint TEXT NOT NULL DEFAULT 'legacy',
   created_at INTEGER NOT NULL
 )`;
+
+const OUTBOX_SCHEMA_FINGERPRINT_DDL = `ALTER TABLE ${OUTBOX_TABLE}
+  ADD COLUMN schema_fingerprint TEXT NOT NULL DEFAULT 'legacy'`;
+
+const OUTBOX_QUARANTINE_TABLE = "_sync_outbox_quarantine";
+
+const OUTBOX_QUARANTINE_DDL = `CREATE TABLE IF NOT EXISTS ${OUTBOX_QUARANTINE_TABLE} (
+  change_id TEXT PRIMARY KEY,
+  hlc_wall_ms INTEGER NOT NULL,
+  hlc_counter INTEGER NOT NULL,
+  hlc_node_id TEXT NOT NULL,
+  ops TEXT NOT NULL,
+  schema_fingerprint TEXT NOT NULL,
+  error_code TEXT NOT NULL,
+  quarantined_at INTEGER NOT NULL
+)`;
+/**
+ * Durable dead-letter table for remote changes that fail to apply (`D2a`,
+ * G2). A row records the failing change, its retry count, and whether it has
+ * been permanently skipped so the poll cursor can advance past it on recovery.
+ */
+const QUARANTINE_TABLE = "_sync_quarantine";
+
+const QUARANTINE_DDL = `CREATE TABLE IF NOT EXISTS ${QUARANTINE_TABLE} (
+  change_id TEXT PRIMARY KEY,
+  hlc_wall_ms INTEGER NOT NULL,
+  hlc_counter INTEGER NOT NULL,
+  hlc_node_id TEXT NOT NULL,
+  ops TEXT NOT NULL,
+  attempts INTEGER NOT NULL,
+  permanent INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  updated_at INTEGER NOT NULL
+)`;
+
+interface QuarantineState {
+  attempts: number;
+  permanent: boolean;
+}
+
+/**
+ * `_sync_state` key for Atrium append sequences. The old `"cursor"` key held
+ * HLC cursors, so it is intentionally never read by this transport revision.
+ */
+const STATE_APPEND_CURSOR = "append_cursor_v1";
 
 interface OutboxRow {
   change_id: string;
@@ -107,13 +236,18 @@ interface OutboxRow {
   hlc_node_id: string;
   /** JSON-encoded array of `WireOp`. */
   ops: string;
+  schema_fingerprint: string;
   created_at: number;
 }
 
 function rowToChange(row: OutboxRow): WireChange {
   return {
     id: row.change_id,
-    hlc: { wallMs: row.hlc_wall_ms, counter: row.hlc_counter, nodeId: row.hlc_node_id },
+    hlc: {
+      wallMs: row.hlc_wall_ms,
+      counter: row.hlc_counter,
+      nodeId: row.hlc_node_id,
+    },
     ops: JSON.parse(row.ops) as WireOp[],
   };
 }
@@ -157,7 +291,7 @@ function engineOpToWire(op: EngineOp): WireOp[] {
         op: "insert",
         table: String(op.table),
         row_id: op.data.id,
-        data: op.data,
+        data: { ...op.data, id: op.data.id },
       },
     ];
   }
@@ -181,7 +315,9 @@ function wireOpToEngine<S extends SchemaMap>(op: WireOp): EngineOp & { table: ke
     return {
       type: "insert",
       table: op.table as keyof S & string,
-      data: { id: op.row_id, ...op.data } as Record<string, unknown> & { id: string },
+      data: { ...op.data, id: op.row_id } as Record<string, unknown> & {
+        id: string;
+      },
     };
   }
   if (op.op === "update") {
@@ -198,7 +334,6 @@ function wireOpToEngine<S extends SchemaMap>(op: WireOp): EngineOp & { table: ke
     id: op.row_id,
   };
 }
-
 // ── Transport ──────────────────────────────────────────────────────────────
 
 export class SyncTransport<S extends SchemaMap> {
@@ -206,30 +341,154 @@ export class SyncTransport<S extends SchemaMap> {
   readonly #serverUrl: string;
   readonly #pollIntervalMs: number;
   readonly #fetch: typeof globalThis.fetch;
+  readonly #maxApplyAttempts: number;
+  readonly #authHeaders?: SyncTransportOptions["authHeaders"];
+  readonly #acknowledgeChanges?: SyncTransportOptions["acknowledgeChanges"];
+  readonly #schemaFingerprint: string;
+  readonly #decodeChanges: NonNullable<SyncTransportOptions["decodeChanges"]>;
 
   #cursor: string | null = null;
   #pollHandle: ReturnType<typeof setInterval> | null = null;
-  #polling = false;
   #initialHydrationDone = false;
+  #polling = false;
   #unsubscribeLocal: (() => void) | null = null;
+  #initialized = false;
+  #initPromise: Promise<void> | null = null;
+
+  /**
+   * Once-only transport init: provision the durable outbox + quarantine tables
+   * AND restore the persisted poll cursor (`D2b`). Called by both `start()` and
+   * the public `poll()`, so a caller that drives a single `poll()` before
+   * `start()` both has a `_sync_quarantine` to write to and resumes from the
+   * saved cursor instead of re-fetching the full history from scratch.
+   *
+   * Concurrency-safe: the work runs once behind a shared in-flight promise, so
+   * overlapping `start()`/`poll()` callers await the same init rather than both
+   * running the DDL + cursor restore and racing on `#cursor`. The promise is
+   * cleared on failure so a later call can retry.
+   */
+  #ensureInitialized(): Promise<void> {
+    if (this.#initialized) return Promise.resolve();
+    if (this.#initPromise === null) this.#initPromise = this.#runInit();
+    return this.#initPromise;
+  }
+
+  async #runInit(): Promise<void> {
+    try {
+      await this.#engine.adapter.exec(OUTBOX_DDL, []);
+      try {
+        await this.#engine.adapter.exec(OUTBOX_SCHEMA_FINGERPRINT_DDL, []);
+      } catch (err) {
+        if (
+          !(
+            err instanceof Error &&
+            /duplicate column name:\s*schema_fingerprint/iu.test(err.message)
+          )
+        ) {
+          throw err;
+        }
+      }
+      await this.#engine.adapter.exec(OUTBOX_QUARANTINE_DDL, []);
+      await this.#engine.adapter.exec(QUARANTINE_DDL, []);
+      const savedAppendCursor = await this.#engine.getSyncState(STATE_APPEND_CURSOR);
+      if (isAppendCursor(savedAppendCursor)) {
+        this.#cursor = savedAppendCursor;
+        this.#initialHydrationDone = true;
+      }
+      this.#initialized = true;
+    } catch (err) {
+      this.#initPromise = null;
+      throw err;
+    }
+  }
 
   constructor(engine: PalladiumEngine<S>, options: SyncTransportOptions) {
     this.#engine = engine;
     this.#serverUrl = options.serverUrl.replace(/\/+$/, "");
     this.#pollIntervalMs = options.pollIntervalMs ?? 1_000;
     this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
+    const maxAttempts = options.maxApplyAttempts ?? 5;
+    this.#maxApplyAttempts = Number.isInteger(maxAttempts) && maxAttempts >= 1 ? maxAttempts : 5;
+    this.#authHeaders = options.authHeaders;
+    this.#acknowledgeChanges = options.acknowledgeChanges;
+    this.#schemaFingerprint = options.schemaFingerprint ?? "unversioned";
+    this.#decodeChanges =
+      options.decodeChanges ??
+      ((body) => {
+        if (Array.isArray(body)) return body as WireChange[];
+        if (typeof body === "object" && body !== null) {
+          const changes = (body as Record<string, unknown>)["changes"];
+          return Array.isArray(changes) ? (changes as WireChange[]) : [];
+        }
+        return [];
+      });
+    engine.registerLocalChangeCheckpoint(async (local, adapter) => {
+      const wireOps = (local.ops as ReadonlyArray<EngineOp>).flatMap(engineOpToWire);
+      if (wireOps.length === 0) return;
+      await adapter.exec(OUTBOX_DDL, []);
+      const columns = await adapter.exec<{ name: string }>(
+        `PRAGMA table_info("${OUTBOX_TABLE}")`,
+        [],
+      );
+      if (!columns.some((column) => column.name === "schema_fingerprint")) {
+        await adapter.exec(OUTBOX_SCHEMA_FINGERPRINT_DDL, []);
+      }
+      await adapter.exec(
+        `INSERT INTO ${OUTBOX_TABLE}
+         (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          local.changeId,
+          local.hlc.wallMs,
+          local.hlc.counter,
+          local.hlc.nodeId,
+          JSON.stringify(wireOps),
+          this.#schemaFingerprint,
+          Date.now(),
+        ],
+      );
+    });
+  }
+  /**
+   * Fetch with the auth-decoration hook applied. Attaches the headers from
+   * `authHeaders` (bearer token + advisory workspace selector); on a `401` it
+   * re-invokes the hook once with `refresh: true` and retries, so an on-demand
+   * token refresh recovers without dropping the request (`§2b`).
+   *
+   * When no hook is configured this returns the underlying fetch promise
+   * directly — no extra microtask — so timing matches a bare `fetch`.
+   */
+  #fetchWithAuth(input: string, init?: RequestInit): Promise<Response> {
+    if (this.#authHeaders === undefined) return this.#fetch(input, init);
+    return this.#fetchDecorated(this.#authHeaders, input, init);
+  }
+
+  async #fetchDecorated(
+    authHeaders: NonNullable<SyncTransportOptions["authHeaders"]>,
+    input: string,
+    init?: RequestInit,
+  ): Promise<Response> {
+    const send = async (refresh: boolean): Promise<Response> => {
+      const extra = await authHeaders({ refresh });
+      const headers = new Headers(init?.headers);
+      for (const [k, v] of Object.entries(extra)) headers.set(k, v);
+      return this.#fetch(input, { ...init, headers });
+    };
+    const res = await send(false);
+    // One refresh+retry on 401 — the token may have just expired.
+    return res.status === 401 ? send(true) : res;
   }
 
   /**
-   * Provision the outbox table, drain any pending rows from previous
-   * sessions, hydrate from server, then start polling. Idempotent.
+   * Provision the outbox + quarantine tables, drain any pending rows from
+   * previous sessions, hydrate from server, then start polling. Idempotent.
    */
   async start(): Promise<void> {
     if (this.#pollHandle !== null) return;
-    await this.#engine.adapter.exec(OUTBOX_DDL, []);
+    await this.#ensureInitialized();
     await this.#drainOutbox();
-    this.#unsubscribeLocal = this.#engine.on("changes:local", (payload) => {
-      void this.#postLocal(payload.ops as ReadonlyArray<EngineOp>);
+    this.#unsubscribeLocal = this.#engine.on("changes:local", () => {
+      void this.#tick();
     });
     await this.#poll();
     this.#pollHandle = setInterval(() => {
@@ -243,10 +502,10 @@ export class SyncTransport<S extends SchemaMap> {
     await this.#poll();
   }
 
-  /** Re-attempt every row currently in `_sync_pending_changes`, oldest first. */
+  /** Re-attempt pending rows, terminally quarantining schema mismatches. */
   async #drainOutbox(): Promise<void> {
     const rows = await this.#engine.adapter.exec<OutboxRow>(
-      `SELECT change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, created_at
+      `SELECT change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint, created_at
          FROM ${OUTBOX_TABLE}
          ORDER BY hlc_wall_ms ASC, hlc_counter ASC, change_id ASC`,
       [],
@@ -255,6 +514,14 @@ export class SyncTransport<S extends SchemaMap> {
     this.#engine.setStatus("syncing");
     let lastOutcome: PostOutcome = "ok";
     for (const row of rows) {
+      if (
+        row.schema_fingerprint !== this.#schemaFingerprint &&
+        !(await this.#outboxCompatible(row))
+      ) {
+        await this.#quarantineOutbox(row);
+        lastOutcome = "rejected";
+        continue;
+      }
       const outcome = await this.#tryPost(rowToChange(row));
       lastOutcome = outcome;
       if (outcome === "ok") {
@@ -262,12 +529,82 @@ export class SyncTransport<S extends SchemaMap> {
           row.change_id,
         ]);
       } else {
-        // Stop after first failure — preserves ordering and avoids hammering
-        // a server that's clearly not accepting writes right now.
         break;
       }
     }
     this.#engine.setStatus(POST_OUTCOME_TO_STATUS[lastOutcome]);
+  }
+
+  #decodeOutboxOps(serialized: string): WireOp[] | null {
+    try {
+      const parsed: unknown = JSON.parse(serialized);
+      return Array.isArray(parsed) ? (parsed as WireOp[]) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async #outboxCompatible(row: OutboxRow): Promise<boolean> {
+    const ops = this.#decodeOutboxOps(row.ops);
+    if (ops === null) return false;
+
+    const columns = new Map<string, Set<string>>();
+    for (const op of ops) {
+      if (!(await this.#outboxOpCompatible(op, columns))) return false;
+    }
+    return true;
+  }
+
+  async #outboxOpCompatible(op: WireOp, columns: Map<string, Set<string>>): Promise<boolean> {
+    if (typeof op !== "object" || op === null) return false;
+    if (
+      typeof op.table !== "string" ||
+      !/^[A-Za-z_][A-Za-z0-9_]*$/u.test(op.table) ||
+      !this.#engine.hasTable(op.table)
+    ) {
+      return false;
+    }
+    let tableColumns = columns.get(op.table);
+    if (tableColumns === undefined) {
+      const schemaRows = await this.#engine.adapter.exec<{ name: string }>(
+        `PRAGMA table_info("${op.table}")`,
+        [],
+      );
+      tableColumns = new Set(schemaRows.map((entry) => entry.name));
+      columns.set(op.table, tableColumns);
+    }
+    if (op.op === "insert") {
+      return (
+        tableColumns.has("id") && Object.keys(op.data).every((column) => tableColumns?.has(column))
+      );
+    }
+    if (op.op === "update") return tableColumns.has(op.col);
+    return op.op === "delete";
+  }
+
+  async #quarantineOutbox(row: OutboxRow): Promise<void> {
+    await this.#engine.adapter.exec(
+      `INSERT INTO ${OUTBOX_QUARANTINE_TABLE}
+       (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint, error_code, quarantined_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (change_id) DO UPDATE SET
+         schema_fingerprint = excluded.schema_fingerprint,
+         error_code = excluded.error_code,
+         quarantined_at = excluded.quarantined_at`,
+      [
+        row.change_id,
+        row.hlc_wall_ms,
+        row.hlc_counter,
+        row.hlc_node_id,
+        row.ops,
+        row.schema_fingerprint,
+        "schema_incompatible",
+        Date.now(),
+      ],
+    );
+    await this.#engine.adapter.exec(`DELETE FROM ${OUTBOX_TABLE} WHERE change_id = ?`, [
+      row.change_id,
+    ]);
   }
 
   /** Stop polling and unsubscribe from engine events. Idempotent. */
@@ -283,46 +620,6 @@ export class SyncTransport<S extends SchemaMap> {
   }
 
   /**
-   * Persist + post one batched Change. The change is written to
-   * `_sync_pending_changes` first so it survives a reload if the POST fails
-   * or the page is closed mid-flight; the outbox row is deleted on success.
-   */
-  async #postLocal(ops: ReadonlyArray<EngineOp>): Promise<void> {
-    const wireOps = ops.flatMap(engineOpToWire);
-    if (wireOps.length === 0) return;
-    const change: WireChange = {
-      id: crypto.randomUUID(),
-      hlc: this.#engine.nextSendHlc(),
-      ops: wireOps,
-    };
-
-    // Durable outbox first, then attempt the post. Order matters: a crash
-    // between INSERT and fetch leaves the row in place, ready for retry on
-    // next start().
-    await this.#engine.adapter.exec(
-      `INSERT INTO ${OUTBOX_TABLE} (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [
-        change.id,
-        change.hlc.wallMs,
-        change.hlc.counter,
-        change.hlc.nodeId,
-        JSON.stringify(change.ops),
-        Date.now(),
-      ],
-    );
-
-    this.#engine.setStatus("syncing");
-    const outcome = await this.#tryPost(change);
-    if (outcome === "ok") {
-      await this.#engine.adapter.exec(`DELETE FROM ${OUTBOX_TABLE} WHERE change_id = ?`, [
-        change.id,
-      ]);
-    }
-    this.#engine.setStatus(POST_OUTCOME_TO_STATUS[outcome]);
-  }
-
-  /**
    * Attempt a single POST.
    * - "ok": 2xx response
    * - "rejected": fetch returned a non-2xx (server reachable, request rejected)
@@ -330,7 +627,7 @@ export class SyncTransport<S extends SchemaMap> {
    */
   async #tryPost(change: WireChange): Promise<PostOutcome> {
     try {
-      const res = await this.#fetch(`${this.#serverUrl}/v1/changes`, {
+      const res = await this.#fetchWithAuth(`${this.#serverUrl}/v1/changes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(change),
@@ -341,51 +638,181 @@ export class SyncTransport<S extends SchemaMap> {
     }
   }
 
-  /** Fetch newer changes from server and apply them locally. */
+  /**
+   * Perform one downlink poll: fetch changes newer than the cursor and apply
+   * them. Public so callers (and tests) can drive a deterministic single sync
+   * step; the periodic timer calls the same path.
+   */
+  async poll(): Promise<void> {
+    // A caller may drive a single poll() without start(); provision tables and
+    // restore the persisted cursor first, so this poll resumes from the saved
+    // position instead of re-fetching the whole history.
+    await this.#ensureInitialized();
+    return this.#poll();
+  }
+
+  /**
+   * Deterministically drain the durable outbox and perform one downlink poll,
+   * without starting the periodic timer.
+   */
+  async syncOnce(): Promise<void> {
+    await this.#ensureInitialized();
+    await this.#drainOutbox();
+    await this.#poll();
+  }
+
+  /**
+   * Fetch and validate one downlink page before applying any of it. Atrium
+   * envelopes provide the append cursor; bare arrays retain generic HLC-cursor
+   * compatibility.
+   */
+  async #fetchPollPage(): Promise<{
+    readonly changes: WireChange[];
+    readonly cursor: string | null;
+    readonly responseBody: unknown;
+  } | null> {
+    const url =
+      this.#cursor === null
+        ? `${this.#serverUrl}/v1/changes`
+        : `${this.#serverUrl}/v1/changes?after=${this.#cursor}`;
+    try {
+      const res = await this.#fetchWithAuth(url);
+      if (!res.ok) return null;
+      const responseBody: unknown = await res.json();
+      const objectBody =
+        typeof responseBody === "object" && responseBody !== null && !Array.isArray(responseBody)
+          ? (responseBody as Record<string, unknown>)
+          : null;
+      let cursor: string | null = null;
+      if (objectBody !== null && "cursor" in objectBody) {
+        if (!isAppendCursor(objectBody["cursor"])) return null;
+        cursor = objectBody["cursor"];
+      }
+      const decoded = await this.#decodeChanges(responseBody);
+      const changes = Array.isArray(decoded) ? decoded : decoded.changes;
+      if (!Array.isArray(changes) || !changes.every(isWireChange)) return null;
+      if (!Array.isArray(decoded) && decoded.cursor !== undefined) {
+        if (decoded.cursor !== null && !isAppendCursor(decoded.cursor)) return null;
+        cursor = decoded.cursor;
+      }
+      return { changes, cursor, responseBody };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Fetch newer changes from server and apply them locally (non-poisoning). */
   async #poll(): Promise<void> {
     if (this.#polling) return;
     this.#polling = true;
     try {
-      const url =
-        this.#cursor === null
-          ? `${this.#serverUrl}/v1/changes`
-          : `${this.#serverUrl}/v1/changes?after=${this.#cursor}`;
+      const page = await this.#fetchPollPage();
+      if (page === null) return;
 
-      let changes: WireChange[];
-      try {
-        const res = await this.#fetch(url);
-        if (!res.ok) return;
-        changes = (await res.json()) as WireChange[];
-      } catch {
-        return;
-      }
-
-      for (const change of changes) {
-        // Advance cursor for every change we see, even own-changes we skip.
-        this.#cursor = hlcToAfterCursor(change.hlc);
-
-        // After initial hydration, skip own writes — we already applied them.
-        if (this.#initialHydrationDone && change.hlc.nodeId === this.#engine.nodeId) {
-          continue;
+      for (const change of page.changes) {
+        if (!isWireChange(change)) continue;
+        const nextCursor = page.cursor ?? hlcToAfterCursor(change.hlc);
+        const advanced = await this.#applyOneRemote(
+          change,
+          page.cursor === null ? nextCursor : undefined,
+        );
+        if (!advanced) return;
+        if (page.cursor === null && (this.#cursor === null || nextCursor > this.#cursor)) {
+          this.#cursor = nextCursor;
         }
-
-        // Advance the engine's HLC past the remote so subsequent local sends
-        // are causally later, then apply the ops via the suppress-emit path.
-        this.#engine.receiveHlc(change.hlc);
-        const engineOps = change.ops.map(wireOpToEngine<S>);
-        // The cast is structural: wireOpToEngine emits the same {type, table,
-        // id, data?, patch?} shape Op<S> declares, but TS can't see through
-        // the generic to verify. The runtime values pass through applyRemote's
-        // own validation inside tx().
-        const opsForEngine = engineOps as unknown as Parameters<
-          PalladiumEngine<S>["applyRemote"]
-        >[0];
-        await this.#engine.applyRemote(opsForEngine);
       }
 
       this.#initialHydrationDone = true;
+      if (this.#acknowledgeChanges !== undefined) {
+        await this.#acknowledgeChanges(page.responseBody);
+      }
+      if (page.cursor !== null) {
+        await this.#engine.setSyncState(STATE_APPEND_CURSOR, page.cursor);
+        this.#cursor = page.cursor;
+      }
     } finally {
       this.#polling = false;
     }
+  }
+
+  /**
+   * Apply one polled change with non-poisoning semantics (`D2a`, G2). Returns
+   * `true` when the cursor may advance past this change — it was applied, is
+   * our own already-applied write, or has been permanently dead-lettered —
+   * and `false` when the change failed transiently and should be retried
+   * (so the cursor must not move past it yet).
+   */
+  async #applyOneRemote(change: WireChange, cursor?: string): Promise<boolean> {
+    if (this.#initialHydrationDone && change.hlc.nodeId === this.#engine.nodeId) return true;
+    const quarantine = await this.#quarantineState(change.id);
+    if (quarantine?.permanent) return true;
+    if (change.ops.some((op) => !this.#engine.hasTable(op.table))) {
+      throw new Error("remote change references an unknown table");
+    }
+    const remoteChange = {
+      hlc: change.hlc,
+      id: change.id,
+      ops: change.ops.map(wireOpToEngine<S>),
+    } as unknown as Parameters<PalladiumEngine<S>["applyRemote"]>[0];
+    try {
+      await this.#engine.applyRemote(remoteChange, cursor);
+      if (quarantine !== null) await this.#clearQuarantine(change.id);
+      return true;
+    } catch (err) {
+      const attempts = await this.#recordFailure(change, err);
+      if (attempts >= this.#maxApplyAttempts) {
+        await this.#markPermanent(change.id);
+        this.#engine.setStatus("error");
+        return true;
+      }
+      return false;
+    }
+  }
+  /** Read the quarantine state for a change, or `null` if not quarantined. */
+  async #quarantineState(changeId: string): Promise<QuarantineState | null> {
+    const rows = await this.#engine.adapter.exec<{
+      attempts: number;
+      permanent: number;
+    }>(`SELECT attempts, permanent FROM ${QUARANTINE_TABLE} WHERE change_id = ?`, [changeId]);
+    const row = rows[0];
+    return row ? { attempts: row.attempts, permanent: row.permanent !== 0 } : null;
+  }
+
+  /** Record (or increment) a failed apply; returns the new attempt count. */
+  async #recordFailure(change: WireChange, err: unknown): Promise<number> {
+    const message = err instanceof Error ? err.message : String(err);
+    await this.#engine.adapter.exec(
+      `INSERT INTO ${QUARANTINE_TABLE}
+         (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, attempts, permanent, last_error, updated_at)
+         VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?)
+       ON CONFLICT (change_id) DO UPDATE SET
+         attempts = attempts + 1,
+         last_error = excluded.last_error,
+         updated_at = excluded.updated_at`,
+      [
+        change.id,
+        change.hlc.wallMs,
+        change.hlc.counter,
+        change.hlc.nodeId,
+        JSON.stringify(change.ops),
+        message,
+        Date.now(),
+      ],
+    );
+    const state = await this.#quarantineState(change.id);
+    return state?.attempts ?? 1;
+  }
+
+  async #markPermanent(changeId: string): Promise<void> {
+    await this.#engine.adapter.exec(
+      `UPDATE ${QUARANTINE_TABLE} SET permanent = 1, updated_at = ? WHERE change_id = ?`,
+      [Date.now(), changeId],
+    );
+  }
+
+  async #clearQuarantine(changeId: string): Promise<void> {
+    await this.#engine.adapter.exec(`DELETE FROM ${QUARANTINE_TABLE} WHERE change_id = ?`, [
+      changeId,
+    ]);
   }
 }

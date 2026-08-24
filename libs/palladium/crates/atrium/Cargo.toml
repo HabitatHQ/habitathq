@@ -1,0 +1,39 @@
+[package]
+name = "atrium"
+version = "0.1.0"
+description = "Atrium — HabitatHQ backend: identity, tenancy, and record-level ACL in front of Palladium"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "atrium"
+path = "src/main.rs"
+
+[dependencies]
+palladium-core = { path = "../palladium-core" }
+palladium-sqlite = { path = "../palladium-sqlite" }
+axum = { workspace = true }
+tower-http = { workspace = true }
+tokio = { workspace = true }
+sqlx = { workspace = true }
+uuid = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+jsonwebtoken = "9"
+reqwest = { version = "0.12", default-features = false, features = [
+  "json",
+  "rustls-tls",
+] }
+
+[dev-dependencies]
+tower = { workspace = true }

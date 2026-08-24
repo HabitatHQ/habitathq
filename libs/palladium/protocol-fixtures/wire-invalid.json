@@ -1,0 +1,29 @@
+[
+  {
+    "name": "invalid-hlc",
+    "input": {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "hlc": { "wallMs": -1, "counter": 0, "nodeId": "00000000-0000-0000-0000-000000000011" },
+      "ops": []
+    },
+    "expected_classification": "invalid_hlc"
+  },
+  {
+    "name": "invalid-op",
+    "input": {
+      "id": "00000000-0000-0000-0000-000000000003",
+      "hlc": {
+        "wallMs": 1700000000000,
+        "counter": 0,
+        "nodeId": "00000000-0000-0000-0000-000000000011"
+      },
+      "ops": [{ "op": "merge", "table": "notes", "row_id": "00000000-0000-4000-8000-000000000021" }]
+    },
+    "expected_classification": "invalid_op"
+  },
+  {
+    "name": "invalid-cursor",
+    "input": { "changes": [], "cursor": "-1", "purges": [], "events": [] },
+    "expected_classification": "invalid_cursor"
+  }
+]

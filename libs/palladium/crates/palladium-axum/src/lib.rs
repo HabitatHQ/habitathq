@@ -20,9 +20,9 @@
 //! # struct MyStore;
 //! # impl palladium_core::ChangeStore for MyStore {
 //! #     type Error = std::io::Error;
-//! #     async fn insert<'a>(&'a self, _: &'a palladium_core::Change) -> Result<(), std::io::Error> { Ok(()) }
-//! #     async fn list_after(&self, _: Option<palladium_core::Hlc>, _: Option<u32>) -> Result<Vec<palladium_core::Change>, std::io::Error> { Ok(vec![]) }
-//! #     async fn get(&self, _: uuid::Uuid) -> Result<Option<palladium_core::Change>, std::io::Error> { Ok(None) }
+//! #     async fn insert<'a>(&'a self, _: &'a palladium_core::Scope, _: &'a palladium_core::Change) -> Result<(), std::io::Error> { Ok(()) }
+//! #     async fn list_after<'a>(&'a self, _: &'a palladium_core::Scope, _: Option<palladium_core::Hlc>, _: Option<u32>) -> Result<Vec<palladium_core::Change>, std::io::Error> { Ok(vec![]) }
+//! #     async fn get<'a>(&'a self, _: &'a palladium_core::Scope, _: uuid::Uuid) -> Result<Option<palladium_core::Change>, std::io::Error> { Ok(None) }
 //! # }
 //! # async fn run() {
 //! let state = AppState::new(MyStore);
@@ -32,10 +32,12 @@
 //! # }
 //! ```
 
+pub(crate) mod auth;
 pub(crate) mod error;
 pub(crate) mod routes;
 pub(crate) mod state;
 
+pub use auth::{AuthRejection, AuthScope, AuthSeam, BearerTokenSeam, StaticScopeSeam};
 pub use error::{AppError, ErrorBody};
 pub use routes::{create_router, ApiDoc};
 pub use state::AppState;

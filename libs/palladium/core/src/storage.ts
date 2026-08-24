@@ -41,8 +41,9 @@ export interface StorageAdapter {
 }
 
 /**
- * Optional extension for adapters that support atomic transactions.
- * Use `isTransactable()` to check at runtime before calling `transaction()`.
+ * Extension for adapters that support atomic transactions. `PalladiumEngine`
+ * requires this capability for local and remote writes; adapters without it
+ * may still be used through the lower-level storage and migration APIs.
  */
 export interface TransactableStorageAdapter extends StorageAdapter {
   /**
@@ -56,4 +57,32 @@ export interface TransactableStorageAdapter extends StorageAdapter {
 /** Type guard — true when `a` implements `TransactableStorageAdapter`. */
 export function isTransactable(a: StorageAdapter): a is TransactableStorageAdapter {
   return "transaction" in a && typeof (a as TransactableStorageAdapter).transaction === "function";
+}
+
+/**
+ * Optional capability: defer foreign-key constraint enforcement to the end of
+ * the current transaction. This lets the engine apply a change whose ops touch
+ * a child before its parent (or delete a parent before its child) within one
+ * atomic change without tripping a mid-transaction FK violation — the
+ * constraint is still enforced, just at COMMIT (`G4`/`D2a`).
+ *
+ * Keeping this behind a capability keeps `@palladium/core` storage-agnostic
+ * (`D2c`): the engine calls the hook when present and gets immediate
+ * enforcement otherwise; the SQLite adapters implement it as
+ * `PRAGMA defer_foreign_keys`.
+ */
+export interface ConstraintDeferringAdapter extends StorageAdapter {
+  /**
+   * Within an open transaction, defer FK checks until COMMIT. Must be called
+   * inside a transaction; a no-op (or harmless) outside one.
+   */
+  deferForeignKeys(): Promise<void>;
+}
+
+/** Type guard — true when `a` can defer FK constraint checks to commit. */
+export function supportsConstraintDeferral(a: StorageAdapter): a is ConstraintDeferringAdapter {
+  return (
+    "deferForeignKeys" in a &&
+    typeof (a as ConstraintDeferringAdapter).deferForeignKeys === "function"
+  );
 }

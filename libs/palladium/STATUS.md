@@ -57,7 +57,7 @@ production is `@palladium/nuxt` (a Web Worker UUID-RPC bus, independent of
 
 - `PalladiumEngine` / `createEngine` — high-level API over a `StorageAdapter`.
 - `tx()` / `insert` / `update` / `delete` — synchronous transaction builder,
-  flushed atomically when the adapter is `TransactableStorageAdapter`.
+  flushed atomically; the engine rejects adapters without transaction support.
 - `exec(sql)` — raw SQL via `sql\`...\`` tagged template with `?` placeholders.
 - `LiveQuery` — reactive queries via best-effort regex extraction of
   `FROM` / `JOIN` table names. Re-runs on any touched-table overlap.

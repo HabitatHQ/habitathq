@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@palladium/core": "workspace:*"
+    "@palladium/core": "workspace:*",
+    "@palladium/sqlite-node": "workspace:*"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

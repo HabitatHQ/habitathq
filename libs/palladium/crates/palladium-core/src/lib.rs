@@ -22,6 +22,7 @@ mod instance_registry;
 mod instance_status;
 mod node_id;
 mod op;
+mod scope;
 mod store;
 
 pub use change::Change;
@@ -35,6 +36,7 @@ pub use instance_registry::{register, OpenGuard};
 pub use instance_status::{GlobalHealthResponse, InstanceStatus};
 pub use node_id::NodeId;
 pub use op::Op;
+pub use scope::Scope;
 pub use store::ChangeStore;
 
 /// Convenience `Result` alias using [`Error`].

@@ -1,15 +1,16 @@
 import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { describe, expect, it, vi } from "vitest";
-import { createEngine, PalladiumEngine } from "../engine.js";
+import { createEngine, PalladiumEngine, type RemoteChange } from "../engine.js";
 import { compareHlc, createHlc } from "../hlc.js";
 import type { SchemaConfig } from "../migration.js";
 import { sql } from "../sql.js";
+import type { StorageAdapter } from "../storage.js";
 
 // SQLite stores booleans as integers; schema done field is INTEGER.
-interface Schema {
+type Schema = {
   tasks: { id: string; name: string; done: number };
   comments: { id: string; body: string };
-}
+};
 
 const SCHEMA: SchemaConfig = {
   schema: [
@@ -21,6 +22,38 @@ const SCHEMA: SchemaConfig = {
 
 function makeDb() {
   return createEngine<Schema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }));
+}
+
+class NonTransactableStorageAdapter implements StorageAdapter {
+  readonly #inner = new NodeSqliteAdapter({ vfs: { type: "memory" } });
+
+  open(): Promise<void> {
+    return this.#inner.open();
+  }
+
+  exec<T = Record<string, unknown>>(statement: string, params?: readonly unknown[]): Promise<T[]> {
+    return this.#inner.exec<T>(statement, params);
+  }
+
+  put(table: string, id: string, data: Record<string, unknown>): Promise<void> {
+    return this.#inner.put(table, id, data);
+  }
+
+  patch(table: string, id: string, patch: Record<string, unknown>): Promise<void> {
+    return this.#inner.patch(table, id, patch);
+  }
+
+  remove(table: string, id: string): Promise<void> {
+    return this.#inner.remove(table, id);
+  }
+
+  runMigrations(migrations: readonly string[]): Promise<void> {
+    return this.#inner.runMigrations(migrations);
+  }
+
+  close(): Promise<void> {
+    return this.#inner.close();
+  }
 }
 
 describe("createEngine (SQLite)", () => {
@@ -262,6 +295,41 @@ describe("createEngine (SQLite)", () => {
     expect(rows).toHaveLength(2);
   });
 
+  it("rejects writes when the adapter cannot guarantee atomicity", async () => {
+    const db = createEngine<Schema>(new NonTransactableStorageAdapter());
+    await db.init(SCHEMA);
+
+    await expect(
+      db.tx((t) => {
+        t.insert("tasks", { id: "t1", name: "local", done: 0 });
+        t.insert("comments", { id: "c1", body: "local" });
+      }),
+    ).rejects.toThrow("PalladiumEngine writes require transaction support");
+
+    await expect(
+      db.applyRemote({
+        hlc: { wallMs: 1_700_000_000_000, counter: 0, nodeId: "remote" },
+        ops: [
+          {
+            type: "insert",
+            table: "tasks",
+            id: "t2",
+            data: { id: "t2", name: "remote", done: 0 },
+          },
+          {
+            type: "insert",
+            table: "comments",
+            id: "c2",
+            data: { id: "c2", body: "remote" },
+          },
+        ],
+      }),
+    ).rejects.toThrow("PalladiumEngine writes require transaction support");
+
+    expect(await db.exec(sql`SELECT * FROM tasks`)).toHaveLength(0);
+    expect(await db.exec(sql`SELECT * FROM comments`)).toHaveLength(0);
+  });
+
   it("init with schema config runs DDL and seeds", async () => {
     const db = makeDb();
     await db.init({
@@ -278,6 +346,45 @@ describe("createEngine (SQLite)", () => {
 
     const rows = await db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks WHERE id = ${"s1"}`);
     expect(rows[0]?.name).toBe("seeded");
+  });
+  it("rolls back local mutations when a checkpoint fails", async () => {
+    const db = makeDb();
+    await db.init(SCHEMA);
+    db.registerLocalChangeCheckpoint(async () => {
+      throw new Error("checkpoint failed");
+    });
+
+    await expect(db.insert("tasks", { id: "t1", name: "blocked", done: 0 })).rejects.toThrow(
+      "checkpoint failed",
+    );
+    const rows = await db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks`);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("runs checkpoints before exposing a successful local commit", async () => {
+    const db = makeDb();
+    await db.init(SCHEMA);
+    await db.exec(
+      sql`CREATE TABLE checkpoint (change_id TEXT PRIMARY KEY, op_count INTEGER NOT NULL)`,
+    );
+    let observed = false;
+    let observedRows: Promise<Record<string, unknown>[]> | null = null;
+    db.registerLocalChangeCheckpoint(async (change, adapter) => {
+      await adapter.exec("INSERT INTO checkpoint (change_id, op_count) VALUES (?, ?)", [
+        change.changeId,
+        change.ops.length,
+      ]);
+    });
+    db.on("changes:local", (change) => {
+      observed = true;
+      observedRows = db.exec(sql`SELECT * FROM checkpoint WHERE change_id = ${change.changeId}`);
+    });
+
+    await db.insert("tasks", { id: "t1", name: "durable", done: 0 });
+    expect(observed).toBe(true);
+    expect(observedRows).not.toBeNull();
+    const checkpoints = await observedRows;
+    expect(checkpoints).toHaveLength(1);
   });
 });
 
@@ -392,11 +499,75 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
     const cb = vi.fn();
     db.on("changes:local", cb);
 
-    await db.applyRemote([
-      { type: "insert", table: "tasks", id: "t1", data: { id: "t1", name: "remote", done: 0 } },
-    ]);
+    await db.applyRemote({
+      hlc: {
+        wallMs: 1_700_000_000_000,
+        counter: 0,
+        nodeId: "00000000-0000-0000-0000-0000000a11ce",
+      },
+      ops: [
+        { type: "insert", table: "tasks", id: "t1", data: { id: "t1", name: "remote", done: 0 } },
+      ],
+    });
 
     expect(cb).not.toHaveBeenCalled();
+  });
+
+  it("a local tx concurrent with applyRemote still emits changes:local (F21)", async () => {
+    const db = makeDbWithSchema();
+    await db.init(SCHEMA);
+
+    const cb = vi.fn();
+    db.on("changes:local", cb);
+
+    // Fire a remote apply and a local write together. Serialisation must keep
+    // the local write's emit from being swallowed by applyRemote's suppression
+    // window — the bug this guards was a silently-dropped uplink.
+    await Promise.all([
+      db.applyRemote({
+        hlc: {
+          wallMs: 1_700_000_000_000,
+          counter: 0,
+          nodeId: "00000000-0000-0000-0000-0000000a11ce",
+        },
+        ops: [
+          { type: "insert", table: "tasks", id: "r1", data: { id: "r1", name: "remote", done: 0 } },
+        ],
+      }),
+      db.insert("tasks", { id: "l1", name: "local", done: 0 }),
+    ]);
+
+    // The local write emitted exactly once; the remote apply emitted nothing.
+    expect(cb).toHaveBeenCalledTimes(1);
+    const rows = await db.exec<Schema["tasks"]>(sql`SELECT id FROM tasks ORDER BY id`);
+    expect(rows.map((r) => r.id)).toEqual(["l1", "r1"]);
+  });
+
+  it("rejects a remote op whose table name is not a plain identifier (SQL-injection guard)", async () => {
+    const db = makeDbWithSchema();
+    await db.init(SCHEMA);
+
+    // A malicious peer sends a table name crafted to break out of the query.
+    const maliciousChange = {
+      hlc: { wallMs: 1, counter: 0, nodeId: "00000000-0000-0000-0000-0000000a11ce" },
+      ops: [
+        {
+          type: "insert",
+          table: "tasks",
+          id: "x",
+          data: { id: "x", name: "n", done: 0 },
+        },
+      ],
+    } satisfies RemoteChange<Schema>;
+    Object.defineProperty(maliciousChange.ops[0], "table", {
+      value: "tasks; DROP TABLE tasks; --",
+    });
+
+    await expect(db.applyRemote(maliciousChange)).rejects.toThrow(/invalid SQL identifier/);
+
+    // The real table is untouched (the change never reached a query).
+    const rows = await db.exec<Schema["tasks"]>(sql`SELECT id FROM tasks`);
+    expect(rows).toHaveLength(0);
   });
 
   it("applyRemote still notifies live queries on touched tables", async () => {
@@ -407,9 +578,16 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
     const lqCb = vi.fn();
     lq.on("change", lqCb);
 
-    await db.applyRemote([
-      { type: "insert", table: "tasks", id: "t1", data: { id: "t1", name: "remote", done: 0 } },
-    ]);
+    await db.applyRemote({
+      hlc: {
+        wallMs: 1_700_000_000_000,
+        counter: 0,
+        nodeId: "00000000-0000-0000-0000-0000000a11ce",
+      },
+      ops: [
+        { type: "insert", table: "tasks", id: "t1", data: { id: "t1", name: "remote", done: 0 } },
+      ],
+    });
 
     expect(lqCb).toHaveBeenCalledOnce();
   });
@@ -420,7 +598,14 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
 
     const cb = vi.fn();
     db.on("changes:local", cb);
-    await db.applyRemote([]);
+    await db.applyRemote({
+      hlc: {
+        wallMs: 1_700_000_000_000,
+        counter: 0,
+        nodeId: "00000000-0000-0000-0000-0000000a11ce",
+      },
+      ops: [],
+    });
 
     expect(cb).not.toHaveBeenCalled();
     const rows = await db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks`);
@@ -441,5 +626,19 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
 
     const payload = cb.mock.calls[0]?.[0] as { touchedTables: string[] };
     expect(payload.touchedTables.sort()).toEqual(["comments", "tasks"]);
+  });
+  it("buffers absent-row updates and replays them after insert", async () => {
+    const db = makeDbWithSchema();
+    await db.init(SCHEMA);
+    await db.applyRemote({
+      hlc: { wallMs: 2000, counter: 0, nodeId: "remote" },
+      ops: [{ type: "update", table: "tasks", id: "t1", patch: { name: "new" } }],
+    });
+    await db.applyRemote({
+      hlc: { wallMs: 1000, counter: 0, nodeId: "remote" },
+      ops: [{ type: "insert", table: "tasks", id: "t1", data: { id: "t1", name: "old", done: 0 } }],
+    });
+    const rows = await db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks WHERE id = 't1'`);
+    expect(rows[0]?.name).toBe("new");
   });
 });

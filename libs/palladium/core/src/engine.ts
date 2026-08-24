@@ -12,24 +12,77 @@ import { BlobHandle } from "./blob-handle.js";
 import { BlobRegistry } from "./blob-registry.js";
 import { EventEmitter } from "./event-emitter.js";
 import type { Hlc } from "./hlc.js";
-import { createHlc, recvHlc, sendHlc } from "./hlc.js";
+import { compareHlc, createHlc, hlcFromString, hlcToString, recvHlc, sendHlc } from "./hlc.js";
 import { LiveQuery } from "./live-query.js";
 import { MemoryBlobAdapter } from "./memory-blob-adapter.js";
 import type { SchemaConfig } from "./migration.js";
 import { applySchema } from "./migration.js";
 import type { SqlQuery } from "./sql.js";
 import type { StorageAdapter } from "./storage.js";
-import { isTransactable } from "./storage.js";
+import { isTransactable, supportsConstraintDeferral } from "./storage.js";
 import type { Op, SchemaMap } from "./tx.js";
 import { TxBuilder } from "./tx.js";
 
 export type SyncStatus = "idle" | "syncing" | "error" | "offline";
+
+/** A plain, unquoted SQL identifier: a leading letter/underscore then word chars. */
+const SQL_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Guard a table or column name that will be interpolated into SQL. Used at the
+ * remote-apply boundary, where names come from an untrusted change — anything
+ * that isn't a plain identifier is rejected before it can reach a query.
+ */
+function assertSqlIdentifier(name: string): void {
+  if (!SQL_IDENTIFIER.test(name)) {
+    throw new Error(`invalid SQL identifier in remote change: ${JSON.stringify(name)}`);
+  }
+}
+
+function extractSchemaTables(schemaSql: string): Set<string> {
+  const tables = new Set<string>();
+  const pattern =
+    /\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["`]?([A-Za-z_][A-Za-z0-9_]*)["`]?/gi;
+  for (const match of schemaSql.matchAll(pattern)) {
+    const table = match[1];
+    if (table !== undefined) tables.add(table.toLowerCase());
+  }
+  return tables;
+}
 
 export interface ChangesLocal<S extends SchemaMap = SchemaMap> {
   /** The ops as they came out of the `tx()` builder, in order. */
   readonly ops: ReadonlyArray<Op<S>>;
   /** Lowercased table names touched by `ops`, deduped. */
   readonly touchedTables: ReadonlyArray<string>;
+  /**
+   * The single HLC stamped on this change. Every column written by `ops`
+   * carries this HLC in `_sync_row_meta`; the sync transport propagates it so
+   * remote peers can LWW-reconcile against it. One change = one HLC (`D2a`).
+   */
+  readonly hlc: Hlc;
+  /** Stable id for this change — the sync transport's idempotency key. */
+  readonly changeId: string;
+}
+
+/**
+ * A durable side effect that must commit atomically with a local change.
+ * Throwing aborts the engine transaction and rolls back its mutations.
+ */
+export type LocalChangeCheckpoint<S extends SchemaMap = SchemaMap> = (
+  change: ChangesLocal<S>,
+  adapter: StorageAdapter,
+) => Promise<void>;
+
+/**
+ * A change received from a remote peer, applied via {@link PalladiumEngine.applyRemote}.
+ * Carries the originating {@link Hlc} so the engine can column-LWW-reconcile
+ * (`D3`); `id` is the idempotency key (a re-delivered change is a no-op).
+ */
+export interface RemoteChange<S extends SchemaMap = SchemaMap> {
+  readonly hlc: Hlc;
+  readonly ops: ReadonlyArray<Op<S>>;
+  readonly id?: string;
 }
 
 export interface EngineEvents<S extends SchemaMap = SchemaMap> {
@@ -55,21 +108,103 @@ export interface PalladiumEngineOptions {
   readonly nodeId?: string;
 }
 
+// ── Column-LWW shadow table (`_sync_row_meta`, D3/G8) ────────────────────────
+
+/** Per-`(table, row, column)` write-HLC shadow table backing column-level LWW. */
+const SYNC_ROW_META = "_sync_row_meta";
+
+/**
+ * Reserved `col` value marking a row-level delete tombstone (`D4`). The
+ * `__palladium_` prefix keeps it clear of any real SQL column name while
+ * staying plain ASCII (a NUL/control sentinel would make the source binary).
+ */
+const DELETED_COL = "__palladium_deleted__";
+
+const SYNC_ROW_META_DDL = `CREATE TABLE IF NOT EXISTS ${SYNC_ROW_META} (
+  tbl TEXT NOT NULL,
+  row_id TEXT NOT NULL,
+  col TEXT NOT NULL,
+  hlc_wall_ms INTEGER NOT NULL,
+  hlc_counter INTEGER NOT NULL,
+  hlc_node_id TEXT NOT NULL,
+  PRIMARY KEY (tbl, row_id, col)
+)`;
+
+/**
+ * Remote updates whose target row has not arrived yet. Keeping their values,
+ * rather than only shadow metadata, lets a later insert replay them under the
+ * ordinary column-LWW rule without inventing metadata for a nonexistent row.
+ */
+const PENDING_REMOTE_UPDATES = "_sync_pending_remote_updates";
+
+const PENDING_REMOTE_UPDATES_DDL = `CREATE TABLE IF NOT EXISTS ${PENDING_REMOTE_UPDATES} (
+  pending_id TEXT PRIMARY KEY,
+  tbl TEXT NOT NULL,
+  row_id TEXT NOT NULL,
+  patch TEXT NOT NULL,
+  hlc_wall_ms INTEGER NOT NULL,
+  hlc_counter INTEGER NOT NULL,
+  hlc_node_id TEXT NOT NULL
+)`;
+
+interface PendingRemoteUpdateRow extends MetaRow {
+  pending_id: string;
+  patch: string;
+}
+
+interface MetaRow {
+  hlc_wall_ms: number;
+  hlc_counter: number;
+  hlc_node_id: string;
+}
+
+function metaRowToHlc(row: MetaRow): Hlc {
+  return {
+    wallMs: row.hlc_wall_ms,
+    counter: row.hlc_counter,
+    nodeId: row.hlc_node_id,
+  };
+}
+
+// ── Durable sync state (`_sync_state`, D2b) ──────────────────────────────────
+
+/** Key-value table holding the durable `nodeId`, engine HLC, and poll cursor. */
+const SYNC_STATE = "_sync_state";
+
+const SYNC_STATE_DDL = `CREATE TABLE IF NOT EXISTS ${SYNC_STATE} (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+)`;
+
+const STATE_NODE_ID = "node_id";
+const STATE_HLC = "hlc";
+const STATE_CURSOR = "cursor";
+
 export class PalladiumEngine<S extends SchemaMap> {
+  #knownTables = new Set<string>();
   readonly adapter: StorageAdapter;
-  readonly nodeId: string;
+  #nodeId: string;
   protected readonly emitter = new EventEmitter<EngineEvents<S>>();
   protected status: SyncStatus = "idle";
   readonly #liveQueries = new Set<LiveQuery>();
+  readonly #localChangeCheckpoints = new Set<LocalChangeCheckpoint<S>>();
   readonly #blobRegistry = new BlobRegistry();
   /** High-level blob storage API. */
   readonly blobs: BlobHandle;
 
   /**
-   * Current HLC, lazily initialised on first send/receive. Tracked in-memory only —
-   * if the engine restarts and the wall clock has gone backwards, the next HLC
-   * may not be strictly greater than ones we issued before the restart. A
-   * follow-up commit will persist this to SQLite.
+   * Stable per-device HLC node id. Defaults to the constructor value but is
+   * adopted from durable `_sync_state` on `init()` if a prior session persisted
+   * one (`D2b`) — so it survives leader-worker failover instead of churning.
+   */
+  get nodeId(): string {
+    return this.#nodeId;
+  }
+
+  /**
+   * Current HLC. Loaded from durable `_sync_state` on `init()` and persisted
+   * within each `tx()` / `applyRemote()` transaction (`D2b` atomic checkpoint),
+   * so a restart resumes from the persisted floor and never reissues an HLC.
    */
   #currentHlc: Hlc | null = null;
 
@@ -81,7 +216,7 @@ export class PalladiumEngine<S extends SchemaMap> {
       options && "get" in options && typeof options.get === "function"
         ? { blobAdapter: options as BlobAdapter }
         : ((options as PalladiumEngineOptions | undefined) ?? {});
-    this.nodeId = opts.nodeId ?? crypto.randomUUID();
+    this.#nodeId = opts.nodeId ?? crypto.randomUUID();
     this.blobs = new BlobHandle(opts.blobAdapter ?? new MemoryBlobAdapter(), this.#blobRegistry);
   }
 
@@ -97,11 +232,7 @@ export class PalladiumEngine<S extends SchemaMap> {
     return this.#currentHlc;
   }
 
-  /**
-   * Advance the engine's HLC after *receiving* a remote HLC. Preserves the
-   * causality invariant that future local sends will be strictly greater than
-   * any HLC observed (local or remote).
-   */
+  /** Advance the engine clock after observing a remote HLC. */
   receiveHlc(remote: Hlc): void {
     this.#currentHlc =
       this.#currentHlc === null
@@ -116,22 +247,128 @@ export class PalladiumEngine<S extends SchemaMap> {
 
   /**
    * Open the adapter and optionally apply versioned migrations and seeds.
-   *
-   * Without a schema config, just opens the adapter.
-   * With a schema config, also runs baseline DDL, versioned migrations,
-   * and seeds via `applySchema()`.
    */
   async init(schema?: SchemaConfig): Promise<void> {
     await this.adapter.open();
+    await this.#ensureSyncTables(this.adapter);
+    await this.#loadDurableState();
     if (schema) {
+      this.#knownTables = extractSchemaTables(schema.schema);
       await applySchema(this.adapter, schema);
+    }
+  }
+
+  /** Delete a local row without generating a sync/outbox change. */
+  async purgeLocal<K extends keyof S & string>(table: K, id: string): Promise<void> {
+    const tableName = String(table);
+    await this.#serialize(async () => {
+      await this.adapter.remove(tableName, id);
+      await this.adapter.exec(`DELETE FROM ${SYNC_ROW_META} WHERE tbl = ? AND row_id = ?`, [
+        tableName,
+        id,
+      ]);
+      await this.adapter.exec(
+        `DELETE FROM ${PENDING_REMOTE_UPDATES} WHERE tbl = ? AND row_id = ?`,
+        [tableName, id],
+      );
+    });
+    await this.#notifyLiveQueries([tableName.toLowerCase()]);
+  }
+
+  /** Whether a table was declared by the initialized schema. */
+  hasTable(table: string): boolean {
+    return this.#knownTables.has(table.toLowerCase());
+  }
+
+  /**
+   * Adopt the durable `nodeId` and engine HLC from `_sync_state` (`D2b`). A
+   * prior session's `nodeId` wins over the constructor default so device
+   * identity survives failover; a persisted HLC seeds `#currentHlc` so the next
+   * `nextSendHlc()` is strictly greater than anything issued before the restart
+   * (no HLC reuse). On a fresh store the current `nodeId` is persisted.
+   */
+  async #loadDurableState(): Promise<void> {
+    const persistedNode = await this.getSyncState(STATE_NODE_ID);
+    if (persistedNode === null) {
+      await this.setSyncState(STATE_NODE_ID, this.#nodeId);
+    } else {
+      this.#nodeId = persistedNode;
+    }
+    const persistedHlc = await this.getSyncState(STATE_HLC);
+    if (persistedHlc !== null) {
+      this.#currentHlc = hlcFromString(persistedHlc);
     }
   }
 
   /** Suppresses `"changes:local"` while remote ops are being applied. */
   #suppressLocalEmit = false;
 
-  /** Execute a batch of mutations, wrapped in a transaction when supported. */
+  /** Guards one-time DDL of the internal `_sync_*` shadow tables. */
+  #syncTablesReady = false;
+  /** Idempotently create the column-LWW + durable-state shadow tables (`D3`/`D2b`). */
+  async #ensureSyncTables(adpt: StorageAdapter): Promise<void> {
+    if (this.#syncTablesReady) return;
+    await adpt.exec(SYNC_ROW_META_DDL, []);
+    await adpt.exec(SYNC_STATE_DDL, []);
+    await adpt.exec(PENDING_REMOTE_UPDATES_DDL, []);
+    this.#syncTablesReady = true;
+  }
+  #writeChain: Promise<unknown> = Promise.resolve();
+  #serialize<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.#writeChain.then(fn, fn);
+    this.#writeChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  /**
+   * Read a durable sync-state value (`_sync_state`), or `null` if unset. Used
+   * by the engine (nodeId/HLC) and the sync transport (poll cursor) — keeping
+   * `_sync_state` access adapter-neutral inside core (`D2c`, no SQLite in the
+   * transport).
+   */
+  async getSyncState(key: string): Promise<string | null> {
+    await this.#ensureSyncTables(this.adapter);
+    const rows = await this.adapter.exec<{ value: string }>(
+      `SELECT value FROM ${SYNC_STATE} WHERE key = ?`,
+      [key],
+    );
+    return rows[0]?.value ?? null;
+  }
+
+  /**
+   * Upsert a durable sync-state value. `adpt` defaults to the engine adapter
+   * but a transaction-scoped adapter may be passed so the write commits
+   * atomically with the operation it records (`D2b` atomic checkpoint).
+   */
+  async setSyncState(
+    key: string,
+    value: string,
+    adpt: StorageAdapter = this.adapter,
+  ): Promise<void> {
+    await this.#ensureSyncTables(adpt);
+    await adpt.exec(
+      `INSERT INTO ${SYNC_STATE} (key, value) VALUES (?, ?)
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+      [key, value],
+    );
+  }
+
+  /** Register a durable side effect for each committed local change. */
+  registerLocalChangeCheckpoint(checkpoint: LocalChangeCheckpoint<S>): () => void {
+    this.#localChangeCheckpoints.add(checkpoint);
+    return () => this.#localChangeCheckpoints.delete(checkpoint);
+  }
+
+  /**
+   * Execute a batch of local mutations atomically. The whole batch is stamped
+   * with a single HLC (`D2a`), and every written `(table, row, column)` records
+   * that HLC in `_sync_row_meta` so a later remote change can column-LWW-
+   * reconcile against it (`D3`). Local writes always win locally (their HLC is
+   * freshly minted, hence latest), so no gating is applied on this path.
+   */
   async tx(callback: (t: TxBuilder<S>) => void): Promise<void> {
     const builder = new TxBuilder<S>();
     const maybePromise: unknown = callback(builder);
@@ -142,55 +379,99 @@ export class PalladiumEngine<S extends SchemaMap> {
     }
     const ops = builder.build();
     const touchedTables = new Set<string>();
+    const changeId = crypto.randomUUID();
 
-    const applyAll = async (adpt: StorageAdapter): Promise<void> => {
-      for (const op of ops) {
-        // Lowercase to match extractTables(), which normalises SQL identifiers.
-        touchedTables.add(String(op.table).toLowerCase());
-        await this.#applyOp(adpt, op);
+    await this.#serialize(async () => {
+      if (!isTransactable(this.adapter)) {
+        throw new Error("PalladiumEngine writes require transaction support");
       }
-    };
+      // One HLC per change (only minted when there is something to stamp).
+      const hlc = ops.length > 0 ? this.nextSendHlc() : null;
+      const localChange =
+        hlc === null
+          ? null
+          : {
+              ops,
+              touchedTables: [...new Set(ops.map((op) => String(op.table).toLowerCase()))],
+              hlc,
+              changeId,
+            };
+      const checkpoints = localChange === null ? [] : [...this.#localChangeCheckpoints];
 
-    if (isTransactable(this.adapter)) {
+      const applyAll = async (adpt: StorageAdapter): Promise<void> => {
+        await this.#ensureSyncTables(adpt);
+        for (const op of ops) {
+          touchedTables.add(String(op.table).toLowerCase());
+          await this.#applyOp(adpt, op);
+          if (hlc !== null) await this.#stampLocalMeta(adpt, op, hlc);
+        }
+        if (hlc !== null) await this.setSyncState(STATE_HLC, hlcToString(hlc), adpt);
+        if (localChange !== null && !this.#suppressLocalEmit) {
+          for (const checkpoint of checkpoints) await checkpoint(localChange, adpt);
+        }
+      };
+
       await this.adapter.transaction(applyAll);
-    } else {
-      await applyAll(this.adapter);
-    }
+
+      if (localChange !== null && !this.#suppressLocalEmit) {
+        this.emitter.emit("changes:local", localChange);
+      }
+    });
 
     await this.#notifyLiveQueries([...touchedTables]);
-
-    if (!this.#suppressLocalEmit && ops.length > 0) {
-      this.emitter.emit("changes:local", {
-        ops,
-        touchedTables: [...touchedTables],
-      });
-    }
   }
 
   /**
-   * Apply ops received from a remote peer. Runs through the normal `tx()`
-   * path (so live queries refresh) but suppresses the `"changes:local"` event
-   * — sync transports need this to avoid re-emitting a change they just
-   * downloaded.
+   * Apply a change received from a remote peer, column-LWW-reconciled by HLC.
+   * An optional cursor is checkpointed atomically with the remote change.
    */
-  async applyRemote(ops: ReadonlyArray<Op<S>>): Promise<void> {
+  async applyRemote(change: RemoteChange<S>, cursor?: string): Promise<void> {
+    const { hlc, ops } = change;
     if (ops.length === 0) return;
-    this.#suppressLocalEmit = true;
-    try {
-      await this.tx((t) => {
+
+    const touchedTables = new Set<string>();
+    // Serialised against tx() so their suppression windows never overlap (F21).
+    await this.#serialize(async () => {
+      if (!isTransactable(this.adapter)) {
+        throw new Error("PalladiumEngine writes require transaction support");
+      }
+      // Keep the local clock causally ahead of anything we've observed.
+      this.receiveHlc(hlc);
+
+      const applyAll = async (adpt: StorageAdapter): Promise<void> => {
+        await this.#ensureSyncTables(adpt);
+        // Defer FK checks to commit so out-of-order child/parent ops within this
+        // one change resolve at commit instead of tripping a mid-batch violation
+        // (`G4`/`D2a`); adapter-neutral, no-op when unsupported (`D2c`).
+        if (supportsConstraintDeferral(adpt)) await adpt.deferForeignKeys();
         for (const op of ops) {
-          if (op.type === "insert") {
-            t.insert(op.table, op.data);
-          } else if (op.type === "update") {
-            t.update(op.table, op.id, op.patch);
-          } else {
-            t.delete(op.table, op.id);
+          touchedTables.add(String(op.table).toLowerCase());
+          await this.#applyRemoteOp(adpt, op, hlc);
+        }
+        if (this.#currentHlc !== null) {
+          await this.setSyncState(STATE_HLC, hlcToString(this.#currentHlc), adpt);
+        }
+        if (cursor !== undefined) {
+          const rows = await adpt.exec<{ value: string }>(
+            `SELECT value FROM ${SYNC_STATE} WHERE key = ?`,
+            [STATE_CURSOR],
+          );
+          const savedCursor = rows[0]?.value ?? null;
+          if (savedCursor === null || cursor > savedCursor) {
+            await this.setSyncState(STATE_CURSOR, cursor, adpt);
           }
         }
-      });
-    } finally {
-      this.#suppressLocalEmit = false;
-    }
+      };
+
+      this.#suppressLocalEmit = true;
+      try {
+        await this.adapter.transaction(applyAll);
+      } finally {
+        this.#suppressLocalEmit = false;
+      }
+    });
+
+    await this.#notifyLiveQueries([...touchedTables]);
   }
 
   /** Shorthand for single-row insert. */
@@ -303,6 +584,267 @@ export class PalladiumEngine<S extends SchemaMap> {
       promises.push(lq.notifyTables(tables));
     }
     await Promise.all(promises);
+  }
+
+  // ── Column-LWW shadow-table helpers (`_sync_row_meta`, D3/D4) ──────────────
+
+  /** Read the stored write HLC for one `(table, row, column)`, or `null`. */
+  async #getColMeta(
+    adpt: StorageAdapter,
+    table: string,
+    rowId: string,
+    col: string,
+  ): Promise<Hlc | null> {
+    const rows = await adpt.exec<MetaRow>(
+      `SELECT hlc_wall_ms, hlc_counter, hlc_node_id FROM ${SYNC_ROW_META}
+         WHERE tbl = ? AND row_id = ? AND col = ?`,
+      [table, rowId, col],
+    );
+    return rows[0] ? metaRowToHlc(rows[0]) : null;
+  }
+
+  /** Highest write HLC across all *data* columns of a row (excludes the tombstone). */
+  async #maxColMeta(adpt: StorageAdapter, table: string, rowId: string): Promise<Hlc | null> {
+    const rows = await adpt.exec<MetaRow>(
+      `SELECT hlc_wall_ms, hlc_counter, hlc_node_id FROM ${SYNC_ROW_META}
+         WHERE tbl = ? AND row_id = ? AND col != ?`,
+      [table, rowId, DELETED_COL],
+    );
+    let max: Hlc | null = null;
+    for (const r of rows) {
+      const h = metaRowToHlc(r);
+      if (max === null || compareHlc(h, max) > 0) max = h;
+    }
+    return max;
+  }
+
+  /** Upsert the write HLC for one `(table, row, column)`. */
+  async #putColMeta(
+    adpt: StorageAdapter,
+    table: string,
+    rowId: string,
+    col: string,
+    hlc: Hlc,
+  ): Promise<void> {
+    await adpt.exec(
+      `INSERT INTO ${SYNC_ROW_META} (tbl, row_id, col, hlc_wall_ms, hlc_counter, hlc_node_id)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT (tbl, row_id, col) DO UPDATE SET
+           hlc_wall_ms = excluded.hlc_wall_ms,
+           hlc_counter = excluded.hlc_counter,
+           hlc_node_id = excluded.hlc_node_id`,
+      [table, rowId, col, hlc.wallMs, hlc.counter, hlc.nodeId],
+    );
+  }
+
+  async #bufferRemoteUpdate(
+    adpt: StorageAdapter,
+    table: string,
+    rowId: string,
+    patch: Record<string, unknown>,
+    hlc: Hlc,
+  ): Promise<void> {
+    const pendingId = `${table}\u0000${rowId}\u0000${hlc.wallMs}\u0000${hlc.counter}\u0000${hlc.nodeId}\u0000${JSON.stringify(patch)}`;
+    await adpt.exec(
+      `INSERT OR REPLACE INTO ${PENDING_REMOTE_UPDATES}
+       (pending_id, tbl, row_id, patch, hlc_wall_ms, hlc_counter, hlc_node_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [pendingId, table, rowId, JSON.stringify(patch), hlc.wallMs, hlc.counter, hlc.nodeId],
+    );
+  }
+
+  async #pendingRemoteUpdates(
+    adpt: StorageAdapter,
+    table: string,
+    rowId: string,
+  ): Promise<PendingRemoteUpdateRow[]> {
+    return adpt.exec<PendingRemoteUpdateRow>(
+      `SELECT pending_id, patch, hlc_wall_ms, hlc_counter, hlc_node_id
+       FROM ${PENDING_REMOTE_UPDATES} WHERE tbl = ? AND row_id = ?
+       ORDER BY hlc_wall_ms ASC, hlc_counter ASC, hlc_node_id ASC, pending_id ASC`,
+      [table, rowId],
+    );
+  }
+
+  async #clearPendingRemoteUpdates(
+    adpt: StorageAdapter,
+    table: string,
+    rowId: string,
+  ): Promise<void> {
+    await adpt.exec(`DELETE FROM ${PENDING_REMOTE_UPDATES} WHERE tbl = ? AND row_id = ?`, [
+      table,
+      rowId,
+    ]);
+  }
+
+  /** Drop the delete tombstone for a row (on resurrection). */
+  async #clearTombstone(adpt: StorageAdapter, table: string, rowId: string): Promise<void> {
+    await adpt.exec(`DELETE FROM ${SYNC_ROW_META} WHERE tbl = ? AND row_id = ? AND col = ?`, [
+      table,
+      rowId,
+      DELETED_COL,
+    ]);
+  }
+
+  /** Stamp a set of columns of one row with the same write HLC. */
+  async #stampCols(
+    adpt: StorageAdapter,
+    table: string,
+    rowId: string,
+    cols: Iterable<string>,
+    hlc: Hlc,
+  ): Promise<void> {
+    for (const col of cols) {
+      await this.#putColMeta(adpt, table, rowId, col, hlc);
+    }
+  }
+
+  /** Stamp every column a *local* op writes with the change's HLC (no gating). */
+  async #stampLocalMeta(adpt: StorageAdapter, op: Op<S>, hlc: Hlc): Promise<void> {
+    const table = String(op.table);
+    if (op.type === "insert") {
+      const data = op.data as unknown as Record<string, unknown> & {
+        id: string;
+      };
+      await this.#clearTombstone(adpt, table, data.id);
+      await this.#stampCols(adpt, table, data.id, Object.keys(data), hlc);
+    } else if (op.type === "update") {
+      await this.#stampCols(
+        adpt,
+        table,
+        op.id,
+        Object.keys(op.patch as Record<string, unknown>),
+        hlc,
+      );
+    } else {
+      await this.#putColMeta(adpt, table, op.id, DELETED_COL, hlc);
+    }
+  }
+
+  /**
+   * Column-LWW filter: keep only the `fields` whose incoming `hlc` strictly
+   * beats the stored per-column write HLC (`compareHlc` tie-breaks on `nodeId`).
+   */
+  async #winningCols(
+    adpt: StorageAdapter,
+    table: string,
+    rowId: string,
+    fields: Record<string, unknown>,
+    hlc: Hlc,
+  ): Promise<Record<string, unknown>> {
+    const winning: Record<string, unknown> = {};
+    for (const [col, value] of Object.entries(fields)) {
+      const stored = await this.#getColMeta(adpt, table, rowId, col);
+      if (stored === null || compareHlc(hlc, stored) > 0) winning[col] = value;
+    }
+    return winning;
+  }
+
+  /**
+   * Apply one remote op with column-level LWW gating against `_sync_row_meta`.
+   * A column is written only when the incoming `hlc` strictly beats the stored
+   * write HLC; deletes reconcile against the row's newest column write and
+   * leave a durable tombstone.
+   */
+  async #applyRemoteOp(adpt: StorageAdapter, op: Op<S>, hlc: Hlc): Promise<void> {
+    const table = String(op.table);
+    // Remote ops arrive from an untrusted peer/server, and the table + column
+    // names are interpolated into SQL (`SELECT … FROM ${table}`, `INSERT …
+    // (${cols})`). Reject anything that isn't a plain identifier so a malicious
+    // change can't inject SQL — the throw quarantines the change (D2a) rather
+    // than corrupting the local store.
+    assertSqlIdentifier(table);
+    if (op.type === "insert") {
+      for (const col of Object.keys(op.data)) assertSqlIdentifier(col);
+      await this.#applyRemoteInsert(adpt, table, op, hlc);
+    } else if (op.type === "update") {
+      for (const col of Object.keys(op.patch)) assertSqlIdentifier(col);
+      await this.#applyRemoteUpdate(adpt, table, op, hlc);
+    } else {
+      await this.#applyRemoteDelete(adpt, table, op.id, hlc);
+    }
+  }
+
+  async #applyRemoteInsert(
+    adpt: StorageAdapter,
+    table: string,
+    op: Extract<Op<S>, { type: "insert" }>,
+    hlc: Hlc,
+  ): Promise<void> {
+    const data = op.data as unknown as Record<string, unknown> & { id: string };
+    const tombstone = await this.#getColMeta(adpt, table, data.id, DELETED_COL);
+    if (tombstone !== null && compareHlc(hlc, tombstone) <= 0) return;
+    const winning = await this.#winningCols(adpt, table, data.id, data, hlc);
+    if (Object.keys(winning).length === 0) return;
+
+    if (tombstone === null) {
+      const existing = await adpt.exec(`SELECT 1 FROM ${table} WHERE id = ? LIMIT 1`, [data.id]);
+      if (existing.length === 0) {
+        await this._putRow(adpt, table, data.id, data);
+        await this.#stampCols(adpt, table, data.id, Object.keys(data), hlc);
+      } else {
+        await this._patchRow(adpt, table, data.id, winning);
+        await this.#stampCols(adpt, table, data.id, Object.keys(winning), hlc);
+      }
+    } else {
+      await this.#clearTombstone(adpt, table, data.id);
+      await this._putRow(adpt, table, data.id, data);
+      await this.#stampCols(adpt, table, data.id, Object.keys(data), hlc);
+    }
+
+    const pending = await this.#pendingRemoteUpdates(adpt, table, data.id);
+    await this.#clearPendingRemoteUpdates(adpt, table, data.id);
+    for (const row of pending) {
+      await this.#applyRemoteUpdate(
+        adpt,
+        table,
+        {
+          type: "update",
+          table: op.table,
+          id: data.id,
+          patch: JSON.parse(row.patch) as Record<string, unknown>,
+        } as Extract<Op<S>, { type: "update" }>,
+        metaRowToHlc(row),
+      );
+    }
+  }
+
+  async #applyRemoteUpdate(
+    adpt: StorageAdapter,
+    table: string,
+    op: Extract<Op<S>, { type: "update" }>,
+    hlc: Hlc,
+  ): Promise<void> {
+    const tombstone = await this.#getColMeta(adpt, table, op.id, DELETED_COL);
+    if (tombstone !== null && compareHlc(hlc, tombstone) <= 0) return;
+    const existing = await adpt.exec(`SELECT 1 FROM ${table} WHERE id = ? LIMIT 1`, [op.id]);
+    if (existing.length === 0) {
+      await this.#bufferRemoteUpdate(adpt, table, op.id, op.patch as Record<string, unknown>, hlc);
+      return;
+    }
+    const winning = await this.#winningCols(
+      adpt,
+      table,
+      op.id,
+      op.patch as Record<string, unknown>,
+      hlc,
+    );
+    if (Object.keys(winning).length === 0) return;
+    if (tombstone !== null) await this.#clearTombstone(adpt, table, op.id);
+    await this._patchRow(adpt, table, op.id, winning);
+    await this.#stampCols(adpt, table, op.id, Object.keys(winning), hlc);
+  }
+
+  async #applyRemoteDelete(
+    adpt: StorageAdapter,
+    table: string,
+    rowId: string,
+    hlc: Hlc,
+  ): Promise<void> {
+    const maxCol = await this.#maxColMeta(adpt, table, rowId);
+    if (maxCol !== null && compareHlc(hlc, maxCol) < 0) return;
+    await this._removeRow(adpt, table, rowId);
+    await this.#putColMeta(adpt, table, rowId, DELETED_COL, hlc);
   }
 }
 

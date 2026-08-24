@@ -18,23 +18,42 @@ export { dbg, disableDebug, enableDebug, isDebugEnabled } from "./debug.js";
 export type {
   ChangesLocal,
   EngineEvents,
+  LocalChangeCheckpoint,
   PalladiumEngineOptions,
+  RemoteChange,
   SyncStatus,
 } from "./engine.js";
 export { createEngine, PalladiumEngine, toError } from "./engine.js";
 export { EventEmitter } from "./event-emitter.js";
 export type { Hlc } from "./hlc.js";
-export { compareHlc, createHlc, hlcFromString, hlcToString, recvHlc, sendHlc } from "./hlc.js";
+export {
+  compareHlc,
+  createHlc,
+  hlcFromString,
+  hlcToString,
+  recvHlc,
+  sendHlc,
+} from "./hlc.js";
 export { IDBBlobAdapter } from "./idb-blob-adapter.js";
 export { LiveQuery } from "./live-query.js";
 export { LocalStorageBlobAdapter } from "./localstorage-blob-adapter.js";
 export { MemoryBlobAdapter } from "./memory-blob-adapter.js";
-export type { MigrationExec, MigrationStep, SchemaConfig, Seed } from "./migration.js";
+export type {
+  MigrationExec,
+  MigrationStep,
+  SchemaConfig,
+  Seed,
+} from "./migration.js";
 export { applySchema, applySeeds } from "./migration.js";
 export type { SqlQuery } from "./sql.js";
 export { sql } from "./sql.js";
-export type { SqlValue, StorageAdapter, TransactableStorageAdapter } from "./storage.js";
-export { isTransactable } from "./storage.js";
+export type {
+  ConstraintDeferringAdapter,
+  SqlValue,
+  StorageAdapter,
+  TransactableStorageAdapter,
+} from "./storage.js";
+export { isTransactable, supportsConstraintDeferral } from "./storage.js";
 export type {
   DeleteWireOp,
   InsertWireOp,

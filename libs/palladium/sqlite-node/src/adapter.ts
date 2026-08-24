@@ -16,7 +16,11 @@
 // built-in in older versions) does not try to resolve it at transform time.
 import { createRequire } from "node:module";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
-import type { StorageAdapter, TransactableStorageAdapter } from "@palladium/core";
+import type {
+  ConstraintDeferringAdapter,
+  StorageAdapter,
+  TransactableStorageAdapter,
+} from "@palladium/core";
 
 const _require = createRequire(import.meta.url);
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
@@ -48,7 +52,7 @@ function coerce(v: unknown): null | number | bigint | string {
   return String(v);
 }
 
-export class NodeSqliteAdapter implements TransactableStorageAdapter {
+export class NodeSqliteAdapter implements TransactableStorageAdapter, ConstraintDeferringAdapter {
   readonly #config: NodeSqliteConfig;
   #db: DatabaseSyncType | null = null;
 
@@ -117,6 +121,20 @@ export class NodeSqliteAdapter implements TransactableStorageAdapter {
       this.#database.exec("ROLLBACK");
       throw err;
     }
+  }
+
+  /**
+   * Defer FK checks to COMMIT (`D2c`). Effective only inside a transaction.
+   *
+   * TODO(cr/F20): SQLite defaults `PRAGMA foreign_keys` to OFF, so this deferral
+   * currently guards nothing — `open()` would need `PRAGMA foreign_keys = ON`
+   * (here and in the browser adapter for all VFS types) to actually enforce.
+   * Deferred deliberately: turning enforcement on repo-wide can surface latent
+   * violations in the habitat app's existing schema/seeds, so it needs its own
+   * validated migration rather than riding in on this sync PR.
+   */
+  async deferForeignKeys(): Promise<void> {
+    this.#database.exec("PRAGMA defer_foreign_keys = ON");
   }
 
   async close(): Promise<void> {
