@@ -22,6 +22,6 @@ pub mod state;
 
 pub use db::AtriumDb;
 pub use error::AtriumError;
-pub use identity::{Caller, DevBearerProvider, IdentityProvider, UserId};
+pub use identity::{Caller, DevBearerProvider, IdentityProvider, JwtJwksProvider, UserId};
 pub use routes::create_router;
 pub use state::AtriumState;

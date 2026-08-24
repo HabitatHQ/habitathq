@@ -5,12 +5,14 @@
 //! exercised without Clerk. A real `ClerkProvider` (JWKS verification) is a later
 //! implementation of the same trait — no ACL rework (`D13`).
 
+use crate::{error::AtriumError, state::AtriumState};
 use axum::{
     extract::FromRequestParts,
     http::{header::AUTHORIZATION, request::Parts},
 };
-
-use crate::{error::AtriumError, state::AtriumState};
+use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
+use serde::Deserialize;
+use std::collections::HashMap;
 
 /// An authenticated user identifier (Clerk `sub`, or a dev token).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,7 +67,116 @@ impl IdentityProvider for DevBearerProvider {
             .map(str::trim)
             .filter(|t| !t.is_empty())
             .map(UserId::new)
-            .ok_or_else(|| AtriumError::Unauthorized("missing or malformed bearer token".to_owned()))
+            .ok_or_else(|| {
+                AtriumError::Unauthorized("missing or malformed bearer token".to_owned())
+            })
+    }
+}
+/// Verified JWT identity backed by a startup-fetched JWKS document.
+#[derive(Clone)]
+pub struct JwtJwksProvider {
+    keys: HashMap<String, DecodingKey>,
+    issuer: String,
+    audience: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct JwkSet {
+    keys: Vec<Jwk>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Jwk {
+    kid: String,
+    kty: String,
+    n: String,
+    e: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct Claims {
+    sub: String,
+}
+
+impl JwtJwksProvider {
+    /// Fetch and validate a JWKS source before serving requests.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the JWKS URL is insecure, unavailable, or contains
+    /// no usable RSA verification keys.
+    pub async fn from_config(
+        issuer: impl Into<String>,
+        audience: impl Into<String>,
+        jwks_url: &str,
+    ) -> Result<Self, AtriumError> {
+        if !jwks_url.starts_with("https://") {
+            return Err(AtriumError::BadRequest(
+                "JWKS URL must use HTTPS".to_owned(),
+            ));
+        }
+        let response = reqwest::get(jwks_url)
+            .await
+            .map_err(AtriumError::internal)?
+            .error_for_status()
+            .map_err(AtriumError::internal)?;
+        let set = response
+            .json::<JwkSet>()
+            .await
+            .map_err(AtriumError::internal)?;
+        let mut keys = HashMap::new();
+        for jwk in set.keys {
+            if jwk.kty != "RSA" {
+                continue;
+            }
+            let key =
+                DecodingKey::from_rsa_components(&jwk.n, &jwk.e).map_err(AtriumError::internal)?;
+            keys.insert(jwk.kid, key);
+        }
+        if keys.is_empty() {
+            return Err(AtriumError::internal(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "JWKS contains no RSA keys",
+            )));
+        }
+        Ok(Self {
+            keys,
+            issuer: issuer.into(),
+            audience: audience.into(),
+        })
+    }
+}
+
+impl IdentityProvider for JwtJwksProvider {
+    fn authenticate(&self, parts: &Parts) -> Result<UserId, AtriumError> {
+        let token = parts
+            .headers
+            .get(AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| AtriumError::Unauthorized("missing bearer token".to_owned()))?;
+        let header = decode_header(token)
+            .map_err(|_| AtriumError::Unauthorized("invalid JWT".to_owned()))?;
+        if header.alg != Algorithm::RS256 {
+            return Err(AtriumError::Unauthorized(
+                "unsupported JWT algorithm".to_owned(),
+            ));
+        }
+        let kid = header
+            .kid
+            .ok_or_else(|| AtriumError::Unauthorized("JWT is missing kid".to_owned()))?;
+        let key = self
+            .keys
+            .get(&kid)
+            .ok_or_else(|| AtriumError::Unauthorized("unknown JWT key".to_owned()))?;
+        let mut validation = Validation::new(Algorithm::RS256);
+        validation.set_issuer(&[self.issuer.as_str()]);
+        validation.set_audience(&[self.audience.as_str()]);
+        let token = decode::<Claims>(token, key, &validation)
+            .map_err(|_| AtriumError::Unauthorized("invalid JWT".to_owned()))?;
+        Ok(UserId::new(token.claims.sub))
     }
 }
 
@@ -91,7 +202,7 @@ impl FromRequestParts<AtriumState> for Caller {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use super::{DevBearerProvider, IdentityProvider};
+    use super::{DevBearerProvider, IdentityProvider, JwtJwksProvider};
     use axum::http::{header::AUTHORIZATION, request::Parts, Request};
 
     fn parts_with(auth: Option<&str>) -> Parts {
@@ -119,5 +230,16 @@ mod tests {
         assert!(DevBearerProvider
             .authenticate(&parts_with(Some("Bearer   ")))
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn jwt_provider_rejects_a_non_https_jwks_source() {
+        assert!(JwtJwksProvider::from_config(
+            "https://issuer.example",
+            "atrium",
+            "http://jwks.example"
+        )
+        .await
+        .is_err());
     }
 }

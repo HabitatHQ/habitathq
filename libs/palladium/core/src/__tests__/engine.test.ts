@@ -279,6 +279,45 @@ describe("createEngine (SQLite)", () => {
     const rows = await db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks WHERE id = ${"s1"}`);
     expect(rows[0]?.name).toBe("seeded");
   });
+  it("rolls back local mutations when a checkpoint fails", async () => {
+    const db = makeDb();
+    await db.init(SCHEMA);
+    db.registerLocalChangeCheckpoint(async () => {
+      throw new Error("checkpoint failed");
+    });
+
+    await expect(db.insert("tasks", { id: "t1", name: "blocked", done: 0 })).rejects.toThrow(
+      "checkpoint failed",
+    );
+    const rows = await db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks`);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("runs checkpoints before exposing a successful local commit", async () => {
+    const db = makeDb();
+    await db.init(SCHEMA);
+    await db.exec(
+      sql`CREATE TABLE checkpoint (change_id TEXT PRIMARY KEY, op_count INTEGER NOT NULL)`,
+    );
+    let observed = false;
+    let observedRows: Promise<Record<string, unknown>[]> | null = null;
+    db.registerLocalChangeCheckpoint(async (change, adapter) => {
+      await adapter.exec("INSERT INTO checkpoint (change_id, op_count) VALUES (?, ?)", [
+        change.changeId,
+        change.ops.length,
+      ]);
+    });
+    db.on("changes:local", (change) => {
+      observed = true;
+      observedRows = db.exec(sql`SELECT * FROM checkpoint WHERE change_id = ${change.changeId}`);
+    });
+
+    await db.insert("tasks", { id: "t1", name: "durable", done: 0 });
+    expect(observed).toBe(true);
+    expect(observedRows).not.toBeNull();
+    const checkpoints = await observedRows;
+    expect(checkpoints).toHaveLength(1);
+  });
 });
 
 describe("PalladiumEngine HLC stamping", () => {

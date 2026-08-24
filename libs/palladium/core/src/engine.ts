@@ -66,6 +66,15 @@ export interface ChangesLocal<S extends SchemaMap = SchemaMap> {
 }
 
 /**
+ * A durable side effect that must commit atomically with a local change.
+ * Throwing aborts the engine transaction and rolls back its mutations.
+ */
+export type LocalChangeCheckpoint<S extends SchemaMap = SchemaMap> = (
+  change: ChangesLocal<S>,
+  adapter: StorageAdapter,
+) => Promise<void>;
+
+/**
  * A change received from a remote peer, applied via {@link PalladiumEngine.applyRemote}.
  * Carries the originating {@link Hlc} so the engine can column-LWW-reconcile
  * (`D3`); `id` is the idempotency key (a re-delivered change is a no-op).
@@ -178,6 +187,7 @@ export class PalladiumEngine<S extends SchemaMap> {
   protected readonly emitter = new EventEmitter<EngineEvents<S>>();
   protected status: SyncStatus = "idle";
   readonly #liveQueries = new Set<LiveQuery>();
+  readonly #localChangeCheckpoints = new Set<LocalChangeCheckpoint<S>>();
   readonly #blobRegistry = new BlobRegistry();
   /** High-level blob storage API. */
   readonly blobs: BlobHandle;
@@ -346,6 +356,12 @@ export class PalladiumEngine<S extends SchemaMap> {
     );
   }
 
+  /** Register a durable side effect for each committed local change. */
+  registerLocalChangeCheckpoint(checkpoint: LocalChangeCheckpoint<S>): () => void {
+    this.#localChangeCheckpoints.add(checkpoint);
+    return () => this.#localChangeCheckpoints.delete(checkpoint);
+  }
+
   /**
    * Execute a batch of local mutations, wrapped in a transaction when
    * supported. The whole batch is stamped with a single HLC (`D2a`), and every
@@ -367,37 +383,42 @@ export class PalladiumEngine<S extends SchemaMap> {
     const changeId = crypto.randomUUID();
 
     await this.#serialize(async () => {
-      // One HLC per change (only minted when there is something to stamp).
       const hlc = ops.length > 0 ? this.nextSendHlc() : null;
+      const localChange =
+        hlc === null
+          ? null
+          : {
+              ops,
+              touchedTables: [...new Set(ops.map((op) => String(op.table).toLowerCase()))],
+              hlc,
+              changeId,
+            };
+      const checkpoints = localChange === null ? [] : [...this.#localChangeCheckpoints];
 
       const applyAll = async (adpt: StorageAdapter): Promise<void> => {
         await this.#ensureSyncTables(adpt);
         for (const op of ops) {
-          // Lowercase to match extractTables(), which normalises SQL identifiers.
           touchedTables.add(String(op.table).toLowerCase());
           await this.#applyOp(adpt, op);
           if (hlc !== null) await this.#stampLocalMeta(adpt, op, hlc);
         }
-        // Checkpoint the advanced HLC in the same transaction as the writes it
-        // stamped (`D2b`), so recovery never reissues an HLC.
         if (hlc !== null) await this.setSyncState(STATE_HLC, hlcToString(hlc), adpt);
+        if (localChange !== null && !this.#suppressLocalEmit) {
+          for (const checkpoint of checkpoints) await checkpoint(localChange, adpt);
+        }
       };
 
+      if (checkpoints.length > 0 && !isTransactable(this.adapter)) {
+        throw new Error("Local change checkpoints require a transactional storage adapter.");
+      }
       if (isTransactable(this.adapter)) {
         await this.adapter.transaction(applyAll);
       } else {
         await applyAll(this.adapter);
       }
 
-      // Emit inside the serialized section so `#suppressLocalEmit` is stable —
-      // no concurrent applyRemote() can be toggling it here (F21).
-      if (!this.#suppressLocalEmit && hlc !== null) {
-        this.emitter.emit("changes:local", {
-          ops,
-          touchedTables: [...touchedTables],
-          hlc,
-          changeId,
-        });
+      if (localChange !== null && !this.#suppressLocalEmit) {
+        this.emitter.emit("changes:local", localChange);
       }
     });
 

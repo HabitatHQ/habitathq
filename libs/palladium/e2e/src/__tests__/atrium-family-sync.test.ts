@@ -30,7 +30,7 @@ import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 const ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "../../../../../");
-const BINARY = join(process.env.CARGO_TARGET_DIR ?? join(ROOT, "target"), "debug", "atrium");
+const BINARY = join(process.env["CARGO_TARGET_DIR"] ?? join(ROOT, "target"), "debug", "atrium");
 const PORT = 13_760;
 const BASE_URL = `http://localhost:${PORT}`;
 const POLL_MS = 150;
@@ -250,9 +250,10 @@ async function makeClient(user: string, ws: string): Promise<Client> {
     authHeaders: () => ({ Authorization: `Bearer ${user}`, "X-Workspace": ws }),
     decodeChanges: async (body) => {
       if (Array.isArray(body)) return body as WireChange[];
-      const env = body as { changes: WireChange[]; purges: string[] };
+      const env = body as { changes: WireChange[]; cursor?: string | null; purges: string[] };
       if (env.purges?.length) await applyPurges(engine, env.purges);
-      return env.changes ?? [];
+      const changes = env.changes ?? [];
+      return env.cursor === undefined ? { changes } : { changes, cursor: env.cursor };
     },
     acknowledgeChanges: async (body) => {
       const env = body as {

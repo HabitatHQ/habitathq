@@ -35,6 +35,12 @@ CREATE TABLE IF NOT EXISTS memberships (
     role TEXT NOT NULL,
     PRIMARY KEY (workspace_id, user_id)
 );
+CREATE TABLE IF NOT EXISTS member_nodes (
+    workspace_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    PRIMARY KEY (workspace_id, node_id)
+);
 CREATE TABLE IF NOT EXISTS invites (
     token TEXT NOT NULL PRIMARY KEY,
     workspace_id TEXT NOT NULL,
@@ -72,13 +78,13 @@ CREATE INDEX IF NOT EXISTS idx_grant_events_pending
 CREATE TABLE IF NOT EXISTS palladium_changes (
     id TEXT NOT NULL PRIMARY KEY,
     scope TEXT NOT NULL,
+    append_cursor INTEGER NOT NULL UNIQUE,
     hlc_key TEXT NOT NULL,
     hlc_millis INTEGER NOT NULL,
     hlc_counter INTEGER NOT NULL,
     hlc_node_id TEXT NOT NULL,
     ops_json TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_changes_scope_hlc ON palladium_changes (scope, hlc_key);
 CREATE TABLE IF NOT EXISTS blobs (
     blob_id TEXT NOT NULL PRIMARY KEY,
     workspace_id TEXT NOT NULL,
@@ -100,6 +106,8 @@ pub const SHARING_HOUSEHOLD_RW: &str = "household_rw";
 pub const PERM_READ: &str = "read";
 /// Per-member grant permission: read/write.
 pub const PERM_WRITE: &str = "write";
+/// Conservative maximum blob payload accepted by Atrium.
+pub const MAX_BLOB_BYTES: usize = 16 * 1024 * 1024;
 /// A grant event: a root became visible to a user (triggers backfill).
 pub const EVENT_GRANT: &str = "grant";
 /// A revoke event: a root became invisible to a user (triggers purge).
@@ -169,7 +177,40 @@ impl AtriumDb {
             .map_err(AtriumError::internal)?;
         sqlx::query(MIGRATE).execute(&pool).await?;
         Self::upgrade_workspace_qualified_schema(&pool).await?;
+        Self::upgrade_change_cursor_schema(&pool).await?;
         Ok(Self { pool })
+    }
+
+    async fn upgrade_change_cursor_schema(pool: &SqlitePool) -> Result<(), AtriumError> {
+        let columns = sqlx::query_as::<_, (String,)>(
+            "SELECT name FROM pragma_table_info('palladium_changes')",
+        )
+        .fetch_all(pool)
+        .await?;
+        if !columns.iter().any(|(name,)| name == "append_cursor") {
+            sqlx::query("ALTER TABLE palladium_changes ADD COLUMN append_cursor INTEGER")
+                .execute(pool)
+                .await?;
+            sqlx::query(
+                "UPDATE palladium_changes SET append_cursor = rowid
+                 WHERE append_cursor IS NULL",
+            )
+            .execute(pool)
+            .await?;
+        }
+        sqlx::query(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_changes_append_cursor
+             ON palladium_changes (append_cursor)",
+        )
+        .execute(pool)
+        .await?;
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_changes_scope_append_cursor
+             ON palladium_changes (scope, append_cursor)",
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
     }
 
     async fn table_has_primary_key(
@@ -740,11 +781,61 @@ impl AtriumDb {
         change: &Change,
     ) -> Result<(), AtriumError> {
         let mut tx = self.pool.begin().await?;
+        let node_id = change.hlc.node_id().to_string();
+        sqlx::query(
+            "INSERT OR IGNORE INTO member_nodes (workspace_id, user_id, node_id)
+             VALUES (?, ?, ?)",
+        )
+        .bind(workspace)
+        .bind(caller)
+        .bind(&node_id)
+        .execute(&mut *tx)
+        .await?;
+        let node_owner = sqlx::query_scalar::<_, String>(
+            "SELECT user_id FROM member_nodes WHERE workspace_id = ? AND node_id = ?",
+        )
+        .bind(workspace)
+        .bind(&node_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if node_owner != caller {
+            return Err(AtriumError::Forbidden(
+                "hlc node is registered to another workspace member".to_owned(),
+            ));
+        }
+        let mut change_root: Option<String> = None;
         for op in &change.ops {
             let table = op.table();
             let role = registry::role_of(table)
                 .ok_or_else(|| AtriumError::BadRequest(format!("unknown table {table}")))?;
             let row_id = op.row_id().to_string();
+            let op_root = match role {
+                TableRole::Root(_) if matches!(op, Op::Insert { .. }) => row_id.clone(),
+                TableRole::Child if matches!(op, Op::Insert { .. }) => {
+                    let Op::Insert { data, .. } = op else {
+                        return Err(AtriumError::BadRequest("expected child insert".to_owned()));
+                    };
+                    data.get("root_id")
+                        .and_then(serde_json::Value::as_str)
+                        .ok_or_else(|| {
+                            AtriumError::BadRequest("child row missing root_id".to_owned())
+                        })?
+                        .to_owned()
+                }
+                _ => Self::get_record_in_tx(&mut tx, workspace, &row_id)
+                    .await?
+                    .map(|record| record.root_id.unwrap_or(record.row_id))
+                    .ok_or_else(|| AtriumError::Forbidden(format!("unknown row {row_id}")))?,
+            };
+            if let Some(existing_root) = &change_root {
+                if existing_root != &op_root {
+                    return Err(AtriumError::BadRequest(
+                        "a change must target one aggregate root".to_owned(),
+                    ));
+                }
+            } else {
+                change_root = Some(op_root);
+            }
             match role {
                 TableRole::Root(_) if matches!(op, Op::Insert { .. }) => {
                     match Self::get_record_in_tx(&mut tx, workspace, &row_id).await? {
@@ -840,13 +931,18 @@ impl AtriumDb {
             ))
         })?;
         let ops_json = serde_json::to_string(&change.ops).map_err(AtriumError::internal)?;
+        let append_cursor: i64 =
+            sqlx::query_scalar("SELECT COALESCE(MAX(append_cursor), 0) + 1 FROM palladium_changes")
+                .fetch_one(&mut *tx)
+                .await?;
         sqlx::query(
             "INSERT OR IGNORE INTO palladium_changes
-             (id, scope, hlc_key, hlc_millis, hlc_counter, hlc_node_id, ops_json)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+             (id, scope, append_cursor, hlc_key, hlc_millis, hlc_counter, hlc_node_id, ops_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(change.id.to_string())
         .bind(workspace)
+        .bind(append_cursor)
         .bind(change.hlc.sort_key())
         .bind(hlc_millis)
         .bind(i64::from(change.hlc.counter()))
@@ -861,35 +957,34 @@ impl AtriumDb {
     pub async fn list_changes(
         &self,
         workspace: &str,
-        after: Option<Hlc>,
+        after: Option<i64>,
         limit: Option<u32>,
-    ) -> Result<Vec<Change>, AtriumError> {
+    ) -> Result<Vec<(i64, Change)>, AtriumError> {
         let mut query = sqlx::QueryBuilder::new(
-            "SELECT id, hlc_millis, hlc_counter, hlc_node_id, ops_json
+            "SELECT append_cursor, id, hlc_millis, hlc_counter, hlc_node_id, ops_json
              FROM palladium_changes WHERE scope = ",
         );
         query.push_bind(workspace);
-        if let Some(hlc) = after {
-            query.push(" AND hlc_key > ").push_bind(hlc.sort_key());
+        if let Some(cursor) = after {
+            query.push(" AND append_cursor > ").push_bind(cursor);
         }
-        query.push(" ORDER BY hlc_key");
+        query.push(" ORDER BY append_cursor");
         if let Some(limit) = limit {
             query.push(" LIMIT ").push_bind(i64::from(limit));
         }
-        let rows: Vec<(String, i64, i64, String, String)> =
+        let rows: Vec<(i64, String, i64, i64, String, String)> =
             query.build_query_as().fetch_all(&self.pool).await?;
         rows.into_iter()
-            .map(|(id, millis, counter, node_id, ops_json)| {
+            .map(|(cursor, id, millis, counter, node_id, ops_json)| {
                 let id = Uuid::parse_str(&id).map_err(AtriumError::internal)?;
                 let hlc = Hlc::from_db_parts(millis, counter, &node_id)
                     .map_err(AtriumError::BadRequest)?;
                 let ops: Vec<Op> =
                     serde_json::from_str(&ops_json).map_err(AtriumError::internal)?;
-                Ok(Change { id, hlc, ops })
+                Ok((cursor, Change { id, hlc, ops }))
             })
             .collect()
     }
-
     pub async fn put_blob(
         &self,
         blob_id: &str,
@@ -899,8 +994,26 @@ impl AtriumDb {
         content_type: &str,
         bytes: &[u8],
     ) -> Result<(), AtriumError> {
+        if bytes.len() > MAX_BLOB_BYTES {
+            return Err(AtriumError::BadRequest(format!(
+                "blob exceeds maximum size of {MAX_BLOB_BYTES} bytes"
+            )));
+        }
+        if let Some(existing) = self.get_blob(blob_id).await? {
+            if existing.workspace_id != workspace
+                || existing.note_id != note_id
+                || existing.owner_user_id != owner
+                || existing.content_type != content_type
+                || existing.bytes != bytes
+            {
+                return Err(AtriumError::Conflict(
+                    "blob id is already bound to different content".to_owned(),
+                ));
+            }
+            return Ok(());
+        }
         sqlx::query(
-            "INSERT OR REPLACE INTO blobs
+            "INSERT INTO blobs
              (blob_id, workspace_id, note_id, owner_user_id, content_type, bytes, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
@@ -974,5 +1087,20 @@ mod tests {
         assert!(db.require_owner(&ws, "alice").await.is_ok());
         assert!(db.require_owner(&ws, "bob").await.is_err());
         assert!(db.require_member(&ws, "bob").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn blob_retries_are_idempotent_and_conflicts_rejected() {
+        let db = AtriumDb::in_memory().await.unwrap();
+        db.put_blob("blob", "workspace", "note", "owner", "image/png", b"bytes")
+            .await
+            .unwrap();
+        db.put_blob("blob", "workspace", "note", "owner", "image/png", b"bytes")
+            .await
+            .unwrap();
+        assert!(db
+            .put_blob("blob", "workspace", "note", "owner", "image/jpeg", b"bytes")
+            .await
+            .is_err());
     }
 }

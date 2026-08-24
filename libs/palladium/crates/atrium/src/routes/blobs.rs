@@ -15,6 +15,7 @@ use axum::{
 };
 
 use crate::{
+    db::MAX_BLOB_BYTES,
     error::AtriumError,
     identity::Caller,
     registry::{self, TableRole},
@@ -55,6 +56,11 @@ pub(super) async fn put_blob(
     let workspace = require_header(&headers, WORKSPACE_HEADER)?;
     let note_id = require_header(&headers, NOTE_HEADER)?;
     let db = state.db();
+    if body.len() > MAX_BLOB_BYTES {
+        return Err(AtriumError::BadRequest(format!(
+            "blob exceeds maximum size of {MAX_BLOB_BYTES} bytes"
+        )));
+    }
     db.require_member(&workspace, user.as_str()).await?;
 
     let note = db

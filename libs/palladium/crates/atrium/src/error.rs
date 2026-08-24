@@ -19,12 +19,15 @@ pub enum AtriumError {
     /// The caller is authenticated but not permitted → `403`.
     #[error("forbidden: {0}")]
     Forbidden(String),
-    /// The requested resource does not exist → `404`.
-    #[error("not found: {0}")]
-    NotFound(String),
     /// The request was malformed → `400`.
     #[error("bad request: {0}")]
     BadRequest(String),
+    /// The requested resource does not exist → `404`.
+    #[error("not found: {0}")]
+    NotFound(String),
+    /// The request conflicts with immutable server state → `409`.
+    #[error("conflict: {0}")]
+    Conflict(String),
     /// An unexpected internal error → `500`.
     #[error("internal error")]
     Internal(#[source] Box<dyn std::error::Error + Send + Sync>),
@@ -50,6 +53,7 @@ impl IntoResponse for AtriumError {
             Self::Forbidden(m) => (StatusCode::FORBIDDEN, m),
             Self::NotFound(m) => (StatusCode::NOT_FOUND, m),
             Self::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
+            Self::Conflict(m) => (StatusCode::CONFLICT, m),
             Self::Internal(err) => {
                 tracing::error!(%err, "internal server error");
                 (
@@ -71,7 +75,9 @@ mod tests {
     #[test]
     fn variants_map_to_expected_status() {
         assert_eq!(
-            AtriumError::Unauthorized("x".into()).into_response().status(),
+            AtriumError::Unauthorized("x".into())
+                .into_response()
+                .status(),
             StatusCode::UNAUTHORIZED
         );
         assert_eq!(

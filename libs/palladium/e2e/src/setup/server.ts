@@ -11,10 +11,10 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // Repo root = five levels up from libs/palladium/e2e/src/setup/. The Cargo
-// workspace manifest and its shared `target/` dir both live here, so the
-// built `palladium` binary lands at <repoRoot>/target/debug/palladium.
+// workspace manifest and its shared `target/` directory both live there.
 const ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "../../../../../");
-const BINARY = join(ROOT, "target", "debug", "palladium");
+const TARGET_DIR = process.env["CARGO_TARGET_DIR"] ?? join(ROOT, "target");
+const BINARY = join(TARGET_DIR, "debug", "palladium");
 
 export const E2E_PORT = 13_742;
 export const E2E_BASE_URL = `http://localhost:${E2E_PORT}`;

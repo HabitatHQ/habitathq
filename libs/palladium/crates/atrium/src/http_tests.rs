@@ -662,3 +662,89 @@ async fn event_ack_cannot_cross_workspace_or_caller() {
         Some(event_id)
     );
 }
+
+#[tokio::test]
+async fn append_cursor_returns_a_late_older_hlc_change() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let node = Uuid::new_v4();
+    let first = Uuid::new_v4();
+    let late = Uuid::new_v4();
+    let change = |row: Uuid, wall_ms: u64| {
+        json!({
+            "id": Uuid::new_v4(),
+            "hlc": { "wallMs": wall_ms, "counter": 0, "nodeId": node },
+            "ops": [{ "op": "insert", "table": "habits", "row_id": row, "data": { "id": row } }],
+        })
+    };
+
+    assert_eq!(
+        post_change(&app, "alice", &ws, change(first, 2_000)).await,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        post_change(&app, "alice", &ws, change(late, 1_000)).await,
+        StatusCode::CREATED
+    );
+
+    let first_page = get_env(&app, "alice", &ws).await;
+    assert_eq!(
+        first_page["changes"][0]["ops"][0]["row_id"],
+        first.to_string()
+    );
+    assert_eq!(
+        first_page["changes"][1]["ops"][0]["row_id"],
+        late.to_string()
+    );
+    let after = first_page["changes"][0]["cursor"].as_str().unwrap();
+    let (_, resumed) = call(
+        &app,
+        "GET",
+        &format!("/v1/changes?after={after}"),
+        Some("alice"),
+        Some(&ws),
+        None,
+    )
+    .await;
+    assert_eq!(resumed["changes"][0]["ops"][0]["row_id"], late.to_string());
+    assert_eq!(resumed["cursor"], first_page["changes"][1]["cursor"]);
+}
+
+#[tokio::test]
+async fn change_cannot_mix_aggregate_roots_or_spoof_a_member_node() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let node = Uuid::new_v4();
+    let alice_row = Uuid::new_v4();
+    let bob_row = Uuid::new_v4();
+    let change = |row: Uuid| {
+        json!({
+            "id": Uuid::new_v4(),
+            "hlc": { "wallMs": 1_700_000_000_000_u64, "counter": 0, "nodeId": node },
+            "ops": [{ "op": "insert", "table": "habits", "row_id": row, "data": { "id": row } }],
+        })
+    };
+
+    assert_eq!(
+        post_change(&app, "alice", &ws, change(alice_row)).await,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        post_change(&app, "bob", &ws, change(bob_row)).await,
+        StatusCode::FORBIDDEN
+    );
+
+    let other = Uuid::new_v4();
+    let mixed = json!({
+        "id": Uuid::new_v4(),
+        "hlc": { "wallMs": 1_700_000_000_001_u64, "counter": 0, "nodeId": Uuid::new_v4() },
+        "ops": [
+            { "op": "insert", "table": "habits", "row_id": Uuid::new_v4(), "data": { "id": Uuid::new_v4() } },
+            { "op": "insert", "table": "notes", "row_id": other, "data": { "id": other } },
+        ],
+    });
+    assert_eq!(
+        post_change(&app, "alice", &ws, mixed).await,
+        StatusCode::BAD_REQUEST
+    );
+}

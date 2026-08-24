@@ -42,9 +42,18 @@ mod tests {
 
     #[test]
     fn known_roots_and_children() {
-        assert_eq!(role_of("habits"), Some(TableRole::Root(Shareable::PrivateOnly)));
-        assert_eq!(role_of("lists"), Some(TableRole::Root(Shareable::Household)));
-        assert_eq!(role_of("notes"), Some(TableRole::Root(Shareable::PerMember)));
+        assert_eq!(
+            role_of("habits"),
+            Some(TableRole::Root(Shareable::PrivateOnly))
+        );
+        assert_eq!(
+            role_of("lists"),
+            Some(TableRole::Root(Shareable::Household))
+        );
+        assert_eq!(
+            role_of("notes"),
+            Some(TableRole::Root(Shareable::PerMember))
+        );
         assert_eq!(role_of("list_items"), Some(TableRole::Child));
         assert_eq!(role_of("unknown"), None);
     }

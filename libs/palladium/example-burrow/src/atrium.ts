@@ -18,6 +18,7 @@ interface ChangeEvent {
 
 interface ChangesEnvelope {
   changes: WireChange[];
+  cursor?: string | null;
   purges: string[];
   events?: ChangeEvent[];
 }
@@ -281,7 +282,8 @@ export async function createAccount(opts: {
       if (Array.isArray(body)) return body as WireChange[];
       const env = body as ChangesEnvelope;
       if (env.purges?.length) await applyPurges(engine, env.purges);
-      return env.changes ?? [];
+      const changes = env.changes ?? [];
+      return env.cursor === undefined ? { changes } : { changes, cursor: env.cursor };
     },
     acknowledgeChanges: async (body) => {
       const env = body as ChangesEnvelope;

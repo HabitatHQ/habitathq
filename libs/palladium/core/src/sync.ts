@@ -56,6 +56,8 @@ export interface WireChange {
   readonly id: string;
   readonly hlc: Hlc;
   readonly ops: ReadonlyArray<WireOp>;
+  /** Server-assigned durable append cursor, when provided by the server. */
+  readonly cursor?: string;
 }
 
 /**
@@ -72,6 +74,7 @@ function isWireChange(value: unknown): value is WireChange {
   if (typeof value !== "object" || value === null) return false;
   const c = value as Record<string, unknown>;
   if (typeof c["id"] !== "string" || !Array.isArray(c["ops"])) return false;
+  if (c["cursor"] !== undefined && typeof c["cursor"] !== "string") return false;
   const hlc = c["hlc"];
   if (typeof hlc !== "object" || hlc === null) return false;
   const h = hlc as Record<string, unknown>;
@@ -105,6 +108,13 @@ export function hlcToAfterCursor(hlc: Hlc): string {
   return `${wallMs}_${counter}_${nodeId}`;
 }
 
+/** Return whether `next` is after `current` in its server cursor domain. */
+function cursorAdvances(current: string | null, next: string): boolean {
+  if (current === null) return true;
+  if (/^\d+$/.test(current) && /^\d+$/.test(next)) return BigInt(next) > BigInt(current);
+  return next > current;
+}
+
 // ── Options ────────────────────────────────────────────────────────────────
 
 export interface SyncTransportOptions {
@@ -131,14 +141,15 @@ export interface SyncTransportOptions {
     readonly refresh: boolean;
   }) => Promise<Record<string, string>> | Record<string, string>;
   /**
-   * Adapt a raw `GET /v1/changes` response body into the array of changes to
-   * apply. Defaults to treating the body as a bare `WireChange[]` (the
-   * `palladium-axum` contract). A gateway that wraps changes in an envelope —
-   * e.g. Atrium's `{ changes, purges }` — supplies a decoder here to unwrap it.
-   * The decoder may also run side effects (such as applying server-driven
-   * purges) before returning the change list, so the transport stays generic.
+   * Adapt a raw `GET /v1/changes` response body into changes and optionally
+   * an envelope cursor. Bare arrays remain supported for generic servers.
    */
-  readonly decodeChanges?: (body: unknown) => WireChange[] | Promise<WireChange[]>;
+  readonly decodeChanges?: (
+    body: unknown,
+  ) =>
+    | WireChange[]
+    | { readonly changes: WireChange[]; readonly cursor?: string | null }
+    | Promise<WireChange[] | { readonly changes: WireChange[]; readonly cursor?: string | null }>;
 
   /** Opaque post-apply acknowledgement hook for the decoded response body. */
   readonly acknowledgeChanges?: (body: unknown) => Promise<void>;
@@ -303,15 +314,53 @@ export class SyncTransport<S extends SchemaMap> {
   readonly #maxApplyAttempts: number;
   readonly #authHeaders?: SyncTransportOptions["authHeaders"];
   readonly #acknowledgeChanges?: SyncTransportOptions["acknowledgeChanges"];
-  readonly #decodeChanges: (body: unknown) => WireChange[] | Promise<WireChange[]>;
 
   #cursor: string | null = null;
   #pollHandle: ReturnType<typeof setInterval> | null = null;
-  #polling = false;
+  readonly #decodeChanges: NonNullable<SyncTransportOptions["decodeChanges"]>;
   #initialHydrationDone = false;
+  #polling = false;
   #unsubscribeLocal: (() => void) | null = null;
   #initialized = false;
   #initPromise: Promise<void> | null = null;
+
+  constructor(engine: PalladiumEngine<S>, options: SyncTransportOptions) {
+    this.#engine = engine;
+    this.#serverUrl = options.serverUrl.replace(/\/+$/, "");
+    this.#pollIntervalMs = options.pollIntervalMs ?? 1_000;
+    this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
+    const maxAttempts = options.maxApplyAttempts ?? 5;
+    this.#maxApplyAttempts = Number.isInteger(maxAttempts) && maxAttempts >= 1 ? maxAttempts : 5;
+    this.#authHeaders = options.authHeaders;
+    this.#acknowledgeChanges = options.acknowledgeChanges;
+    this.#decodeChanges =
+      options.decodeChanges ??
+      ((body) => {
+        if (Array.isArray(body)) return body;
+        if (typeof body === "object" && body !== null && "changes" in body) {
+          const changes = body.changes;
+          return Array.isArray(changes) ? (changes as WireChange[]) : [];
+        }
+        return [];
+      });
+    engine.registerLocalChangeCheckpoint(async (local, adapter) => {
+      const wireOps = (local.ops as ReadonlyArray<EngineOp>).flatMap(engineOpToWire);
+      if (wireOps.length === 0) return;
+      await adapter.exec(OUTBOX_DDL, []);
+      await adapter.exec(
+        `INSERT INTO ${OUTBOX_TABLE} (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          local.changeId,
+          local.hlc.wallMs,
+          local.hlc.counter,
+          local.hlc.nodeId,
+          JSON.stringify(wireOps),
+          Date.now(),
+        ],
+      );
+    });
+  }
 
   /**
    * Once-only transport init: provision the durable outbox + quarantine tables
@@ -346,21 +395,6 @@ export class SyncTransport<S extends SchemaMap> {
       this.#initPromise = null; // allow a retry after a transient failure
       throw err;
     }
-  }
-
-  constructor(engine: PalladiumEngine<S>, options: SyncTransportOptions) {
-    this.#engine = engine;
-    this.#serverUrl = options.serverUrl.replace(/\/+$/, "");
-    this.#pollIntervalMs = options.pollIntervalMs ?? 1_000;
-    this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
-    // Normalise to a finite positive integer: NaN / Infinity / non-positive
-    // values would make `attempts >= #maxApplyAttempts` never terminate and
-    // wedge the poll cursor on a failing change.
-    const maxAttempts = options.maxApplyAttempts ?? 5;
-    this.#maxApplyAttempts = Number.isInteger(maxAttempts) && maxAttempts >= 1 ? maxAttempts : 5;
-    this.#authHeaders = options.authHeaders;
-    this.#acknowledgeChanges = options.acknowledgeChanges;
-    this.#decodeChanges = options.decodeChanges ?? ((body) => (Array.isArray(body) ? body : []));
   }
 
   /**
@@ -402,11 +436,9 @@ export class SyncTransport<S extends SchemaMap> {
     await this.#ensureInitialized();
     await this.#drainOutbox();
     this.#unsubscribeLocal = this.#engine.on("changes:local", (payload) => {
-      void this.#postLocal({
-        ops: payload.ops as ReadonlyArray<EngineOp>,
-        hlc: payload.hlc,
-        changeId: payload.changeId,
-      });
+      const wireOps = (payload.ops as ReadonlyArray<EngineOp>).flatMap(engineOpToWire);
+      if (wireOps.length === 0) return;
+      void this.#postLocal({ id: payload.changeId, hlc: payload.hlc, ops: wireOps });
     });
     await this.#poll();
     this.#pollHandle = setInterval(() => {
@@ -439,8 +471,6 @@ export class SyncTransport<S extends SchemaMap> {
           row.change_id,
         ]);
       } else {
-        // Stop after first failure — preserves ordering and avoids hammering
-        // a server that's clearly not accepting writes right now.
         break;
       }
     }
@@ -459,43 +489,8 @@ export class SyncTransport<S extends SchemaMap> {
     }
   }
 
-  /**
-   * Persist + post one batched Change. The change is written to
-   * `_sync_pending_changes` first so it survives a reload if the POST fails
-   * or the page is closed mid-flight; the outbox row is deleted on success.
-   */
-  async #postLocal(local: {
-    ops: ReadonlyArray<EngineOp>;
-    hlc: Hlc;
-    changeId: string;
-  }): Promise<void> {
-    const wireOps = local.ops.flatMap(engineOpToWire);
-    if (wireOps.length === 0) return;
-    // The engine already minted the HLC + change id inside tx() and stamped
-    // `_sync_row_meta`; reuse them so the outbox row and the shadow-table
-    // metadata agree (a fresh HLC here would break column-LWW comparisons).
-    const change: WireChange = {
-      id: local.changeId,
-      hlc: local.hlc,
-      ops: wireOps,
-    };
-
-    // Durable outbox first, then attempt the post. Order matters: a crash
-    // between INSERT and fetch leaves the row in place, ready for retry on
-    // next start().
-    await this.#engine.adapter.exec(
-      `INSERT INTO ${OUTBOX_TABLE} (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [
-        change.id,
-        change.hlc.wallMs,
-        change.hlc.counter,
-        change.hlc.nodeId,
-        JSON.stringify(change.ops),
-        Date.now(),
-      ],
-    );
-
+  /** Attempt delivery of a change already durably recorded by the engine. */
+  async #postLocal(change: WireChange): Promise<void> {
     this.#engine.setStatus("syncing");
     const outcome = await this.#tryPost(change);
     if (outcome === "ok") {
@@ -549,24 +544,41 @@ export class SyncTransport<S extends SchemaMap> {
           : `${this.#serverUrl}/v1/changes?after=${this.#cursor}`;
 
       let changes: WireChange[];
+      let envelopeCursor: string | null | undefined;
       let responseBody: unknown;
       try {
         const res = await this.#fetchWithAuth(url);
         if (!res.ok) return;
         responseBody = await res.json();
         const decoded = await this.#decodeChanges(responseBody);
-        if (!Array.isArray(decoded)) return;
-        changes = decoded;
+        if (Array.isArray(decoded)) {
+          changes = decoded;
+        } else {
+          changes = Array.isArray(decoded.changes) ? decoded.changes : [];
+          envelopeCursor = decoded.cursor;
+        }
       } catch {
         return;
       }
 
+      let pageSucceeded = true;
       for (const change of changes) {
         if (!isWireChange(change)) continue;
-        const nextCursor = hlcToAfterCursor(change.hlc);
+        const nextCursor = change.cursor ?? hlcToAfterCursor(change.hlc);
         const advanced = await this.#applyOneRemote(change, nextCursor);
-        if (!advanced) break;
-        if (this.#cursor === null || nextCursor > this.#cursor) this.#cursor = nextCursor;
+        if (!advanced) {
+          pageSucceeded = false;
+          break;
+        }
+        if (cursorAdvances(this.#cursor, nextCursor)) {
+          this.#cursor = nextCursor;
+          await this.#engine.setSyncState(STATE_CURSOR, nextCursor);
+        }
+      }
+
+      if (pageSucceeded && envelopeCursor !== undefined && envelopeCursor !== null) {
+        this.#cursor = envelopeCursor;
+        await this.#engine.setSyncState(STATE_CURSOR, envelopeCursor);
       }
 
       this.#initialHydrationDone = true;

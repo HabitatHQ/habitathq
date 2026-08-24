@@ -18,6 +18,7 @@ export { dbg, disableDebug, enableDebug, isDebugEnabled } from "./debug.js";
 export type {
   ChangesLocal,
   EngineEvents,
+  LocalChangeCheckpoint,
   PalladiumEngineOptions,
   RemoteChange,
   SyncStatus,
