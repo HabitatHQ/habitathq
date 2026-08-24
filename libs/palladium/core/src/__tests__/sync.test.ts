@@ -490,6 +490,46 @@ describe("SyncTransport — downlink", () => {
     const cursor = hlcToAfterCursor(c1.hlc);
     expect(seenUrls[1]).toBe(`${SERVER_URL}/v1/changes?after=${cursor}`);
   });
+  it("keeps the cursor monotonic when a poll includes older backfill", async () => {
+    const db = await makeEngine(BOB);
+    const newer: WireChange = {
+      id: "newer",
+      hlc: { wallMs: 1_700_000_000_500, counter: 0, nodeId: ALICE },
+      ops: [
+        {
+          op: "insert",
+          table: "notes",
+          row_id: "n-newer",
+          data: { id: "n-newer", title: "newer", updated_at: 1 },
+        },
+      ],
+    };
+    const olderBackfill: WireChange = {
+      id: "older-backfill",
+      hlc: { wallMs: 1_699_000_000_000, counter: 0, nodeId: ALICE },
+      ops: [
+        {
+          op: "insert",
+          table: "notes",
+          row_id: "n-older",
+          data: { id: "n-older", title: "older", updated_at: 1 },
+        },
+      ],
+    };
+    const responses = [[newer, olderBackfill], []];
+    const { calls, fetch } = makeFakeFetch(() => jsonResponse(responses.shift() ?? []));
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+
+    await transport.poll();
+    await transport.poll();
+
+    expect(calls.map((call) => call.input)).toEqual([
+      `${SERVER_URL}/v1/changes`,
+      `${SERVER_URL}/v1/changes?after=${hlcToAfterCursor(newer.hlc)}`,
+    ]);
+    await transport.stop();
+  });
+
   it("forces wire insert data.id to row_id and acknowledges after apply", async () => {
     const db = await makeEngine(BOB);
     const change: WireChange = {

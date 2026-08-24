@@ -73,34 +73,20 @@ UI flow.
 
 ### 2a. Core CRDT / concurrency correctness
 
-- **F22 — a remote insert after a remote update discards the newer update.**
-  ⛔ still deferred (needs update-buffering — a focused fix + tests, not a
-  hot-patch). `libs/palladium/core/src/engine.ts:650` (`TODO(cr/F22)`). When an
-  update for a not-yet-present row arrives first, it stamps column metadata but
-  can't store
-  its value (patch is a no-op on an absent row); a later lower-HLC insert then
-  overwrites both value and metadata. Correct fix: **buffer updates for absent
-  rows** (or persist their values) rather than stamp metadata for a row that
-  doesn't exist. Stamping only the winning columns would keep the metadata but
-  still restore the stale value — a paper-over, so avoided.
+- **F22 — remote update before its insert. ✅ RESOLVED.** Updates for absent
+  rows are buffered, then replayed after their insert becomes available without
+  stamping phantom metadata. `engine.test.ts` covers the ordering contract.
 
 ### 2b. Atrium data-integrity / delivery protocol
 
-- **F9 — grant/revoke events marked delivered before client ack.**
-  `libs/palladium/crates/atrium/src/routes/changes.rs:200` (`TODO(cr/F9)`).
-  Events are consumed as soon as the handler builds a response; a dropped
-  connection can make a grantee miss backfill or a revoked client miss its
-  purge. Stronger contract: return durable event ids, mark delivered only on an
-  explicit client ack, keep backfill/purge idempotent until then. *At-most-once
-  is acceptable for the POC.*
-- **F10 — record metadata and change persistence aren't atomic.**
-  `libs/palladium/crates/atrium/src/routes/changes.rs:144` (`TODO(cr/F10)`). ACL
-  metadata (Atrium DB) and the change log (separate store) aren't written in one
-  transaction; a failed `changes().insert` leaves orphan metadata. Mitigated
-  today by INSERT-OR-IGNORE idempotency + one-row-per-change. Full atomicity is a
-  distinct piece of work — write both facts in one store or add a durable
-  rollback path. (It is **not** solved by the `Oprod` topology in §3, which only
-  moves where the two stores run.)
+- **F9 — grant/revoke events marked delivered before client ack. ✅ RESOLVED.**
+  Atrium keeps events pending until the authenticated, workspace-scoped client
+  acknowledges them after applying the envelope. Re-delivery is safe because
+  purges are local-idempotent and remote changes are idempotent.
+- **F10 — record metadata and change persistence aren't atomic. ✅ RESOLVED.**
+  Atrium persists ACL metadata, pending events, and the workspace change log
+  through one SQLite pool in one transaction. Failed authorization or change
+  append rolls back all three facts.
 - **F2 — no `devices` registry (D22).**
   `libs/palladium/crates/atrium/src/db.rs:14` (`TODO(cr/F2)`). Atrium can't bind
   a `nodeId` to its user, reject cross-user device rebinds, or drive multi-device
@@ -168,12 +154,10 @@ below, which is Medium.
   initial URL-preset `?user=`, so a reload showed no families and no way back to
   a joined workspace. Fixed with `{ immediate: true }`. Verified live: bob's
   family reappears and rehydrates on reload.
-- **Client sync cursor can regress after a grant.** `changes.rs` grant-backfill
-  appends older-HLC changes after newer ones, and `SyncTransport.#poll` sets the
-  cursor to each applied change's HLC with no monotonic guard — so the cursor
-  moves backward once per grant, forcing a redundant (idempotent) re-fetch on the
-  next poll. Self-heals; fix is a one-line monotonic-max guard on the client
-  cursor. Medium; worth doing with the F9 delivery work.
+- **Client sync cursor regressed after a grant. ✅ RESOLVED.** Cursor persistence
+  now takes a monotonic maximum inside the remote-apply transaction. The
+  `sync.test.ts` backfill regression test proves an older change delivered after
+  a newer one cannot move the next poll cursor backward.
 - **`crypto.subtle` assumed present** (`HabitsSection.completionId`). Works on
   `localhost` (a secure context) but is `undefined` over plain-HTTP LAN origins,
   where toggling a habit would throw. If the demo ever runs off-localhost, fall
