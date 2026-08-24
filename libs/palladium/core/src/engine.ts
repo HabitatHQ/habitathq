@@ -347,12 +347,11 @@ export class PalladiumEngine<S extends SchemaMap> {
   }
 
   /**
-   * Execute a batch of local mutations, wrapped in a transaction when
-   * supported. The whole batch is stamped with a single HLC (`D2a`), and every
-   * written `(table, row, column)` records that HLC in `_sync_row_meta` so a
-   * later remote change can column-LWW-reconcile against it (`D3`). Local
-   * writes always win locally (their HLC is freshly minted, hence latest), so
-   * no gating is applied on this path.
+   * Execute a batch of local mutations atomically. The whole batch is stamped
+   * with a single HLC (`D2a`), and every written `(table, row, column)` records
+   * that HLC in `_sync_row_meta` so a later remote change can column-LWW-
+   * reconcile against it (`D3`). Local writes always win locally (their HLC is
+   * freshly minted, hence latest), so no gating is applied on this path.
    */
   async tx(callback: (t: TxBuilder<S>) => void): Promise<void> {
     const builder = new TxBuilder<S>();
@@ -367,6 +366,9 @@ export class PalladiumEngine<S extends SchemaMap> {
     const changeId = crypto.randomUUID();
 
     await this.#serialize(async () => {
+      if (!isTransactable(this.adapter)) {
+        throw new Error("PalladiumEngine writes require transaction support");
+      }
       // One HLC per change (only minted when there is something to stamp).
       const hlc = ops.length > 0 ? this.nextSendHlc() : null;
 
@@ -383,11 +385,7 @@ export class PalladiumEngine<S extends SchemaMap> {
         if (hlc !== null) await this.setSyncState(STATE_HLC, hlcToString(hlc), adpt);
       };
 
-      if (isTransactable(this.adapter)) {
-        await this.adapter.transaction(applyAll);
-      } else {
-        await applyAll(this.adapter);
-      }
+      await this.adapter.transaction(applyAll);
 
       // Emit inside the serialized section so `#suppressLocalEmit` is stable —
       // no concurrent applyRemote() can be toggling it here (F21).
@@ -415,6 +413,9 @@ export class PalladiumEngine<S extends SchemaMap> {
     const touchedTables = new Set<string>();
     // Serialised against tx() so their suppression windows never overlap (F21).
     await this.#serialize(async () => {
+      if (!isTransactable(this.adapter)) {
+        throw new Error("PalladiumEngine writes require transaction support");
+      }
       // Keep the local clock causally ahead of anything we've observed.
       this.receiveHlc(hlc);
 
@@ -445,11 +446,7 @@ export class PalladiumEngine<S extends SchemaMap> {
 
       this.#suppressLocalEmit = true;
       try {
-        if (isTransactable(this.adapter)) {
-          await this.adapter.transaction(applyAll);
-        } else {
-          await applyAll(this.adapter);
-        }
+        await this.adapter.transaction(applyAll);
       } finally {
         this.#suppressLocalEmit = false;
       }

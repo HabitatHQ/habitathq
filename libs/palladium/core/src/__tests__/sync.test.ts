@@ -12,9 +12,9 @@ import type { SchemaConfig } from "../migration.js";
 import { sql } from "../sql.js";
 import { hlcToAfterCursor, SyncTransport, type WireChange, type WireOp } from "../sync.js";
 
-interface Schema {
+type Schema = {
   notes: { id: string; title: string; updated_at: number };
-}
+};
 
 const SCHEMA: SchemaConfig = {
   version: 1,
@@ -720,6 +720,76 @@ describe("SyncTransport — durable outbox", () => {
       expect(posted[0]?.ops[0]).toMatchObject({ row_id: "n1" });
     }
     expect(await outboxRows(db)).toHaveLength(0);
+  });
+  it("replays a server-processed POST after the response is lost", async () => {
+    const db = await makeEngine(ALICE);
+    const accepted = new Set<string>();
+    let postCount = 0;
+    let loseFirstResponse = true;
+    const fetch: typeof globalThis.fetch = async (_input, init) => {
+      if (init?.method === "POST") {
+        postCount += 1;
+        const change = JSON.parse(String(init.body)) as WireChange;
+        accepted.add(change.id);
+        if (loseFirstResponse) {
+          loseFirstResponse = false;
+          throw new Error("injected response loss after server commit");
+        }
+        return jsonResponse({}, 201);
+      }
+      return jsonResponse([]);
+    };
+
+    const first = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await first.start();
+    await db.insert("notes", { id: "n1", title: "replay-safe", updated_at: 1 });
+    await Promise.resolve();
+    await first.stop();
+    expect(await outboxRows(db)).toHaveLength(1);
+
+    const second = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await second.start();
+    await second.stop();
+
+    expect(postCount).toBe(2);
+    expect(accepted).toHaveLength(1);
+    expect(await outboxRows(db)).toHaveLength(0);
+  });
+
+  it("does not advance the cursor after a truncated response", async () => {
+    const db = await makeEngine(BOB);
+    const change: WireChange = {
+      id: "truncated-then-valid",
+      hlc: { wallMs: 1_700_000_000_100, counter: 0, nodeId: ALICE },
+      ops: [
+        {
+          op: "insert",
+          table: "notes",
+          row_id: "n-truncated",
+          data: { id: "n-truncated", title: "eventual", updated_at: 1 },
+        },
+      ],
+    };
+    let pollCount = 0;
+    const seenUrls: string[] = [];
+    const { fetch } = makeFakeFetch((call) => {
+      if (call.init?.method === "POST") return jsonResponse({}, 201);
+      seenUrls.push(call.input);
+      pollCount += 1;
+      return pollCount === 1
+        ? new Response(JSON.stringify([change]).slice(0, 12), { status: 200 })
+        : jsonResponse([change]);
+    });
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+
+    await transport.poll();
+    await transport.poll();
+    await transport.stop();
+
+    expect(seenUrls).toEqual([`${SERVER_URL}/v1/changes`, `${SERVER_URL}/v1/changes`]);
+    const rows = await db.exec<Schema["notes"]>(sql`SELECT * FROM notes`);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.title).toBe("eventual");
   });
 
   it("drainOutbox stops at the first failure to preserve ordering", async () => {

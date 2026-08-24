@@ -1,15 +1,16 @@
 import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { describe, expect, it, vi } from "vitest";
-import { createEngine, PalladiumEngine } from "../engine.js";
+import { createEngine, PalladiumEngine, type RemoteChange } from "../engine.js";
 import { compareHlc, createHlc } from "../hlc.js";
 import type { SchemaConfig } from "../migration.js";
 import { sql } from "../sql.js";
+import type { StorageAdapter } from "../storage.js";
 
 // SQLite stores booleans as integers; schema done field is INTEGER.
-interface Schema {
+type Schema = {
   tasks: { id: string; name: string; done: number };
   comments: { id: string; body: string };
-}
+};
 
 const SCHEMA: SchemaConfig = {
   schema: [
@@ -21,6 +22,38 @@ const SCHEMA: SchemaConfig = {
 
 function makeDb() {
   return createEngine<Schema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }));
+}
+
+class NonTransactableStorageAdapter implements StorageAdapter {
+  readonly #inner = new NodeSqliteAdapter({ vfs: { type: "memory" } });
+
+  open(): Promise<void> {
+    return this.#inner.open();
+  }
+
+  exec<T = Record<string, unknown>>(statement: string, params?: readonly unknown[]): Promise<T[]> {
+    return this.#inner.exec<T>(statement, params);
+  }
+
+  put(table: string, id: string, data: Record<string, unknown>): Promise<void> {
+    return this.#inner.put(table, id, data);
+  }
+
+  patch(table: string, id: string, patch: Record<string, unknown>): Promise<void> {
+    return this.#inner.patch(table, id, patch);
+  }
+
+  remove(table: string, id: string): Promise<void> {
+    return this.#inner.remove(table, id);
+  }
+
+  runMigrations(migrations: readonly string[]): Promise<void> {
+    return this.#inner.runMigrations(migrations);
+  }
+
+  close(): Promise<void> {
+    return this.#inner.close();
+  }
 }
 
 describe("createEngine (SQLite)", () => {
@@ -262,6 +295,41 @@ describe("createEngine (SQLite)", () => {
     expect(rows).toHaveLength(2);
   });
 
+  it("rejects writes when the adapter cannot guarantee atomicity", async () => {
+    const db = createEngine<Schema>(new NonTransactableStorageAdapter());
+    await db.init(SCHEMA);
+
+    await expect(
+      db.tx((t) => {
+        t.insert("tasks", { id: "t1", name: "local", done: 0 });
+        t.insert("comments", { id: "c1", body: "local" });
+      }),
+    ).rejects.toThrow("PalladiumEngine writes require transaction support");
+
+    await expect(
+      db.applyRemote({
+        hlc: { wallMs: 1_700_000_000_000, counter: 0, nodeId: "remote" },
+        ops: [
+          {
+            type: "insert",
+            table: "tasks",
+            id: "t2",
+            data: { id: "t2", name: "remote", done: 0 },
+          },
+          {
+            type: "insert",
+            table: "comments",
+            id: "c2",
+            data: { id: "c2", body: "remote" },
+          },
+        ],
+      }),
+    ).rejects.toThrow("PalladiumEngine writes require transaction support");
+
+    expect(await db.exec(sql`SELECT * FROM tasks`)).toHaveLength(0);
+    expect(await db.exec(sql`SELECT * FROM comments`)).toHaveLength(0);
+  });
+
   it("init with schema config runs DDL and seeds", async () => {
     const db = makeDb();
     await db.init({
@@ -441,19 +509,22 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
     await db.init(SCHEMA);
 
     // A malicious peer sends a table name crafted to break out of the query.
-    await expect(
-      db.applyRemote({
-        hlc: { wallMs: 1, counter: 0, nodeId: "00000000-0000-0000-0000-0000000a11ce" },
-        ops: [
-          {
-            type: "insert",
-            table: "tasks; DROP TABLE tasks; --",
-            id: "x",
-            data: { id: "x", name: "n", done: 0 },
-          },
-        ],
-      }),
-    ).rejects.toThrow(/invalid SQL identifier/);
+    const maliciousChange = {
+      hlc: { wallMs: 1, counter: 0, nodeId: "00000000-0000-0000-0000-0000000a11ce" },
+      ops: [
+        {
+          type: "insert",
+          table: "tasks",
+          id: "x",
+          data: { id: "x", name: "n", done: 0 },
+        },
+      ],
+    } satisfies RemoteChange<Schema>;
+    Object.defineProperty(maliciousChange.ops[0], "table", {
+      value: "tasks; DROP TABLE tasks; --",
+    });
+
+    await expect(db.applyRemote(maliciousChange)).rejects.toThrow(/invalid SQL identifier/);
 
     // The real table is untouched (the change never reached a query).
     const rows = await db.exec<Schema["tasks"]>(sql`SELECT id FROM tasks`);

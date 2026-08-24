@@ -41,8 +41,9 @@ export interface StorageAdapter {
 }
 
 /**
- * Optional extension for adapters that support atomic transactions.
- * Use `isTransactable()` to check at runtime before calling `transaction()`.
+ * Extension for adapters that support atomic transactions. `PalladiumEngine`
+ * requires this capability for local and remote writes; adapters without it
+ * may still be used through the lower-level storage and migration APIs.
  */
 export interface TransactableStorageAdapter extends StorageAdapter {
   /**
