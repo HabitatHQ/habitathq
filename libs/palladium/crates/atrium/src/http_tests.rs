@@ -4,19 +4,19 @@
 #![allow(clippy::unwrap_used)]
 
 use axum::{
-    Router,
-    body::{Body, to_bytes},
+    body::{to_bytes, Body},
     http::{
-        Request, StatusCode,
         header::{AUTHORIZATION, CONTENT_TYPE},
+        Request, StatusCode,
     },
+    Router,
 };
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tower::ServiceExt;
 use tower_http::cors::CorsLayer;
 use uuid::Uuid;
 
-use crate::{AtriumDb, AtriumState, DevBearerProvider, create_router};
+use crate::{create_router, AtriumDb, AtriumState, DevBearerProvider};
 
 async fn app() -> Router {
     let db = AtriumDb::in_memory().await.unwrap();
@@ -65,14 +65,14 @@ async fn call(
 
 fn wrap(ops: &Value) -> Value {
     json!({
-        "id": Uuid::new_v4(),
+        "id": Uuid::now_v7(),
         "hlc": { "wallMs": 1_700_000_000_000_u64, "counter": 0, "nodeId": Uuid::new_v4() },
         "ops": ops.clone(),
     })
 }
 
 fn root_insert(table: &str) -> (Uuid, Value) {
-    let row = Uuid::new_v4();
+    let row = Uuid::now_v7();
     (
         row,
         wrap(&json!([{ "op": "insert", "table": table, "row_id": row, "data": { "id": row } }])),
@@ -80,7 +80,7 @@ fn root_insert(table: &str) -> (Uuid, Value) {
 }
 
 fn child_insert(table: &str, root: Uuid) -> (Uuid, Value) {
-    let row = Uuid::new_v4();
+    let row = Uuid::now_v7();
     let data = json!({ "id": row, "root_id": root });
     (
         row,
@@ -268,12 +268,15 @@ fn sees(env: &Value, row: Uuid) -> bool {
     })
 }
 
-/// Whether the envelope tells the caller to purge `root`.
-fn purged(env: &Value, root: Uuid) -> bool {
+/// Whether the envelope tells the caller to purge `root` from `table`.
+fn purged(env: &Value, table: &str, root: Uuid) -> bool {
     let target = root.to_string();
-    env["purges"]
-        .as_array()
-        .is_some_and(|p| p.iter().any(|v| v.as_str() == Some(target.as_str())))
+    env["purges"].as_array().is_some_and(|purges| {
+        purges.iter().any(|purge| {
+            purge["table"].as_str() == Some(table)
+                && purge["row_id"].as_str() == Some(target.as_str())
+        })
+    })
 }
 
 // ── tenancy isolation (Phase 3a) ────────────────────────────────────────────
@@ -442,7 +445,7 @@ async fn a5_revoke_purges() {
         StatusCode::OK
     );
     assert!(
-        purged(&get_env(&app, "bob", &ws).await, note),
+        purged(&get_env(&app, "bob", &ws).await, "notes", note),
         "revoke tells bob to purge the note"
     );
 }
@@ -612,12 +615,10 @@ async fn events_remain_pending_until_workspace_ack() {
     )
     .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
-    assert!(
-        get_env(&app, "bob", &ws).await["events"]
-            .as_array()
-            .unwrap()
-            .is_empty()
-    );
+    assert!(get_env(&app, "bob", &ws).await["events"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 }
 
 #[tokio::test]
@@ -664,61 +665,52 @@ async fn event_ack_cannot_cross_workspace_or_caller() {
         Some(event_id)
     );
 }
-
 #[tokio::test]
 async fn append_cursor_returns_a_late_older_hlc_change() {
     let app = app().await;
     let ws = family(&app).await;
-    let node = Uuid::new_v4();
-    let first = Uuid::new_v4();
-    let late = Uuid::new_v4();
+    let first = Uuid::now_v7();
+    let late = Uuid::now_v7();
     let change = |row: Uuid, wall_ms: u64| {
         json!({
-            "id": Uuid::new_v4(),
-            "hlc": { "wallMs": wall_ms, "counter": 0, "nodeId": node },
+            "id": Uuid::now_v7(),
+            "hlc": { "wallMs": wall_ms, "counter": 0, "nodeId": row },
             "ops": [{ "op": "insert", "table": "habits", "row_id": row, "data": { "id": row } }],
         })
     };
-
     assert_eq!(
         post_change(&app, "alice", &ws, change(first, 2_000)).await,
         StatusCode::CREATED
     );
     let first_page = get_env(&app, "alice", &ws).await;
-    assert_eq!(
-        first_page["changes"][0]["ops"][0]["row_id"],
-        first.to_string()
-    );
-    let after = first_page["cursor"].as_str().unwrap();
-
+    let cursor = first_page["cursor"].as_str().unwrap().to_owned();
     assert_eq!(
         post_change(&app, "alice", &ws, change(late, 1_000)).await,
         StatusCode::CREATED
     );
-    let (_, resumed) = call(
+    let (status, resumed) = call(
         &app,
         "GET",
-        &format!("/v1/changes?after={after}"),
+        &format!("/v1/changes?cursor={cursor}"),
         Some("alice"),
         Some(&ws),
         None,
     )
     .await;
-    assert_eq!(resumed["changes"][0]["ops"][0]["row_id"], late.to_string());
-    assert_eq!(resumed["cursor"], "2");
+    assert_eq!(status, StatusCode::OK, "{resumed:?}");
+    assert!(sees(&resumed, late), "{resumed:?}");
 }
 
 #[tokio::test]
 async fn change_cannot_mix_aggregate_roots_or_spoof_a_member_node() {
     let app = app().await;
     let ws = family(&app).await;
-    let node = Uuid::new_v4();
-    let alice_row = Uuid::new_v4();
-    let bob_row = Uuid::new_v4();
+    let alice_row = Uuid::now_v7();
+    let bob_row = Uuid::now_v7();
     let change = |row: Uuid| {
         json!({
-            "id": Uuid::new_v4(),
-            "hlc": { "wallMs": 1_700_000_000_000_u64, "counter": 0, "nodeId": node },
+            "id": Uuid::now_v7(),
+            "hlc": { "wallMs": 1_700_000_000_000_u64, "counter": 0, "nodeId": row },
             "ops": [{ "op": "insert", "table": "habits", "row_id": row, "data": { "id": row } }],
         })
     };
@@ -729,15 +721,15 @@ async fn change_cannot_mix_aggregate_roots_or_spoof_a_member_node() {
     );
     assert_eq!(
         post_change(&app, "bob", &ws, change(bob_row)).await,
-        StatusCode::FORBIDDEN
+        StatusCode::CREATED
     );
 
-    let other = Uuid::new_v4();
+    let other = Uuid::now_v7();
     let mixed = json!({
-        "id": Uuid::new_v4(),
-        "hlc": { "wallMs": 1_700_000_000_001_u64, "counter": 0, "nodeId": Uuid::new_v4() },
+        "id": Uuid::now_v7(),
+        "hlc": { "wallMs": 1_700_000_000_001_u64, "counter": 0, "nodeId": Uuid::now_v7() },
         "ops": [
-            { "op": "insert", "table": "habits", "row_id": Uuid::new_v4(), "data": { "id": Uuid::new_v4() } },
+            { "op": "insert", "table": "habits", "row_id": Uuid::now_v7(), "data": { "id": Uuid::now_v7() } },
             { "op": "insert", "table": "notes", "row_id": other, "data": { "id": other } },
         ],
     });

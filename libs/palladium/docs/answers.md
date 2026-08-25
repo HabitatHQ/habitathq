@@ -2,6 +2,10 @@
 
 All answers collected across 22 batches of interactive design questions.
 
+> **Historical/non-normative:** These design answers predate Sync Protocol v1 and are retained as decision history. Sync behavior, wire shapes, identifiers, errors, lifecycle, checkpoints, and ACL delivery are governed exclusively by [`SYNC-PROTOCOL-v1.md`](./SYNC-PROTOCOL-v1.md). Answers that mention ULIDs, legacy outbox/cursor names, bare arrays, or opaque hooks are superseded and MUST NOT guide implementation.
+
+For the current contract glossary, use the definitions in Section 1 of [`SYNC-PROTOCOL-v1.md`](./SYNC-PROTOCOL-v1.md), not the historical answers below.
+
 ---
 
 ## Batch 1 — Scope & Target Users

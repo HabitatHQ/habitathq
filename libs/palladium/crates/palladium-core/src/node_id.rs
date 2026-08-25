@@ -9,9 +9,7 @@ use uuid::Uuid;
 ///
 /// Each participant in the sync network — browser tab, mobile app, or server
 /// process — generates a random `NodeId` on first run and persists it.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "openapi", schema(value_type = String, format = Uuid))]
 pub struct NodeId(Uuid);
@@ -88,10 +86,7 @@ mod tests {
     fn display_matches_uuid_string() {
         let id = Uuid::nil();
         let node_id = NodeId::from_uuid(id);
-        assert_eq!(
-            node_id.to_string(),
-            "00000000-0000-0000-0000-000000000000"
-        );
+        assert_eq!(node_id.to_string(), "00000000-0000-0000-0000-000000000000");
     }
 
     #[test]

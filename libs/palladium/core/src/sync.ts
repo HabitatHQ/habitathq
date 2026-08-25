@@ -4,7 +4,7 @@
  *
  * Lifecycle
  * ─────────
- * `await transport.start()` creates a `_sync_pending_changes` outbox table if
+ * `await transport.start()` creates a `_sync_outbox` table if
  * missing, drains any pending rows left from a previous session, hydrates the
  * local store from the server (full `GET /v1/changes`), then schedules a
  * periodic poll that applies new remote changes via `engine.applyRemote()`.
@@ -25,7 +25,9 @@
 
 import type { PalladiumEngine, SyncStatus } from "./engine.js";
 import type { Hlc } from "./hlc.js";
+import { isUuidV7, isValidHlc } from "./hlc.js";
 import type { SchemaMap } from "./tx.js";
+import { isJsonValue } from "./tx.js";
 
 // ── Wire types (mirror of the Rust palladium-core JSON serialisation) ──────
 
@@ -54,43 +56,62 @@ export type WireOp = InsertWireOp | UpdateWireOp | DeleteWireOp;
 
 export interface WireChange {
   readonly id: string;
+  readonly scope?: string;
   readonly hlc: Hlc;
   readonly ops: ReadonlyArray<WireOp>;
-  /** Server-assigned durable append cursor, when provided by the server. */
-  readonly cursor?: string;
+}
+
+export interface SyncPageEnvelope {
+  readonly version: 1;
+  readonly changes: readonly WireChange[];
+  readonly purges: readonly { table: string; row_id: string }[];
+  readonly events: readonly Record<string, unknown>[];
+  readonly cursor: string | null;
+  readonly upperBound: string;
+  readonly caughtUp: boolean;
+  readonly control: { readonly mustRefetch: boolean };
 }
 
 /**
  * Runtime guard for a decoded change — the transport skips anything else.
  *
- * Validates the envelope shape the downlink depends on: a string `id`, an HLC
- * with a string `nodeId` + numeric `wallMs`/`counter` (so `hlcToAfterCursor`
- * and own-write skipping work), and an `ops` array whose entries at least name
- * their kind. Deep per-op field validation stays in `applyRemote`, which
- * quarantines a malformed op rather than throwing — so this guard only has to
- * keep the poll loop itself from crashing on a bad shape.
+ * Validates a complete remote change, including its HLC and every exhaustive
+ * wire operation, without performing any side effect.
  */
 function isWireChange(value: unknown): value is WireChange {
-  if (typeof value !== "object" || value === null) return false;
-  const c = value as Record<string, unknown>;
-  if (typeof c["id"] !== "string" || !Array.isArray(c["ops"])) return false;
-  if (c["cursor"] !== undefined && typeof c["cursor"] !== "string") return false;
-  const hlc = c["hlc"];
-  if (typeof hlc !== "object" || hlc === null) return false;
-  const h = hlc as Record<string, unknown>;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const change = value as Record<string, unknown>;
   if (
-    typeof h["nodeId"] !== "string" ||
-    typeof h["wallMs"] !== "number" ||
-    typeof h["counter"] !== "number"
+    !isUuidV4(change["id"]) ||
+    (change["scope"] !== undefined && typeof change["scope"] !== "string") ||
+    !isValidHlc(change["hlc"]) ||
+    !Array.isArray(change["ops"])
   ) {
     return false;
   }
-  return c["ops"].every(
-    (op) =>
-      typeof op === "object" &&
-      op !== null &&
-      typeof (op as Record<string, unknown>)["op"] === "string",
-  );
+  return change["ops"].every(isWireOp);
+}
+
+function isWireOp(value: unknown): value is WireOp {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const op = value as Record<string, unknown>;
+  if (
+    typeof op["table"] !== "string" ||
+    typeof op["row_id"] !== "string" ||
+    !isUuidV7(op["row_id"])
+  ) {
+    return false;
+  }
+  if (op["op"] === "insert") {
+    return (
+      typeof op["data"] === "object" &&
+      op["data"] !== null &&
+      isJsonValue(op["data"]) &&
+      (op["data"] as Record<string, unknown>)["id"] === op["row_id"]
+    );
+  }
+  if (op["op"] === "update") return typeof op["col"] === "string" && isJsonValue(op["value"]);
+  return op["op"] === "delete";
 }
 
 // ── Cursor encoding ─────────────────────────────────────────────────────────
@@ -100,21 +121,14 @@ function isWireChange(value: unknown): value is WireChange {
  * deliberately independent of an HLC: HLCs resolve conflicts but cannot
  * order history entries appended by offline clients.
  */
-function isAppendCursor(value: unknown): value is string {
-  return typeof value === "string" && /^\d+$/u.test(value);
+const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+
+function isUuidV4(value: unknown): value is string {
+  return typeof value === "string" && UUID_V4_PATTERN.test(value);
 }
 
-/**
- * Encode an [`Hlc`] as the lexicographic cursor accepted by generic
- * HLC-cursor servers' `GET /v1/changes?after=` query parameter.
- *
- * Format: `{wallMs:020}_{counter:010}_{nodeIdHex:032x}` — sortable as a string.
- */
-export function hlcToAfterCursor(hlc: Hlc): string {
-  const wallMs = String(hlc.wallMs).padStart(20, "0");
-  const counter = String(hlc.counter).padStart(10, "0");
-  const nodeId = hlc.nodeId.replace(/-/g, "").padStart(32, "0");
-  return `${wallMs}_${counter}_${nodeId}`;
+function isAppendCursor(value: unknown): value is string {
+  return typeof value === "string" && /^(?:0|[1-9]\d*)$/u.test(value);
 }
 
 // ── Options ────────────────────────────────────────────────────────────────
@@ -125,50 +139,16 @@ export interface SyncTransportOptions {
   readonly pollIntervalMs?: number;
   /** Override `fetch` for tests. */
   readonly fetch?: typeof globalThis.fetch;
-  /**
-   * How many times a change may fail to apply before it is permanently
-   * dead-lettered and the cursor advances past it (`D2a` terminal state).
-   * Default: 5.
-   */
-  readonly maxApplyAttempts?: number;
-  /**
-   * Stable identifier for the active application schema. Stored with each
-   * durable outbox row for diagnostics when a later schema rejects it.
-   * Defaults to `"unversioned"` when the application does not expose one.
-   */
   readonly schemaFingerprint?: string;
-  /**
-   * Request-decoration hook: returns headers attached to every server request
-   * — typically `Authorization: Bearer <token>` plus an advisory workspace
-   * *selector* (`D11`/§2b). Called per request so a rotating token is always
-   * fresh; on a `401` the transport re-invokes it once (`refresh: true`) and
-   * retries the request. The opaque store scope is **never** sent — the server
-   * derives it from these headers.
-   */
   readonly authHeaders?: (ctx: {
     readonly refresh: boolean;
   }) => Promise<Record<string, string>> | Record<string, string>;
-  /**
-   * Adapt a raw `GET /v1/changes` response body into the array of changes to
-   * apply. Defaults to bare `WireChange[]` and Atrium's
-   * `{ changes, cursor, purges, events }` envelope. A gateway may supply a
-   * decoder to unwrap another response shape or apply side effects before the
-   * transport applies its changes.
-   */
-  readonly decodeChanges?: (
-    body: unknown,
-  ) =>
-    | WireChange[]
-    | { readonly changes: WireChange[]; readonly cursor?: string | null }
-    | Promise<WireChange[] | { readonly changes: WireChange[]; readonly cursor?: string | null }>;
-
-  /** Opaque post-apply acknowledgement hook for the decoded response body. */
-  readonly acknowledgeChanges?: (body: unknown) => Promise<void>;
+  /** Policy for a terminal remote failure after it is quarantined. */
+  readonly terminalPolicy?: "block" | "degraded_skip";
 }
-
 // ── Outbox table ───────────────────────────────────────────────────────────
 
-const OUTBOX_TABLE = "_sync_pending_changes";
+const OUTBOX_TABLE = "_sync_outbox";
 
 /**
  * Idempotent DDL for the durable outbox. Creates the table only if missing,
@@ -224,8 +204,7 @@ interface QuarantineState {
 }
 
 /**
- * `_sync_state` key for Atrium append sequences. The old `"cursor"` key held
- * HLC cursors, so it is intentionally never read by this transport revision.
+ * `_sync_state` key for the server-issued append cursor.
  */
 const STATE_APPEND_CURSOR = "append_cursor_v1";
 
@@ -255,8 +234,8 @@ function rowToChange(row: OutboxRow): WireChange {
 type PostOutcome = "ok" | "rejected" | "offline";
 
 const POST_OUTCOME_TO_STATUS: Record<PostOutcome, SyncStatus> = {
-  ok: "idle",
-  rejected: "error",
+  ok: "caught_up",
+  rejected: "degraded",
   offline: "offline",
 };
 
@@ -265,6 +244,7 @@ const POST_OUTCOME_TO_STATUS: Record<PostOutcome, SyncStatus> = {
 interface EngineInsertOp {
   readonly type: "insert";
   readonly table: string;
+  readonly id: string;
   readonly data: Record<string, unknown> & { id: string };
 }
 
@@ -315,9 +295,8 @@ function wireOpToEngine<S extends SchemaMap>(op: WireOp): EngineOp & { table: ke
     return {
       type: "insert",
       table: op.table as keyof S & string,
-      data: { ...op.data, id: op.row_id } as Record<string, unknown> & {
-        id: string;
-      },
+      id: op.row_id,
+      data: { ...op.data, id: op.row_id } as Record<string, unknown> & { id: string },
     };
   }
   if (op.op === "update") {
@@ -328,11 +307,31 @@ function wireOpToEngine<S extends SchemaMap>(op: WireOp): EngineOp & { table: ke
       patch: { [op.col]: op.value },
     };
   }
-  return {
-    type: "delete",
-    table: op.table as keyof S & string,
-    id: op.row_id,
-  };
+  return { type: "delete", table: op.table as keyof S & string, id: op.row_id };
+}
+
+function wireOpsToEngine<S extends SchemaMap>(
+  ops: ReadonlyArray<WireOp>,
+): Array<EngineOp & { table: keyof S & string }> {
+  const result: Array<EngineOp & { table: keyof S & string }> = [];
+  const indexes = new Map<string, number>();
+  for (const wireOp of ops) {
+    const op = wireOpToEngine<S>(wireOp);
+    const key = `${op.table}\u0000${op.id}`;
+    const priorIndex = indexes.get(key);
+    const prior = priorIndex === undefined ? undefined : result[priorIndex];
+    if (priorIndex !== undefined && prior?.type === "update" && op.type === "update") {
+      result[priorIndex] = { ...prior, patch: { ...prior.patch, ...op.patch } };
+    } else if (priorIndex !== undefined && prior?.type === "insert" && op.type === "update") {
+      result[priorIndex] = { ...prior, data: { ...prior.data, ...op.patch } };
+    } else if (prior?.type === "delete") {
+      // A delete supersedes later updates in the canonical form.
+    } else {
+      indexes.set(key, result.length);
+      result.push(op);
+    }
+  }
+  return result;
 }
 // ── Transport ──────────────────────────────────────────────────────────────
 
@@ -341,11 +340,9 @@ export class SyncTransport<S extends SchemaMap> {
   readonly #serverUrl: string;
   readonly #pollIntervalMs: number;
   readonly #fetch: typeof globalThis.fetch;
-  readonly #maxApplyAttempts: number;
   readonly #authHeaders?: SyncTransportOptions["authHeaders"];
-  readonly #acknowledgeChanges?: SyncTransportOptions["acknowledgeChanges"];
   readonly #schemaFingerprint: string;
-  readonly #decodeChanges: NonNullable<SyncTransportOptions["decodeChanges"]>;
+  readonly #terminalPolicy: NonNullable<SyncTransportOptions["terminalPolicy"]>;
 
   #cursor: string | null = null;
   #pollHandle: ReturnType<typeof setInterval> | null = null;
@@ -354,6 +351,9 @@ export class SyncTransport<S extends SchemaMap> {
   #unsubscribeLocal: (() => void) | null = null;
   #initialized = false;
   #initPromise: Promise<void> | null = null;
+  #startPromise: Promise<void> | null = null;
+  #stopPromise: Promise<void> | null = null;
+  #disposed = false;
 
   /**
    * Once-only transport init: provision the durable outbox + quarantine tables
@@ -404,24 +404,13 @@ export class SyncTransport<S extends SchemaMap> {
 
   constructor(engine: PalladiumEngine<S>, options: SyncTransportOptions) {
     this.#engine = engine;
+    engine.acquireSyncTransport(this);
     this.#serverUrl = options.serverUrl.replace(/\/+$/, "");
     this.#pollIntervalMs = options.pollIntervalMs ?? 1_000;
     this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
-    const maxAttempts = options.maxApplyAttempts ?? 5;
-    this.#maxApplyAttempts = Number.isInteger(maxAttempts) && maxAttempts >= 1 ? maxAttempts : 5;
-    this.#authHeaders = options.authHeaders;
-    this.#acknowledgeChanges = options.acknowledgeChanges;
     this.#schemaFingerprint = options.schemaFingerprint ?? "unversioned";
-    this.#decodeChanges =
-      options.decodeChanges ??
-      ((body) => {
-        if (Array.isArray(body)) return body as WireChange[];
-        if (typeof body === "object" && body !== null) {
-          const changes = (body as Record<string, unknown>)["changes"];
-          return Array.isArray(changes) ? (changes as WireChange[]) : [];
-        }
-        return [];
-      });
+    this.#authHeaders = options.authHeaders;
+    this.#terminalPolicy = options.terminalPolicy ?? "block";
     engine.registerLocalChangeCheckpoint(async (local, adapter) => {
       const wireOps = (local.ops as ReadonlyArray<EngineOp>).flatMap(engineOpToWire);
       if (wireOps.length === 0) return;
@@ -484,16 +473,19 @@ export class SyncTransport<S extends SchemaMap> {
    * previous sessions, hydrate from server, then start polling. Idempotent.
    */
   async start(): Promise<void> {
+    if (this.#disposed) throw new Error("SyncTransport is disposed");
     if (this.#pollHandle !== null) return;
-    await this.#ensureInitialized();
-    await this.#drainOutbox();
-    this.#unsubscribeLocal = this.#engine.on("changes:local", () => {
-      void this.#tick();
+    if (this.#startPromise !== null) return this.#startPromise;
+    this.#startPromise = (async () => {
+      await this.#ensureInitialized();
+      await this.#drainOutbox();
+      this.#unsubscribeLocal = this.#engine.on("changes:local", () => void this.#tick());
+      await this.#poll();
+      this.#pollHandle = setInterval(() => void this.#tick(), this.#pollIntervalMs);
+    })().finally(() => {
+      this.#startPromise = null;
     });
-    await this.#poll();
-    this.#pollHandle = setInterval(() => {
-      void this.#tick();
-    }, this.#pollIntervalMs);
+    return this.#startPromise;
   }
 
   /** One periodic step: drain the outbox, then poll. */
@@ -609,14 +601,54 @@ export class SyncTransport<S extends SchemaMap> {
 
   /** Stop polling and unsubscribe from engine events. Idempotent. */
   async stop(): Promise<void> {
-    if (this.#pollHandle !== null) {
-      clearInterval(this.#pollHandle);
-      this.#pollHandle = null;
-    }
-    if (this.#unsubscribeLocal !== null) {
-      this.#unsubscribeLocal();
-      this.#unsubscribeLocal = null;
-    }
+    if (this.#stopPromise !== null) return this.#stopPromise;
+    this.#stopPromise = (async () => {
+      if (this.#pollHandle !== null) {
+        clearInterval(this.#pollHandle);
+        this.#pollHandle = null;
+      }
+      if (this.#unsubscribeLocal !== null) {
+        this.#unsubscribeLocal();
+        this.#unsubscribeLocal = null;
+      }
+    })().finally(() => {
+      this.#stopPromise = null;
+    });
+    return this.#stopPromise;
+  }
+
+  async dispose(): Promise<void> {
+    if (this.#disposed) return;
+    await this.stop();
+    this.#disposed = true;
+    this.#engine.releaseSyncTransport(this);
+  }
+
+  async inspectQuarantine(): Promise<ReadonlyArray<Record<string, unknown>>> {
+    await this.#ensureInitialized();
+    return this.#engine.adapter.exec(
+      `SELECT * FROM ${QUARANTINE_TABLE} ORDER BY updated_at ASC`,
+      [],
+    );
+  }
+
+  async exportQuarantine(): Promise<string> {
+    return JSON.stringify(await this.inspectQuarantine());
+  }
+
+  async retryQuarantined(changeId: string): Promise<void> {
+    await this.#ensureInitialized();
+    await this.#engine.adapter.exec(
+      `UPDATE ${QUARANTINE_TABLE} SET permanent = 0, attempts = 0, updated_at = ? WHERE change_id = ?`,
+      [Date.now(), changeId],
+    );
+  }
+
+  async discardQuarantined(changeId: string): Promise<void> {
+    await this.#ensureInitialized();
+    await this.#engine.adapter.exec(`DELETE FROM ${QUARANTINE_TABLE} WHERE change_id = ?`, [
+      changeId,
+    ]);
   }
 
   /**
@@ -644,58 +676,70 @@ export class SyncTransport<S extends SchemaMap> {
    * step; the periodic timer calls the same path.
    */
   async poll(): Promise<void> {
-    // A caller may drive a single poll() without start(); provision tables and
-    // restore the persisted cursor first, so this poll resumes from the saved
-    // position instead of re-fetching the whole history.
     await this.#ensureInitialized();
     return this.#poll();
   }
 
-  /**
-   * Deterministically drain the durable outbox and perform one downlink poll,
-   * without starting the periodic timer.
-   */
   async syncOnce(): Promise<void> {
     await this.#ensureInitialized();
     await this.#drainOutbox();
     await this.#poll();
   }
 
-  /**
-   * Fetch and validate one downlink page before applying any of it. Atrium
-   * envelopes provide the append cursor; bare arrays retain generic HLC-cursor
-   * compatibility.
-   */
+  /** Fetch and validate one versioned page envelope before applying any of it. */
   async #fetchPollPage(): Promise<{
     readonly changes: WireChange[];
+    readonly purges: ReadonlyArray<{ readonly table: string; readonly row_id: string }>;
     readonly cursor: string | null;
-    readonly responseBody: unknown;
+    readonly upperBound: string;
+    readonly caughtUp: boolean;
+    readonly control: { readonly mustRefetch: boolean };
   } | null> {
-    const url =
-      this.#cursor === null
-        ? `${this.#serverUrl}/v1/changes`
-        : `${this.#serverUrl}/v1/changes?after=${this.#cursor}`;
+    const params = new URLSearchParams({ limit: "100" });
+    if (this.#cursor !== null) params.set("cursor", this.#cursor);
     try {
-      const res = await this.#fetchWithAuth(url);
+      const res = await this.#fetchWithAuth(`${this.#serverUrl}/v1/changes?${params}`);
       if (!res.ok) return null;
-      const responseBody: unknown = await res.json();
-      const objectBody =
-        typeof responseBody === "object" && responseBody !== null && !Array.isArray(responseBody)
-          ? (responseBody as Record<string, unknown>)
-          : null;
-      let cursor: string | null = null;
-      if (objectBody !== null && "cursor" in objectBody) {
-        if (!isAppendCursor(objectBody["cursor"])) return null;
-        cursor = objectBody["cursor"];
-      }
-      const decoded = await this.#decodeChanges(responseBody);
-      const changes = Array.isArray(decoded) ? decoded : decoded.changes;
-      if (!Array.isArray(changes) || !changes.every(isWireChange)) return null;
-      if (!Array.isArray(decoded) && decoded.cursor !== undefined) {
-        if (decoded.cursor !== null && !isAppendCursor(decoded.cursor)) return null;
-        cursor = decoded.cursor;
-      }
-      return { changes, cursor, responseBody };
+      const bodyValue: unknown = await res.json();
+      if (typeof bodyValue !== "object" || bodyValue === null || Array.isArray(bodyValue))
+        return null;
+      const body = bodyValue as Record<string, unknown>;
+      const control = body["control"];
+      if (
+        body["version"] !== 1 ||
+        !Array.isArray(body["changes"]) ||
+        !Array.isArray(body["purges"]) ||
+        !body["purges"].every(
+          (p) =>
+            typeof p === "object" &&
+            p !== null &&
+            typeof (p as Record<string, unknown>)["table"] === "string" &&
+            isUuidV7((p as Record<string, unknown>)["row_id"]),
+        ) ||
+        !Array.isArray(body["events"]) ||
+        !body["events"].every((event) => isJsonValue(event)) ||
+        !("cursor" in body) ||
+        (body["cursor"] !== null && !isAppendCursor(body["cursor"])) ||
+        !isAppendCursor(body["upperBound"]) ||
+        typeof body["caughtUp"] !== "boolean" ||
+        typeof control !== "object" ||
+        control === null ||
+        typeof (control as Record<string, unknown>)["mustRefetch"] !== "boolean"
+      )
+        return null;
+      const changes = body["changes"];
+      if (!changes.every(isWireChange)) return null;
+      return {
+        changes,
+        purges: body["purges"] as ReadonlyArray<{
+          readonly table: string;
+          readonly row_id: string;
+        }>,
+        cursor: body["cursor"] as string | null,
+        upperBound: body["upperBound"] as string,
+        caughtUp: body["caughtUp"] as boolean,
+        control: control as { readonly mustRefetch: boolean },
+      };
     } catch {
       return null;
     }
@@ -708,27 +752,30 @@ export class SyncTransport<S extends SchemaMap> {
     try {
       const page = await this.#fetchPollPage();
       if (page === null) return;
-
+      if (page.control.mustRefetch) {
+        this.#engine.setStatus("degraded");
+        return;
+      }
       for (const change of page.changes) {
-        if (!isWireChange(change)) continue;
-        const nextCursor = page.cursor ?? hlcToAfterCursor(change.hlc);
-        const advanced = await this.#applyOneRemote(
-          change,
-          page.cursor === null ? nextCursor : undefined,
-        );
+        const advanced = await this.#applyOneRemote(change);
         if (!advanced) return;
-        if (page.cursor === null && (this.#cursor === null || nextCursor > this.#cursor)) {
-          this.#cursor = nextCursor;
+      }
+      for (const purge of page.purges) {
+        await this.#engine.purgeLocal(purge.table as keyof S & string, purge.row_id);
+      }
+      this.#initialHydrationDone = true;
+      if (page.cursor !== null) {
+        const saved = this.#cursor;
+        if (saved === null || BigInt(page.cursor) >= BigInt(saved)) {
+          await this.#engine.setSyncState(STATE_APPEND_CURSOR, page.cursor);
+          this.#cursor = page.cursor;
         }
       }
-
-      this.#initialHydrationDone = true;
-      if (this.#acknowledgeChanges !== undefined) {
-        await this.#acknowledgeChanges(page.responseBody);
-      }
-      if (page.cursor !== null) {
-        await this.#engine.setSyncState(STATE_APPEND_CURSOR, page.cursor);
-        this.#cursor = page.cursor;
+      if (
+        this.#engine.getSyncStatus() !== "degraded" &&
+        this.#engine.getSyncStatus() !== "offline"
+      ) {
+        this.#engine.setStatus(page.caughtUp ? "caught_up" : "syncing");
       }
     } finally {
       this.#polling = false;
@@ -736,35 +783,33 @@ export class SyncTransport<S extends SchemaMap> {
   }
 
   /**
-   * Apply one polled change with non-poisoning semantics (`D2a`, G2). Returns
-   * `true` when the cursor may advance past this change — it was applied, is
-   * our own already-applied write, or has been permanently dead-lettered —
-   * and `false` when the change failed transiently and should be retried
-   * (so the cursor must not move past it yet).
+   * Apply one polled change with non-poisoning semantics.
    */
-  async #applyOneRemote(change: WireChange, cursor?: string): Promise<boolean> {
+  async #applyOneRemote(change: WireChange): Promise<boolean> {
     if (this.#initialHydrationDone && change.hlc.nodeId === this.#engine.nodeId) return true;
     const quarantine = await this.#quarantineState(change.id);
     if (quarantine?.permanent) return true;
-    if (change.ops.some((op) => !this.#engine.hasTable(op.table))) {
-      throw new Error("remote change references an unknown table");
-    }
     const remoteChange = {
       hlc: change.hlc,
       id: change.id,
-      ops: change.ops.map(wireOpToEngine<S>),
+      scope: change.scope,
+      ops: wireOpsToEngine<S>(change.ops),
     } as unknown as Parameters<PalladiumEngine<S>["applyRemote"]>[0];
     try {
-      await this.#engine.applyRemote(remoteChange, cursor);
+      if (change.ops.some((op) => !this.#engine.hasTable(op.table))) {
+        throw new Error("remote change references an unknown table");
+      }
+      await this.#engine.applyRemote(remoteChange);
       if (quarantine !== null) await this.#clearQuarantine(change.id);
       return true;
     } catch (err) {
-      const attempts = await this.#recordFailure(change, err);
-      if (attempts >= this.#maxApplyAttempts) {
+      await this.#recordFailure(change, err);
+      if (this.#terminalPolicy === "degraded_skip") {
         await this.#markPermanent(change.id);
-        this.#engine.setStatus("error");
+        this.#engine.setStatus("degraded");
         return true;
       }
+      this.#engine.setStatus("degraded");
       return false;
     }
   }

@@ -50,7 +50,7 @@ let nextId = seats.length + 1;
 async function mountSeat(seat: Seat): Promise<void> {
   const prev = seat.device;
   seat.device = null;
-  if (prev) await prev.transport.stop().catch(() => {});
+  if (prev) await prev.transport.dispose().catch(() => {});
   seat.gen += 1;
   // markRaw: the engine/transport are class instances with private fields and
   // internal timers. Letting Vue deep-proxy them corrupts rendering (their
@@ -82,7 +82,7 @@ async function addSeat(): Promise<void> {
 }
 
 async function removeSeat(seat: Seat): Promise<void> {
-  if (seat.device) await seat.device.transport.stop().catch(() => {});
+  if (seat.device) await seat.device.transport.dispose().catch(() => {});
   const i = seats.indexOf(seat);
   if (i >= 0) seats.splice(i, 1);
 }
@@ -111,7 +111,7 @@ onMounted(async () => {
 
 onBeforeUnmount(async () => {
   if (healthTimer) clearInterval(healthTimer);
-  await Promise.all(seats.map((s) => s.device?.transport.stop().catch(() => {})));
+  await Promise.all(seats.map((s) => s.device?.transport.dispose().catch(() => {})));
 });
 </script>
 

@@ -12,7 +12,16 @@ import { BlobHandle } from "./blob-handle.js";
 import { BlobRegistry } from "./blob-registry.js";
 import { EventEmitter } from "./event-emitter.js";
 import type { Hlc } from "./hlc.js";
-import { compareHlc, createHlc, hlcFromString, hlcToString, recvHlc, sendHlc } from "./hlc.js";
+import {
+  compareHlc,
+  createHlc,
+  hlcFromString,
+  hlcToString,
+  isUuidV7,
+  isValidHlc,
+  recvHlc,
+  sendHlc,
+} from "./hlc.js";
 import { LiveQuery } from "./live-query.js";
 import { MemoryBlobAdapter } from "./memory-blob-adapter.js";
 import type { SchemaConfig } from "./migration.js";
@@ -23,8 +32,48 @@ import { isTransactable, supportsConstraintDeferral } from "./storage.js";
 import type { Op, SchemaMap } from "./tx.js";
 import { TxBuilder } from "./tx.js";
 
-export type SyncStatus = "idle" | "syncing" | "error" | "offline";
+export type SyncStatus =
+  | "uninitialized"
+  | "hydrating"
+  | "syncing"
+  | "caught_up"
+  | "offline"
+  | "blocked_auth"
+  | "degraded";
 
+function normalizeOps<S extends SchemaMap>(ops: ReadonlyArray<Op<S>>): Op<S>[] {
+  type State = { op: Op<S>; order: number };
+  const states = new Map<string, State>();
+  let order = 0;
+  for (const op of ops) {
+    const key = `${String(op.table)}\u0000${op.type === "insert" ? op.id : op.id}`;
+    const prior = states.get(key);
+    if (op.type === "insert") {
+      states.set(key, { op: { ...op, data: { ...op.data } }, order: prior?.order ?? order++ });
+    } else if (op.type === "delete") {
+      states.set(key, { op, order: prior?.order ?? order++ });
+    } else if (prior?.op.type === "insert") {
+      const insert = prior.op;
+      states.set(key, {
+        order: prior.order,
+        op: { ...insert, data: { ...insert.data, ...op.patch } },
+      });
+    } else if (prior?.op.type === "update") {
+      states.set(key, {
+        order: prior.order,
+        op: { ...prior.op, patch: { ...prior.op.patch, ...op.patch } },
+      });
+    } else if (prior?.op.type === "delete") {
+    } else {
+      states.set(key, { op, order: order++ });
+    }
+  }
+  return [...states.values()].sort((a, b) => a.order - b.order).map(({ op }) => op);
+}
+
+function sameOps<S extends SchemaMap>(a: ReadonlyArray<Op<S>>, b: ReadonlyArray<Op<S>>): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
 /** A plain, unquoted SQL identifier: a leading letter/underscore then word chars. */
 const SQL_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -83,6 +132,7 @@ export interface RemoteChange<S extends SchemaMap = SchemaMap> {
   readonly hlc: Hlc;
   readonly ops: ReadonlyArray<Op<S>>;
   readonly id?: string;
+  readonly scope?: string;
 }
 
 export interface EngineEvents<S extends SchemaMap = SchemaMap> {
@@ -135,6 +185,15 @@ const SYNC_ROW_META_DDL = `CREATE TABLE IF NOT EXISTS ${SYNC_ROW_META} (
  * rather than only shadow metadata, lets a later insert replay them under the
  * ordinary column-LWW rule without inventing metadata for a nonexistent row.
  */
+
+const APPLIED_CHANGES = "_sync_applied_changes";
+const APPLIED_CHANGES_DDL = `CREATE TABLE IF NOT EXISTS ${APPLIED_CHANGES} (
+  scope TEXT NOT NULL,
+  change_id TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  applied_at INTEGER NOT NULL,
+  PRIMARY KEY (scope, change_id)
+)`;
 const PENDING_REMOTE_UPDATES = "_sync_pending_remote_updates";
 
 const PENDING_REMOTE_UPDATES_DDL = `CREATE TABLE IF NOT EXISTS ${PENDING_REMOTE_UPDATES} (
@@ -185,11 +244,11 @@ export class PalladiumEngine<S extends SchemaMap> {
   readonly adapter: StorageAdapter;
   #nodeId: string;
   protected readonly emitter = new EventEmitter<EngineEvents<S>>();
-  protected status: SyncStatus = "idle";
+  protected status: SyncStatus = "uninitialized";
   readonly #liveQueries = new Set<LiveQuery>();
   readonly #localChangeCheckpoints = new Set<LocalChangeCheckpoint<S>>();
   readonly #blobRegistry = new BlobRegistry();
-  /** High-level blob storage API. */
+  #syncTransportOwner: object | null = null;
   readonly blobs: BlobHandle;
 
   /**
@@ -281,11 +340,7 @@ export class PalladiumEngine<S extends SchemaMap> {
   }
 
   /**
-   * Adopt the durable `nodeId` and engine HLC from `_sync_state` (`D2b`). A
-   * prior session's `nodeId` wins over the constructor default so device
-   * identity survives failover; a persisted HLC seeds `#currentHlc` so the next
-   * `nextSendHlc()` is strictly greater than anything issued before the restart
-   * (no HLC reuse). On a fresh store the current `nodeId` is persisted.
+   * Adopt the durable `nodeId` and engine HLC from `_sync_state`.
    */
   async #loadDurableState(): Promise<void> {
     const persistedNode = await this.getSyncState(STATE_NODE_ID);
@@ -295,9 +350,7 @@ export class PalladiumEngine<S extends SchemaMap> {
       this.#nodeId = persistedNode;
     }
     const persistedHlc = await this.getSyncState(STATE_HLC);
-    if (persistedHlc !== null) {
-      this.#currentHlc = hlcFromString(persistedHlc);
-    }
+    if (persistedHlc !== null) this.#currentHlc = hlcFromString(persistedHlc);
   }
 
   /** Suppresses `"changes:local"` while remote ops are being applied. */
@@ -310,6 +363,7 @@ export class PalladiumEngine<S extends SchemaMap> {
     if (this.#syncTablesReady) return;
     await adpt.exec(SYNC_ROW_META_DDL, []);
     await adpt.exec(SYNC_STATE_DDL, []);
+    await adpt.exec(APPLIED_CHANGES_DDL, []);
     await adpt.exec(PENDING_REMOTE_UPDATES_DDL, []);
     this.#syncTablesReady = true;
   }
@@ -362,6 +416,17 @@ export class PalladiumEngine<S extends SchemaMap> {
     return () => this.#localChangeCheckpoints.delete(checkpoint);
   }
 
+  acquireSyncTransport(owner: object): void {
+    if (this.#syncTransportOwner !== null && this.#syncTransportOwner !== owner) {
+      throw new Error("A SyncTransport is already attached to this engine");
+    }
+    this.#syncTransportOwner = owner;
+  }
+
+  releaseSyncTransport(owner: object): void {
+    if (this.#syncTransportOwner === owner) this.#syncTransportOwner = null;
+  }
+
   /**
    * Execute a batch of local mutations atomically. The whole batch is stamped
    * with a single HLC (`D2a`), and every written `(table, row, column)` records
@@ -377,7 +442,8 @@ export class PalladiumEngine<S extends SchemaMap> {
         "tx() callback must be synchronous. Received a Promise — did you accidentally use an async function?",
       );
     }
-    const ops = builder.build();
+    const builtOps = builder.build();
+    const ops = normalizeOps(builtOps);
     const touchedTables = new Set<string>();
     const changeId = crypto.randomUUID();
 
@@ -421,48 +487,107 @@ export class PalladiumEngine<S extends SchemaMap> {
     await this.#notifyLiveQueries([...touchedTables]);
   }
 
+  async #isDuplicateRemoteChange(
+    adpt: StorageAdapter,
+    scope: string,
+    changeId: string | undefined,
+    payload: string,
+  ): Promise<boolean> {
+    if (changeId === undefined) return false;
+    const prior = await adpt.exec<{ payload: string }>(
+      `SELECT payload FROM ${APPLIED_CHANGES} WHERE scope = ? AND change_id = ?`,
+      [scope, changeId],
+    );
+    if (prior[0] === undefined) return false;
+    if (prior[0].payload !== payload) throw new Error("Remote change id conflict");
+    return true;
+  }
+
+  async #applyNewRemoteChange(
+    adpt: StorageAdapter,
+    ops: ReadonlyArray<Op<S>>,
+    hlc: Hlc,
+    touchedTables: Set<string>,
+  ): Promise<void> {
+    this.receiveHlc(hlc);
+    if (supportsConstraintDeferral(adpt)) await adpt.deferForeignKeys();
+    for (const op of ops) {
+      touchedTables.add(String(op.table).toLowerCase());
+      await this.#applyRemoteOp(adpt, op, hlc);
+    }
+  }
+
+  async #recordRemoteChange(
+    adpt: StorageAdapter,
+    scope: string,
+    changeId: string | undefined,
+    payload: string,
+  ): Promise<void> {
+    if (changeId === undefined) return;
+    await adpt.exec(
+      `INSERT INTO ${APPLIED_CHANGES} (scope, change_id, payload, applied_at) VALUES (?, ?, ?, ?)`,
+      [scope, changeId, payload, Date.now()],
+    );
+  }
+
+  async #checkpointRemoteCursor(adpt: StorageAdapter, cursor: string | undefined): Promise<void> {
+    if (cursor === undefined) return;
+    const rows = await adpt.exec<{ value: string }>(
+      `SELECT value FROM ${SYNC_STATE} WHERE key = ?`,
+      [STATE_CURSOR],
+    );
+    const savedCursor = rows[0]?.value ?? null;
+    if (savedCursor === null || cursor > savedCursor) {
+      await this.setSyncState(STATE_CURSOR, cursor, adpt);
+    }
+  }
+
+  async #checkpointRemoteState(adpt: StorageAdapter, cursor: string | undefined): Promise<void> {
+    if (this.#currentHlc !== null) {
+      await this.setSyncState(STATE_HLC, hlcToString(this.#currentHlc), adpt);
+    }
+    await this.#checkpointRemoteCursor(adpt, cursor);
+  }
+
+  async #applyRemoteTransaction(
+    adpt: StorageAdapter,
+    change: RemoteChange<S>,
+    canonicalOps: ReadonlyArray<Op<S>>,
+    touchedTables: Set<string>,
+    cursor: string | undefined,
+  ): Promise<void> {
+    await this.#ensureSyncTables(adpt);
+    const scope = change.scope ?? "default";
+    const payload = JSON.stringify({ hlc: change.hlc, ops: canonicalOps });
+    const duplicate = await this.#isDuplicateRemoteChange(adpt, scope, change.id, payload);
+    if (!duplicate) {
+      await this.#applyNewRemoteChange(adpt, change.ops, change.hlc, touchedTables);
+      await this.#recordRemoteChange(adpt, scope, change.id, payload);
+    }
+    await this.#checkpointRemoteState(adpt, cursor);
+  }
+
   /**
    * Apply a change received from a remote peer, column-LWW-reconciled by HLC.
    * An optional cursor is checkpointed atomically with the remote change.
    */
   async applyRemote(change: RemoteChange<S>, cursor?: string): Promise<void> {
     const { hlc, ops } = change;
+    if (!isValidHlc(hlc)) throw new TypeError("Invalid remote HLC");
+    const canonicalOps = normalizeOps(ops);
+    if (!sameOps(ops, canonicalOps)) throw new TypeError("Remote change is not canonical");
+    for (const op of ops) {
+      if (!isUuidV7(op.id)) throw new TypeError("Remote row id must be a canonical UUIDv7");
+    }
     if (ops.length === 0) return;
-
     const touchedTables = new Set<string>();
-    // Serialised against tx() so their suppression windows never overlap (F21).
     await this.#serialize(async () => {
       if (!isTransactable(this.adapter)) {
         throw new Error("PalladiumEngine writes require transaction support");
       }
-      // Keep the local clock causally ahead of anything we've observed.
-      this.receiveHlc(hlc);
-
       const applyAll = async (adpt: StorageAdapter): Promise<void> => {
-        await this.#ensureSyncTables(adpt);
-        // Defer FK checks to commit so out-of-order child/parent ops within this
-        // one change resolve at commit instead of tripping a mid-batch violation
-        // (`G4`/`D2a`); adapter-neutral, no-op when unsupported (`D2c`).
-        if (supportsConstraintDeferral(adpt)) await adpt.deferForeignKeys();
-        for (const op of ops) {
-          touchedTables.add(String(op.table).toLowerCase());
-          await this.#applyRemoteOp(adpt, op, hlc);
-        }
-        if (this.#currentHlc !== null) {
-          await this.setSyncState(STATE_HLC, hlcToString(this.#currentHlc), adpt);
-        }
-        if (cursor !== undefined) {
-          const rows = await adpt.exec<{ value: string }>(
-            `SELECT value FROM ${SYNC_STATE} WHERE key = ?`,
-            [STATE_CURSOR],
-          );
-          const savedCursor = rows[0]?.value ?? null;
-          if (savedCursor === null || cursor > savedCursor) {
-            await this.setSyncState(STATE_CURSOR, cursor, adpt);
-          }
-        }
+        await this.#applyRemoteTransaction(adpt, change, canonicalOps, touchedTables, cursor);
       };
-
       this.#suppressLocalEmit = true;
       try {
         await this.adapter.transaction(applyAll);
@@ -470,7 +595,6 @@ export class PalladiumEngine<S extends SchemaMap> {
         this.#suppressLocalEmit = false;
       }
     });
-
     await this.#notifyLiveQueries([...touchedTables]);
   }
 

@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import { PalladiumEngine } from "../engine.js";
 import type { SchemaConfig } from "../migration.js";
 import { sql } from "../sql.js";
-import { SyncTransport, type WireChange } from "../sync.js";
+import { type SyncPageEnvelope, SyncTransport, type WireChange } from "../sync.js";
 
 interface Schema {
   notes: { id: string; title: string; updated_at: number };
@@ -25,9 +25,22 @@ const SCHEMA: SchemaConfig = {
     "CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, title TEXT NOT NULL, updated_at INTEGER NOT NULL)",
 };
 
-const ALICE = "00000000-0000-0000-0000-0000000a11ce";
-const BOB = "00000000-0000-0000-0000-00000000b0b0";
+const ALICE = "00000000-0000-4000-8000-0000000a11ce";
+const BOB = "00000000-0000-4000-8000-00000000b0b0";
 const SERVER_URL = "http://localhost:13742";
+
+function page(changes: readonly WireChange[] = [], cursor: string | null = "0"): SyncPageEnvelope {
+  return {
+    version: 1,
+    changes,
+    purges: [],
+    events: [],
+    cursor,
+    upperBound: cursor ?? "0",
+    caughtUp: true,
+    control: { mustRefetch: false },
+  };
+}
 
 async function makeEngine(nodeId: string): Promise<PalladiumEngine<Schema>> {
   const db = new PalladiumEngine<Schema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }), {
@@ -39,7 +52,7 @@ async function makeEngine(nodeId: string): Promise<PalladiumEngine<Schema>> {
 
 function good(id: string, hlcMs: number): WireChange {
   return {
-    id: `c-${id}`,
+    id: `00000000-0000-4000-8000-${id.replaceAll("-", "").slice(-12)}`,
     hlc: { wallMs: hlcMs, counter: 0, nodeId: ALICE },
     ops: [
       {
@@ -55,7 +68,7 @@ function good(id: string, hlcMs: number): WireChange {
 /** A change whose insert omits the NOT NULL `title` column → apply throws. */
 function poison(id: string, hlcMs: number): WireChange {
   return {
-    id: `c-${id}`,
+    id: `00000000-0000-4000-8000-${id.replaceAll("-", "").slice(-12)}`,
     hlc: { wallMs: hlcMs, counter: 0, nodeId: ALICE },
     // `data` deliberately missing `title` (NOT NULL) → constraint violation.
     ops: [{ op: "insert", table: "notes", row_id: id, data: { id, updated_at: 1 } }],
@@ -65,7 +78,11 @@ function poison(id: string, hlcMs: number): WireChange {
 describe("SyncTransport — non-poisoning apply", () => {
   it("a poison change is quarantined; good changes in the same batch still apply", async () => {
     const db = await makeEngine(BOB);
-    const batch = [good("n1", 1000), poison("bad", 2000), good("n2", 3000)];
+    const batch = [
+      good("018f0f50-7b8d-7a1c-8e2f-1234567890ab", 1000),
+      poison("018f0f50-7b8d-7a1c-8e2f-1234567890ad", 2000),
+      good("018f0f50-7b8d-7a1c-8e2f-1234567890ac", 3000),
+    ];
 
     // Serve the same batch on every poll (server keeps returning from cursor).
     // With bounded retry the poison eventually dead-letters and n2 lands.
@@ -78,12 +95,12 @@ describe("SyncTransport — non-poisoning apply", () => {
         polls += 1;
         // Return the whole batch until the cursor moves past it; simplest is to
         // always serve it — idempotent apply makes re-delivery safe.
-        return new Response(JSON.stringify(batch), {
+        return new Response(JSON.stringify(page(batch)), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
       }
-      return new Response("[]", {
+      return new Response(JSON.stringify(page()), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -92,26 +109,28 @@ describe("SyncTransport — non-poisoning apply", () => {
     const transport = new SyncTransport(db, {
       serverUrl: SERVER_URL,
       fetch,
-      maxApplyAttempts: 2,
+      terminalPolicy: "degraded_skip",
     });
-
     await transport.start(); // poll #1
-    // Drive a few more polls to exhaust the poison's retries.
+    // Drive a few more polls to exercise quarantine and terminal handling.
     for (let i = 0; i < 4; i++) await transport.poll();
     await transport.stop();
 
     const rows = await db.exec<Schema["notes"]>(sql`SELECT id FROM notes ORDER BY id`);
     // Both good rows present; poison never applied.
-    expect(rows.map((r) => r.id)).toEqual(["n1", "n2"]);
+    expect(rows.map((r) => r.id)).toEqual([
+      "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      "018f0f50-7b8d-7a1c-8e2f-1234567890ac",
+    ]);
     expect(polls).toBeGreaterThan(1);
   });
 
-  it("dead-letters the poison after maxApplyAttempts and records it durably", async () => {
+  it("dead-letters the poison after explicit terminal policy and records it durably", async () => {
     const db = await makeEngine(BOB);
-    const batch = [poison("bad", 2000)];
+    const batch = [poison("018f0f50-7b8d-7a1c-8e2f-1234567890ad", 2000)];
     const fetch: typeof globalThis.fetch = async (_input, init) => {
       if (init?.method === "POST") return new Response("{}", { status: 201 });
-      return new Response(JSON.stringify(batch), {
+      return new Response(JSON.stringify(page(batch)), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -120,7 +139,7 @@ describe("SyncTransport — non-poisoning apply", () => {
     const transport = new SyncTransport(db, {
       serverUrl: SERVER_URL,
       fetch,
-      maxApplyAttempts: 3,
+      terminalPolicy: "degraded_skip",
     });
     await transport.start();
     for (let i = 0; i < 5; i++) await transport.poll();
@@ -132,8 +151,8 @@ describe("SyncTransport — non-poisoning apply", () => {
       permanent: number;
     }>("SELECT change_id, attempts, permanent FROM _sync_quarantine", []);
     expect(dl).toHaveLength(1);
-    expect(dl[0]?.change_id).toBe("c-bad");
+    expect(dl[0]?.change_id).toBe("00000000-0000-4000-8000-1234567890ad");
     expect(dl[0]?.permanent).toBe(1);
-    expect(dl[0]?.attempts).toBeGreaterThanOrEqual(3);
+    expect(dl[0]?.attempts).toBe(1);
   });
 });

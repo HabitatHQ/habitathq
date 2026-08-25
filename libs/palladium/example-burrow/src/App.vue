@@ -41,7 +41,7 @@ async function refreshWorkspaces(): Promise<void> {
 
 async function tearDown(): Promise<void> {
   if (account.value) {
-    await account.value.transport.stop();
+    await account.value.transport.dispose();
     account.value = null;
   }
   members.value = [];
@@ -59,7 +59,7 @@ async function mountWorkspace(workspaceId: string): Promise<void> {
     activeWorkspace.value = workspaceId;
     const next = markRaw(await createAccount({ user: user.value, workspaceId, serverUrl }));
     if (seq !== mountSeq) {
-      await next.transport.stop(); // a newer mount won; drop this one
+      await next.transport.dispose(); // a newer mount won; drop this one
       return;
     }
     account.value = next;
@@ -130,9 +130,13 @@ const otherMembers = computed(() =>
 // `immediate` so a URL-preset user (`?user=`) loads their existing families on
 // first paint — otherwise a returning user sees an empty family list on reload
 // and can't get back to a workspace they already belong to.
-watch(user, () => {
-  void refreshWorkspaces();
-}, { immediate: true });
+watch(
+  user,
+  () => {
+    void refreshWorkspaces();
+  },
+  { immediate: true },
+);
 </script>
 
 <template>

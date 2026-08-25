@@ -12,7 +12,8 @@
 use std::{str::FromStr, time::SystemTime};
 
 use palladium_core::{Change, Hlc, Op};
-use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
+use sha2::{Digest, Sha256};
+use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use uuid::Uuid;
 
 use crate::{
@@ -76,7 +77,7 @@ CREATE TABLE IF NOT EXISTS grant_events (
 CREATE INDEX IF NOT EXISTS idx_grant_events_pending
     ON grant_events (workspace_id, user_id, delivered, id);
 CREATE TABLE IF NOT EXISTS palladium_changes (
-    id TEXT NOT NULL PRIMARY KEY,
+    id TEXT NOT NULL,
     scope TEXT NOT NULL,
     append_cursor INTEGER NOT NULL UNIQUE,
     hlc_key TEXT NOT NULL,
@@ -84,7 +85,9 @@ CREATE TABLE IF NOT EXISTS palladium_changes (
     hlc_counter INTEGER NOT NULL,
     hlc_node_id TEXT NOT NULL,
     ops_json TEXT NOT NULL,
-    append_seq INTEGER
+    append_seq INTEGER,
+    content_hash TEXT,
+    PRIMARY KEY (scope, id)
 );
 CREATE TABLE IF NOT EXISTS atrium_append_sequence (
     id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
@@ -191,7 +194,17 @@ impl AtriumDb {
         Self::upgrade_workspace_qualified_schema(&pool).await?;
         Self::upgrade_change_cursor_schema(&pool).await?;
         Self::upgrade_change_append_sequence(&pool).await?;
+        Self::upgrade_change_append_payload(&pool).await?;
         Ok(Self { pool })
+    }
+
+    async fn upgrade_change_append_payload(pool: &SqlitePool) -> Result<(), AtriumError> {
+        if !Self::table_has_column(pool, "palladium_changes", "content_hash").await? {
+            sqlx::query("ALTER TABLE palladium_changes ADD COLUMN content_hash TEXT")
+                .execute(pool)
+                .await?;
+        }
+        Ok(())
     }
 
     async fn upgrade_change_cursor_schema(pool: &SqlitePool) -> Result<(), AtriumError> {
@@ -857,8 +870,52 @@ impl AtriumDb {
         caller: &str,
         change: &Change,
     ) -> Result<(), AtriumError> {
+        palladium_core::validate_change(
+            change,
+            now_millis().try_into().unwrap_or(u64::MAX),
+            300_000,
+        )
+        .map_err(AtriumError::BadRequest)?;
+        let canonical = serde_json::to_vec(change).map_err(AtriumError::internal)?;
+        let content_hash = format!("{:x}", Sha256::digest(canonical));
         let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let change_id = change.id.to_string();
+        if let Some(existing) = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT content_hash FROM palladium_changes WHERE scope = ? AND id = ?",
+        )
+        .bind(workspace)
+        .bind(&change_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten()
+        {
+            if existing == content_hash {
+                tx.commit().await?;
+                return Ok(());
+            }
+            return Err(AtriumError::Conflict("change_conflict".to_owned()));
+        }
+        let now = now_millis();
+        let wall = i64::try_from(change.hlc.millis())
+            .map_err(|_| AtriumError::BadRequest("invalid_hlc".to_owned()))?;
+        if wall > now.saturating_add(300_000) {
+            return Err(AtriumError::Conflict("clock_skew".to_owned()));
+        }
         let node_id = change.hlc.node_id().to_string();
+        if let Some((last_millis, last_counter)) = sqlx::query_as::<_, (i64, i64)>(
+            "SELECT hlc_millis, hlc_counter FROM palladium_changes
+             WHERE scope = ? AND hlc_node_id = ?
+             ORDER BY hlc_millis DESC, hlc_counter DESC LIMIT 1",
+        )
+        .bind(workspace)
+        .bind(&node_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        {
+            if (wall, i64::from(change.hlc.counter())) <= (last_millis, last_counter) {
+                return Err(AtriumError::Conflict("clock_skew".to_owned()));
+            }
+        }
         sqlx::query(
             "INSERT OR IGNORE INTO member_nodes (workspace_id, user_id, node_id)
              VALUES (?, ?, ?)",
@@ -1007,16 +1064,6 @@ impl AtriumDb {
                 change.hlc.millis()
             ))
         })?;
-        let change_id = change.id.to_string();
-        if sqlx::query_scalar::<_, i64>("SELECT append_seq FROM palladium_changes WHERE id = ?")
-            .bind(&change_id)
-            .fetch_optional(&mut *tx)
-            .await?
-            .is_some()
-        {
-            tx.commit().await?;
-            return Ok(());
-        }
         let ops_json = serde_json::to_string(&change.ops).map_err(AtriumError::internal)?;
         let append_seq = sqlx::query_scalar::<_, i64>(
             "UPDATE atrium_append_sequence
@@ -1028,8 +1075,8 @@ impl AtriumDb {
         .await?;
         sqlx::query(
             "INSERT INTO palladium_changes
-             (id, scope, append_cursor, hlc_key, hlc_millis, hlc_counter, hlc_node_id, ops_json, append_seq)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             (id, scope, append_cursor, hlc_key, hlc_millis, hlc_counter, hlc_node_id, ops_json, append_seq, content_hash)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(change_id)
         .bind(workspace)
@@ -1040,6 +1087,7 @@ impl AtriumDb {
         .bind(change.hlc.node_id().to_string())
         .bind(ops_json)
         .bind(append_seq)
+        .bind(content_hash)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
@@ -1154,7 +1202,7 @@ mod tests {
     fn root_change(id: Uuid, row_id: Uuid, millis: u64) -> Change {
         Change {
             id,
-            hlc: Hlc::new(NodeId::from_uuid(Uuid::from_u128(1)), millis),
+            hlc: Hlc::new(NodeId::from_uuid(id), millis),
             ops: vec![Op::Insert {
                 table: "lists".to_owned(),
                 row_id,
@@ -1167,8 +1215,8 @@ mod tests {
     async fn append_sequence_orders_late_old_hlc_and_duplicate_once() {
         let db = AtriumDb::in_memory().await.unwrap();
         let workspace = db.create_workspace("alice").await.unwrap();
-        let first = root_change(Uuid::new_v4(), Uuid::new_v4(), 2_000);
-        let late = root_change(Uuid::new_v4(), Uuid::new_v4(), 1_000);
+        let first = root_change(Uuid::now_v7(), Uuid::now_v7(), 2_000);
+        let late = root_change(Uuid::now_v7(), Uuid::now_v7(), 1_000);
         db.authorize_and_append_change(&workspace, "alice", &first)
             .await
             .unwrap();
@@ -1186,6 +1234,34 @@ mod tests {
         assert_eq!(history[0].change.id, first.id);
         assert_eq!(history[1].change.id, late.id);
         assert_eq!(history[1].append_seq, 2);
+    }
+    #[tokio::test]
+    async fn scoped_duplicate_payload_conflict_has_no_second_append() {
+        let db = AtriumDb::in_memory().await.unwrap();
+        let first_scope = db.create_workspace("alice").await.unwrap();
+        let second_scope = db.create_workspace("bob").await.unwrap();
+        let id = Uuid::now_v7();
+        let first = root_change(id, Uuid::now_v7(), 2_000);
+        db.authorize_and_append_change(&first_scope, "alice", &first)
+            .await
+            .unwrap();
+        let divergent = root_change(id, Uuid::now_v7(), 2_001);
+        assert!(matches!(
+            db.authorize_and_append_change(&first_scope, "alice", &divergent)
+                .await,
+            Err(super::AtriumError::Conflict(_))
+        ));
+        db.authorize_and_append_change(&second_scope, "bob", &first)
+            .await
+            .unwrap();
+        assert_eq!(
+            db.list_changes(&first_scope, 0, None).await.unwrap().len(),
+            1
+        );
+        assert_eq!(
+            db.list_changes(&second_scope, 0, None).await.unwrap().len(),
+            1
+        );
     }
 
     #[tokio::test]
@@ -1231,10 +1307,9 @@ mod tests {
         db.put_blob("blob", "workspace", "note", "owner", "image/png", b"bytes")
             .await
             .unwrap();
-        assert!(
-            db.put_blob("blob", "workspace", "note", "owner", "image/jpeg", b"bytes")
-                .await
-                .is_err()
-        );
+        assert!(db
+            .put_blob("blob", "workspace", "note", "owner", "image/jpeg", b"bytes")
+            .await
+            .is_err());
     }
 }

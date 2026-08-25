@@ -71,10 +71,7 @@ impl BlobSchemaRegistry {
     /// Multiple columns can be registered for the same table by calling this
     /// method multiple times.
     pub fn register(&mut self, table: &str, meta: BlobColumnMeta) {
-        self.inner
-            .entry(table.to_owned())
-            .or_default()
-            .push(meta);
+        self.inner.entry(table.to_owned()).or_default().push(meta);
     }
 
     /// Return all blob column declarations for `table`.

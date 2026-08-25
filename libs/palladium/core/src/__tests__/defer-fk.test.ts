@@ -27,8 +27,8 @@ const SCHEMA: SchemaConfig = {
   ].join(";\n"),
 };
 
-const ALICE = "00000000-0000-0000-0000-0000000a11ce";
-const BOB = "00000000-0000-0000-0000-00000000b0b0";
+const ALICE = "00000000-0000-4000-8000-0000000a11ce";
+const BOB = "00000000-0000-4000-8000-00000000b0b0";
 
 function hlc(wallMs: number): Hlc {
   return { wallMs, counter: 0, nodeId: ALICE };
@@ -61,8 +61,21 @@ describe("adapter-neutral FK deferral (D2c)", () => {
       hlc: hlc(1000),
       ops: [
         // Child first — would violate FK immediately without deferral.
-        { type: "insert", table: "child", id: "c1", data: { id: "c1", parent_id: "p1" } },
-        { type: "insert", table: "parent", id: "p1", data: { id: "p1", name: "P" } },
+        {
+          type: "insert",
+          table: "child",
+          id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          data: {
+            id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+            parent_id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac",
+          },
+        },
+        {
+          type: "insert",
+          table: "parent",
+          id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac",
+          data: { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac", name: "P" },
+        },
       ],
     });
 
@@ -70,7 +83,7 @@ describe("adapter-neutral FK deferral (D2c)", () => {
     const parents = await db.exec<Schema["parent"]>(sql`SELECT * FROM parent`);
     expect(kids).toHaveLength(1);
     expect(parents).toHaveLength(1);
-    expect(kids[0]?.parent_id).toBe("p1");
+    expect(kids[0]?.parent_id).toBe("018f0f50-7b8d-7a1c-8e2f-1234567890ac");
   });
 
   it("still rejects a genuinely dangling FK at commit (deferral ≠ disabling)", async () => {
@@ -78,7 +91,17 @@ describe("adapter-neutral FK deferral (D2c)", () => {
       db.applyRemote({
         hlc: hlc(2000),
         // References a parent that is never inserted → FK fails at COMMIT.
-        ops: [{ type: "insert", table: "child", id: "c9", data: { id: "c9", parent_id: "ghost" } }],
+        ops: [
+          {
+            type: "insert",
+            table: "child",
+            id: "018f0f50-7b8d-7a1c-8e2f-1234567890ad",
+            data: {
+              id: "018f0f50-7b8d-7a1c-8e2f-1234567890ad",
+              parent_id: "018f0f50-7b8d-7a1c-8e2f-1234567890ae",
+            },
+          },
+        ],
       }),
     ).rejects.toThrow();
 

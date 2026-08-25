@@ -14,8 +14,8 @@
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use palladium_axum::{AppState, create_router};
-use palladium_core::{ChangeStore, Scope, ServerConfig};
+use palladium_axum::{create_router, AppState};
+use palladium_core::{ChangeStore, Scope, ServerConfig, MAX_PAGE_SIZE};
 use palladium_sqlite::SqliteStore;
 use tower_http::cors::CorsLayer;
 use tracing::info;
@@ -41,7 +41,7 @@ enum Command {
 
     /// List changes stored in the database.
     Inspect {
-        /// Maximum number of changes to display (0 = unlimited).
+        /// Maximum number of changes to display (0 = server page maximum).
         #[arg(long, default_value_t = 20)]
         limit: usize,
     },
@@ -136,14 +136,22 @@ async fn run_inspect(db_url: &str, limit: usize) -> Result<()> {
     let store = SqliteStore::open(db_url).await?;
     // Pass the limit directly to the store to avoid loading the entire table
     // into memory when only a few rows are needed.
-    let store_limit = (limit > 0).then(|| u32::try_from(limit).unwrap_or(u32::MAX));
+    let store_limit = if limit == 0 {
+        MAX_PAGE_SIZE
+    } else {
+        u32::try_from(limit)
+            .unwrap_or(MAX_PAGE_SIZE)
+            .min(MAX_PAGE_SIZE)
+    };
     // Inspect the default scope (the only one written until the Phase 2b seam).
-    let changes = store.list_after(&Scope::new("default"), None, store_limit).await?;
-    for change in &changes {
+    let page = store
+        .page(&Scope::new("default"), None, store_limit)
+        .await?;
+    for change in &page.changes {
         let json = serde_json::to_string_pretty(change)?;
         println!("{json}");
     }
-    info!(count = changes.len(), "done");
+    info!(count = page.changes.len(), "done");
     Ok(())
 }
 
@@ -229,10 +237,10 @@ async fn run_instances_list(config_path: Option<&std::path::Path>, json: bool) -
         // Simple tabular output
         println!("{:<20} {:<40} STATUS", "NAME", "PATH");
         for e in &entries {
-            let status = e.error.as_ref().map_or_else(
-                || e.status.clone(),
-                |err| format!("error: {err}"),
-            );
+            let status = e
+                .error
+                .as_ref()
+                .map_or_else(|| e.status.clone(), |err| format!("error: {err}"));
             println!("{:<20} {:<40} {status}", e.name, e.path);
         }
     }

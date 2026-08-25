@@ -29,8 +29,10 @@ export type { Hlc } from "./hlc.js";
 export {
   compareHlc,
   createHlc,
+  generateUuidV7,
   hlcFromString,
   hlcToString,
+  isUuidV7,
   recvHlc,
   sendHlc,
 } from "./hlc.js";
@@ -62,7 +64,14 @@ export type {
   WireChange,
   WireOp,
 } from "./sync.js";
-export { hlcToAfterCursor, SyncTransport } from "./sync.js";
-export type { DeleteOp, InsertOp, Op, SchemaMap, UpdateOp } from "./tx.js";
-export { TxBuilder } from "./tx.js";
-export { generateUlid } from "./ulid.js";
+export { SyncTransport } from "./sync.js";
+export type {
+  DeleteOp,
+  InsertOp,
+  JsonValue,
+  Op,
+  SchemaMap,
+  SyncRow,
+  UpdateOp,
+} from "./tx.js";
+export { isJsonValue, isSyncRow, TxBuilder } from "./tx.js";

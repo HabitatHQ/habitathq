@@ -14,23 +14,18 @@
 //! [CATS]: https://github.com/Endava/cats
 
 #![cfg(feature = "cats-tests")]
-#![allow(
-    missing_docs,
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic
-)]
+#![allow(missing_docs, clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use palladium_axum::{create_router, AppState};
 use palladium_sqlite::SqliteStore;
-use tower_http::cors::CorsLayer;
 use testcontainers::{
-    GenericImage, ImageExt,
-    core::{Host, WaitFor, wait::ExitWaitStrategy},
+    core::{wait::ExitWaitStrategy, Host, WaitFor},
     runners::AsyncRunner,
+    GenericImage, ImageExt,
 };
 use tokio::io::AsyncBufReadExt;
 use tokio::net::TcpListener;
+use tower_http::cors::CorsLayer;
 
 /// CATS Docker image.  The `ghcr.io/endava/cats` image is the official release.
 const CATS_IMAGE: &str = "ghcr.io/endava/cats";
@@ -38,8 +33,7 @@ const CATS_TAG: &str = "latest";
 
 /// Fuzzers that require security headers, HTTPS, or auth flows not present in
 /// a minimal local server — skip them to keep the run clean.
-const SKIP_FUZZERS: &str =
-    "CheckSecurityHeadersFuzzer,HappyFlowsFuzzer,Http2Fuzzer,\
+const SKIP_FUZZERS: &str = "CheckSecurityHeadersFuzzer,HappyFlowsFuzzer,Http2Fuzzer,\
      SecurityHeadersFuzzer";
 
 /// Start an in-process Axum server backed by an in-memory `SQLite` store.
@@ -80,9 +74,7 @@ async fn cats_finds_no_contract_violations() {
     // (with_host, with_cmd) convert it into a ContainerRequest.
     let container = GenericImage::new(CATS_IMAGE, CATS_TAG)
         // Wait for the container to exit, then assert exit code 0.
-        .with_wait_for(WaitFor::exit(
-            ExitWaitStrategy::new().with_exit_code(0),
-        ))
+        .with_wait_for(WaitFor::exit(ExitWaitStrategy::new().with_exit_code(0)))
         // Map `host.docker.internal` → host gateway so the container can
         // reach our in-process server on macOS and Linux.
         .with_host("host.docker.internal", Host::HostGateway)

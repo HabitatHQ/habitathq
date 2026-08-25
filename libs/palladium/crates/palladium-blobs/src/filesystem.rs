@@ -78,9 +78,7 @@ impl BlobStore for FilesystemBlobStore {
         let path = self.blob_path(id);
         match fs::read(&path).await {
             Ok(bytes) => Ok(bytes),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                Err(BlobError::NotFound(id))
-            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(BlobError::NotFound(id)),
             Err(e) => Err(BlobError::Io(e)),
         }
     }

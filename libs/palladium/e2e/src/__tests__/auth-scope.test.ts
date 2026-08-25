@@ -15,7 +15,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { createEngine, type PalladiumEngine, SyncTransport, sql } from "@palladium/core";
+import {
+  createEngine,
+  generateUuidV7,
+  type PalladiumEngine,
+  SyncTransport,
+  sql,
+} from "@palladium/core";
 import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
@@ -121,7 +127,7 @@ describe("auth-seam scoping", () => {
   it("same token → same workspace: writes converge", async () => {
     const a1 = track(await makeClient("alice"));
     const a2 = track(await makeClient("alice"));
-    const id = crypto.randomUUID();
+    const id = generateUuidV7();
     await a1.engine.insert("tasks", { id, text: "hi from a1", done: 0 });
 
     const rows = await waitFor(a2, (r) => r.some((t) => t.id === id));
@@ -131,7 +137,7 @@ describe("auth-seam scoping", () => {
   it("different token → isolated workspace: no cross-tenant leak", async () => {
     const alice = track(await makeClient("alice"));
     const bob = track(await makeClient("bob"));
-    const id = crypto.randomUUID();
+    const id = generateUuidV7();
     await alice.engine.insert("tasks", { id, text: "alice secret", done: 0 });
 
     // Alice sees her own write (round-trips through her scope)…
@@ -150,7 +156,7 @@ describe("auth-seam scoping", () => {
     // And a no-token client's write never lands server-side (its own local row
     // stays, but a fresh authed client in another scope never sees it).
     const anon = track(await makeClient(null));
-    const id = crypto.randomUUID();
+    const id = generateUuidV7();
     await anon.engine.insert("tasks", { id, text: "no auth", done: 0 });
     await sleep(POLL_MS * 4);
 

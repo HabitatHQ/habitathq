@@ -4,6 +4,8 @@ A hands-on guide to exercising everything built in **Phase 1** (hardened engine)
 and **Phase 2** (scoped store + auth seam). Covers the automated test suites and
 a manual end-to-end demo you can drive by hand with `curl`.
 
+> **Verification guide:** Protocol expectations are defined by [`SYNC-PROTOCOL-v1.md`](./SYNC-PROTOCOL-v1.md). Commands and examples below are historical unless they use the v1 versioned page, opaque append cursor, typed receipt, and explicit lifecycle APIs. Do not use legacy HLC `after` queries, bare-array responses, or legacy outbox names as acceptance criteria.
+
 > **What's covered**
 > - Phase 1a — non-poisoning remote apply (quarantine + cursor safety)
 > - Phase 1b — column-level LWW by HLC (fixes F1, permanent divergence)
@@ -143,16 +145,16 @@ Post a change and read it back:
 
 ```bash
 CHANGE='{
-  "id":"11111111-1111-1111-1111-111111111111",
-  "hlc":{"wallMs":1700000000000,"counter":0,"nodeId":"22222222-2222-2222-2222-222222222222"},
-  "ops":[{"op":"insert","table":"tasks","row_id":"33333333-3333-3333-3333-333333333333",
-          "data":{"id":"33333333-3333-3333-3333-333333333333","text":"hello","done":0}}]
+  "id":"11111111-1111-4111-8111-111111111111",
+  "hlc":{"wallMs":1700000000000,"counter":0,"nodeId":"22222222-2222-4222-8222-222222222222"},
+  "ops":[{"op":"insert","table":"tasks","row_id":"018f0000-0000-7000-8000-000000000001",
+          "data":{"id":"018f0000-0000-7000-8000-000000000001","text":"hello","done":0}}]
 }'
-curl -s -X POST localhost:3000/v1/changes -H 'content-type: application/json' -d "$CHANGE"   # → 201
-curl -s localhost:3000/v1/changes | jq                                                       # → [the change]
+curl -s -X POST localhost:3000/v1/changes -H 'content-type: application/json' -d "$CHANGE"   # → v1 typed receipt
+curl -s localhost:3000/v1/changes | jq                                                       # → v1 typed page envelope
 
-# Pagination cursor: ?after=<hlc sort key> — millis_counter_nodeHex
-curl -s 'localhost:3000/v1/changes?after=00000001700000000000_0000000000_00000000000000000000000000000000' | jq
+# Pagination uses the opaque server-issued cursor; page size is bounded.
+curl -s 'localhost:3000/v1/changes?cursor=1&limit=100' | jq
 ```
 
 Inspect what's stored (CLI):

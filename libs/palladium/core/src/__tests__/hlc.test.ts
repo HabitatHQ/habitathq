@@ -1,5 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { compareHlc, createHlc, hlcFromString, hlcToString, recvHlc, sendHlc } from "../hlc.js";
+import {
+  compareHlc,
+  createHlc,
+  generateUuidV7,
+  hlcFromString,
+  hlcToString,
+  isUuidV7,
+  recvHlc,
+  sendHlc,
+} from "../hlc.js";
 
 describe("Hlc", () => {
   it("creates initial HLC with zero counter", () => {
@@ -7,6 +16,16 @@ describe("Hlc", () => {
     expect(hlc.counter).toBe(0);
     expect(hlc.nodeId).toBe("node-1");
     expect(hlc.wallMs).toBeGreaterThan(0);
+  });
+
+  it("generates and validates canonical UUIDv7 row IDs", () => {
+    const id = generateUuidV7();
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(isUuidV7(id)).toBe(true);
+    expect(isUuidV7("01J2QJ5G8Q3Y5TQW3V9B6J1M2N")).toBe(false);
+    expect(isUuidV7("018f0f50-7b8d-4a1c-8e2f-1234567890ab")).toBe(false);
+    expect(isUuidV7("018f0f50-7b8d-7a1c-8e2f-1234567890ab".toUpperCase())).toBe(false);
+    expect(isUuidV7("not-an-id")).toBe(false);
   });
 
   it("sendHlc advances wallMs or counter", () => {

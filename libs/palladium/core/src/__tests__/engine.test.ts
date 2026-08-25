@@ -72,12 +72,16 @@ describe("createEngine (SQLite)", () => {
     await db.init(SCHEMA);
 
     await db.tx((t) => {
-      t.insert("tasks", { id: "t1", name: "hello", done: 0 });
+      t.insert("tasks", { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab", name: "hello", done: 0 });
     });
 
     const rows = await db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks`);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ id: "t1", name: "hello", done: 0 });
+    expect(rows[0]).toMatchObject({
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      name: "hello",
+      done: 0,
+    });
   });
 
   it("update changes stored row", async () => {
@@ -85,13 +89,15 @@ describe("createEngine (SQLite)", () => {
     await db.init(SCHEMA);
 
     await db.tx((t) => {
-      t.insert("tasks", { id: "t1", name: "hello", done: 0 });
+      t.insert("tasks", { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab", name: "hello", done: 0 });
     });
     await db.tx((t) => {
-      t.update("tasks", "t1", { done: 1 });
+      t.update("tasks", "018f0f50-7b8d-7a1c-8e2f-1234567890ab", { done: 1 });
     });
 
-    const rows = await db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks WHERE id = ${"t1"}`);
+    const rows = await db.exec<Schema["tasks"]>(
+      sql`SELECT * FROM tasks WHERE id = ${"018f0f50-7b8d-7a1c-8e2f-1234567890ab"}`,
+    );
     expect(rows[0]?.done).toBe(1);
   });
 
@@ -100,16 +106,16 @@ describe("createEngine (SQLite)", () => {
     await db.init(SCHEMA);
 
     await db.tx((t) => {
-      t.insert("tasks", { id: "t1", name: "A", done: 0 });
-      t.insert("tasks", { id: "t2", name: "B", done: 0 });
+      t.insert("tasks", { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab", name: "A", done: 0 });
+      t.insert("tasks", { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac", name: "B", done: 0 });
     });
     await db.tx((t) => {
-      t.delete("tasks", "t1");
+      t.delete("tasks", "018f0f50-7b8d-7a1c-8e2f-1234567890ab");
     });
 
     const rows = await db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks`);
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.id).toBe("t2");
+    expect(rows[0]?.id).toBe("018f0f50-7b8d-7a1c-8e2f-1234567890ac");
   });
 
   it("liveQuery emits change on write to watched table", async () => {
@@ -121,7 +127,11 @@ describe("createEngine (SQLite)", () => {
     lq.on("change", cb);
 
     await db.tx((t) => {
-      t.insert("tasks", { id: "t1", name: "x", done: 0 });
+      t.insert("tasks", {
+        id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+        name: "018f0f50-7b8d-7a1c-8e2f-1234567890b1",
+        done: 0,
+      });
     });
 
     expect(cb).toHaveBeenCalledOnce();
@@ -135,11 +145,15 @@ describe("createEngine (SQLite)", () => {
     const received: Schema["tasks"][][] = [];
     lq.on("change", (rows) => received.push(rows));
 
-    await db.insert("tasks", { id: "t1", name: "hello", done: 0 });
+    await db.insert("tasks", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      name: "hello",
+      done: 0,
+    });
 
     expect(received).toHaveLength(1);
     expect(received[0]).toHaveLength(1);
-    expect(received[0]?.[0]).toMatchObject({ id: "t1" });
+    expect(received[0]?.[0]).toMatchObject({ id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab" });
   });
 
   it("liveQuery does not fire for writes to an unrelated table", async () => {
@@ -150,7 +164,7 @@ describe("createEngine (SQLite)", () => {
     const cb = vi.fn();
     taskQuery.on("change", cb);
 
-    await db.insert("comments", { id: "c1", body: "hello" });
+    await db.insert("comments", { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ad", body: "hello" });
 
     expect(cb).not.toHaveBeenCalled();
   });
@@ -166,7 +180,11 @@ describe("createEngine (SQLite)", () => {
     lq1.on("change", cb1);
     lq2.on("change", cb2);
 
-    await db.insert("tasks", { id: "t1", name: "x", done: 0 });
+    await db.insert("tasks", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      name: "018f0f50-7b8d-7a1c-8e2f-1234567890b1",
+      done: 0,
+    });
 
     expect(cb1).toHaveBeenCalledOnce();
     expect(cb2).toHaveBeenCalledOnce();
@@ -182,8 +200,8 @@ describe("createEngine (SQLite)", () => {
     db.liveQuery(sql`SELECT * FROM comments`).on("change", commentCb);
 
     await db.tx((t) => {
-      t.insert("tasks", { id: "t1", name: "a", done: 0 });
-      t.insert("comments", { id: "c1", body: "b" });
+      t.insert("tasks", { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab", name: "a", done: 0 });
+      t.insert("comments", { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ad", body: "b" });
     });
 
     expect(taskCb).toHaveBeenCalledOnce();
@@ -199,7 +217,11 @@ describe("createEngine (SQLite)", () => {
     lq.on("change", cb);
     lq.cancel();
 
-    await db.insert("tasks", { id: "t1", name: "x", done: 0 });
+    await db.insert("tasks", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      name: "018f0f50-7b8d-7a1c-8e2f-1234567890b1",
+      done: 0,
+    });
 
     expect(cb).not.toHaveBeenCalled();
   });
@@ -214,14 +236,18 @@ describe("createEngine (SQLite)", () => {
     lq.cancel();
 
     // After cancel, even a direct notifyTables should not call the listener
-    await db.insert("tasks", { id: "t1", name: "x", done: 0 });
+    await db.insert("tasks", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      name: "018f0f50-7b8d-7a1c-8e2f-1234567890b1",
+      done: 0,
+    });
     expect(cb).not.toHaveBeenCalled();
   });
 
   it("getSyncStatus returns idle initially", async () => {
     const db = makeDb();
     await db.init(SCHEMA);
-    expect(db.getSyncStatus()).toBe("idle");
+    expect(db.getSyncStatus()).toBe("uninitialized");
   });
 
   it("getSyncStatus reflects the value set by setStatus", async () => {
@@ -258,13 +284,13 @@ describe("createEngine (SQLite)", () => {
     const db = makeDb();
     await db.init(SCHEMA);
 
-    await db.insert("tasks", { id: "t1", name: "hi", done: 0 });
-    await db.update("tasks", "t1", { done: 1 });
+    await db.insert("tasks", { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab", name: "hi", done: 0 });
+    await db.update("tasks", "018f0f50-7b8d-7a1c-8e2f-1234567890ab", { done: 1 });
 
     const rows = await db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks`);
     expect(rows[0]?.done).toBe(1);
 
-    await db.delete("tasks", "t1");
+    await db.delete("tasks", "018f0f50-7b8d-7a1c-8e2f-1234567890ab");
     const after = await db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks`);
     expect(after).toHaveLength(0);
   });
@@ -273,12 +299,14 @@ describe("createEngine (SQLite)", () => {
     const db = makeDb();
     await db.init(SCHEMA);
 
-    await db.insert("tasks", { id: "t1", name: "A", done: 0 });
-    await db.insert("tasks", { id: "t2", name: "B", done: 0 });
+    await db.insert("tasks", { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab", name: "A", done: 0 });
+    await db.insert("tasks", { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac", name: "B", done: 0 });
 
-    const rows = await db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks WHERE id = ${"t2"}`);
+    const rows = await db.exec<Schema["tasks"]>(
+      sql`SELECT * FROM tasks WHERE id = ${"018f0f50-7b8d-7a1c-8e2f-1234567890ac"}`,
+    );
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.id).toBe("t2");
+    expect(rows[0]?.id).toBe("018f0f50-7b8d-7a1c-8e2f-1234567890ac");
   });
 
   it("tx wraps in a transaction (adapter is transactable)", async () => {
@@ -287,8 +315,8 @@ describe("createEngine (SQLite)", () => {
 
     // Insert two rows in one tx — both should appear atomically.
     await db.tx((t) => {
-      t.insert("tasks", { id: "t1", name: "a", done: 0 });
-      t.insert("tasks", { id: "t2", name: "b", done: 0 });
+      t.insert("tasks", { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab", name: "a", done: 0 });
+      t.insert("tasks", { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac", name: "b", done: 0 });
     });
 
     const rows = await db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks`);
@@ -301,26 +329,30 @@ describe("createEngine (SQLite)", () => {
 
     await expect(
       db.tx((t) => {
-        t.insert("tasks", { id: "t1", name: "local", done: 0 });
-        t.insert("comments", { id: "c1", body: "local" });
+        t.insert("tasks", { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab", name: "local", done: 0 });
+        t.insert("comments", { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ad", body: "local" });
       }),
     ).rejects.toThrow("PalladiumEngine writes require transaction support");
 
     await expect(
       db.applyRemote({
-        hlc: { wallMs: 1_700_000_000_000, counter: 0, nodeId: "remote" },
+        hlc: {
+          wallMs: 1_700_000_000_000,
+          counter: 0,
+          nodeId: "00000000-0000-4000-8000-00000000cafe",
+        },
         ops: [
           {
             type: "insert",
             table: "tasks",
-            id: "t2",
-            data: { id: "t2", name: "remote", done: 0 },
+            id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac",
+            data: { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac", name: "remote", done: 0 },
           },
           {
             type: "insert",
             table: "comments",
-            id: "c2",
-            data: { id: "c2", body: "remote" },
+            id: "018f0f50-7b8d-7a1c-8e2f-1234567890ae",
+            data: { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ae", body: "remote" },
           },
         ],
       }),
@@ -354,9 +386,9 @@ describe("createEngine (SQLite)", () => {
       throw new Error("checkpoint failed");
     });
 
-    await expect(db.insert("tasks", { id: "t1", name: "blocked", done: 0 })).rejects.toThrow(
-      "checkpoint failed",
-    );
+    await expect(
+      db.insert("tasks", { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab", name: "blocked", done: 0 }),
+    ).rejects.toThrow("checkpoint failed");
     const rows = await db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks`);
     expect(rows).toHaveLength(0);
   });
@@ -380,7 +412,11 @@ describe("createEngine (SQLite)", () => {
       observedRows = db.exec(sql`SELECT * FROM checkpoint WHERE change_id = ${change.changeId}`);
     });
 
-    await db.insert("tasks", { id: "t1", name: "durable", done: 0 });
+    await db.insert("tasks", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      name: "durable",
+      done: 0,
+    });
     expect(observed).toBe(true);
     expect(observedRows).not.toBeNull();
     const checkpoints = await observedRows;
@@ -482,8 +518,8 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
     db.on("changes:local", cb);
 
     await db.tx((t) => {
-      t.insert("tasks", { id: "t1", name: "a", done: 0 });
-      t.insert("tasks", { id: "t2", name: "b", done: 0 });
+      t.insert("tasks", { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab", name: "a", done: 0 });
+      t.insert("tasks", { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac", name: "b", done: 0 });
     });
 
     expect(cb).toHaveBeenCalledOnce();
@@ -503,10 +539,15 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
       hlc: {
         wallMs: 1_700_000_000_000,
         counter: 0,
-        nodeId: "00000000-0000-0000-0000-0000000a11ce",
+        nodeId: "00000000-0000-4000-8000-0000000a11ce",
       },
       ops: [
-        { type: "insert", table: "tasks", id: "t1", data: { id: "t1", name: "remote", done: 0 } },
+        {
+          type: "insert",
+          table: "tasks",
+          id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          data: { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab", name: "remote", done: 0 },
+        },
       ],
     });
 
@@ -528,19 +569,27 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
         hlc: {
           wallMs: 1_700_000_000_000,
           counter: 0,
-          nodeId: "00000000-0000-0000-0000-0000000a11ce",
+          nodeId: "00000000-0000-4000-8000-0000000a11ce",
         },
         ops: [
-          { type: "insert", table: "tasks", id: "r1", data: { id: "r1", name: "remote", done: 0 } },
+          {
+            type: "insert",
+            table: "tasks",
+            id: "018f0f50-7b8d-7a1c-8e2f-1234567890b0",
+            data: { id: "018f0f50-7b8d-7a1c-8e2f-1234567890b0", name: "remote", done: 0 },
+          },
         ],
       }),
-      db.insert("tasks", { id: "l1", name: "local", done: 0 }),
+      db.insert("tasks", { id: "018f0f50-7b8d-7a1c-8e2f-1234567890af", name: "local", done: 0 }),
     ]);
 
     // The local write emitted exactly once; the remote apply emitted nothing.
     expect(cb).toHaveBeenCalledTimes(1);
     const rows = await db.exec<Schema["tasks"]>(sql`SELECT id FROM tasks ORDER BY id`);
-    expect(rows.map((r) => r.id)).toEqual(["l1", "r1"]);
+    expect(rows.map((r) => r.id)).toEqual([
+      "018f0f50-7b8d-7a1c-8e2f-1234567890af",
+      "018f0f50-7b8d-7a1c-8e2f-1234567890b0",
+    ]);
   });
 
   it("rejects a remote op whose table name is not a plain identifier (SQL-injection guard)", async () => {
@@ -549,13 +598,13 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
 
     // A malicious peer sends a table name crafted to break out of the query.
     const maliciousChange = {
-      hlc: { wallMs: 1, counter: 0, nodeId: "00000000-0000-0000-0000-0000000a11ce" },
+      hlc: { wallMs: 1, counter: 0, nodeId: "00000000-0000-4000-8000-0000000a11ce" },
       ops: [
         {
           type: "insert",
           table: "tasks",
-          id: "x",
-          data: { id: "x", name: "n", done: 0 },
+          id: "018f0f50-7b8d-7a1c-8e2f-1234567890b1",
+          data: { id: "018f0f50-7b8d-7a1c-8e2f-1234567890b1", name: "n", done: 0 },
         },
       ],
     } satisfies RemoteChange<Schema>;
@@ -582,10 +631,15 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
       hlc: {
         wallMs: 1_700_000_000_000,
         counter: 0,
-        nodeId: "00000000-0000-0000-0000-0000000a11ce",
+        nodeId: "00000000-0000-4000-8000-0000000a11ce",
       },
       ops: [
-        { type: "insert", table: "tasks", id: "t1", data: { id: "t1", name: "remote", done: 0 } },
+        {
+          type: "insert",
+          table: "tasks",
+          id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          data: { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab", name: "remote", done: 0 },
+        },
       ],
     });
 
@@ -602,7 +656,7 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
       hlc: {
         wallMs: 1_700_000_000_000,
         counter: 0,
-        nodeId: "00000000-0000-0000-0000-0000000a11ce",
+        nodeId: "00000000-0000-4000-8000-0000000a11ce",
       },
       ops: [],
     });
@@ -620,8 +674,11 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
     db.on("changes:local", cb);
 
     await db.tx((t) => {
-      t.insert("tasks", { id: "t1", name: "a", done: 0 });
-      t.insert("comments", { id: "c1", body: "x" });
+      t.insert("tasks", { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab", name: "a", done: 0 });
+      t.insert("comments", {
+        id: "018f0f50-7b8d-7a1c-8e2f-1234567890ad",
+        body: "018f0f50-7b8d-7a1c-8e2f-1234567890b1",
+      });
     });
 
     const payload = cb.mock.calls[0]?.[0] as { touchedTables: string[] };
@@ -631,14 +688,30 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
     const db = makeDbWithSchema();
     await db.init(SCHEMA);
     await db.applyRemote({
-      hlc: { wallMs: 2000, counter: 0, nodeId: "remote" },
-      ops: [{ type: "update", table: "tasks", id: "t1", patch: { name: "new" } }],
+      hlc: { wallMs: 2000, counter: 0, nodeId: "00000000-0000-4000-8000-00000000cafe" },
+      ops: [
+        {
+          type: "update",
+          table: "tasks",
+          id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          patch: { name: "new" },
+        },
+      ],
     });
     await db.applyRemote({
-      hlc: { wallMs: 1000, counter: 0, nodeId: "remote" },
-      ops: [{ type: "insert", table: "tasks", id: "t1", data: { id: "t1", name: "old", done: 0 } }],
+      hlc: { wallMs: 1000, counter: 0, nodeId: "00000000-0000-4000-8000-00000000cafe" },
+      ops: [
+        {
+          type: "insert",
+          table: "tasks",
+          id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          data: { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab", name: "old", done: 0 },
+        },
+      ],
     });
-    const rows = await db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks WHERE id = 't1'`);
+    const rows = await db.exec<Schema["tasks"]>(
+      sql`SELECT * FROM tasks WHERE id = '018f0f50-7b8d-7a1c-8e2f-1234567890ab'`,
+    );
     expect(rows[0]?.name).toBe("new");
   });
 });

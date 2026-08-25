@@ -25,8 +25,8 @@ const SCHEMA: SchemaConfig = {
     "CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, title TEXT NOT NULL, updated_at INTEGER NOT NULL)",
 };
 
-const ALICE = "00000000-0000-0000-0000-0000000a11ce";
-const BOB = "00000000-0000-0000-0000-00000000b0b0";
+const ALICE = "00000000-0000-4000-8000-0000000a11ce";
+const BOB = "00000000-0000-4000-8000-00000000b0b0";
 const SERVER_URL = "http://localhost:13742";
 
 describe("durable sync state — nodeId + HLC across restart", () => {
@@ -49,7 +49,11 @@ describe("durable sync state — nodeId + HLC across restart", () => {
       },
     );
     await engine1.init(SCHEMA);
-    await engine1.insert("notes", { id: "n1", title: "hi", updated_at: 1 });
+    await engine1.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      title: "hi",
+      updated_at: 1,
+    });
     const nodeId1 = engine1.nodeId;
     const hlc1 = engine1.currentHlc;
     expect(nodeId1).toBe(BOB);
@@ -92,14 +96,14 @@ describe("durable sync state — poll cursor across transport restart", () => {
   it("persists the cursor and resumes from it (no full re-hydration)", async () => {
     const db = await makeEngine(BOB);
     const c1: WireChange = {
-      id: "c1",
+      id: "00000000-0000-4000-8000-0000000000c1",
       hlc: { wallMs: 1_700_000_000_000, counter: 0, nodeId: ALICE },
       ops: [
         {
           op: "insert",
           table: "notes",
-          row_id: "n1",
-          data: { id: "n1", title: "x", updated_at: 1 },
+          row_id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          data: { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab", title: "x", updated_at: 1 },
         },
       ],
     };
@@ -111,42 +115,75 @@ describe("durable sync state — poll cursor across transport restart", () => {
       if (!served) {
         served = true;
         return new Response(
-          JSON.stringify({ changes: [c1], cursor: "1", purges: [], events: [] }),
+          JSON.stringify({
+            version: 1,
+            changes: [c1],
+            cursor: "1",
+            upperBound: "1",
+            purges: [],
+            events: [],
+            caughtUp: true,
+            control: { mustRefetch: false },
+          }),
           {
             status: 200,
             headers: { "Content-Type": "application/json" },
           },
         );
       }
-      return new Response(JSON.stringify({ changes: [], cursor: "1", purges: [], events: [] }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          version: 1,
+          changes: [],
+          purges: [],
+          events: [],
+          cursor: "1",
+          upperBound: "1",
+          caughtUp: true,
+          control: { mustRefetch: false },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
     };
     const t1 = new SyncTransport(db, { serverUrl: SERVER_URL, fetch: fetch1 });
     await t1.start();
-    await t1.stop();
+    await t1.dispose();
 
     const cursor = "1";
     expect(await db.getSyncState("append_cursor_v1")).toBe(cursor);
 
     // Second transport session over the same store: it must resume from the
-    // persisted cursor — the very first GET carries ?after=<cursor>.
+    // persisted cursor — the first GET carries ?limit=100&cursor=<cursor>.
     const seenUrls: string[] = [];
     const fetch2: typeof globalThis.fetch = async (input, init) => {
       if (init?.method === "POST") return new Response("{}", { status: 201 });
       seenUrls.push(
         typeof input === "string" ? input : input instanceof Request ? input.url : input.href,
       );
-      return new Response("[]", {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          version: 1,
+          changes: [],
+          purges: [],
+          events: [],
+          cursor: "1",
+          upperBound: "1",
+          caughtUp: true,
+          control: { mustRefetch: false },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
     };
     const t2 = new SyncTransport(db, { serverUrl: SERVER_URL, fetch: fetch2 });
     await t2.start();
-    await t2.stop();
+    await t2.dispose();
 
-    expect(seenUrls[0]).toBe(`${SERVER_URL}/v1/changes?after=${cursor}`);
+    expect(seenUrls[0]).toBe(`${SERVER_URL}/v1/changes?limit=100&cursor=${cursor}`);
   });
 });

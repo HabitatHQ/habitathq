@@ -1,5 +1,5 @@
 import type { PalladiumEngine, SchemaConfig } from "@palladium/core";
-import { createEngine, SyncTransport } from "@palladium/core";
+import { createEngine, generateUuidV7, SyncTransport } from "@palladium/core";
 import { BrowserSqliteAdapter } from "@palladium/sqlite-browser";
 
 /** One task row — mirrors the schema the Rust server stores opaquely. */
@@ -53,4 +53,4 @@ export async function createDevice(opts: {
  * NOTE: the Rust server types `row_id` and `node_id` as **UUIDs** and rejects
  * anything else with a 422 — so ids on the wire must be UUIDs, not ULIDs.
  */
-export const newId = (): string => crypto.randomUUID();
+export const newId = (): string => generateUuidV7();

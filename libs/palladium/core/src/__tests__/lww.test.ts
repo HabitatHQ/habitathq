@@ -28,8 +28,8 @@ const SCHEMA: SchemaConfig = {
     "CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL, updated_at INTEGER NOT NULL)",
 };
 
-const ALICE = "00000000-0000-0000-0000-0000000a11ce";
-const BOB = "00000000-0000-0000-0000-00000000b0b0";
+const ALICE = "00000000-0000-4000-8000-0000000a11ce";
+const BOB = "00000000-0000-4000-8000-00000000b0b0";
 
 function hlc(wallMs: number, counter = 0, nodeId = ALICE): Hlc {
   return { wallMs, counter, nodeId };
@@ -53,14 +53,26 @@ describe("column-level LWW", () => {
   it("higher-HLC remote column wins over an older local write", async () => {
     // Local write at a low HLC (mint by writing, then overwrite meta via a
     // remote change with a strictly higher HLC).
-    await db.insert("notes", { id: "n1", title: "local", body: "b", updated_at: 1 });
+    await db.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      title: "local",
+      body: "b",
+      updated_at: 1,
+    });
     const localHlc = db.currentHlc;
     expect(localHlc).not.toBeNull();
 
     // Remote update to `title` with an HLC strictly greater than the local one.
     await db.applyRemote({
       hlc: hlc((localHlc?.wallMs ?? 0) + 1000),
-      ops: [{ type: "update", table: "notes", id: "n1", patch: { title: "remote-new" } }],
+      ops: [
+        {
+          type: "update",
+          table: "notes",
+          id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          patch: { title: "remote-new" },
+        },
+      ],
     });
 
     const rows = await db.exec<Schema["notes"]>(sql`SELECT * FROM notes`);
@@ -68,13 +80,25 @@ describe("column-level LWW", () => {
   });
 
   it("lower-HLC remote column loses to a newer local write (regardless of arrival order)", async () => {
-    await db.insert("notes", { id: "n1", title: "local-new", body: "b", updated_at: 2 });
+    await db.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      title: "local-new",
+      body: "b",
+      updated_at: 2,
+    });
     const localHlc = db.currentHlc;
 
     // Remote update arrives LATER in wall-clock but carries a LOWER HLC.
     await db.applyRemote({
       hlc: hlc((localHlc?.wallMs ?? 0) - 1000),
-      ops: [{ type: "update", table: "notes", id: "n1", patch: { title: "remote-stale" } }],
+      ops: [
+        {
+          type: "update",
+          table: "notes",
+          id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          patch: { title: "remote-stale" },
+        },
+      ],
     });
 
     const rows = await db.exec<Schema["notes"]>(sql`SELECT * FROM notes`);
@@ -82,13 +106,25 @@ describe("column-level LWW", () => {
   });
 
   it("concurrent writes to different columns both survive", async () => {
-    await db.insert("notes", { id: "n1", title: "T", body: "B", updated_at: 1 });
+    await db.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      title: "T",
+      body: "B",
+      updated_at: 1,
+    });
     const base = db.currentHlc?.wallMs ?? 0;
 
     // Remote edits only `body` at a higher HLC; local `title` must remain.
     await db.applyRemote({
       hlc: hlc(base + 500),
-      ops: [{ type: "update", table: "notes", id: "n1", patch: { body: "B-remote" } }],
+      ops: [
+        {
+          type: "update",
+          table: "notes",
+          id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          patch: { body: "B-remote" },
+        },
+      ],
     });
 
     const rows = await db.exec<Schema["notes"]>(sql`SELECT * FROM notes`);
@@ -97,31 +133,48 @@ describe("column-level LWW", () => {
   });
 
   it("delete tombstone: a lower-HLC update does not resurrect the row", async () => {
-    await db.insert("notes", { id: "n1", title: "T", body: "B", updated_at: 1 });
+    await db.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      title: "T",
+      body: "B",
+      updated_at: 1,
+    });
     const base = db.currentHlc?.wallMs ?? 0;
 
     // Remote delete at a high HLC.
     await db.applyRemote({
       hlc: hlc(base + 1000),
-      ops: [{ type: "delete", table: "notes", id: "n1" }],
+      ops: [{ type: "delete", table: "notes", id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab" }],
     });
     expect(await db.exec(sql`SELECT * FROM notes`)).toHaveLength(0);
 
     // A stale (lower-HLC) update must NOT bring the row back.
     await db.applyRemote({
       hlc: hlc(base + 500),
-      ops: [{ type: "update", table: "notes", id: "n1", patch: { title: "zombie" } }],
+      ops: [
+        {
+          type: "update",
+          table: "notes",
+          id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          patch: { title: "zombie" },
+        },
+      ],
     });
     expect(await db.exec(sql`SELECT * FROM notes`)).toHaveLength(0);
   });
 
   it("delete tombstone: a higher-HLC insert resurrects the row", async () => {
-    await db.insert("notes", { id: "n1", title: "T", body: "B", updated_at: 1 });
+    await db.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      title: "T",
+      body: "B",
+      updated_at: 1,
+    });
     const base = db.currentHlc?.wallMs ?? 0;
 
     await db.applyRemote({
       hlc: hlc(base + 500),
-      ops: [{ type: "delete", table: "notes", id: "n1" }],
+      ops: [{ type: "delete", table: "notes", id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab" }],
     });
     expect(await db.exec(sql`SELECT * FROM notes`)).toHaveLength(0);
 
@@ -131,8 +184,13 @@ describe("column-level LWW", () => {
         {
           type: "insert",
           table: "notes",
-          id: "n1",
-          data: { id: "n1", title: "reborn", body: "B2", updated_at: 3 },
+          id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          data: {
+            id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+            title: "reborn",
+            body: "B2",
+            updated_at: 3,
+          },
         },
       ],
     });
@@ -142,15 +200,20 @@ describe("column-level LWW", () => {
   });
 
   it("apply is idempotent — replaying the same remote change is a no-op", async () => {
-    const h = hlc(2_000_000_000_000);
+    const h = hlc(1_700_000_000_000);
     const change = {
       hlc: h,
       ops: [
         {
           type: "insert" as const,
           table: "notes" as const,
-          id: "n1",
-          data: { id: "n1", title: "once", body: "b", updated_at: 1 },
+          id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          data: {
+            id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+            title: "once",
+            body: "b",
+            updated_at: 1,
+          },
         },
       ],
     };

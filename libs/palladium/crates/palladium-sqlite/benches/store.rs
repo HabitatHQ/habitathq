@@ -11,9 +11,7 @@
     clippy::cast_possible_truncation
 )]
 
-use criterion::{
-    black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
-};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use palladium_core::{Hlc, NodeId, Op};
 use serde_json::json;
 use uuid::Uuid;

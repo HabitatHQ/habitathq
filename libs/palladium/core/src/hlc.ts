@@ -14,6 +14,53 @@ export interface Hlc {
   readonly nodeId: string;
 }
 
+const UUID_V7_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+/** Returns whether `value` is a canonical, lowercase RFC 9562 UUIDv7 string. */
+export function isUuidV7(value: unknown): value is string {
+  return typeof value === "string" && UUID_V7_PATTERN.test(value);
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+/** Validate an untrusted HLC before it can affect ordering or persistence. */
+export function isValidHlc(
+  value: unknown,
+  options: { readonly nowMs?: number; readonly maxFutureMs?: number } = {},
+): value is Hlc {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  const nowMs = options.nowMs ?? Date.now();
+  const maxFutureMs = options.maxFutureMs ?? 5 * 60_000;
+  return (
+    Number.isSafeInteger(candidate["wallMs"]) &&
+    (candidate["wallMs"] as number) >= 0 &&
+    (candidate["wallMs"] as number) <= nowMs + maxFutureMs &&
+    Number.isSafeInteger(candidate["counter"]) &&
+    (candidate["counter"] as number) >= 0 &&
+    (candidate["counter"] as number) <= 0xffff_ffff &&
+    typeof candidate["nodeId"] === "string" &&
+    UUID_PATTERN.test(candidate["nodeId"])
+  );
+}
+
+/** Generate a canonical UUIDv7 for a replicated row. */
+export function generateUuidV7(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+
+  let timestamp = Date.now();
+  for (let index = 5; index >= 0; index -= 1) {
+    bytes[index] = timestamp % 256;
+    timestamp = Math.floor(timestamp / 256);
+  }
+  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x70;
+  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
+
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 /** Create an initial HLC anchored to now for the given node. */
 export function createHlc(nodeId: string): Hlc {
   return { wallMs: Date.now(), counter: 0, nodeId };

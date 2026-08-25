@@ -11,9 +11,16 @@ Disambiguation for overloaded terms in this monorepo. If a term shows up twice i
 - **SchemaConfig** — Palladium's declarative migration descriptor: `{ version, migrations: Map<from→to, sql|callback>, seeds }`. Apps build one and call `applySchema(storage, config)`.
 - **DbAdapter** — TS interface shared by the SQLite-WASM worker path and the Capacitor-SQLite native path. Bridges via `toDbAdapter()` and `toCapacitorDbAdapter()` from `@palladium/core`.
 - **WorkerRequest / WorkerResponse** — the discriminated-union message types exchanged between Nuxt pages (via `useDatabase()`) and the SQLite worker. Add a new variant when adding a DB op.
-- **HLC** — Hybrid Logical Clock; Palladium's ordering primitive for sync.
-- **ULID** — universally unique lexicographically sortable identifier; used for ops/changes in Palladium.
-- **CRDT** — conflict-free replicated data type; the family of structures Palladium reconciles.
+- **HLC** — Hybrid Logical Clock; Palladium's conflict-version component. It is not a history cursor.
+- **UUIDv7 row ID** — the canonical lowercase UUIDv7 primary key required for every replicated row. UUIDv4 `NodeId` and `Change.id` are separate identities.
+- **Append position / checkpoint** — a server-issued opaque history position and the durable position of one authorized client view. v1 positions are independent of HLC and advance only after typed page application.
+- **Versioned page envelope** — the v1 object containing `version`, bounded `changes`, cursor/control fields, and (where supported) typed purges/events. Bare arrays are not protocol responses.
+- **Canonical Change** — an immutable atomic Change after transaction normalization; it has one final write per target and is the exact local, persisted, hashed, and transmitted payload.
+- **Scoped idempotency** — duplicate detection by `(scope, change_id)` plus canonical-byte comparison: identical bytes are a no-op, different bytes are a terminal conflict.
+- **At-least-once delivery** — uplink/downlink may replay after loss; outbox removal, page checkpoints, event acknowledgements, and ACL purges are idempotent boundaries.
+- **Quarantine / dead letter** — durable operator-visible storage for terminal uplink/downlink failures, with inspect, export, retry, and explicit discard.
+- **ACL purge** — removal from one authorized client view, not a replicated tombstone; it is applied idempotently inside the typed page boundary.
+- **ULID** — a superseded identifier proposal in historical Palladium documents; v1 row identity MUST use UUIDv7.
 
 ## Storage / runtime
 

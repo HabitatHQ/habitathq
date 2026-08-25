@@ -25,6 +25,9 @@ use serde_json::json;
 use tower::ServiceExt;
 use tower_http::cors::CorsLayer;
 use uuid::Uuid;
+fn page(body: &[u8]) -> serde_json::Value {
+    serde_json::from_slice(body).unwrap()
+}
 
 // ── helpers ───────────────────────────────────────────────────────────────
 
@@ -44,7 +47,9 @@ async fn get_ok(app: Router, uri: &str) -> (StatusCode, Vec<u8>) {
         .await
         .unwrap();
     let status = resp.status();
-    let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     (status, body.to_vec())
 }
 
@@ -92,8 +97,15 @@ async fn merge_palladium_routes_reachable_at_root() {
 
     let (status, body) = get_ok(app, "/v1/changes").await;
     assert_eq!(status, StatusCode::OK);
-    let val: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(val, json!([]));
+    let val = page(&body);
+    assert_eq!(val["version"], json!(1));
+    assert_eq!(val["changes"], json!([]));
+    assert_eq!(val["purges"], json!([]));
+    assert_eq!(val["events"], json!([]));
+    assert_eq!(val["cursor"], serde_json::Value::Null);
+    assert_eq!(val["upperBound"], json!("1"));
+    assert_eq!(val["caughtUp"], json!(true));
+    assert_eq!(val["control"]["mustRefetch"], json!(false));
 }
 
 #[tokio::test]
@@ -116,10 +128,9 @@ async fn nest_palladium_routes_accessible_at_subpath() {
         .route("/health", get(|| async { "ok" }))
         .nest("/sync", palladium().await);
 
-    let (status, body) = get_ok(app, "/sync/v1/changes").await;
-    assert_eq!(status, StatusCode::OK);
-    let val: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(val, json!([]));
+    let (_, body) = get_ok(app, "/sync/v1/changes").await;
+    let val = page(&body);
+    assert_eq!(val["changes"], json!([]));
 }
 
 #[tokio::test]
@@ -152,13 +163,12 @@ async fn nest_post_then_get_round_trip() {
     let status = post_json(app.clone(), "/sync/v1/changes", &change_json(1_000)).await;
     assert_eq!(status, StatusCode::CREATED);
 
-    let (status, body) = get_ok(app, "/sync/v1/changes").await;
-    assert_eq!(status, StatusCode::OK);
-    let changes: Vec<Change> = serde_json::from_slice(&body).unwrap();
-    assert_eq!(changes.len(), 1);
+    let (_, body) = get_ok(app, "/sync/v1/changes").await;
+    let changes = page(&body)["changes"].as_array().unwrap().len();
+    assert_eq!(changes, 1);
 }
 
-/// The `?after=` cursor still works when routes are mounted at a subpath.
+/// Append-position cursor pagination works when routes are mounted at a subpath.
 #[tokio::test]
 async fn nest_cursor_pagination_works_at_subpath() {
     let app = Router::new().nest("/sync", palladium().await);
@@ -174,13 +184,11 @@ async fn nest_cursor_pagination_works_at_subpath() {
         assert_eq!(status, StatusCode::CREATED);
     }
 
-    // Cursor at h1 → expect two results.
-    let cursor = h1.sort_key();
-    let (status, body) =
-        get_ok(app, &format!("/sync/v1/changes?after={cursor}")).await;
+    // Cursor at append position one → expect two results.
+    let (status, body) = get_ok(app, "/sync/v1/changes?cursor=1").await;
     assert_eq!(status, StatusCode::OK);
-    let changes: Vec<Change> = serde_json::from_slice(&body).unwrap();
-    assert_eq!(changes.len(), 2);
+    let changes = page(&body)["changes"].as_array().unwrap().len();
+    assert_eq!(changes, 2);
 }
 
 // ── OpenAPI spec at various mount points ──────────────────────────────────
@@ -194,7 +202,10 @@ async fn merge_openapi_spec_reachable() {
 
     let spec: serde_json::Value = serde_json::from_slice(&body).unwrap();
     // Top-level fields that must be present in any valid OpenAPI 3.x document.
-    assert!(spec.get("openapi").is_some(), "missing 'openapi' version key");
+    assert!(
+        spec.get("openapi").is_some(),
+        "missing 'openapi' version key"
+    );
     assert!(spec.get("paths").is_some(), "missing 'paths' key");
     assert!(spec.get("info").is_some(), "missing 'info' key");
 }
@@ -218,7 +229,10 @@ async fn openapi_spec_contains_expected_paths() {
     let spec: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let paths = spec["paths"].as_object().unwrap();
 
-    assert!(paths.contains_key("/v1/changes"), "missing GET/POST /v1/changes in spec");
+    assert!(
+        paths.contains_key("/v1/changes"),
+        "missing GET/POST /v1/changes in spec"
+    );
 }
 
 #[tokio::test]
@@ -248,7 +262,9 @@ async fn host_state_applied_before_merge_isolation() {
             "/message",
             get(|State(s): State<HostState>| async move { s.message }),
         )
-        .with_state(HostState { message: "hello from host".to_owned() });
+        .with_state(HostState {
+            message: "hello from host".to_owned(),
+        });
 
     let app = host.merge(palladium().await);
 
@@ -258,10 +274,9 @@ async fn host_state_applied_before_merge_isolation() {
     assert_eq!(body, b"hello from host");
 
     // Palladium route also works.
-    let (status, body) = get_ok(app, "/v1/changes").await;
-    assert_eq!(status, StatusCode::OK);
-    let val: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(val, json!([]));
+    let (_, body) = get_ok(app, "/v1/changes").await;
+    let val = page(&body);
+    assert_eq!(val["changes"], json!([]));
 }
 
 /// Host state can be any type. The idiomatic pattern is to call `.with_state()`
@@ -347,8 +362,14 @@ async fn two_palladium_instances_are_independent() {
     let store_b = SqliteStore::in_memory().await.unwrap();
 
     let app = Router::new()
-        .nest("/a", create_router(AppState::new(store_a), CorsLayer::permissive()))
-        .nest("/b", create_router(AppState::new(store_b), CorsLayer::permissive()));
+        .nest(
+            "/a",
+            create_router(AppState::new(store_a), CorsLayer::permissive()),
+        )
+        .nest(
+            "/b",
+            create_router(AppState::new(store_b), CorsLayer::permissive()),
+        );
 
     // Write to /a only.
     let status = post_json(app.clone(), "/a/v1/changes", &change_json(1_000)).await;
@@ -357,12 +378,11 @@ async fn two_palladium_instances_are_independent() {
     // /a has 1 change, /b has 0.
     let (_, body_a) = get_ok(app.clone(), "/a/v1/changes").await;
     let (_, body_b) = get_ok(app, "/b/v1/changes").await;
+    let changes_a = page(&body_a)["changes"].as_array().unwrap().len();
+    let changes_b = page(&body_b)["changes"].as_array().unwrap().len();
 
-    let changes_a: Vec<Change> = serde_json::from_slice(&body_a).unwrap();
-    let changes_b: Vec<Change> = serde_json::from_slice(&body_b).unwrap();
-
-    assert_eq!(changes_a.len(), 1, "/a should have 1 change");
-    assert_eq!(changes_b.len(), 0, "/b should have 0 changes (independent store)");
+    assert_eq!(changes_a, 1, "/a should have 1 change");
+    assert_eq!(changes_b, 0, "/b should have 0 changes (independent store)");
 }
 
 // ── invalid requests through nested path ─────────────────────────────────
@@ -379,6 +399,6 @@ async fn nest_invalid_json_returns_400() {
 async fn nest_invalid_cursor_returns_400() {
     let app = Router::new().nest("/sync", palladium().await);
 
-    let (status, _) = get_ok(app, "/sync/v1/changes?after=bad_cursor").await;
+    let (status, _) = get_ok(app, "/sync/v1/changes?cursor=bad_cursor").await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }

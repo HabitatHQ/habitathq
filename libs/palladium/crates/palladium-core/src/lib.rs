@@ -37,7 +37,40 @@ pub use instance_status::{GlobalHealthResponse, InstanceStatus};
 pub use node_id::NodeId;
 pub use op::Op;
 pub use scope::Scope;
-pub use store::ChangeStore;
+pub use store::{
+    AppendCursor, ChangePage, ChangeStore, InsertOutcome, PageControl, PagePurge, MAX_PAGE_SIZE,
+};
+
+/// Validate a replicated change at a protocol boundary.
+///
+/// # Errors
+///
+/// Returns `clock_skew` when the HLC exceeds the permitted future offset, or
+/// an error when any replicated row identifier is not `UUIDv7`.
+pub fn validate_change(
+    change: &Change,
+    now_millis: u64,
+    max_future_millis: u64,
+) -> std::result::Result<(), String> {
+    if change.hlc.millis() > now_millis.saturating_add(max_future_millis) {
+        return Err("clock_skew".to_owned());
+    }
+    for op in &change.ops {
+        if op.row_id().get_version() != Some(uuid::Version::SortRand) {
+            return Err(format!("row id {} is not UUIDv7", op.row_id()));
+        }
+    }
+    Ok(())
+}
+
+/// Canonical payload bytes used for scoped idempotency checks.
+///
+/// # Errors
+///
+/// Returns a serialization error when the change cannot be encoded as JSON.
+pub fn canonical_change_bytes(change: &Change) -> std::result::Result<Vec<u8>, serde_json::Error> {
+    serde_json::to_vec(change)
+}
 
 /// Convenience `Result` alias using [`Error`].
 pub type Result<T> = std::result::Result<T, Error>;

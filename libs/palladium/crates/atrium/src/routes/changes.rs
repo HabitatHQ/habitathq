@@ -1,15 +1,15 @@
 //! Workspace-scoped change proxy with record-level ACL.
 
 use axum::{
-    Json,
     extract::{Query, State},
     http::{HeaderMap, StatusCode},
+    Json,
 };
 use palladium_core::Change;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    db::{AtriumDb, EVENT_GRANT, EVENT_REVOKE, PendingEvent},
+    db::{AtriumDb, PendingEvent, EVENT_GRANT, EVENT_REVOKE},
     error::AtriumError,
     identity::Caller,
     state::AtriumState,
@@ -29,8 +29,27 @@ fn workspace_of(headers: &HeaderMap) -> Result<String, AtriumError> {
 
 #[derive(Debug, Deserialize)]
 pub(super) struct ListQuery {
-    after: Option<String>,
+    cursor: Option<String>,
     limit: Option<u32>,
+}
+
+#[derive(Debug, Serialize)]
+struct PageControl {
+    #[serde(rename = "mustRefetch")]
+    must_refetch: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct PagePurge {
+    table: String,
+    row_id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct PostReceipt {
+    version: u8,
+    outcome: &'static str,
+    cursor: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -40,10 +59,16 @@ pub(super) struct AckRequest {
 
 #[derive(Debug, Serialize)]
 pub(super) struct ChangesResponse {
+    version: u8,
     changes: Vec<Change>,
     cursor: String,
-    purges: Vec<String>,
+    #[serde(rename = "upperBound")]
+    upper_bound: String,
+    purges: Vec<PagePurge>,
     events: Vec<PendingEvent>,
+    control: PageControl,
+    #[serde(rename = "caughtUp")]
+    caught_up: bool,
 }
 
 async fn change_root(
@@ -85,14 +110,28 @@ pub(super) async fn post_changes(
     Caller(user): Caller,
     headers: HeaderMap,
     Json(change): Json<Change>,
-) -> Result<StatusCode, AtriumError> {
+) -> Result<(StatusCode, Json<PostReceipt>), AtriumError> {
     let workspace = workspace_of(&headers)?;
     state.db().require_member(&workspace, user.as_str()).await?;
     state
         .db()
         .authorize_and_append_change(&workspace, user.as_str(), &change)
         .await?;
-    Ok(StatusCode::CREATED)
+    let cursor = state
+        .db()
+        .list_changes(&workspace, 0, None)
+        .await?
+        .into_iter()
+        .find(|entry| entry.change.id == change.id)
+        .map_or_else(|| "0".to_owned(), |entry| entry.append_seq.to_string());
+    Ok((
+        StatusCode::CREATED,
+        Json(PostReceipt {
+            version: 1,
+            outcome: "inserted",
+            cursor,
+        }),
+    ))
 }
 
 pub(super) async fn get_changes(
@@ -105,20 +144,25 @@ pub(super) async fn get_changes(
     let db = state.db();
     db.require_member(&workspace, user.as_str()).await?;
 
-    let after = match params.after.as_deref() {
+    let after = match params.cursor.as_deref() {
         None => 0,
-        Some(value) if !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()) => {
+        Some(value)
+            if value == "0"
+                || (value.as_bytes()[0] != b'0'
+                    && value.bytes().all(|byte| byte.is_ascii_digit())) =>
+        {
             value
                 .parse::<i64>()
-                .map_err(|err| AtriumError::BadRequest(err.to_string()))?
+                .map_err(|_| AtriumError::BadRequest("invalid_cursor".to_owned()))?
         }
-        Some(_) => {
-            return Err(AtriumError::BadRequest(
-                "after must be a non-negative decimal sequence".to_owned(),
-            ));
-        }
+        Some(_) => return Err(AtriumError::BadRequest("invalid_cursor".to_owned())),
     };
-    let history = db.list_changes(&workspace, after, params.limit).await?;
+    let limit = params.limit.unwrap_or(100);
+    if !(1..=100).contains(&limit) {
+        return Err(AtriumError::BadRequest("invalid_request".to_owned()));
+    }
+    let history = db.list_changes(&workspace, after, Some(limit)).await?;
+    let raw_count = history.len();
     let cursor = history
         .last()
         .map_or(after, |entry| entry.append_seq)
@@ -148,18 +192,30 @@ pub(super) async fn get_changes(
             }
         }
     }
-    let mut purges: Vec<String> = events
-        .iter()
-        .filter(|event| event.kind == EVENT_REVOKE)
-        .map(|event| event.root_id.clone())
-        .collect();
-    purges.sort();
-    purges.dedup();
+    let mut purges = Vec::new();
+    for event in events.iter().filter(|event| event.kind == EVENT_REVOKE) {
+        let record = db
+            .get_record(&workspace, &event.root_id)
+            .await?
+            .ok_or_else(|| AtriumError::NotFound(format!("purge root {}", event.root_id)))?;
+        purges.push(PagePurge {
+            table: record.table_name,
+            row_id: event.root_id.clone(),
+        });
+    }
+    purges.sort_by(|a, b| a.table.cmp(&b.table).then(a.row_id.cmp(&b.row_id)));
+    purges.dedup_by(|a, b| a.table == b.table && a.row_id == b.row_id);
     Ok(Json(ChangesResponse {
+        version: 1,
         changes,
-        cursor,
+        cursor: cursor.clone(),
+        upper_bound: cursor,
         purges,
         events,
+        control: PageControl {
+            must_refetch: false,
+        },
+        caught_up: raw_count < usize::try_from(limit).unwrap_or(100),
     }))
 }
 

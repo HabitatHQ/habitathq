@@ -13,6 +13,7 @@
  */
 
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,6 +21,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import {
   createEngine,
+  generateUuidV7,
   type PalladiumEngine,
   type SchemaConfig,
   SyncTransport,
@@ -53,9 +55,6 @@ type BurrowSchema = {
   };
 };
 
-const ROOT_TABLES = ["habits", "lists", "notes"] as const;
-const CHILD_TABLES = ["completions", "list_items", "note_images"] as const;
-
 const SCHEMA: SchemaConfig = {
   version: 1,
   schema: `
@@ -68,7 +67,7 @@ const SCHEMA: SchemaConfig = {
   `,
 };
 
-const newId = (): string => crypto.randomUUID();
+const newId = (): string => generateUuidV7();
 
 // ── server lifecycle ─────────────────────────────────────────────────────────
 
@@ -216,65 +215,20 @@ async function waitServerHas(user: string, ws: string, rowId: string): Promise<v
 interface Client {
   engine: PalladiumEngine<BurrowSchema>;
   transport: SyncTransport<BurrowSchema>;
-  stop(): Promise<void>;
-}
-
-async function applyPurges(engine: PalladiumEngine<BurrowSchema>, roots: string[]): Promise<void> {
-  for (const rootId of roots) {
-    const rows: Array<{ table: keyof BurrowSchema & string; id: string }> = [];
-    for (const child of CHILD_TABLES) {
-      const childRows = await engine.adapter.exec<{ id: string }>(
-        `SELECT id FROM ${child} WHERE root_id = ?`,
-        [rootId],
-      );
-      for (const { id } of childRows) rows.push({ table: child, id });
-    }
-    for (const root of ROOT_TABLES) {
-      const rootRows = await engine.adapter.exec<{ id: string }>(
-        `SELECT id FROM ${root} WHERE id = ?`,
-        [rootId],
-      );
-      for (const { id } of rootRows) rows.push({ table: root, id });
-    }
-    for (const row of rows) await engine.purgeLocal(row.table, row.id);
-  }
+  dispose(): Promise<void>;
 }
 async function makeClient(user: string, ws: string): Promise<Client> {
   const engine = createEngine<BurrowSchema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }), {
-    nodeId: newId(),
+    nodeId: randomUUID(),
   });
   await engine.init(SCHEMA);
   const transport = new SyncTransport<BurrowSchema>(engine, {
     serverUrl: BASE_URL,
     pollIntervalMs: POLL_MS,
     authHeaders: () => ({ Authorization: `Bearer ${user}`, "X-Workspace": ws }),
-    decodeChanges: async (body) => {
-      if (Array.isArray(body)) return body as WireChange[];
-      const env = body as { changes: WireChange[]; cursor?: string | null; purges: string[] };
-      if (env.purges?.length) await applyPurges(engine, env.purges);
-      const changes = env.changes ?? [];
-      return env.cursor === undefined ? { changes } : { changes, cursor: env.cursor };
-    },
-    acknowledgeChanges: async (body) => {
-      const env = body as {
-        events?: Array<{ id: number; kind: "grant" | "revoke"; root_id: string }>;
-      };
-      const eventIds = (env.events ?? []).map((event) => event.id);
-      if (eventIds.length === 0) return;
-      const res = await rest(
-        "POST",
-        "/v1/changes/events/ack",
-        user,
-        { event_ids: eventIds },
-        {
-          "X-Workspace": ws,
-        },
-      );
-      if (!res.ok) throw new Error(`event ack failed: ${res.status}`);
-    },
   });
   await transport.start();
-  return { engine, transport, stop: () => transport.stop() };
+  return { engine, transport, dispose: () => transport.dispose() };
 }
 
 async function count(c: Client, table: keyof BurrowSchema, id: string): Promise<number> {
@@ -305,7 +259,7 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
     return c;
   };
   afterEach(async () => {
-    await Promise.all(clients.splice(0).map((c) => c.stop()));
+    await Promise.all(clients.splice(0).map((c) => c.dispose()));
   });
 
   it("delivers a later-appended lower-HLC change exactly once", async () => {
@@ -314,8 +268,8 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
     const low = newId();
 
     const highChange: WireChange = {
-      id: newId(),
-      hlc: { wallMs: 100, counter: 0, nodeId: newId() },
+      id: randomUUID(),
+      hlc: { wallMs: 100, counter: 0, nodeId: randomUUID() },
       ops: [
         {
           op: "insert",
@@ -335,8 +289,8 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
     expect(first.changes.map((change) => change.id)).toContain(highChange.id);
 
     const lowChange: WireChange = {
-      id: newId(),
-      hlc: { wallMs: 50, counter: 0, nodeId: newId() },
+      id: randomUUID(),
+      hlc: { wallMs: 50, counter: 0, nodeId: randomUUID() },
       ops: [
         {
           op: "insert",
@@ -349,16 +303,14 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
     expect(
       (await rest("POST", "/v1/changes", "alice", lowChange, { "X-Workspace": ws })).status,
     ).toBe(201);
-
     const second = (await (
-      await rest("GET", `/v1/changes?after=${first.cursor}`, "alice", undefined, {
+      await rest("GET", `/v1/changes?cursor=${first.cursor}&limit=100`, "alice", undefined, {
         "X-Workspace": ws,
       })
     ).json()) as { changes: WireChange[]; cursor: string };
     expect(second.changes.map((change) => change.id)).toEqual([lowChange.id]);
-
     const third = (await (
-      await rest("GET", `/v1/changes?after=${second.cursor}`, "alice", undefined, {
+      await rest("GET", `/v1/changes?cursor=${second.cursor}&limit=100`, "alice", undefined, {
         "X-Workspace": ws,
       })
     ).json()) as { changes: WireChange[] };
@@ -385,7 +337,6 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
       done: 1,
     });
 
-    // alice's second device converges on both the root and its child.
     await waitUntil(async () => (await count(alice2, "habits", habit)) === 1);
     await waitUntil(async () => (await count(alice2, "completions", comp)) === 1);
 
@@ -510,7 +461,7 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
     expect((await unshare("alice", ws, note, "bob")).status).toBe(200);
     await waitUntil(async () => (await count(bob, "notes", note)) === 0);
     const pending = await bob.engine.adapter.exec<{ n: number }>(
-      "SELECT COUNT(*) AS n FROM _sync_pending_changes",
+      "SELECT COUNT(*) AS n FROM _sync_outbox",
       [],
     );
     expect(pending[0]?.n ?? 0).toBe(0); // a server purge is never an outbound delete

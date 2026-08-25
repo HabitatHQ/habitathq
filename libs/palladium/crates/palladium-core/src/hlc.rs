@@ -18,9 +18,7 @@ use crate::NodeId;
 /// Ordering is lexicographic on `(millis, counter, node_id)`, which means
 /// larger values represent later events. `node_id` acts as a deterministic
 /// tie-breaker when two nodes generate an event at the same logical instant.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Hlc {
     /// Wall-clock milliseconds since Unix epoch (never decreases).
@@ -41,7 +39,11 @@ impl Hlc {
     /// Creates a fresh HLC at `wall_millis` with counter `0`.
     #[must_use]
     pub const fn new(node_id: NodeId, wall_millis: u64) -> Self {
-        Self { millis: wall_millis, counter: 0, node_id }
+        Self {
+            millis: wall_millis,
+            counter: 0,
+            node_id,
+        }
     }
 
     /// Constructs an HLC from raw field values.
@@ -52,7 +54,11 @@ impl Hlc {
     /// building a cursor from parsed components.
     #[must_use]
     pub const fn from_parts(millis: u64, counter: u32, node_id: NodeId) -> Self {
-        Self { millis, counter, node_id }
+        Self {
+            millis,
+            counter,
+            node_id,
+        }
     }
 
     /// Wall-clock milliseconds since Unix epoch.
@@ -89,7 +95,11 @@ impl Hlc {
         } else {
             (millis, 0)
         };
-        Self { millis, counter, node_id: self.node_id }
+        Self {
+            millis,
+            counter,
+            node_id: self.node_id,
+        }
     }
 
     /// Returns a zero-padded string key that sorts lexicographically in the
@@ -97,8 +107,8 @@ impl Hlc {
     ///
     /// Format: `{millis:020}_{counter:010}_{node_id_hex:032x}`
     ///
-    /// This is the canonical cursor format for the sync API's `?after=`
-    /// parameter and the storage index key used by all `ChangeStore` backends.
+    /// This is an internal HLC ordering key. Sync history uses server-issued
+    /// append positions rather than HLC-derived cursors.
     #[must_use]
     pub fn sort_key(&self) -> String {
         format!(
@@ -125,11 +135,15 @@ impl Hlc {
         let node_id = node_id_str
             .parse::<NodeId>()
             .map_err(|e| format!("invalid node id: {e}"))?;
-        let millis = u64::try_from(millis)
-            .map_err(|_| format!("hlc_millis {millis} is negative"))?;
+        let millis =
+            u64::try_from(millis).map_err(|_| format!("hlc_millis {millis} is negative"))?;
         let counter = u32::try_from(counter)
             .map_err(|_| format!("hlc_counter {counter} out of u32 range"))?;
-        Ok(Self { millis, counter, node_id })
+        Ok(Self {
+            millis,
+            counter,
+            node_id,
+        })
     }
 
     /// Merges a **remote** HLC received with this local HLC.
@@ -160,7 +174,11 @@ impl Hlc {
         } else {
             (millis, 0)
         };
-        Self { millis, counter, node_id: self.node_id }
+        Self {
+            millis,
+            counter,
+            node_id: self.node_id,
+        }
     }
 }
 
@@ -190,7 +208,11 @@ impl FromStr for Hlc {
         let node_u128 = u128::from_str_radix(node_hex, 16)
             .map_err(|_| format!("invalid node_id in HLC sort key: {s}"))?;
         let node_id = NodeId::from_uuid(uuid::Uuid::from_u128(node_u128));
-        Ok(Self { millis, counter, node_id })
+        Ok(Self {
+            millis,
+            counter,
+            node_id,
+        })
     }
 }
 
@@ -343,7 +365,10 @@ mod tests {
         let key = t.sort_key();
         // 20 + 1 + 10 + 1 + 32 = 64 chars
         assert_eq!(key.len(), 64);
-        assert!(key.starts_with(&format!("{:020}", 1_700_000_000_000_u64)), "millis prefix");
+        assert!(
+            key.starts_with(&format!("{:020}", 1_700_000_000_000_u64)),
+            "millis prefix"
+        );
     }
 
     #[test]
@@ -382,10 +407,22 @@ mod tests {
     #[test]
     fn sort_key_orders_match_hlc_ord() {
         let pairs = [
-            (Hlc::from_parts(1_000, 0, node(1)), Hlc::from_parts(2_000, 0, node(1))),
-            (Hlc::from_parts(1_000, 0, node(1)), Hlc::from_parts(1_000, 1, node(1))),
-            (Hlc::from_parts(1_000, 0, node(1)), Hlc::from_parts(1_000, 0, node(2))),
-            (Hlc::from_parts(0, 0, node(0)), Hlc::from_parts(1, 0, node(0))),
+            (
+                Hlc::from_parts(1_000, 0, node(1)),
+                Hlc::from_parts(2_000, 0, node(1)),
+            ),
+            (
+                Hlc::from_parts(1_000, 0, node(1)),
+                Hlc::from_parts(1_000, 1, node(1)),
+            ),
+            (
+                Hlc::from_parts(1_000, 0, node(1)),
+                Hlc::from_parts(1_000, 0, node(2)),
+            ),
+            (
+                Hlc::from_parts(0, 0, node(0)),
+                Hlc::from_parts(1, 0, node(0)),
+            ),
         ];
         for (a, b) in pairs {
             assert_eq!(

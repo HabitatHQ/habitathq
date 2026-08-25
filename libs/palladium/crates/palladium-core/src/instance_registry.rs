@@ -14,7 +14,9 @@ fn with_set<T>(f: impl FnOnce(&mut HashSet<String>) -> T) -> T {
     let mutex = OPEN_PATHS.get_or_init(|| Mutex::new(HashSet::new()));
     // Mutex poison only happens when a thread panics while holding it.
     // Since this crate denies `panic`, we recover gracefully.
-    let mut guard = mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut guard = mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     f(&mut guard)
 }
 
