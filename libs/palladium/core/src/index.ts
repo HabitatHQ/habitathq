@@ -23,7 +23,12 @@ export type {
   RemoteChange,
   SyncStatus,
 } from "./engine.js";
-export { createEngine, PalladiumEngine, toError } from "./engine.js";
+export {
+  createEngine,
+  PalladiumEngine,
+  SchemaIdentityMismatchError,
+  toError,
+} from "./engine.js";
 export { EventEmitter } from "./event-emitter.js";
 export type { Hlc } from "./hlc.js";
 export {
@@ -59,6 +64,11 @@ export { isTransactable, supportsConstraintDeferral } from "./storage.js";
 export type {
   DeleteWireOp,
   InsertWireOp,
+  SyncError,
+  SyncEvent,
+  SyncPageEnvelope,
+  SyncQuarantineEntry,
+  SyncReceipt,
   SyncTransportOptions,
   UpdateWireOp,
   WireChange,

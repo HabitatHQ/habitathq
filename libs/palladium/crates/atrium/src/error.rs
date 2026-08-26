@@ -48,21 +48,38 @@ impl From<sqlx::Error> for AtriumError {
 
 impl IntoResponse for AtriumError {
     fn into_response(self) -> Response {
-        let (status, message) = match self {
-            Self::Unauthorized(m) => (StatusCode::UNAUTHORIZED, m),
-            Self::Forbidden(m) => (StatusCode::FORBIDDEN, m),
-            Self::NotFound(m) => (StatusCode::NOT_FOUND, m),
-            Self::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
-            Self::Conflict(m) => (StatusCode::CONFLICT, m),
+        let (status, code, message) = match self {
+            Self::Unauthorized(message) => (StatusCode::UNAUTHORIZED, "unauthorized", message),
+            Self::Forbidden(message) => (StatusCode::FORBIDDEN, "forbidden", message),
+            Self::NotFound(message) => (StatusCode::NOT_FOUND, "not_found", message),
+            Self::BadRequest(message) => {
+                let code = match message.as_str() {
+                    "invalid_cursor" => "invalid_cursor",
+                    "invalid_hlc" => "invalid_hlc",
+                    "unsupported_version" => "unsupported_version",
+                    _ => "invalid_request",
+                };
+                (StatusCode::BAD_REQUEST, code, message)
+            }
+            Self::Conflict(message) => {
+                let code = match message.as_str() {
+                    "change_conflict" => "idempotency_conflict",
+                    "clock_skew" => "clock_skew",
+                    "expired_checkpoint" => "expired_checkpoint",
+                    _ => "conflict",
+                };
+                (StatusCode::CONFLICT, code, message)
+            }
             Self::Internal(err) => {
                 tracing::error!(%err, "internal server error");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal",
                     "internal server error".to_owned(),
                 )
             }
         };
-        (status, Json(json!({ "error": message }))).into_response()
+        (status, Json(json!({ "code": code, "message": message }))).into_response()
     }
 }
 

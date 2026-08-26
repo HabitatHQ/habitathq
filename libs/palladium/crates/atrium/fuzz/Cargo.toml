@@ -1,0 +1,26 @@
+[package]
+name = "atrium-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+palladium-core = { version = "0.1.0", path = "../../palladium-core" }
+serde_json = "1.0.151"
+
+[dependencies.atrium]
+path = ".."
+
+
+[workspace]
+
+[[bin]]
+name = "change_decoder"
+path = "fuzz_targets/change_decoder.rs"
+test = false
+doc = false
+bench = false

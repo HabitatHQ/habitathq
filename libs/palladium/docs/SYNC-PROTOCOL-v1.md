@@ -1,120 +1,105 @@
 # Palladium Sync Protocol v1
 
-**Status:** Normative contract for the next breaking protocol release.
-**Authority:** This document is the sole normative authority for Palladium sync wire behavior, persisted sync state, and public transport behavior. It supersedes sync guidance in `DRAFT-ARCH.md`, `answers.md`, `TESTING-SYNC.md`, `STATUS.md`, and historical plans where they differ. The production-readiness review remains the implementation and evidence ledger: [`sync-engine-contract-review-20260824T164225Z.md`](./sync-engine-contract-review-20260824T164225Z.md).
+**Status:** Implemented wire and transport contract for the current v1 release.
+**Authority:** This document defines the currently implemented v1 HTTP envelope and `@palladium/core` transport behavior. It supersedes conflicting sync guidance in `DRAFT-ARCH.md`, `answers.md`, historical plans, and the prior PR37 TODO wording. The implementation-closure evidence is maintained in [`pr37-error-versioning-robustness-todos-20260825T082724Z.md`](./pr37-error-versioning-robustness-todos-20260825T082724Z.md); targeted commands are in [`TESTING-SYNC.md`](./TESTING-SYNC.md).
 
-A conforming implementation MUST implement every requirement in this document. A document, test, fixture, or public API that contradicts it is obsolete and MUST be removed rather than supported through compatibility behavior. Version 1 does not accept bare arrays, HLC `after` cursors, response-shape dialect detection, `_sync_pending_changes`, `_sync_pending_ops`, ULID row IDs, or opaque `decodeChanges` / `acknowledgeChanges` hooks.
+V1 has no bare change-array response, no HLC history cursor, no legacy pending-operations queue, and no transport response-shape fallback. The local durable queue is `_sync_outbox`. A client treats a server-issued cursor as an opaque non-empty token even though the current generic and Atrium servers encode decimal append positions.
 
-## 1. Terms and authority
+## 1. Identity, changes, and local schema identity
 
-- **Replica** is one local materialized database and its stable `NodeId`; it is not a user, session, or authorization credential.
-- **Principal** is the authenticated actor selected by the host. The server derives the **scope** from the principal; client payloads MUST NOT select or override it.
-- **Client view** is the authorized subset of a scope materialized by a replica. It may change because ACL policy changes.
-- **`Op`** is an insert, update, or delete of one row. A **Change** is an immutable, atomic ordered collection of operations with a UUIDv4 change ID and one HLC. A **canonical change** is the sole accepted representation after transaction normalization.
-- A **conflict version** is the complete LWW version used for one cell or tombstone. Its comparison is total and deterministic. A version includes the HLC and any explicitly specified intra-change ordering component; v1 canonicalization eliminates repeated targets instead of accepting an implicit equal-HLC sequence.
-- A **history position** is a server-issued append position. A **checkpoint** is a durably stored position for one client view after its complete typed page has committed.
-- **Uplink** sends durable local changes to the server; **downlink** applies server pages to a replica. Both are **at least once**: a valid item or page can be delivered again and every consumer boundary MUST be replay-safe.
-- **Idempotency** means reprocessing the same scoped canonical change has the documented no-op effect. It is not merely an HTTP success code.
-- **Hydrated** means the replica has applied its initial page/snapshot state. **Caught up** means it has committed every page through the response `upperBound`; later appends may still exist.
-- **Resnapshot** (also **must-refetch**) means a checkpoint can no longer be safely continued and the client MUST replace its view from the server-directed bootstrap.
-- A **transient failure** can be retried without changing user input. A **terminal rejection** cannot be retried until an operator or application changes the cause. **Quarantine** is durable, inspectable storage for a terminal item. A **dead letter** is a quarantined downlink item; an outbox quarantine is a quarantined uplink item.
-- A **tombstone** is replicated delete-conflict state and prevents stale resurrection. An **ACL purge** removes a formerly authorized row from one client view; it is not a replicated delete and MUST NOT create a tombstone.
-- **Schema identity** identifies the negotiated schema and supported tables/columns. A **syncable value** is a JSON value that round-trips losslessly under Section 2.
+- A `Change` has a UUIDv4 `id`, one HLC, and an ordered canonical operation list. Replicated row IDs are canonical lowercase UUIDv7 strings. `NodeId` is UUIDv4 replica identity; it is not an authorization credential.
+- A syncable operation is `insert`, `update`, or `delete`. The engine validates a remote HLC and rejects a remote change whose operations are not canonical before its page transaction begins. Schema/table validation is performed while applying operations.
+- The server derives scope from authentication. Atrium additionally requires the `x-workspace` header and verifies workspace membership; callers do not submit a generic store scope in the change payload.
+- `PalladiumEngine.init({ version, schema })` derives and persists a local `schema_identity_v1` value. `SyncTransport` requires either an explicit `schemaFingerprint` or an initialized engine identity, and records that identity with durable outbox rows. Before posting an outbox row from a different identity, the transport moves it to `_sync_outbox_quarantine` rather than sending it. This implementation has no schema-identity field or negotiation in the v1 HTTP payload; server-side schema compatibility is therefore outside this wire contract.
 
-## 2. Data language and validation
+## 2. HTTP wire contract
 
-### 2.1 Rows, identifiers, and JSON
+### 2.1 Upload
 
-Every syncable table MUST have one immutable primary key named `id`. `id` MUST be a canonical lowercase UUIDv7 string. UUIDv4, ULID, arbitrary text, noncanonical spellings, and primary-key patches are invalid at local mutation, persisted outbox decode, and every wire boundary. `NodeId` and `Change.id` are UUIDv4 and have different meanings from row IDs.
-
-`SyncRow` is an object with an `id` and only schema-declared columns. A `JsonValue` is exactly `null`, boolean, finite JSON number, string, array of `JsonValue`, or object with string keys and `JsonValue` values. `undefined`, functions, symbols, bigint, NaN, infinities, cyclic values, dates without an explicit JSON encoding, and values that change meaning on JSON encode/decode are invalid. Implementations MUST reject unknown tables/columns and unsafe identifiers before mutation; they MUST NOT interpolate unvalidated identifiers into SQL.
-
-The host binds each `NodeId` to an authorized principal. A NodeId is stable replica identity only and MUST NOT authenticate or authorize requests.
-
-### 2.2 Canonical change
-
-Before local apply, LWW stamping, and outbox persistence, a transaction MUST normalize to one canonical Change:
-
-1. Group writes by `(table, row id)` while preserving dependencies required by the schema.
-2. For repeated updates, retain only the final value of each column.
-3. Fold an insert followed by updates into the final insert.
-4. Fold writes followed by a terminal delete into that delete.
-5. Treat delete followed by a later insert as an explicit resurrection insert.
-6. Reject any remaining repeated `(table, row id, column)` target or invalid operation.
-
-The normalized operations are exactly the operations locally applied, persisted, hashed, and transmitted. Receivers MUST validate canonical form before applying it. A Change and all of its operations are immutable and atomic: a receiver applies all effects or none.
-
-For a change identity `(scope, change_id)`, the server MUST calculate the canonical-byte identity before node, ACL, event, or other metadata side effects. The same canonical bytes are a no-op and return the original receipt/position. Different canonical bytes are a side-effect-free terminal `idempotency_conflict`. Change IDs may repeat in different scopes.
-
-### 2.3 Conflict and clocks
-
-A column write wins only when its complete conflict version is greater than the stored version. Deletes leave tombstones; a stale update or insert MUST NOT resurrect a tombstoned row. Reclamation requires proof that every relevant history consumer is safe, or a resnapshot protocol. A later canonical insert with the same row ID and greater version is the only resurrection path.
-
-Before an untrusted HLC changes clock, data, metadata, or append history, the receiver MUST validate structural form, finite safe-integer wall time, counter bounds, UUIDv4 node identity, configured maximum future skew, and per-node monotonicity. Failure returns terminal `clock_skew` with server time where applicable and has no data or checkpoint effect.
-
-## 3. Versioned HTTP page protocol
-
-All v1 sync endpoints are scoped by server authentication. A request MUST use protocol version 1 and a response MUST carry `version: 1`; unknown versions are terminal `unsupported_version`. The protocol has no fallback dialect.
-
-### 3.1 Uplink
-
-`POST /v1/changes` accepts one canonical Change. Its v1 success receipt is a typed object:
+`POST /v1/changes` accepts one JSON `Change` and returns `201 Created` with the typed receipt:
 
 ```json
-{ "version": 1, "outcome": "inserted | duplicate", "cursor": "opaque-position" }
+{ "version": 1, "outcome": "inserted", "cursor": "opaque-position" }
 ```
 
-The receipt is an acknowledgement of this one change only. A client MUST retain the `_sync_outbox` row until it has decoded a valid matching success receipt and durably recorded the acknowledgement. A lost response after server commit is safe: retrying the identical scoped canonical change receives `duplicate` and drains the same row. The outbox is one row per canonical Change, not one row per operation, and local data, LWW metadata, durable HLC, and that row MUST commit atomically before `changes:local` is observable. Uplink order is the durable outbox order and one transport runs one single-flight drain worker.
+`outcome` is exactly `inserted` or `duplicate`; `cursor` is a non-empty string. A `duplicate` receipt identifies a previously accepted identical scoped change. The client removes an `_sync_outbox` row only after it decodes this complete receipt. A malformed JSON body, another receipt version, an unknown outcome, or a missing/empty cursor leaves the row durable and records `lastError` as `invalid_receipt`.
 
-### 3.2 Downlink
+Generic Palladium Axum and Atrium both emit this receipt shape. They return the cursor associated with the append outcome, including a duplicate. A successful receipt is the acknowledgement for only the posted change; a response lost after the server commits is retried with the same durable change ID.
 
-`GET /v1/changes?cursor=<opaque-position>&limit=<positive bounded integer>` returns one typed v1 page. `cursor` is omitted for the initial page. Servers clamp limits to their documented maximum (v1 maximum: 100), capture an upper bound, and return bounded work only.
+### 2.2 Download
+
+`GET /v1/changes?cursor=<token>&limit=<n>` returns the complete versioned envelope:
 
 ```json
 {
   "version": 1,
-  "changes": ["canonical Change", "..."],
+  "changes": ["Change", "..."],
+  "purges": [{ "table": "notes", "row_id": "uuidv7" }],
+  "events": [{ "id": 1, "kind": "grant", "root_id": "uuidv7" }],
   "cursor": "opaque-position or null",
   "upperBound": "opaque-position",
   "caughtUp": true,
-  "purges": ["typed ACL purge", "..."],
-  "events": ["typed authorized event", "..."],
   "control": { "mustRefetch": false }
 }
 ```
 
-The generic page may omit `purges`, `events`, and `control` only when its endpoint contract explicitly does not support them; Atrium v1 includes them. Implementations MUST exhaustively validate the complete envelope before extracting any cursor or applying any field. A missing, malformed, unknown-version, or unknown-operation envelope has no application, acknowledgement, or checkpoint effect. A response is never a bare Change array.
+The TypeScript transport requires every displayed member, validates the envelope before applying anything, and rejects malformed pages as `invalid_envelope` or malformed changes as `invalid_operation`. It requests `limit=100`. Atrium accepts only limits from 1 through 100 and returns `invalid_request` otherwise. Atrium currently accepts its decimal cursor representation only; empty, non-canonical, non-numeric, overflowing, and Unicode cursor values return a typed `400 invalid_cursor` response without a route panic. Generic clients must not parse, compare, or construct cursor contents.
 
-A history position is independent of HLC, server-issued, opaque to generic clients, scoped to the client view, and monotonic. Servers assign it atomically at durable append. A page scans only through its captured `upperBound`; `caughtUp: true` means the returned/retained checkpoint has reached that bound. Empty and ACL-filtered windows may advance a checkpoint across scanned unauthorized history without exposing unauthorized changes. A client MUST store the returned position only after the entire typed page has committed. It MUST NOT advance past malformed or transiently failed content.
+A page cursor is the server append position after the last scanned history entry. It can advance when ACL filtering hides all changes in the scanned window. `caughtUp` says that the page had fewer raw history entries than the requested limit; it is not a promise that later entries cannot be appended. Atrium currently emits `mustRefetch: false`; transports treat a true value as `degraded` and do not continue that page.
 
-If `control.mustRefetch` is true, or the server returns terminal `checkpoint_expired`, the client MUST stop ordinary continuation, discard the invalid view checkpoint as directed, and resnapshot. Initial and steady-state sync MUST remain page-bounded and yield between pages so a UI worker is not monopolized.
+### 2.3 Errors and event acknowledgement
 
-### 3.3 Typed page application and acknowledgements
+Non-success HTTP responses use JSON `{ "code": "stable_code", "message": "human explanation" }`. `SyncTransport.lastError` is a typed `SyncError` with phase, stable code, retryability, and—when available—HTTP status, response body, change ID, attempt, and retry time. It preserves `Retry-After` as `nextRetryAt` for a rate-limited upload. Known HTTP code handling includes authorization, request/cursor validation, conflict, clock, checkpoint, rate-limit, schema, and internal classifications; an unrecognized or malformed error body remains a terminal transport classification rather than a success.
 
-A transport applies a page in one replay-safe transaction boundary: validate page; apply canonical changes; apply idempotent ACL purges; persist deduplicated events; persist the page checkpoint; then make local effects observable. A retry of the same page MUST be harmless. Remote data, LWW metadata, pending-update state, applied-change ledger (or equivalent checkpoint epoch), events, purges, and checkpoint MUST be atomic where their storage shares a transaction boundary; no component MAY perform a partial opaque page hook outside this contract.
+Atrium event acknowledgements use `POST /v1/changes/events/ack` with:
 
-Event acknowledgement is an explicit typed, idempotent request after durable event processing. An acknowledgement failure leaves the event pending and a later page/retry MUST not duplicate its effect. Purges MUST delete only the local view and associated local derived data, never emit a replicated tombstone, and MUST make a resnapshot possible if later authorization restores visibility.
+```json
+{ "event_ids": [1, 2] }
+```
 
-## 4. Errors, recovery, status, and lifecycle
+The endpoint is caller- and workspace-scoped and returns `204 No Content` only for pending events owned by that caller. The client first persists deduplicated `grant`/`revoke` event records in `_sync_events`, then sends the acknowledgement. If acknowledgement fails, the local event remains unacknowledged and a later poll can retry it without duplicating its persisted event record.
 
-Every failure is a `SyncError` with `phase`, stable `code`, `retryable`, HTTP `status` when present, `changeId` when applicable, `attempt`, and `nextRetryAt` when scheduled. HTTP error bodies are typed `{ "code": "stable_code", "message": "human explanation" }`; clients preserve status, body, and `Retry-After`. Known terminal examples are `unsupported_version`, `invalid_envelope`, `invalid_operation`, `invalid_row_id`, `invalid_json_value`, `idempotency_conflict`, `clock_skew`, `checkpoint_expired`, and authorization/schema rejection codes. Unknown error codes are terminal protocol errors, not implicit retries.
+## 3. Transactional downlink and recovery
 
-Retryable failures use timeout and cancellation, exponential backoff with jitter, and bounded authentication refresh. Terminal items are durably quarantined with code, phase, attempts, payload, history position when present, and timestamps. The public recovery surface MUST support inspect, export, retry, and explicit discard. Policy is configured per code: it either blocks the affected sync flow or explicitly skips it into visible `degraded` state. No implementation may use a fixed attempt count as an unclassified terminal decision.
+`PalladiumEngine.applyRemotePage` is the transport coordination primitive. It validates the page's remote changes first, then runs remote application in one storage transaction. When every remote change succeeds, the transaction applies ACL purges and runs the transport callback that persists events and the append checkpoint; only after that transaction commits does the transport acknowledge page events.
 
-One live `SyncTransport` exclusively owns one engine. Attachment obtains that lease; a second live attachment is rejected. `start`, `poll`, `syncOnce`, timer work, and `stop` are single-flight and race-safe. `stop` cancels in-flight work or awaits it for a documented bound. `dispose()` is idempotent, stops work, unregisters checkpoint/event handling, releases the lease, and permits a replacement transport. There are no compatibility lifecycle wrappers.
+A rejected remote change is handled inside that transaction through the quarantine callback. Other valid changes in the page may remain durable, but the page's purges, events, and checkpoint callback are withheld and the prior checkpoint remains current. The result is `false`, the transport enters `degraded`, and replay of the page is safe. Under `terminalPolicy: "degraded_skip"`, the rejected change is durably marked permanent; under the default `"block"` policy it remains a visible blocking quarantine. This is intentionally more precise than claiming that a mixed-validity page advances its cursor atomically.
 
-The public status is exactly one of `uninitialized`, `hydrating`, `syncing`, `caught_up`, `offline`, `blocked_auth`, or `degraded`. Status transitions and structured errors are observable; `caught_up` is not a promise that the server will never append more history.
+`SyncTransport` exposes restart-safe quarantine operations:
 
-## 5. Contract index
+- `inspectQuarantine()` reads durable uplink and downlink entries.
+- `exportQuarantine()` serializes those entries for operator inspection.
+- `retryQuarantined(changeId)` restores an uplink entry to `_sync_outbox`, or validates and reapplies the persisted downlink payload.
 
-| Review clauses | Normative sections |
-| --- | --- |
-| C01–C05 data and identity | Sections 1, 2.1 |
-| C06–C10 canonical Change and atomic persistence | Sections 2.2, 3.1, 3.3 |
-| C11–C15 merge, tombstones, and HLC validation | Sections 2.2–2.3 |
-| C16–C21 delivery, history, checkpoints, acknowledgements | Sections 3.1–3.3 |
-| C22–C28 lifecycle, errors, quarantine, status, bounded history | Section 4 and Section 3.2 |
+The public recovery API exposes `inspectQuarantine()`, `exportQuarantine()`, `retryQuarantined(changeId)`, and `discardQuarantined(changeId)`. Discard persists a permanent forward skip; it does not delete the evidence. Quarantine entries contain the serialized payload, phase, attempts/permanent state, timestamps, and available schema/error identity. Downlink entries additionally retain their HLC metadata.
 
-## 6. Conformance and evidence
+## 4. Lifecycle and status
 
-Protocol documentation alone does not prove a release. The checklist in the review is authoritative for implementation evidence and remains unchecked until source enforcement and permanent regression/conformance coverage exist. Required verification commands and their latest recorded outcomes are maintained there; do not infer a checked release gate from this specification.
+One live `SyncTransport` owns an engine lease. A second attachment fails until the first is disposed. `start`, `syncOnce`, timer work, `stop`, and `dispose` serialize lifecycle work. `stop()` aborts an active request, clears the interval, and unsubscribes local-change handling. `dispose()` is idempotent, stops the transport, unregisters the local outbox checkpoint, and releases the engine lease so a replacement transport can attach.
+
+The engine status vocabulary is exactly `uninitialized`, `hydrating`, `syncing`, `caught_up`, `offline`, `blocked_auth`, and `degraded`. Status changes are emitted through `sync:status`; the latest structured transport failure is exposed through `lastError`. `caught_up` records the result of the most recent completed page, not permanent convergence.
+
+## 5. Executable fixtures
+
+- [`protocol-fixtures/changes-envelope.valid.json`](../protocol-fixtures/changes-envelope.valid.json) is the shared valid page envelope with the required v1 page members. The fixture intentionally uses empty purge/event arrays; typed purge and event wire shapes are exercised by transport and Atrium tests.
+- [`protocol-fixtures/receipt.valid.json`](../protocol-fixtures/receipt.valid.json) is the success-receipt fixture used by the fixture contract test.
+- [`protocol-fixtures/wire-invalid.json`](../protocol-fixtures/wire-invalid.json) supplies language-neutral invalid HLC, operation, and cursor cases.
+- [`protocol-fixtures/hostile-inputs.bounded.json`](../protocol-fixtures/hostile-inputs.bounded.json) is the deterministic hostile corpus. It limits materialized bodies to 8 KiB, nesting to 32 levels, and cases per decoder to eight. It is not an unbounded fuzzing campaign.
+- Seed corpus commands:
+  ```sh
+  pnpm --filter @palladium/core exec vitest run src/__tests__/sync-fuzz-corpus.test.ts
+  cargo test -p atrium bounded_hostile_route_corpus -- --nocapture
+  ```
+- Deterministic generated-sequence commands:
+  ```sh
+  pnpm --filter @palladium/core exec vitest run src/__tests__/sync-fuzz-generated.test.ts
+  cargo test -p atrium generated_hostile_route_sequences -- --nocapture
+  ```
+
+- Sanitizer-backed bounded decoder campaign:
+  ```sh
+  cd libs/palladium/crates/atrium/fuzz
+  cargo +nightly fuzz run change_decoder -- -runs=1000 -max_len=8192
+  ```
+
+See [`TESTING-SYNC.md`](./TESTING-SYNC.md) for the final targeted validation matrix and external prerequisites.

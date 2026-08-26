@@ -100,7 +100,7 @@ The moves:
 
 ## 3. Current state
 
-### 3.1 Palladium's sync engine — built vs. not
+### 3.1 Historical Palladium sync snapshot — superseded
 
 Source: the historical integration snapshot and direct code reading. This
 section is retained for architecture history only; it is not a report of v1
@@ -302,7 +302,7 @@ These are the sharp edges of record-level ACL; the POC (Phase 5) must exercise g
 
 ---
 
-## 7. Implementation plan (POC-first)
+## 7. Historical implementation plan — superseded
 
 Layers are largely **parallelizable**: Phase 1–2 (Palladium) and Phase 3 (Atrium) can proceed together; Phase 4 (POC app) depends on both.
 

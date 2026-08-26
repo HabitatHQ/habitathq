@@ -1,221 +1,58 @@
-# Testing the Palladium sync engine
+# Palladium sync v1 validation matrix
 
-A hands-on guide to exercising everything built in **Phase 1** (hardened engine)
-and **Phase 2** (scoped store + auth seam). Covers the automated test suites and
-a manual end-to-end demo you can drive by hand with `curl`.
+[`SYNC-PROTOCOL-v1.md`](./SYNC-PROTOCOL-v1.md) is the normative contract. This page lists the release-integration checks for the implemented v1 receipt, typed page, schema identity, event, quarantine, lifecycle, and bounded hostile-input behavior. It intentionally does not use legacy HLC cursors, bare-array responses, or obsolete outbox names as acceptance criteria.
 
-> **Verification guide:** Protocol expectations are defined by [`SYNC-PROTOCOL-v1.md`](./SYNC-PROTOCOL-v1.md). Commands and examples below are historical unless they use the v1 versioned page, opaque append cursor, typed receipt, and explicit lifecycle APIs. Do not use legacy HLC `after` queries, bare-array responses, or legacy outbox names as acceptance criteria.
+Run commands from the repository root unless a command changes directory explicitly. These are targeted checks; full lint, formatting, workspace test, and sanitizer campaigns are outside this release-integration pass.
 
-> **What's covered**
-> - Phase 1a — non-poisoning remote apply (quarantine + cursor safety)
-> - Phase 1b — column-level LWW by HLC (fixes F1, permanent divergence)
-> - Phase 1c — durable sync state (nodeId + HLC + cursor survive restart)
-> - D2c — adapter-neutral foreign-key deferral
-> - Phase 2a — opaque tenant **Scope** on the change store
-> - Phase 2b — **AuthSeam** (per-request scope) + client token decoration
+## Deterministic fixture and transport checks
 
----
+| Contract | Exact command | Evidence |
+| --- | --- | --- |
+| Shared page and invalid wire fixtures | `pnpm --filter @palladium/e2e exec vitest run src/__tests__/protocol-fixtures.test.ts` | Round-trips `changes-envelope.valid.json`, `receipt.valid.json`, and classifies `wire-invalid.json`. |
+| Typed receipts, outbox retention/replay, schema identity, lifecycle, events, and quarantine | `pnpm --filter @palladium/core exec vitest run src/__tests__/sync.test.ts` | Exercises malformed receipt retention, duplicate replay after response loss, disposal/replacement, stop cancellation, event acknowledgement loss, opaque cursor persistence, structured errors, and fingerprint quarantine. |
+| Restart-safe cursor/event persistence | `pnpm --filter @palladium/core exec vitest run src/__tests__/sync-durable.test.ts` | Verifies `append_cursor_v1`, derived `schema_identity_v1`, and restart resume. |
+| Remote poison isolation | `pnpm --filter @palladium/core exec vitest run src/__tests__/sync-poison.test.ts` | Verifies rejected remote changes are quarantined and do not permanently wedge later valid changes. |
+| Bounded TypeScript hostile corpus | `pnpm --filter @palladium/core exec vitest run src/__tests__/sync-fuzz-corpus.test.ts` | Uses the checked-in corpus only; materialized bodies are capped at 8 KiB and nested values at depth 32. |
+| Generated deterministic TypeScript hostile sequences | `pnpm --filter @palladium/core exec vitest run src/__tests__/sync-fuzz-generated.test.ts` | Runs the bounded generated decoder/lifecycle sequence corpus without adding a fuzz dependency. |
+| Rust shared wire fixtures | `cargo test -p palladium-core shared_wire_fixtures_round_trip_and_classify_invalid_inputs` | Decodes the same valid page and invalid HLC/operation/cursor fixture files. |
+| Bounded Atrium route corpus | `cargo test -p atrium bounded_hostile_route_corpus -- --nocapture` | Sends each checked-in hostile route case and asserts a client error plus a live health route; includes the empty cursor regression. |
+| Generated deterministic Atrium hostile sequences | `cargo test -p atrium generated_hostile_route_sequences -- --nocapture` | Runs the bounded generated route sequence corpus and checks that the service remains responsive. |
+| Atrium HTTP receipt/page/events behavior | `cargo test -p atrium --lib` | Runs the in-process SQLite HTTP tests for typed receipts, ACL-filtered pages, event acknowledgement, and cursor validation. |
+| Generic Axum route/OpenAPI contract | `cargo test -p palladium-axum --test integration` | Verifies mounted v1 routes, typed page fields, and `/api-doc/openapi.json`. |
+| Sanitizer-backed Rust change decoder | `cd libs/palladium/crates/atrium/fuzz && cargo +nightly fuzz run change_decoder -- -runs=1000 -max_len=8192` | Runs libFuzzer with AddressSanitizer over the bounded `palladium_core::Change` decoder corpus. |
 
-## The easy way: the UI Sync Playground (start here)
+The e2e fixture command is independent of a running server. Core Vitest commands use the package's in-memory/node adapter aliases. Rust commands compile the relevant crates and may require the repository's configured Cargo target directory.
 
-If you just want to **see sync work** — no test files, no `curl` — run the visual
-playground. One page shows several independent "devices" (each its own local
-database) syncing through the real server. Type in one, watch it land in the
-others.
+## End-to-end prerequisites (not part of the fixture gate)
 
-```bash
-pnpm install                                               # once, from the repo root
-pnpm --filter @palladium/example-sync-playground demo      # builds + starts server AND UI
+The live client/server suite requires a built core package and a Rust server binary:
+
+```sh
+pnpm --filter @palladium/core build
+pnpm --filter @palladium/e2e typecheck
+pnpm --filter @palladium/e2e test
 ```
 
-Then open **http://localhost:5173**. (First run compiles the Rust CLI; the
-launcher puts cargo on `PATH` for you.)
+`@palladium/e2e` imports the built `@palladium/core` package; run the build first or the suite can exercise stale `dist` output. The e2e setup requires Cargo and SQLite-compatible local server execution. If Cargo artifacts are redirected, set `CARGO_TARGET_DIR` so the server launcher can locate the binary. These are external prerequisites for live integration, not reasons to weaken the static fixture checks.
 
-| In the UI | Proves |
-|---|---|
-| Add a task on **Laptop** → it appears on **Phone** | basic replication |
-| Edit a task's **text** on one device while ticking its **checkbox** on another | column-level LWW merge (both survive) |
-| **Go offline** on two devices, edit the **same** text differently, **go online** | conflict convergence (the F1 fix) |
-| Switch a device's **workspace** to `team-beta` | tenant isolation (no cross-workspace leak) |
+## Manual wire spot-check (optional)
 
-Details in `libs/palladium/example-sync-playground/README.md`. The rest of this
-guide is the automated + `curl` proof, if you want it.
+With a compatible v1 server running, verify response shapes rather than treating HTTP success alone as acknowledgement:
 
----
+```sh
+curl -sS -X POST "$SERVER/v1/changes" \
+  -H 'content-type: application/json' \
+  -H 'authorization: Bearer alice' \
+  -d "$CHANGE" | jq '{version,outcome,cursor}'
 
-## 0. Prerequisites
-
-```bash
-# Node deps (from the repo root)
-pnpm install
-
-# Rust toolchain. NOTE: on this machine `cargo` is not on the default PATH.
-# Either add it for the session:
-export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH"
-# …or add it to your shell profile permanently:
-#   echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.zshrc   # if the shim exists
-cargo --version   # should print 1.9x
+curl -sS "$SERVER/v1/changes?limit=100" \
+  -H 'authorization: Bearer alice' | jq '{version,changes,purges,events,cursor,upperBound,caughtUp,control}'
 ```
 
-`cd libs/palladium` for all commands below unless stated otherwise.
+The upload response must be a v1 receipt with `inserted` or `duplicate` and a non-empty cursor. The page must be a complete v1 envelope. Do not infer that a manual call proves transactional downlink, durable acknowledgement, or quarantine recovery; those guarantees require the targeted tests above.
 
----
+## Fuzzing campaigns
 
-## 1. Fast automated proof (recommended first run)
+The checked-in fuzz target and seed corpus support a repeatable, bounded sanitizer campaign. Run the command in the matrix to execute it. Longer differential and mutation campaigns remain optional expansion work; they are not required to establish the current bounded decoder and route-safety contracts.
 
-### 1a. TypeScript engine unit tests (Phase 1 + 2b client)
-
-```bash
-cd libs/palladium/core
-pnpm verify         # biome lint + tsc + vitest (245 tests)
-```
-
-Targeted files, if you want to read one capability at a time:
-
-| File | Proves |
-|---|---|
-| `src/__tests__/lww.test.ts` | column-LWW: higher-HLC wins regardless of arrival; disjoint columns coexist; delete-tombstone; idempotent replay (Phase 1b / F1) |
-| `src/__tests__/sync-poison.test.ts` | a bad change is quarantined + dead-lettered without wedging the cursor (Phase 1a) |
-| `src/__tests__/sync-durable.test.ts` | nodeId + HLC + cursor resume after a restart (Phase 1c) |
-| `src/__tests__/defer-fk.test.ts` | out-of-order child/parent in one change applies whole; a dangling FK still rolls back (D2c) |
-| `src/__tests__/sync.test.ts` | transport incl. the `authHeaders` decoration hook + 401 refresh/retry (Phase 2b) |
-
-```bash
-pnpm vitest run src/__tests__/lww.test.ts        # e.g. just the LWW proofs
-```
-
-### 1b. Rust server + store + auth seam tests (Phase 2)
-
-```bash
-cd libs/palladium/crates
-cargo test --workspace          # scoped store, seam, HTTP handlers
-cargo clippy --workspace -- -D warnings
-```
-
-Highlights:
-- `palladium-sqlite` → `store::tests::scopes_are_isolated` — two scopes never cross.
-- `palladium-axum` → `auth::tests::*` — the bearer seam maps a token → scope, rejects a missing token.
-- `palladium-axum` → `routes::changes::http_tests::bearer_seam_scopes_by_token_and_rejects_unauthenticated`
-  — end-to-end over HTTP in-process: a token scopes writes, another token sees
-  nothing, no token → 401.
-
-### 1c. End-to-end sync (two real clients ↔ the real Rust server)
-
-This is the headless equivalent of the browser app: two `PalladiumEngine` +
-`SyncTransport` pairs talking to a live `palladium` server.
-
-```bash
-export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH"  # cargo on PATH
-cd libs/palladium/core && pnpm build     # publish engine changes to dist (the e2e imports the built package)
-cd ../e2e
-pnpm test                                # builds the server, boots it, runs all e2e specs
-```
-
-| Spec | Proves end-to-end |
-|---|---|
-| `two-client-sync.test.ts › insert/update/delete propagates` | basic replication A→B through the server |
-| `two-client-sync.test.ts › concurrent update to the same column converges (LWW)` | **F1 fixed**: both clients converge to the same higher-HLC winner |
-| `two-client-sync.test.ts › concurrent writes to different columns both survive` | column-level granularity survives a real round-trip |
-| `auth-scope.test.ts › same token → same workspace` | a bearer token scopes a workspace; two clients with it converge |
-| `auth-scope.test.ts › different token → isolated workspace` | a different token never sees the other workspace's data |
-| `auth-scope.test.ts › no token → 401` | the server rejects unauthenticated requests |
-
-> **Gotcha:** `pnpm build` in `core` first. The e2e imports the **built**
-> `@palladium/core`; if you skip the build, the transport runs stale code (e.g.
-> the `authHeaders` hook won't exist and auth requests silently 401).
-
----
-
-## 2. Manual end-to-end demo with `curl`
-
-Drive the wire protocol by hand to see scoping and LWW for yourself.
-
-### 2a. Build + start a single-tenant server
-
-```bash
-export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH"
-cd <repo-root>
-cargo build -p palladium-cli
-mkdir -p /tmp/pd && cd /tmp/pd
-<repo-root>/target/debug/palladium --db sqlite:demo.db dev --port 3000
-# leave running; open a second terminal for the curl calls below
-```
-
-Post a change and read it back:
-
-```bash
-CHANGE='{
-  "id":"11111111-1111-4111-8111-111111111111",
-  "hlc":{"wallMs":1700000000000,"counter":0,"nodeId":"22222222-2222-4222-8222-222222222222"},
-  "ops":[{"op":"insert","table":"tasks","row_id":"018f0000-0000-7000-8000-000000000001",
-          "data":{"id":"018f0000-0000-7000-8000-000000000001","text":"hello","done":0}}]
-}'
-curl -s -X POST localhost:3000/v1/changes -H 'content-type: application/json' -d "$CHANGE"   # → v1 typed receipt
-curl -s localhost:3000/v1/changes | jq                                                       # → v1 typed page envelope
-
-# Pagination uses the opaque server-issued cursor; page size is bounded.
-curl -s 'localhost:3000/v1/changes?cursor=1&limit=100' | jq
-```
-
-Inspect what's stored (CLI):
-
-```bash
-<repo-root>/target/debug/palladium --db sqlite:demo.db inspect
-```
-
-### 2b. Multi-tenant server (auth seam)
-
-Start the server in bearer mode — the store scope is derived from the
-`Authorization: Bearer <token>` header:
-
-```bash
-<repo-root>/target/debug/palladium --db sqlite:demo.db dev --port 3000 --auth bearer
-```
-
-```bash
-# alice's workspace
-curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:3000/v1/changes \
-  -H 'content-type: application/json' -H 'authorization: Bearer alice' -d "$CHANGE"   # → 201
-curl -s localhost:3000/v1/changes -H 'authorization: Bearer alice' | jq   # → [alice's change]
-
-# bob's workspace — isolated
-curl -s localhost:3000/v1/changes -H 'authorization: Bearer bob' | jq     # → []
-
-# no token — rejected
-curl -s -o /dev/null -w '%{http_code}\n' localhost:3000/v1/changes        # → 401
-```
-
----
-
-## 3. Capability → how to verify, at a glance
-
-| Capability | Automated | Manual |
-|---|---|---|
-| **F1 fix — LWW convergence** | `core` `lww.test.ts`; e2e `concurrent update … converges` | two `curl` POSTs to the same `(table,row,col)` with different HLCs → higher HLC wins on read |
-| **Column granularity** | `lww.test.ts`; e2e `different columns both survive` | POST two changes editing different columns of one row → both persist |
-| **Non-poisoning apply** | `sync-poison.test.ts` | — (fault injection) |
-| **Durable state / restart** | `sync-durable.test.ts` | restart `palladium dev`; the server resumes the same DB |
-| **FK deferral (D2c)** | `defer-fk.test.ts` | — |
-| **Opaque Scope isolation** | `scopes_are_isolated` (Rust); e2e `isolated workspace` | `--auth bearer` + two tokens (§2b) |
-| **Auth seam / 401** | `auth::tests`, HTTP test; e2e `no token → 401` | `curl` without a token → 401 |
-| **Client token decoration** | `sync.test.ts` auth-decoration tests | — (in the transport) |
-
----
-
-## 4. Where the client sends auth (for app integration)
-
-`SyncTransport` accepts an `authHeaders` hook. The app supplies a bearer token
-(and, in the full design, an advisory workspace *selector*) — never the opaque
-store scope, which the server derives:
-
-```ts
-new SyncTransport(engine, {
-  serverUrl: "https://your-server",   // Atrium in production; palladium dev locally
-  authHeaders: async ({ refresh }) => ({
-    Authorization: `Bearer ${await getToken({ forceRefresh: refresh })}`,
-  }),
-});
-```
-
-On a `401` the transport re-invokes the hook once with `refresh: true` and
-retries, so an expired token recovers transparently.
+OpenAPI generation is checked through the generic Axum integration test; no checked-in generated OpenAPI document is maintained. Changes to route annotations must be validated by that test and by the live e2e OpenAPI spec check when server prerequisites are available.

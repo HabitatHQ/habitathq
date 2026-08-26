@@ -702,6 +702,25 @@ async fn append_cursor_returns_a_late_older_hlc_change() {
 }
 
 #[tokio::test]
+async fn changes_rejects_empty_and_out_of_range_cursors_without_panicking() {
+    let app = app().await;
+    let ws = family(&app).await;
+    for cursor in ["", "01", "-1", "9223372036854775808"] {
+        let (status, body) = call(
+            &app,
+            "GET",
+            &format!("/v1/changes?cursor={cursor}"),
+            Some("alice"),
+            Some(&ws),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["code"], "invalid_cursor");
+    }
+}
+
+#[tokio::test]
 async fn change_cannot_mix_aggregate_roots_or_spoof_a_member_node() {
     let app = app().await;
     let ws = family(&app).await;
@@ -751,4 +770,109 @@ async fn changes_cursor_advances_when_acl_hides_raw_page() {
     let env = get_env(&app, "bob", &ws).await;
     assert_eq!(env["changes"].as_array().unwrap().len(), 0);
     assert_eq!(env["cursor"], "1");
+}
+/// Bounded public-route corpus campaign. Keep this deterministic in normal CI;
+/// larger arbitrary-input and sanitizer campaigns require an external fuzz toolchain.
+/// Campaign: cargo test -p atrium bounded_hostile_route_corpus -- --nocapture
+#[tokio::test]
+async fn bounded_hostile_route_corpus() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let corpus: Value = serde_json::from_str(include_str!(
+        "../../../protocol-fixtures/hostile-inputs.bounded.json"
+    ))
+    .unwrap();
+    let cases = corpus["atrium"].as_array().unwrap();
+    for case in cases {
+        let uri = case["uri"].as_str().unwrap();
+        let method = case["method"].as_str().unwrap();
+        let mut body = case["body"].as_str().unwrap_or("").to_owned();
+        if let Some(depth) = case["nested_depth"].as_u64() {
+            let mut nested = "null".to_owned();
+            for _ in 0..depth {
+                nested = format!("[{nested}]");
+            }
+            body = body.replace("__NESTED_JSON__", &nested);
+        }
+        let bytes = if let Some(hex) = case["body_hex"].as_str() {
+            hex.as_bytes()
+                .chunks(2)
+                .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+                .collect()
+        } else {
+            body.into_bytes()
+        };
+        let mut headers = vec![("x-workspace", ws.as_str())];
+        if let Some(content_type) = case["content_type"].as_str() {
+            headers.push(("content-type", content_type));
+        }
+        let (status, _) = call_bytes(&app, method, uri, Some("alice"), &headers, Some(bytes)).await;
+        assert!(
+            status.is_client_error(),
+            "{} unexpectedly accepted hostile input",
+            case["name"].as_str().unwrap_or("unnamed")
+        );
+        let (health, _) = call(&app, "GET", "/v1/health", None, None, None).await;
+        assert_eq!(health, StatusCode::OK);
+    }
+}
+/// Deterministic generated hostile-route campaign.
+///
+/// Seed: 0x37202608; 16 cases, at most 8 KiB bodies and 32 nesting levels.
+/// Campaign: cargo test -p atrium generated_hostile_route_sequences -- --nocapture
+#[tokio::test]
+async fn generated_hostile_route_sequences() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let corpus: Value = serde_json::from_str(include_str!(
+        "../../../protocol-fixtures/hostile-inputs.bounded.json"
+    ))
+    .unwrap();
+    let seeds = corpus["atrium"].as_array().unwrap();
+    let mut state = 0x3720_2608_u32;
+    for index in 0..16 {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        let seed = &seeds[index % seeds.len()];
+        let mut uri = seed["uri"].as_str().unwrap().to_owned();
+        let cursor = (state % 10_000).to_string();
+        if uri.contains("cursor=") {
+            uri = uri.replace("cursor=", &format!("cursor={cursor}"));
+        } else {
+            uri.push_str(&format!("?cursor={cursor}"));
+        }
+        let mut body = seed["body"].as_str().unwrap_or("").to_owned();
+        let depth = (state as usize % 32) + 1;
+        if body.contains("__NESTED_JSON__") {
+            let mut nested = "null".to_owned();
+            for _ in 0..depth {
+                nested = format!("[{nested}]");
+            }
+            body = body.replace("__NESTED_JSON__", &nested);
+        } else if index % 3 == 0 && !body.is_empty() {
+            body.push_str(&" ".repeat(index % 8));
+        }
+        assert!(body.len() <= 8 * 1024);
+        let method = seed["method"].as_str().unwrap();
+        let mut headers = vec![("x-workspace", ws.as_str())];
+        if let Some(content_type) = seed["content_type"].as_str() {
+            headers.push(("content-type", content_type));
+        }
+        let (status, _) = call_bytes(
+            &app,
+            method,
+            &uri,
+            Some("alice"),
+            &headers,
+            Some(body.into_bytes()),
+        )
+        .await;
+        assert!(
+            status.is_client_error() || status.is_success(),
+            "generated case {index} returned unexpected status {status}"
+        );
+        let (health, _) = call(&app, "GET", "/v1/health", None, None, None).await;
+        assert_eq!(health, StatusCode::OK);
+    }
 }

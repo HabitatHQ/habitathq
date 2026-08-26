@@ -9,7 +9,7 @@ use palladium_core::Change;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    db::{AtriumDb, PendingEvent, EVENT_GRANT, EVENT_REVOKE},
+    db::{AppendOutcome, AtriumDb, PendingEvent, EVENT_GRANT, EVENT_REVOKE},
     error::AtriumError,
     identity::Caller,
     state::AtriumState,
@@ -25,6 +25,21 @@ fn workspace_of(headers: &HeaderMap) -> Result<String, AtriumError> {
         .filter(|s| !s.is_empty())
         .map(str::to_owned)
         .ok_or_else(|| AtriumError::BadRequest(format!("missing {WORKSPACE_HEADER} header")))
+}
+
+fn parse_append_cursor(value: &str) -> Result<i64, AtriumError> {
+    if value == "0" {
+        return Ok(0);
+    }
+    if value.is_empty()
+        || value.starts_with('0')
+        || !value.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err(AtriumError::BadRequest("invalid_cursor".to_owned()));
+    }
+    value
+        .parse::<i64>()
+        .map_err(|_| AtriumError::BadRequest("invalid_cursor".to_owned()))
 }
 
 #[derive(Debug, Deserialize)]
@@ -113,23 +128,20 @@ pub(super) async fn post_changes(
 ) -> Result<(StatusCode, Json<PostReceipt>), AtriumError> {
     let workspace = workspace_of(&headers)?;
     state.db().require_member(&workspace, user.as_str()).await?;
-    state
+    let outcome = state
         .db()
         .authorize_and_append_change(&workspace, user.as_str(), &change)
         .await?;
-    let cursor = state
-        .db()
-        .list_changes(&workspace, 0, None)
-        .await?
-        .into_iter()
-        .find(|entry| entry.change.id == change.id)
-        .map_or_else(|| "0".to_owned(), |entry| entry.append_seq.to_string());
+    let (outcome, cursor) = match outcome {
+        AppendOutcome::Inserted(cursor) => ("inserted", cursor),
+        AppendOutcome::Duplicate(cursor) => ("duplicate", cursor),
+    };
     Ok((
         StatusCode::CREATED,
         Json(PostReceipt {
             version: 1,
-            outcome: "inserted",
-            cursor,
+            outcome,
+            cursor: cursor.to_string(),
         }),
     ))
 }
@@ -146,16 +158,7 @@ pub(super) async fn get_changes(
 
     let after = match params.cursor.as_deref() {
         None => 0,
-        Some(value)
-            if value == "0"
-                || (value.as_bytes()[0] != b'0'
-                    && value.bytes().all(|byte| byte.is_ascii_digit())) =>
-        {
-            value
-                .parse::<i64>()
-                .map_err(|_| AtriumError::BadRequest("invalid_cursor".to_owned()))?
-        }
-        Some(_) => return Err(AtriumError::BadRequest("invalid_cursor".to_owned())),
+        Some(value) => parse_append_cursor(value)?,
     };
     let limit = params.limit.unwrap_or(100);
     if !(1..=100).contains(&limit) {
@@ -180,7 +183,7 @@ pub(super) async fn get_changes(
         .filter(|event| event.kind == EVENT_GRANT)
         .collect();
     if !grants.is_empty() {
-        for entry in db.list_changes(&workspace, 0, None).await? {
+        for entry in db.list_changes(&workspace, 0, Some(limit)).await? {
             let change = entry.change;
             if changes.iter().any(|existing| existing.id == change.id) {
                 continue;

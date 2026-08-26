@@ -10,7 +10,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PalladiumEngine } from "../engine.js";
 import type { SchemaConfig } from "../migration.js";
 import { sql } from "../sql.js";
-import { type SyncPageEnvelope, SyncTransport, type WireChange, type WireOp } from "../sync.js";
+import {
+  type SyncPageEnvelope,
+  type SyncReceipt,
+  SyncTransport,
+  type WireChange,
+  type WireOp,
+} from "../sync.js";
 
 type Schema = {
   notes: { id: string; title: string; updated_at: number };
@@ -50,6 +56,10 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+function receipt(outcome: "inserted" | "duplicate" = "inserted"): SyncReceipt {
+  return { version: 1, outcome, cursor: "1" };
+}
+
 function page(
   changes: readonly WireChange[] = [],
   cursor: string | null = "0",
@@ -84,7 +94,7 @@ describe("SyncTransport — uplink", () => {
     fakeFetch = makeFakeFetch((call) => {
       if (call.input.startsWith(`${SERVER_URL}/v1/changes`) && call.init?.method === "POST") {
         postBodies.push(JSON.parse(String(call.init.body)) as WireChange);
-        return jsonResponse({}, 201);
+        return jsonResponse(receipt(), 201);
       }
       // GET /v1/changes — return empty list for these uplink tests
       return jsonResponse(page());
@@ -190,13 +200,12 @@ describe("SyncTransport — uplink", () => {
       title: "a",
       updated_at: 1,
     });
-    await Promise.resolve();
     await db.insert("notes", {
       id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac",
       title: "b",
       updated_at: 2,
     });
-    await Promise.resolve();
+    await transport.syncOnce();
     await transport.stop();
 
     expect(postBodies).toHaveLength(2);
@@ -251,7 +260,7 @@ describe("SyncTransport — downlink", () => {
 
     let served = false;
     const { fetch } = makeFakeFetch((call) => {
-      if (call.init?.method === "POST") return jsonResponse({}, 201);
+      if (call.init?.method === "POST") return jsonResponse(receipt(), 201);
       // Return the remote change exactly once.
       if (!served) {
         served = true;
@@ -405,7 +414,7 @@ describe("SyncTransport — downlink", () => {
       [],
     ];
     const { fetch } = makeFakeFetch((call) => {
-      if (call.init?.method === "POST") return jsonResponse({}, 201);
+      if (call.init?.method === "POST") return jsonResponse(receipt(), 201);
       return jsonResponse(page(responses.shift() ?? []));
     });
 
@@ -445,7 +454,7 @@ describe("SyncTransport — downlink", () => {
     let pollCount = 0;
     const seenUrls: string[] = [];
     const { fetch } = makeFakeFetch((call) => {
-      if (call.init?.method === "POST") return jsonResponse({}, 201);
+      if (call.init?.method === "POST") return jsonResponse(receipt(), 201);
       seenUrls.push(call.input);
       pollCount += 1;
       if (pollCount === 1) return jsonResponse(page([c1]));
@@ -519,7 +528,7 @@ describe("SyncTransport — downlink", () => {
       ],
     };
     const { fetch } = makeFakeFetch((call) =>
-      call.init?.method === "POST" ? jsonResponse({}, 201) : jsonResponse(page([change])),
+      call.init?.method === "POST" ? jsonResponse(receipt(), 201) : jsonResponse(page([change])),
     );
     const transport = new SyncTransport(db, {
       serverUrl: SERVER_URL,
@@ -541,7 +550,7 @@ describe("SyncTransport — lifecycle", () => {
     const { fetch } = makeFakeFetch((call) => {
       if (call.init?.method === "POST") {
         posted.push(JSON.parse(String(call.init.body)) as WireChange);
-        return jsonResponse({}, 201);
+        return jsonResponse(receipt(), 201);
       }
       return jsonResponse(page());
     });
@@ -565,7 +574,7 @@ describe("SyncTransport — lifecycle", () => {
     const { fetch } = makeFakeFetch((call) => {
       if (call.init?.method === "POST") {
         posted.push(JSON.parse(String(call.init.body)) as WireChange);
-        return jsonResponse({}, 201);
+        return jsonResponse(receipt(), 201);
       }
       return jsonResponse(page());
     });
@@ -581,6 +590,204 @@ describe("SyncTransport — lifecycle", () => {
     await transport.stop();
 
     expect(posted).toHaveLength(1);
+  });
+
+  it("keeps local checkpointing active after stop until disposal", async () => {
+    const db = await makeEngine(ALICE);
+    const { fetch } = makeFakeFetch(() => jsonResponse(page()));
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await transport.start();
+    await transport.stop();
+    await db.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      title: "durable",
+      updated_at: 1,
+    });
+
+    expect(await outboxRows(db)).toHaveLength(1);
+    await transport.dispose();
+  });
+
+  it("replaces a disposed transport without duplicate outbox checkpoints", async () => {
+    const db = await makeEngine(ALICE);
+    const posted: WireChange[] = [];
+    const { fetch } = makeFakeFetch((call) => {
+      if (call.init?.method === "POST") {
+        posted.push(JSON.parse(String(call.init.body)) as WireChange);
+        return jsonResponse(receipt(), 201);
+      }
+      return jsonResponse(page());
+    });
+    const first = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await first.start();
+    await first.dispose();
+
+    const replacement = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await replacement.start();
+    await db.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      title: "replacement",
+      updated_at: 1,
+    });
+    await replacement.syncOnce();
+    await replacement.stop();
+
+    expect(posted).toHaveLength(1);
+    expect(await outboxRows(db)).toHaveLength(0);
+    await replacement.dispose();
+  });
+
+  it("does not leak a checkpoint when another transport construction fails", async () => {
+    const db = await makeEngine(ALICE);
+    const { fetch } = makeFakeFetch(() => jsonResponse(page()));
+    const first = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    expect(() => new SyncTransport(db, { serverUrl: SERVER_URL, fetch })).toThrow(
+      "already attached",
+    );
+    await first.dispose();
+
+    const replacement = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await replacement.start();
+    await replacement.stop();
+    await db.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      title: "single-checkpoint",
+      updated_at: 1,
+    });
+    expect(await outboxRows(db)).toHaveLength(1);
+    await replacement.dispose();
+  });
+
+  it("cancels an in-flight startup poll before stop resolves", async () => {
+    const db = await makeEngine(ALICE);
+    let aborted = false;
+    let markFetchStarted: () => void = () => {};
+    const fetchStarted = new Promise<void>((resolve) => {
+      markFetchStarted = resolve;
+    });
+    const fetch: typeof globalThis.fetch = async (_input, init) => {
+      if (init?.method === "POST") return jsonResponse(receipt(), 201);
+      markFetchStarted();
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => {
+            aborted = true;
+            reject(new DOMException("cancelled", "AbortError"));
+          },
+          { once: true },
+        );
+      });
+    };
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    const starting = transport.start();
+    await fetchStarted;
+    await transport.stop();
+    await starting;
+
+    expect(aborted).toBe(true);
+    await transport.dispose();
+  });
+  it("serializes overlapping poll and syncOnce calls", async () => {
+    const db = await makeEngine(ALICE);
+    let active = 0;
+    let maximumActive = 0;
+    const fetch: typeof globalThis.fetch = async (_input, init) => {
+      if (init?.method === "POST") return jsonResponse(receipt(), 201);
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      await Promise.resolve();
+      active -= 1;
+      return jsonResponse(page());
+    };
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+
+    await Promise.all([transport.poll(), transport.syncOnce()]);
+
+    expect(maximumActive).toBe(1);
+    await transport.dispose();
+  });
+});
+
+describe("SyncTransport — opaque cursors", () => {
+  it("persists and sends opaque version-one cursor tokens unchanged", async () => {
+    const db = await makeEngine(ALICE);
+    const urls: string[] = [];
+    const { fetch } = makeFakeFetch((call) => {
+      if (call.init?.method === "POST") return jsonResponse(receipt(), 201);
+      urls.push(call.input);
+      return jsonResponse(page([], "checkpoint/A:1"));
+    });
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+
+    await transport.poll();
+    await transport.poll();
+
+    expect(await db.getSyncState("append_cursor_v1")).toBe("checkpoint/A:1");
+    expect(urls).toEqual([
+      `${SERVER_URL}/v1/changes?limit=100`,
+      `${SERVER_URL}/v1/changes?limit=100&cursor=checkpoint%2FA%3A1`,
+    ]);
+    await transport.dispose();
+  });
+});
+
+describe("SyncTransport — durable events", () => {
+  const event = {
+    id: 1,
+    kind: "grant" as const,
+    root_id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+  };
+
+  it("persists an event before acknowledging it", async () => {
+    const db = await makeEngine(ALICE);
+    const { fetch } = makeFakeFetch((call) => {
+      if (call.input.endsWith("/events/ack")) return new Response(null, { status: 204 });
+      return jsonResponse({ ...page(), events: [event] });
+    });
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+
+    await transport.poll();
+
+    const rows = await db.adapter.exec<{ event_id: number; acknowledged_at: number | null }>(
+      "SELECT event_id, acknowledged_at FROM _sync_events",
+      [],
+    );
+    expect(rows).toEqual([{ event_id: 1, acknowledged_at: expect.any(Number) }]);
+    await transport.dispose();
+  });
+
+  it("keeps a processed event pending when acknowledgement fails", async () => {
+    const db = await makeEngine(ALICE);
+    const { fetch } = makeFakeFetch((call) => {
+      if (call.input.endsWith("/events/ack")) return new Response("unavailable", { status: 503 });
+      return jsonResponse({ ...page(), events: [event] });
+    });
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+
+    await transport.poll();
+    await transport.poll();
+
+    const rows = await db.adapter.exec<{ event_id: number; acknowledged_at: number | null }>(
+      "SELECT event_id, acknowledged_at FROM _sync_events",
+      [],
+    );
+    expect(rows).toEqual([{ event_id: 1, acknowledged_at: null }]);
+    expect(transport.lastError?.code).toBe("event_ack_rejected");
+    await transport.dispose();
+
+    const { fetch: recoveredFetch } = makeFakeFetch((call) => {
+      if (call.input.endsWith("/events/ack")) return new Response(null, { status: 204 });
+      return jsonResponse({ ...page(), events: [event] });
+    });
+    const recovered = new SyncTransport(db, { serverUrl: SERVER_URL, fetch: recoveredFetch });
+    await recovered.poll();
+    const acknowledged = await db.adapter.exec<{
+      event_id: number;
+      acknowledged_at: number | null;
+    }>("SELECT event_id, acknowledged_at FROM _sync_events", []);
+    expect(acknowledged).toEqual([{ event_id: 1, acknowledged_at: expect.any(Number) }]);
+    await recovered.dispose();
   });
 });
 
@@ -604,9 +811,10 @@ describe("SyncTransport — durable outbox", () => {
   it("successful POST removes the change from the outbox", async () => {
     const db = await makeEngine(ALICE);
     const { fetch } = makeFakeFetch((call) => {
-      if (call.init?.method === "POST") return jsonResponse({}, 201);
+      if (call.init?.method === "POST") return jsonResponse(receipt(), 201);
       return jsonResponse(page());
     });
+
     const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
     await transport.start();
     await db.insert("notes", {
@@ -620,6 +828,68 @@ describe("SyncTransport — durable outbox", () => {
     const rows = await outboxRows(db);
     expect(rows).toHaveLength(0);
   });
+  it("preserves Retry-After as structured retry scheduling data", async () => {
+    const db = await makeEngine(ALICE);
+    const { fetch } = makeFakeFetch((call) => {
+      if (call.init?.method === "POST") {
+        return new Response("slow down", {
+          status: 429,
+          headers: { "Retry-After": "1" },
+        });
+      }
+      return jsonResponse(page());
+    });
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    const before = Date.now();
+    await transport.start();
+    await db.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac",
+      title: "rate-limited",
+      updated_at: 1,
+    });
+    await transport.syncOnce();
+
+    expect(transport.lastError).toMatchObject({
+      phase: "uplink",
+      code: "http_rejected",
+      retryable: true,
+      status: 429,
+      body: "slow down",
+    });
+    expect(transport.lastError?.nextRetryAt).toBeGreaterThanOrEqual(before + 1_000);
+    expect(await outboxRows(db)).toHaveLength(1);
+    await transport.dispose();
+  });
+
+  for (const [description, response] of [
+    ["an empty receipt", () => jsonResponse({}, 201)],
+    ["an HTML receipt", () => new Response("<html>ok</html>", { status: 201 })],
+    ["a receipt with another version", () => jsonResponse({ ...receipt(), version: 2 }, 201)],
+    [
+      "a receipt with an unknown outcome",
+      () => jsonResponse({ ...receipt(), outcome: "queued" }, 201),
+    ],
+    ["a receipt without a cursor", () => jsonResponse({ version: 1, outcome: "inserted" }, 201)],
+  ] as const) {
+    it(`retains the outbox for ${description}`, async () => {
+      const db = await makeEngine(ALICE);
+      const { fetch } = makeFakeFetch((call) =>
+        call.init?.method === "POST" ? response() : jsonResponse(page()),
+      );
+      const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+      await transport.start();
+      await db.insert("notes", {
+        id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+        title: "receipt",
+        updated_at: 1,
+      });
+      await transport.syncOnce();
+      await transport.stop();
+
+      expect(await outboxRows(db)).toHaveLength(1);
+      expect(transport.lastError?.code).toBe("invalid_receipt");
+    });
+  }
 
   it("non-OK POST leaves the change in the outbox; engine status is 'error'", async () => {
     const db = await makeEngine(ALICE);
@@ -694,7 +964,7 @@ describe("SyncTransport — durable outbox", () => {
       const { fetch } = makeFakeFetch((call) => {
         if (call.init?.method === "POST") {
           posted.push(JSON.parse(String(call.init.body)) as WireChange);
-          return jsonResponse({}, 201);
+          return jsonResponse(receipt(), 201);
         }
         return jsonResponse(page());
       });
@@ -721,7 +991,7 @@ describe("SyncTransport — durable outbox", () => {
           loseFirstResponse = false;
           throw new Error("injected response loss after server commit");
         }
-        return jsonResponse({}, 201);
+        return jsonResponse(receipt("duplicate"), 201);
       }
       return jsonResponse(page());
     };
@@ -763,7 +1033,7 @@ describe("SyncTransport — durable outbox", () => {
     let pollCount = 0;
     const seenUrls: string[] = [];
     const { fetch } = makeFakeFetch((call) => {
-      if (call.init?.method === "POST") return jsonResponse({}, 201);
+      if (call.init?.method === "POST") return jsonResponse(receipt(), 201);
       seenUrls.push(call.input);
       pollCount += 1;
       return pollCount === 1
@@ -817,7 +1087,9 @@ describe("SyncTransport — durable outbox", () => {
       const { fetch } = makeFakeFetch((call) => {
         if (call.init?.method === "POST") {
           postsSeen += 1;
-          return postsSeen === 1 ? jsonResponse({}, 201) : new Response("no", { status: 500 });
+          return postsSeen === 1
+            ? jsonResponse(receipt(), 201)
+            : new Response("no", { status: 500 });
         }
         return jsonResponse(page());
       });
@@ -840,7 +1112,7 @@ describe("SyncTransport — auth decoration (§2b)", () => {
     const fetch: typeof globalThis.fetch = async (input, init) => {
       const url = typeof input === "string" ? input : (input as URL | Request).toString();
       authSeen.push(new Headers(init?.headers).get("authorization"));
-      if (init?.method === "POST") return jsonResponse({}, 201);
+      if (init?.method === "POST") return jsonResponse(receipt(), 201);
       void url;
       return jsonResponse(page());
     };
@@ -869,7 +1141,7 @@ describe("SyncTransport — auth decoration (§2b)", () => {
     const tokensSent: Array<string | null> = [];
     let firstGet = true;
     const fetch: typeof globalThis.fetch = async (_input, init) => {
-      if (init?.method === "POST") return jsonResponse({}, 201);
+      if (init?.method === "POST") return jsonResponse(receipt(), 201);
       tokensSent.push(new Headers(init?.headers).get("authorization"));
       if (firstGet) {
         firstGet = false;
@@ -914,7 +1186,9 @@ describe("SyncTransport — Atrium append cursor", () => {
       ],
     };
     const { fetch } = makeFakeFetch((call) =>
-      call.init?.method === "POST" ? jsonResponse({}, 201) : jsonResponse(page([change], "42")),
+      call.init?.method === "POST"
+        ? jsonResponse(receipt(), 201)
+        : jsonResponse(page([change], "42")),
     );
     const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
     await transport.poll();
@@ -922,7 +1196,7 @@ describe("SyncTransport — Atrium append cursor", () => {
     await transport.stop();
   });
 
-  it("rejects a malformed envelope cursor without advancing durable state", async () => {
+  it("persists an opaque envelope cursor without numeric interpretation", async () => {
     const db = await makeEngine(BOB);
     const { fetch } = makeFakeFetch(() =>
       jsonResponse({
@@ -938,7 +1212,7 @@ describe("SyncTransport — Atrium append cursor", () => {
     );
     const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
     await transport.poll();
-    expect(await db.getSyncState("append_cursor_v1")).toBeNull();
+    expect(await db.getSyncState("append_cursor_v1")).toBe("-1");
     await transport.stop();
   });
 
@@ -947,7 +1221,7 @@ describe("SyncTransport — Atrium append cursor", () => {
     const methods: Array<string | undefined> = [];
     const { fetch } = makeFakeFetch((call) => {
       methods.push(call.init?.method);
-      return call.init?.method === "POST" ? jsonResponse({}, 201) : jsonResponse(page());
+      return call.init?.method === "POST" ? jsonResponse(receipt(), 201) : jsonResponse(page());
     });
     const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
     await transport.poll();
@@ -975,8 +1249,11 @@ describe("SyncTransport — Atrium append cursor", () => {
 
     await transport.syncOnce();
 
-    expect(methods).toContain("POST");
+    expect(methods).not.toContain("POST");
     expect(await db.adapter.exec("SELECT change_id FROM _sync_outbox", [])).toHaveLength(0);
+    expect(await db.adapter.exec("SELECT change_id FROM _sync_outbox_quarantine", [])).toHaveLength(
+      1,
+    );
     await transport.stop();
   });
 });
@@ -988,7 +1265,7 @@ describe("SyncTransport — outbox schema compatibility", () => {
     const { fetch } = makeFakeFetch((call) => {
       if (call.init?.method === "POST") {
         posted.push(JSON.parse(String(call.init.body)) as WireChange);
-        return jsonResponse({}, 201);
+        return jsonResponse(receipt(), 201);
       }
       return jsonResponse(page());
     });
@@ -1021,9 +1298,9 @@ describe("SyncTransport — outbox schema compatibility", () => {
       ],
     );
     await transport.start();
-    expect(posted.map((change) => change.id)).toContain("00000000-0000-4000-8000-000000000008");
+    expect(posted).toHaveLength(0);
     expect(await db.adapter.exec("SELECT change_id FROM _sync_outbox_quarantine", [])).toHaveLength(
-      0,
+      1,
     );
     await transport.stop();
   });
@@ -1034,7 +1311,7 @@ describe("SyncTransport — outbox schema compatibility", () => {
     const { fetch } = makeFakeFetch((call) => {
       if (call.init?.method === "POST") {
         posted.push(JSON.parse(String(call.init.body)) as WireChange);
-        return jsonResponse({}, 201);
+        return jsonResponse(receipt(), 201);
       }
       return jsonResponse(page());
     });

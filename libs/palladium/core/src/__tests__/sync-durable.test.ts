@@ -187,3 +187,16 @@ describe("durable sync state — poll cursor across transport restart", () => {
     expect(seenUrls[0]).toBe(`${SERVER_URL}/v1/changes?limit=100&cursor=${cursor}`);
   });
 });
+
+describe("durable sync state — schema identity", () => {
+  it("persists the initialized fingerprint in sync state", async () => {
+    const db = new PalladiumEngine<Schema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }), {
+      nodeId: ALICE,
+    });
+    await db.init(SCHEMA);
+    const identity = db.initializedSchemaIdentity;
+    expect(identity).toMatch(/^v1-1-[0-9a-f]{8}$/u);
+    expect(await db.getSyncState("schema_identity_v1")).toBe(identity);
+    await db.adapter.close();
+  });
+});

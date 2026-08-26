@@ -229,21 +229,18 @@ impl ChangeStore for PostgresStore {
             .map_err(|_| Error::InvalidData("append cursor exceeds database range".into()))?;
         let rows: Vec<ChangeRow> = sqlx::query_as(&format!("SELECT append_seq,id,hlc_millis,hlc_counter,hlc_node_id,ops_json FROM {} WHERE scope=$1 AND append_seq>$2 AND append_seq<=$3 ORDER BY append_seq LIMIT $4", self.table))
             .bind(scope.as_str()).bind(start_db).bind(upper_db.0).bind(i64::from(limit)).fetch_all(&self.pool).await?;
-        let count = rows.len();
+        let cursor = rows
+            .last()
+            .map(|row| {
+                u64::try_from(row.append_seq)
+                    .map(palladium_core::AppendCursor::new)
+                    .map_err(|_| Error::InvalidData("append sequence is negative".into()))
+            })
+            .transpose()?;
         let changes = rows
             .into_iter()
             .map(ChangeRow::try_into_change)
             .collect::<std::result::Result<Vec<_>, _>>()?;
-        let cursor = if count == 0 {
-            None
-        } else {
-            let count = u64::try_from(count)
-                .map_err(|_| Error::InvalidData("page length exceeds cursor range".into()))?;
-            let position = start
-                .checked_add(count)
-                .ok_or_else(|| Error::InvalidData("append cursor overflow".into()))?;
-            Some(palladium_core::AppendCursor::new(position))
-        };
         let caught_up = cursor
             .as_ref()
             .map_or(start >= upper, |c| c.position() >= upper);
@@ -268,6 +265,7 @@ impl ChangeStore for PostgresStore {
 
 #[derive(sqlx::FromRow)]
 struct ChangeRow {
+    append_seq: i64,
     id: Uuid,
     hlc_millis: i64,
     hlc_counter: i64,

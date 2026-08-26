@@ -29,9 +29,9 @@ async fn migrate(pool: &SqlitePool) -> Result<()> {
 }
 
 const SELECT_COLS: &str =
-    "SELECT id, hlc_millis, hlc_counter, hlc_node_id, ops_json FROM palladium_changes";
+    "SELECT append_seq, id, hlc_millis, hlc_counter, hlc_node_id, ops_json FROM palladium_changes";
 const GET_BY_ID: &str =
-    "SELECT id, hlc_millis, hlc_counter, hlc_node_id, ops_json FROM palladium_changes WHERE id = ? AND scope = ?";
+    "SELECT append_seq, id, hlc_millis, hlc_counter, hlc_node_id, ops_json FROM palladium_changes WHERE id = ? AND scope = ?";
 
 // ── Lock file ─────────────────────────────────────────────────────────────
 
@@ -237,20 +237,18 @@ impl ChangeStore for SqliteStore {
             .map_err(|_| Error::InvalidData("append cursor exceeds database range".into()))?;
         let rows: Vec<ChangeRow> = sqlx::query_as(&format!("{SELECT_COLS} WHERE scope = ? AND append_seq > ? AND append_seq <= ? ORDER BY append_seq LIMIT ?"))
             .bind(scope.as_str()).bind(start_db).bind(upper_db.0).bind(i64::from(limit)).fetch_all(&self.pool).await?;
+        let cursor = rows
+            .last()
+            .map(|row| {
+                u64::try_from(row.append_seq)
+                    .map(palladium_core::AppendCursor::new)
+                    .map_err(|_| Error::InvalidData("append sequence is negative".into()))
+            })
+            .transpose()?;
         let changes: Vec<Change> = rows
             .into_iter()
             .map(ChangeRow::try_into_change)
             .collect::<std::result::Result<_, Error>>()?;
-        let cursor = if changes.is_empty() {
-            None
-        } else {
-            let count = u64::try_from(changes.len())
-                .map_err(|_| Error::InvalidData("page length exceeds cursor range".into()))?;
-            let position = start
-                .checked_add(count)
-                .ok_or_else(|| Error::InvalidData("append cursor overflow".into()))?;
-            Some(palladium_core::AppendCursor::new(position))
-        };
         let caught_up = cursor
             .as_ref()
             .map_or(start >= upper, |c| c.position() >= upper);
@@ -280,6 +278,7 @@ impl ChangeStore for SqliteStore {
 
 #[derive(sqlx::FromRow)]
 struct ChangeRow {
+    append_seq: i64,
     id: String,
     hlc_millis: i64,
     hlc_counter: i64,
@@ -317,5 +316,43 @@ mod tests {
             palladium_core::InsertOutcome::Duplicate(_)
         ));
         assert_eq!(store.page(&scope, None, 1).await.unwrap().changes.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn page_cursor_uses_actual_interleaved_append_position() {
+        let store = SqliteStore::in_memory().await.unwrap();
+        let scope_a = Scope::new("a");
+        let scope_b = Scope::new("b");
+        let node = palladium_core::NodeId::from_uuid(Uuid::nil());
+        let change = |millis| Change::new(Hlc::new(node.clone(), millis), vec![]);
+
+        store.insert(&scope_a, &change(1)).await.unwrap();
+        for millis in 2..=6 {
+            store.insert(&scope_b, &change(millis)).await.unwrap();
+        }
+        store.insert(&scope_a, &change(7)).await.unwrap();
+
+        let first = store.page(&scope_a, None, 1).await.unwrap();
+        assert_eq!(
+            first
+                .cursor
+                .as_ref()
+                .map(palladium_core::AppendCursor::as_str),
+            Some("1")
+        );
+        assert!(!first.caught_up);
+
+        let second = store
+            .page(&scope_a, first.cursor.as_ref(), 1)
+            .await
+            .unwrap();
+        assert_eq!(
+            second
+                .cursor
+                .as_ref()
+                .map(palladium_core::AppendCursor::as_str),
+            Some("7")
+        );
+        assert!(second.caught_up);
     }
 }

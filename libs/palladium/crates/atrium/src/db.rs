@@ -21,6 +21,12 @@ use crate::{
     registry::{self, TableRole},
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppendOutcome {
+    Inserted(i64),
+    Duplicate(i64),
+}
+
 const MIGRATE: &str = "
 CREATE TABLE IF NOT EXISTS app_users (
     user_id TEXT NOT NULL PRIMARY KEY
@@ -869,7 +875,7 @@ impl AtriumDb {
         workspace: &str,
         caller: &str,
         change: &Change,
-    ) -> Result<(), AtriumError> {
+    ) -> Result<AppendOutcome, AtriumError> {
         palladium_core::validate_change(
             change,
             now_millis().try_into().unwrap_or(u64::MAX),
@@ -880,18 +886,17 @@ impl AtriumDb {
         let content_hash = format!("{:x}", Sha256::digest(canonical));
         let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
         let change_id = change.id.to_string();
-        if let Some(existing) = sqlx::query_scalar::<_, Option<String>>(
-            "SELECT content_hash FROM palladium_changes WHERE scope = ? AND id = ?",
+        if let Some((existing, append_seq)) = sqlx::query_as::<_, (String, i64)>(
+            "SELECT content_hash, append_seq FROM palladium_changes WHERE scope = ? AND id = ?",
         )
         .bind(workspace)
         .bind(&change_id)
         .fetch_optional(&mut *tx)
         .await?
-        .flatten()
         {
             if existing == content_hash {
                 tx.commit().await?;
-                return Ok(());
+                return Ok(AppendOutcome::Duplicate(append_seq));
             }
             return Err(AtriumError::Conflict("change_conflict".to_owned()));
         }
@@ -1091,7 +1096,7 @@ impl AtriumDb {
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        Ok(())
+        Ok(AppendOutcome::Inserted(append_seq))
     }
 
     pub async fn list_changes(

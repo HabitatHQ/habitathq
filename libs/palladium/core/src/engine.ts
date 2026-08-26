@@ -227,7 +227,7 @@ function metaRowToHlc(row: MetaRow): Hlc {
 
 // ── Durable sync state (`_sync_state`, D2b) ──────────────────────────────────
 
-/** Key-value table holding the durable `nodeId`, engine HLC, and poll cursor. */
+/** Key-value table holding durable engine and client-view sync state. */
 const SYNC_STATE = "_sync_state";
 
 const SYNC_STATE_DDL = `CREATE TABLE IF NOT EXISTS ${SYNC_STATE} (
@@ -238,6 +238,30 @@ const SYNC_STATE_DDL = `CREATE TABLE IF NOT EXISTS ${SYNC_STATE} (
 const STATE_NODE_ID = "node_id";
 const STATE_HLC = "hlc";
 const STATE_CURSOR = "cursor";
+/** The fingerprint of the SchemaConfig that initialized this local view. */
+const STATE_SCHEMA_IDENTITY = "schema_identity_v1";
+
+function schemaIdentity(config: SchemaConfig): string {
+  let hash = 2_166_136_261;
+  for (const char of `${config.version}\u0000${config.schema}`) {
+    hash ^= char.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return `v1-${config.version}-${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+export class SchemaIdentityMismatchError extends Error {
+  readonly code = "schema_identity_mismatch" as const;
+  readonly expected: string;
+  readonly actual: string;
+
+  constructor(expected: string, actual: string) {
+    super(`Schema identity mismatch: local ${actual} cannot initialize as ${expected}`);
+    this.name = "SchemaIdentityMismatchError";
+    this.expected = expected;
+    this.actual = actual;
+  }
+}
 
 export class PalladiumEngine<S extends SchemaMap> {
   #knownTables = new Set<string>();
@@ -248,6 +272,7 @@ export class PalladiumEngine<S extends SchemaMap> {
   readonly #liveQueries = new Set<LiveQuery>();
   readonly #localChangeCheckpoints = new Set<LocalChangeCheckpoint<S>>();
   readonly #blobRegistry = new BlobRegistry();
+  #schemaIdentity: string | null = null;
   #syncTransportOwner: object | null = null;
   readonly blobs: BlobHandle;
 
@@ -304,6 +329,11 @@ export class PalladiumEngine<S extends SchemaMap> {
     return this.#currentHlc;
   }
 
+  /** Stable identity of the schema used to initialize this engine, if any. */
+  get initializedSchemaIdentity(): string | null {
+    return this.#schemaIdentity;
+  }
+
   /**
    * Open the adapter and optionally apply versioned migrations and seeds.
    */
@@ -314,6 +344,9 @@ export class PalladiumEngine<S extends SchemaMap> {
     if (schema) {
       this.#knownTables = extractSchemaTables(schema.schema);
       await applySchema(this.adapter, schema);
+      const identity = schemaIdentity(schema);
+      await this.setSyncState(STATE_SCHEMA_IDENTITY, identity);
+      this.#schemaIdentity = identity;
     }
   }
 
@@ -321,15 +354,7 @@ export class PalladiumEngine<S extends SchemaMap> {
   async purgeLocal<K extends keyof S & string>(table: K, id: string): Promise<void> {
     const tableName = String(table);
     await this.#serialize(async () => {
-      await this.adapter.remove(tableName, id);
-      await this.adapter.exec(`DELETE FROM ${SYNC_ROW_META} WHERE tbl = ? AND row_id = ?`, [
-        tableName,
-        id,
-      ]);
-      await this.adapter.exec(
-        `DELETE FROM ${PENDING_REMOTE_UPDATES} WHERE tbl = ? AND row_id = ?`,
-        [tableName, id],
-      );
+      await this.#purgeLocalTransaction(this.adapter, tableName, id);
     });
     await this.#notifyLiveQueries([tableName.toLowerCase()]);
   }
@@ -567,6 +592,15 @@ export class PalladiumEngine<S extends SchemaMap> {
     await this.#checkpointRemoteState(adpt, cursor);
   }
 
+  async #purgeLocalTransaction(adpt: StorageAdapter, tableName: string, id: string): Promise<void> {
+    await adpt.remove(tableName, id);
+    await adpt.exec(`DELETE FROM ${SYNC_ROW_META} WHERE tbl = ? AND row_id = ?`, [tableName, id]);
+    await adpt.exec(`DELETE FROM ${PENDING_REMOTE_UPDATES} WHERE tbl = ? AND row_id = ?`, [
+      tableName,
+      id,
+    ]);
+  }
+
   /**
    * Apply a change received from a remote peer, column-LWW-reconciled by HLC.
    * An optional cursor is checkpointed atomically with the remote change.
@@ -596,6 +630,76 @@ export class PalladiumEngine<S extends SchemaMap> {
       }
     });
     await this.#notifyLiveQueries([...touchedTables]);
+  }
+
+  /**
+   * Apply a complete remote page in one transaction. `afterApply` runs in that
+   * transaction only when every change applied, letting a transport persist its
+   * page checkpoint and associated durable side effects before acknowledgement.
+   *
+   * A rejected change is reported to `onRejected` inside the transaction. The
+   * successful changes before and after it remain durable, but `afterApply` is
+   * withheld so a caller can replay the page from its prior checkpoint.
+   *
+   * @internal Transport coordination primitive; application code should use
+   * {@link applyRemote} for individual changes.
+   */
+  async applyRemotePage(
+    changes: ReadonlyArray<RemoteChange<S>>,
+    purges: ReadonlyArray<{ readonly table: keyof S & string; readonly id: string }>,
+    afterApply: (adapter: StorageAdapter) => Promise<void>,
+    onRejected?: (
+      change: RemoteChange<S>,
+      error: unknown,
+      adapter: StorageAdapter,
+    ) => Promise<void>,
+  ): Promise<boolean> {
+    const prepared = changes.map((change) => {
+      if (!isValidHlc(change.hlc)) throw new TypeError("Invalid remote HLC");
+      const canonicalOps = normalizeOps(change.ops);
+      if (!sameOps(change.ops, canonicalOps)) throw new TypeError("Remote change is not canonical");
+      for (const op of change.ops) {
+        if (!isUuidV7(op.id)) throw new TypeError("Remote row id must be a canonical UUIDv7");
+      }
+      return { change, canonicalOps };
+    });
+    const touchedTables = new Set<string>();
+    let allApplied = true;
+    await this.#serialize(async () => {
+      if (!isTransactable(this.adapter)) {
+        throw new Error("PalladiumEngine writes require transaction support");
+      }
+      this.#suppressLocalEmit = true;
+      try {
+        await this.adapter.transaction(async (adpt) => {
+          for (const { change, canonicalOps } of prepared) {
+            try {
+              await this.#applyRemoteTransaction(
+                adpt,
+                change,
+                canonicalOps,
+                touchedTables,
+                undefined,
+              );
+            } catch (error) {
+              if (onRejected === undefined) throw error;
+              allApplied = false;
+              await onRejected(change, error, adpt);
+            }
+          }
+          if (!allApplied) return;
+          for (const purge of purges) {
+            await this.#purgeLocalTransaction(adpt, String(purge.table), purge.id);
+            touchedTables.add(String(purge.table).toLowerCase());
+          }
+          await afterApply(adpt);
+        });
+      } finally {
+        this.#suppressLocalEmit = false;
+      }
+    });
+    await this.#notifyLiveQueries([...touchedTables]);
+    return allApplied;
   }
 
   /** Shorthand for single-row insert. */
