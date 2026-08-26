@@ -146,6 +146,75 @@ pub(super) async fn post_changes(
     ))
 }
 
+async fn append_grant_backfills(
+    db: &AtriumDb,
+    workspace: &str,
+    user: &str,
+    events: &[PendingEvent],
+    changes: &mut Vec<Change>,
+    limit: u32,
+) -> Result<bool, AtriumError> {
+    let mut all_caught_up = true;
+    let mut remaining = usize::try_from(limit)
+        .unwrap_or(100)
+        .saturating_sub(changes.len());
+    for event in events.iter().filter(|event| event.kind == EVENT_GRANT) {
+        if remaining == 0 {
+            all_caught_up = false;
+            break;
+        }
+        let Some((root, offered, offered_upper, offered_complete, backfill_cursor)) =
+            db.grant_offer_state(workspace, user, event.id).await?
+        else {
+            continue;
+        };
+        let (candidates, complete) = if let Some(through) = offered {
+            (
+                db.list_changes_through(workspace, backfill_cursor, through, None)
+                    .await?,
+                offered_complete.unwrap_or(false) || through >= offered_upper.unwrap_or(through),
+            )
+        } else {
+            let bound = db.workspace_append_bound(workspace).await?;
+            let all = db
+                .list_changes_through(workspace, backfill_cursor, bound, None)
+                .await?;
+            let mut selected = Vec::new();
+            for entry in all {
+                if change_root(db, workspace, &entry.change).await?.as_deref()
+                    == Some(root.as_str())
+                {
+                    selected.push(entry);
+                    if selected.len() >= remaining {
+                        break;
+                    }
+                }
+            }
+            let through = selected.last().map_or(bound, |entry| entry.append_seq);
+            let complete = through >= bound;
+            db.grant_offer(event.id, through, bound, complete).await?;
+            (selected, complete)
+        };
+        all_caught_up &= complete;
+        for entry in candidates {
+            if remaining == 0 {
+                break;
+            }
+            if changes
+                .iter()
+                .any(|existing| existing.id == entry.change.id)
+            {
+                continue;
+            }
+            if change_root(db, workspace, &entry.change).await?.as_deref() == Some(root.as_str()) {
+                changes.push(entry.change);
+                remaining -= 1;
+            }
+        }
+    }
+    Ok(all_caught_up)
+}
+
 pub(super) async fn get_changes(
     State(state): State<AtriumState>,
     Caller(user): Caller,
@@ -164,7 +233,10 @@ pub(super) async fn get_changes(
     if !(1..=100).contains(&limit) {
         return Err(AtriumError::BadRequest("invalid_request".to_owned()));
     }
-    let history = db.list_changes(&workspace, after, Some(limit)).await?;
+    let upper_bound = db.workspace_append_bound(&workspace).await?;
+    let history = db
+        .list_changes_through(&workspace, after, upper_bound, Some(limit))
+        .await?;
     let raw_count = history.len();
     let cursor = history
         .last()
@@ -178,23 +250,8 @@ pub(super) async fn get_changes(
         }
     }
     let events = db.pending_events(&workspace, user.as_str()).await?;
-    let grants: Vec<&PendingEvent> = events
-        .iter()
-        .filter(|event| event.kind == EVENT_GRANT)
-        .collect();
-    if !grants.is_empty() {
-        for entry in db.list_changes(&workspace, 0, Some(limit)).await? {
-            let change = entry.change;
-            if changes.iter().any(|existing| existing.id == change.id) {
-                continue;
-            }
-            if let Some(root) = change_root(db, &workspace, &change).await? {
-                if grants.iter().any(|event| event.root_id == root) {
-                    changes.push(change);
-                }
-            }
-        }
-    }
+    let backfills_caught_up =
+        append_grant_backfills(db, &workspace, user.as_str(), &events, &mut changes, limit).await?;
     let mut purges = Vec::new();
     for event in events.iter().filter(|event| event.kind == EVENT_REVOKE) {
         let record = db
@@ -212,13 +269,13 @@ pub(super) async fn get_changes(
         version: 1,
         changes,
         cursor: cursor.clone(),
-        upper_bound: cursor,
+        upper_bound: upper_bound.to_string(),
         purges,
         events,
         control: PageControl {
             must_refetch: false,
         },
-        caught_up: raw_count < usize::try_from(limit).unwrap_or(100),
+        caught_up: raw_count < usize::try_from(limit).unwrap_or(100) && backfills_caught_up,
     }))
 }
 

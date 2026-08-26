@@ -33,6 +33,7 @@ where
     S: ChangeStore + Send + Sync,
     S::Error: std::error::Error + Send + Sync + 'static,
 {
+    palladium_core::validate_v1_change(&change).map_err(AppError::BadRequest)?;
     let outcome = state
         .store
         .insert(&scope, &change)

@@ -313,6 +313,94 @@ describe("SyncTransport — downlink", () => {
     expect(dl.map((r) => r.change_id)).toContain("00000000-0000-4000-8000-000000000001");
   });
 
+  it("rejects a non-canonical raw wire operation sequence without applying it", async () => {
+    const db = await makeEngine(BOB);
+    const nonCanonical: WireChange = {
+      id: "00000000-0000-4000-8000-00000000000a",
+      hlc: { wallMs: 1_700_000_000_000, counter: 0, nodeId: ALICE },
+      ops: [
+        {
+          op: "insert",
+          table: "notes",
+          row_id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          data: { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab", title: "first", updated_at: 1 },
+        },
+        {
+          op: "update",
+          table: "notes",
+          row_id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          col: "title",
+          value: "second",
+        },
+      ],
+    };
+    const { fetch } = makeFakeFetch(() => jsonResponse(page([nonCanonical])));
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+
+    await transport.poll();
+
+    expect(transport.lastError).toMatchObject({
+      phase: "protocol",
+      code: "invalid_operation",
+      retryable: false,
+      changeId: nonCanonical.id,
+    });
+    expect(await db.exec<Schema["notes"]>(sql`SELECT * FROM notes`)).toEqual([]);
+    await transport.dispose();
+  });
+
+  it("retries a remediated durable payload after discard clears its permanent state", async () => {
+    const db = await makeEngine(BOB);
+    const poisoned: WireChange = {
+      id: "00000000-0000-4000-8000-00000000000b",
+      hlc: { wallMs: 1_700_000_000_001, counter: 0, nodeId: ALICE },
+      ops: [
+        {
+          op: "insert",
+          table: "notes",
+          row_id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac",
+          data: { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac", updated_at: 1 },
+        },
+      ],
+    };
+    const { fetch } = makeFakeFetch(() => jsonResponse(page([poisoned])));
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+
+    await transport.poll();
+    await transport.discardQuarantined(poisoned.id);
+    await db.adapter.exec("UPDATE _sync_quarantine SET ops = ? WHERE change_id = ?", [
+      JSON.stringify([
+        {
+          op: "insert",
+          table: "notes",
+          row_id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac",
+          data: {
+            id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac",
+            title: "remediated",
+            updated_at: 1,
+          },
+        },
+      ]),
+      poisoned.id,
+    ]);
+
+    await transport.retryQuarantined(poisoned.id);
+
+    expect(await transport.inspectQuarantine()).toEqual([]);
+    expect(
+      await db.exec<Schema["notes"]>(
+        sql`SELECT * FROM notes WHERE id = ${"018f0f50-7b8d-7a1c-8e2f-1234567890ac"}`,
+      ),
+    ).toEqual([
+      {
+        id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac",
+        title: "remediated",
+        updated_at: 1,
+      },
+    ]);
+    await transport.dispose();
+  });
+
   it("ignores a legacy HLC cursor and starts from the new append cursor key", async () => {
     const db = await makeEngine(BOB);
     await db.setSyncState("cursor", "legacy-hlc-cursor");
@@ -890,6 +978,104 @@ describe("SyncTransport — durable outbox", () => {
       expect(transport.lastError?.code).toBe("invalid_receipt");
     });
   }
+  it("aborts a stalled response body at requestTimeoutMs and cleans up timers", async () => {
+    vi.useFakeTimers();
+    const db = await makeEngine(ALICE);
+    const { fetch } = makeFakeFetch((call) => {
+      if (call.init?.method !== "POST") return jsonResponse(page());
+      const signal = call.init.signal;
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          const completion = setTimeout(() => controller.close(), 200);
+          signal?.addEventListener("abort", () => {
+            clearTimeout(completion);
+            controller.error(new DOMException("request timed out", "AbortError"));
+          });
+        },
+      });
+      return new Response(body, { status: 201 });
+    });
+    const transport = new SyncTransport(db, {
+      serverUrl: SERVER_URL,
+      fetch,
+      requestTimeoutMs: 100,
+    });
+    await transport.poll();
+    await db.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      title: "stalled",
+      updated_at: 1,
+    });
+    await Promise.resolve();
+    const syncing = transport.syncOnce();
+    await vi.advanceTimersByTimeAsync(100);
+    await syncing;
+
+    expect(transport.lastError).toMatchObject({
+      code: "request_timeout",
+      retryable: true,
+    });
+    expect(await outboxRows(db)).toHaveLength(1);
+    await transport.dispose();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("does not POST again before Retry-After eligibility", async () => {
+    const db = await makeEngine(ALICE);
+    let posts = 0;
+    const { fetch } = makeFakeFetch((call) => {
+      if (call.init?.method === "POST") {
+        posts += 1;
+        return new Response("slow down", {
+          status: 429,
+          headers: { "Retry-After": "60" },
+        });
+      }
+      return jsonResponse(page());
+    });
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await transport.poll();
+    await db.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      title: "rate-limited",
+      updated_at: 1,
+    });
+    await transport.syncOnce();
+    await transport.syncOnce();
+
+    expect(posts).toBe(1);
+    expect(await outboxRows(db)).toHaveLength(1);
+    await transport.dispose();
+  });
+
+  it("does not automatically retry a terminal protocol failure", async () => {
+    const db = await makeEngine(ALICE);
+    let posts = 0;
+    const { fetch } = makeFakeFetch((call) => {
+      if (call.init?.method === "POST") {
+        posts += 1;
+        return jsonResponse({}, 201);
+      }
+      return jsonResponse(page());
+    });
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await transport.poll();
+    await db.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      title: "invalid receipt",
+      updated_at: 1,
+    });
+    await transport.syncOnce();
+    await transport.syncOnce();
+
+    expect(posts).toBe(1);
+    expect(transport.lastError).toMatchObject({
+      code: "invalid_receipt",
+      retryable: false,
+    });
+    expect(await outboxRows(db)).toHaveLength(1);
+    await transport.dispose();
+  });
 
   it("non-OK POST leaves the change in the outbox; engine status is 'error'", async () => {
     const db = await makeEngine(ALICE);
@@ -978,6 +1164,7 @@ describe("SyncTransport — durable outbox", () => {
     expect(await outboxRows(db)).toHaveLength(0);
   });
   it("replays a server-processed POST after the response is lost", async () => {
+    vi.useFakeTimers();
     const db = await makeEngine(ALICE);
     const accepted = new Set<string>();
     let postCount = 0;
@@ -1008,6 +1195,7 @@ describe("SyncTransport — durable outbox", () => {
     expect(await outboxRows(db)).toHaveLength(1);
 
     const second = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await vi.advanceTimersByTimeAsync(1_000);
     await second.start();
     await second.stop();
 

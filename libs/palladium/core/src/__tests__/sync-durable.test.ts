@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PalladiumEngine } from "../engine.js";
 import { compareHlc } from "../hlc.js";
 import type { SchemaConfig } from "../migration.js";
+import { sql } from "../sql.js";
 import { SyncTransport, type WireChange } from "../sync.js";
 
 interface Schema {
@@ -185,6 +186,72 @@ describe("durable sync state — poll cursor across transport restart", () => {
     await t2.dispose();
 
     expect(seenUrls[0]).toBe(`${SERVER_URL}/v1/changes?limit=100&cursor=${cursor}`);
+  });
+
+  it("quarantines an atomic remote change without committing its valid prefix", async () => {
+    const db = await makeEngine(BOB);
+    const change: WireChange = {
+      id: "00000000-0000-4000-8000-0000000000c2",
+      hlc: { wallMs: 1_700_000_000_001, counter: 0, nodeId: ALICE },
+      ops: [
+        {
+          op: "insert",
+          table: "notes",
+          row_id: "018f0f50-7b8d-7a1c-8e2f-1234567890ad",
+          data: {
+            id: "018f0f50-7b8d-7a1c-8e2f-1234567890ad",
+            title: "must roll back",
+            updated_at: 1,
+          },
+        },
+        {
+          // The second operation fails after the first has mutated the row.
+          op: "insert",
+          table: "notes",
+          row_id: "018f0f50-7b8d-7a1c-8e2f-1234567890ae",
+          data: { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ae", updated_at: 1 },
+        },
+      ],
+    };
+    const fetch: typeof globalThis.fetch = async (_input, init) => {
+      if (init?.method === "POST") return new Response("{}", { status: 201 });
+      return new Response(
+        JSON.stringify({
+          version: 1,
+          changes: [change],
+          purges: [],
+          events: [],
+          cursor: "2",
+          upperBound: "2",
+          caughtUp: true,
+          control: { mustRefetch: false },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+    const transport = new SyncTransport(db, {
+      serverUrl: SERVER_URL,
+      fetch,
+      terminalPolicy: "block",
+    });
+
+    await expect(transport.poll()).resolves.toBeUndefined();
+
+    const notes = await db.exec<Schema["notes"]>(
+      sql`SELECT id FROM notes WHERE id = ${"018f0f50-7b8d-7a1c-8e2f-1234567890ad"}`,
+    );
+    expect(notes).toEqual([]);
+    expect(await transport.inspectQuarantine()).toEqual([
+      expect.objectContaining({
+        phase: "downlink",
+        changeId: change.id,
+        attempts: 1,
+        permanent: false,
+      }),
+    ]);
+    expect(await db.getSyncState("append_cursor_v1")).toBeNull();
+    expect(db.getSyncStatus()).toBe("degraded");
+    await transport.dispose();
   });
 });
 

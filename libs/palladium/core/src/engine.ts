@@ -633,13 +633,16 @@ export class PalladiumEngine<S extends SchemaMap> {
   }
 
   /**
-   * Apply a complete remote page in one transaction. `afterApply` runs in that
-   * transaction only when every change applied, letting a transport persist its
-   * page checkpoint and associated durable side effects before acknowledgement.
+   * Apply a complete remote page. Each change commits independently, so a
+   * rejected change cannot retain a prefix of its operations or roll back prior
+   * successful changes. `afterApply` runs in a final transaction only when
+   * every change applied, letting a transport atomically persist its page
+   * checkpoint and associated durable side effects before acknowledgement.
    *
-   * A rejected change is reported to `onRejected` inside the transaction. The
-   * successful changes before and after it remain durable, but `afterApply` is
-   * withheld so a caller can replay the page from its prior checkpoint.
+   * A rejected change is reported to `onRejected` in its own transaction after
+   * the failed change has rolled back. Successful changes remain durable, but
+   * `afterApply` is withheld so a caller can replay the page from its prior
+   * checkpoint.
    *
    * @internal Transport coordination primitive; application code should use
    * {@link applyRemote} for individual changes.
@@ -671,23 +674,29 @@ export class PalladiumEngine<S extends SchemaMap> {
       }
       this.#suppressLocalEmit = true;
       try {
-        await this.adapter.transaction(async (adpt) => {
-          for (const { change, canonicalOps } of prepared) {
-            try {
+        for (const { change, canonicalOps } of prepared) {
+          const changeTouchedTables = new Set<string>();
+          try {
+            await this.adapter.transaction(async (adpt) => {
               await this.#applyRemoteTransaction(
                 adpt,
                 change,
                 canonicalOps,
-                touchedTables,
+                changeTouchedTables,
                 undefined,
               );
-            } catch (error) {
-              if (onRejected === undefined) throw error;
-              allApplied = false;
+            });
+            for (const table of changeTouchedTables) touchedTables.add(table);
+          } catch (error) {
+            if (onRejected === undefined) throw error;
+            allApplied = false;
+            await this.adapter.transaction(async (adpt) => {
               await onRejected(change, error, adpt);
-            }
+            });
           }
-          if (!allApplied) return;
+        }
+        if (!allApplied) return;
+        await this.adapter.transaction(async (adpt) => {
           for (const purge of purges) {
             await this.#purgeLocalTransaction(adpt, String(purge.table), purge.id);
             touchedTables.add(String(purge.table).toLowerCase());

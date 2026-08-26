@@ -666,6 +666,125 @@ async fn event_ack_cannot_cross_workspace_or_caller() {
     );
 }
 #[tokio::test]
+async fn grant_backfill_survives_event_ack_after_grantee_passed_history() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let (root, initial) = root_insert("notes");
+    let mut historical_ids = vec![initial["id"].as_str().unwrap().to_owned()];
+    assert_eq!(
+        post_change(&app, "alice", &ws, initial).await,
+        StatusCode::CREATED
+    );
+    for _ in 0..100 {
+        let historical = update("notes", root);
+        historical_ids.push(historical["id"].as_str().unwrap().to_owned());
+        assert_eq!(
+            post_change(&app, "alice", &ws, historical).await,
+            StatusCode::CREATED
+        );
+    }
+
+    let before_grant = get_env(&app, "bob", &ws).await;
+    assert_eq!(before_grant["cursor"], "100");
+    let (_, after_history) = call(
+        &app,
+        "GET",
+        "/v1/changes?cursor=100",
+        Some("bob"),
+        Some(&ws),
+        None,
+    )
+    .await;
+    assert_eq!(after_history["cursor"], "101");
+
+    assert_eq!(
+        share(&app, "alice", &ws, root, "bob", "read").await,
+        StatusCode::OK
+    );
+    let mut cursor = "101".to_owned();
+    let mut delivered_ids = Vec::new();
+    for page_number in 0..2 {
+        let (status, delivery) = call(
+            &app,
+            "GET",
+            &format!("/v1/changes?cursor={cursor}"),
+            Some("bob"),
+            Some(&ws),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{delivery:?}");
+        delivered_ids.extend(
+            delivery["changes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|change| change["id"].as_str().unwrap().to_owned()),
+        );
+        let event_ids: Vec<i64> = delivery["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|event| event["id"].as_i64().unwrap())
+            .collect();
+        if !event_ids.is_empty() {
+            let (status, _) = call(
+                &app,
+                "POST",
+                "/v1/changes/events/ack",
+                Some("bob"),
+                Some(&ws),
+                Some(json!({ "event_ids": event_ids })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::NO_CONTENT);
+        }
+        cursor = delivery["cursor"].as_str().unwrap().to_owned();
+        assert!(
+            !delivery["caughtUp"].as_bool().unwrap() || page_number == 1,
+            "backfill should span two pages: {delivery:?}"
+        );
+    }
+    for historical_id in &historical_ids {
+        assert!(
+            delivered_ids.iter().any(|id| id == historical_id),
+            "grant backfill omitted historical change {historical_id}"
+        );
+    }
+    assert_eq!(delivered_ids.len(), historical_ids.len());
+}
+
+#[tokio::test]
+async fn page_upper_bound_is_scope_maximum_not_page_cursor() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let (root, initial) = root_insert("notes");
+    assert_eq!(
+        post_change(&app, "alice", &ws, initial).await,
+        StatusCode::CREATED
+    );
+    for _ in 0..100 {
+        assert_eq!(
+            post_change(&app, "alice", &ws, update("notes", root)).await,
+            StatusCode::CREATED
+        );
+    }
+
+    let (status, page) = call(
+        &app,
+        "GET",
+        "/v1/changes?limit=100",
+        Some("alice"),
+        Some(&ws),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{page:?}");
+    assert_eq!(page["changes"].as_array().unwrap().len(), 100);
+    assert_eq!(page["cursor"], "100");
+    assert_eq!(page["upperBound"], "101");
+}
+#[tokio::test]
 async fn append_cursor_returns_a_late_older_hlc_change() {
     let app = app().await;
     let ws = family(&app).await;

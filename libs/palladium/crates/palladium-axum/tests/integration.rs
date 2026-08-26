@@ -402,3 +402,26 @@ async fn nest_invalid_cursor_returns_400() {
     let (status, _) = get_ok(app, "/sync/v1/changes?cursor=bad_cursor").await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn future_hlc_is_rejected_with_clock_skew_classification() {
+    let app = Router::new().nest("/sync", palladium().await);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/sync/v1/changes")
+                .header("content-type", "application/json")
+                .body(Body::from(change_json(i64::MAX as u64)))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let error = page(&body);
+    assert_eq!(error["code"], json!("invalid_request"));
+    assert_eq!(error["message"], json!("clock_skew"));
+}

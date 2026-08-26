@@ -172,41 +172,41 @@ impl ChangeStore for PostgresStore {
         scope: &Scope,
         change: &Change,
     ) -> std::result::Result<palladium_core::InsertOutcome, Error> {
-        palladium_core::validate_change(change, u64::MAX, 0).map_err(Error::InvalidData)?;
+        palladium_core::validate_v1_change(change).map_err(Error::InvalidData)?;
         let payload = palladium_core::canonical_change_bytes(change)?;
         let hash = format!("{:x}", sha2::Sha256::digest(&payload));
-        let mut tx = self.pool.begin().await?;
-        let existing: Option<(i64, String)> = sqlx::query_as(&format!(
-            "SELECT append_seq,payload_hash FROM {} WHERE scope=$1 AND id=$2",
-            self.table
-        ))
-        .bind(scope.as_str())
-        .bind(change.id)
-        .fetch_optional(&mut *tx)
-        .await?;
-        if let Some((seq, old)) = existing {
-            if old != hash {
-                return Err(Error::InvalidData("change_conflict".into()));
-            }
-            tx.commit().await?;
-            let seq = u64::try_from(seq)
-                .map_err(|_| Error::InvalidData("append sequence is negative".into()))?;
-            return Ok(palladium_core::InsertOutcome::Duplicate(
-                palladium_core::AppendCursor::new(seq),
-            ));
-        }
         let millis = i64::try_from(change.hlc.millis())
             .map_err(|_| Error::InvalidData("hlc millis overflow".into()))?;
         let ops_json = serde_json::to_value(&change.ops)?;
-        let row: (i64,) = sqlx::query_as(&format!("INSERT INTO {} (id,scope,hlc_millis,hlc_counter,hlc_node_id,ops_json,payload_hash) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING append_seq", self.table))
-            .bind(change.id).bind(scope.as_str()).bind(millis).bind(i64::from(change.hlc.counter())).bind(change.hlc.node_id().to_string()).bind(ops_json).bind(hash)
-            .fetch_one(&mut *tx).await?;
+        let mut tx = self.pool.begin().await?;
+        let inserted: Option<(i64,)> = sqlx::query_as(&format!("INSERT INTO {} (id,scope,hlc_millis,hlc_counter,hlc_node_id,ops_json,payload_hash) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (scope,id) DO NOTHING RETURNING append_seq", self.table))
+            .bind(change.id).bind(scope.as_str()).bind(millis).bind(i64::from(change.hlc.counter())).bind(change.hlc.node_id().to_string()).bind(ops_json).bind(&hash)
+            .fetch_optional(&mut *tx).await?;
+        let (seq, inserted) = if let Some((seq,)) = inserted {
+            (seq, true)
+        } else {
+            let (seq, existing): (i64, String) = sqlx::query_as(&format!(
+                "SELECT append_seq,payload_hash FROM {} WHERE scope=$1 AND id=$2",
+                self.table
+            ))
+            .bind(scope.as_str())
+            .bind(change.id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if existing != hash {
+                return Err(Error::InvalidData("change_conflict".into()));
+            }
+            (seq, false)
+        };
         tx.commit().await?;
-        let seq = u64::try_from(row.0)
+        let seq = u64::try_from(seq)
             .map_err(|_| Error::InvalidData("append sequence is negative".into()))?;
-        Ok(palladium_core::InsertOutcome::Inserted(
-            palladium_core::AppendCursor::new(seq),
-        ))
+        let cursor = palladium_core::AppendCursor::new(seq);
+        Ok(if inserted {
+            palladium_core::InsertOutcome::Inserted(cursor)
+        } else {
+            palladium_core::InsertOutcome::Duplicate(cursor)
+        })
     }
     async fn page(
         &self,
@@ -294,6 +294,16 @@ impl ChangeRow {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    #[cfg(feature = "integration-tests")]
+    use palladium_core::{Change, ChangeStore, Hlc, InsertOutcome, NodeId, Scope};
+    #[cfg(feature = "integration-tests")]
+    use std::sync::Arc;
+    #[cfg(feature = "integration-tests")]
+    use tokio::sync::Barrier;
+    #[cfg(feature = "integration-tests")]
+    use uuid::Uuid;
+
     // ── Identifier validator (no live connection needed) ──────────────────
 
     #[test]
@@ -311,5 +321,39 @@ mod tests {
         assert!(super::validate_identifier("").is_err());
         assert!(super::validate_identifier("1starts_with_digit").is_err());
         assert!(super::validate_identifier("semi;colon").is_err());
+    }
+
+    #[cfg(feature = "integration-tests")]
+    /// Concurrent retries of one scoped change are idempotent, rather than
+    /// leaking a unique-constraint error from one transaction.
+    #[tokio::test]
+    async fn concurrent_identical_scoped_inserts_return_inserted_and_duplicate(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let Ok(url) = std::env::var("DATABASE_URL") else {
+            return Ok(());
+        };
+        let store = Arc::new(PostgresStore::connect(&url).await?);
+        let scope = Scope::new(format!("concurrency-{}", Uuid::new_v4()));
+        let change = Change::new(Hlc::new(NodeId::from_uuid(Uuid::nil()), 1), vec![]);
+        let barrier = Arc::new(Barrier::new(2));
+
+        let insert = |store: Arc<PostgresStore>| {
+            let barrier = Arc::clone(&barrier);
+            let scope = scope.clone();
+            let change = change.clone();
+            async move {
+                barrier.wait().await;
+                store.insert(&scope, &change).await
+            }
+        };
+        let (left, right) = tokio::join!(insert(Arc::clone(&store)), insert(store));
+        let outcomes = [left?, right?];
+        assert!(outcomes
+            .iter()
+            .any(|outcome| matches!(outcome, InsertOutcome::Inserted(_))));
+        assert!(outcomes
+            .iter()
+            .any(|outcome| matches!(outcome, InsertOutcome::Duplicate(_))));
+        Ok(())
     }
 }

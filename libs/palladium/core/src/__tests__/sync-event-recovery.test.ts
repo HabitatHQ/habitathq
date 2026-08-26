@@ -154,6 +154,28 @@ describe("SyncTransport — event durability", () => {
     expect(persisted[0]?.count).toBe(0);
     await transport.dispose();
   });
+
+  it("clears degraded status after a later event acknowledgement succeeds", async () => {
+    const engine = await makeEngine();
+    const event: SyncEvent = { id: 73, kind: "grant", root_id: ROOT_ID };
+    let acknowledgements = 0;
+    const fetch: typeof globalThis.fetch = async (input) => {
+      if (urlOf(input).endsWith("/events/ack")) {
+        acknowledgements += 1;
+        return acknowledgements === 1 ? jsonResponse({}, 503) : new Response(null, { status: 204 });
+      }
+      return jsonResponse(page({ events: [event], cursor: "43" }));
+    };
+    const transport = new SyncTransport(engine, { serverUrl: SERVER_URL, fetch });
+
+    await transport.poll();
+    expect(engine.getSyncStatus()).toBe("degraded");
+
+    await transport.poll();
+    expect(engine.getSyncStatus()).toBe("caught_up");
+    expect(transport.lastError).toBeNull();
+    await transport.dispose();
+  });
 });
 
 describe("SyncTransport — quarantine recovery", () => {
@@ -179,7 +201,7 @@ describe("SyncTransport — quarantine recovery", () => {
       phase: "downlink",
       changeId: change.id,
       attempts: 1,
-      permanent: 0,
+      permanent: false,
       hlcWallMs: change.hlc.wallMs,
       hlcCounter: change.hlc.counter,
       hlcNodeId: change.hlc.nodeId,

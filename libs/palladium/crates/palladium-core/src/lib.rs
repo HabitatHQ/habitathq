@@ -41,6 +41,26 @@ pub use store::{
     AppendCursor, ChangePage, ChangeStore, InsertOutcome, PageControl, PagePurge, MAX_PAGE_SIZE,
 };
 
+/// Maximum permitted HLC wall-clock skew for v1 replicated changes.
+pub const V1_MAX_FUTURE_HLC_MILLIS: u64 = 300_000;
+
+/// Validate a v1 replicated change against the current Unix time.
+///
+/// # Errors
+///
+/// Returns `clock_skew` when the local clock cannot be read or the HLC exceeds
+/// the permitted future offset, or an error when any replicated row identifier
+/// is not `UUIDv7`.
+pub fn validate_v1_change(change: &Change) -> std::result::Result<(), String> {
+    let now_millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| "clock_skew".to_owned())
+        .and_then(|duration| {
+            u64::try_from(duration.as_millis()).map_err(|_| "clock_skew".to_owned())
+        })?;
+    validate_change(change, now_millis, V1_MAX_FUTURE_HLC_MILLIS)
+}
+
 /// Validate a replicated change at a protocol boundary.
 ///
 /// # Errors

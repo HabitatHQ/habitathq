@@ -175,13 +175,12 @@ impl SqliteStore {
 
 impl ChangeStore for SqliteStore {
     type Error = Error;
-
     async fn insert(
         &self,
         scope: &Scope,
         change: &Change,
     ) -> std::result::Result<palladium_core::InsertOutcome, Error> {
-        palladium_core::validate_change(change, u64::MAX, 0).map_err(Error::InvalidData)?;
+        palladium_core::validate_v1_change(change).map_err(Error::InvalidData)?;
         let mut tx = self.pool.begin().await?;
         let payload = palladium_core::canonical_change_bytes(change)?;
         let hash = format!("{:x}", sha2::Sha256::digest(&payload));
@@ -316,6 +315,27 @@ mod tests {
             palladium_core::InsertOutcome::Duplicate(_)
         ));
         assert_eq!(store.page(&scope, None, 1).await.unwrap().changes.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn rejects_change_beyond_v1_future_window_as_clock_skew(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let store = SqliteStore::in_memory().await?;
+        let scope = Scope::new("a");
+        let change = Change::new(
+            Hlc::new(
+                palladium_core::NodeId::from_uuid(Uuid::nil()),
+                i64::MAX as u64,
+            ),
+            vec![],
+        );
+
+        let result = store.insert(&scope, &change).await;
+        assert!(matches!(
+            result,
+            Err(Error::InvalidData(classification)) if classification == "clock_skew"
+        ));
+        Ok(())
     }
 
     #[tokio::test]
