@@ -165,7 +165,7 @@ describe("seeded generated SyncTransport protocol inputs", () => {
     }
   });
 
-  it("keeps generated invalid receipts durable and acknowledges valid receipts", async () => {
+  it("quarantines generated invalid receipts and acknowledges valid receipts", async () => {
     vi.useFakeTimers();
     const random = seededRandom();
     const generated = corpus.typescript.receipts.flatMap((fixture, index) => {
@@ -196,7 +196,8 @@ describe("seeded generated SyncTransport protocol inputs", () => {
         title: generatedCase.name,
       });
       await transport.syncOnce();
-      expect(await outboxCount(db)).toBe(generatedCase.accepted ? 0 : 1);
+      expect(await outboxCount(db)).toBe(0);
+      expect(await transport.inspectQuarantine()).toHaveLength(generatedCase.accepted ? 0 : 1);
       if (!generatedCase.accepted) expect(db.getSyncStatus()).toBe("degraded");
       await transport.dispose();
       expect(vi.getTimerCount()).toBe(0);

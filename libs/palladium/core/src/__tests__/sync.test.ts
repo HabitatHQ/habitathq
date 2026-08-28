@@ -959,7 +959,7 @@ describe("SyncTransport — durable outbox", () => {
     ],
     ["a receipt without a cursor", () => jsonResponse({ version: 1, outcome: "inserted" }, 201)],
   ] as const) {
-    it(`retains the outbox for ${description}`, async () => {
+    it(`quarantines ${description}`, async () => {
       const db = await makeEngine(ALICE);
       const { fetch } = makeFakeFetch((call) =>
         call.init?.method === "POST" ? response() : jsonResponse(page()),
@@ -974,8 +974,14 @@ describe("SyncTransport — durable outbox", () => {
       await transport.syncOnce();
       await transport.stop();
 
-      expect(await outboxRows(db)).toHaveLength(1);
-      expect(transport.lastError?.code).toBe("invalid_receipt");
+      expect(await outboxRows(db)).toHaveLength(0);
+      expect(await transport.inspectQuarantine()).toEqual([
+        expect.objectContaining({
+          phase: "uplink",
+          code: "invalid_receipt",
+          permanent: true,
+        }),
+      ]);
     });
   }
   it("aborts a stalled response body at requestTimeoutMs and cleans up timers", async () => {
@@ -1048,13 +1054,13 @@ describe("SyncTransport — durable outbox", () => {
     await transport.dispose();
   });
 
-  it("does not automatically retry a terminal protocol failure", async () => {
+  it("quarantines a terminal protocol failure until explicit recovery", async () => {
     const db = await makeEngine(ALICE);
     let posts = 0;
     const { fetch } = makeFakeFetch((call) => {
       if (call.init?.method === "POST") {
         posts += 1;
-        return jsonResponse({}, 201);
+        return posts === 1 ? jsonResponse({}, 201) : jsonResponse(receipt(), 201);
       }
       return jsonResponse(page());
     });
@@ -1073,7 +1079,25 @@ describe("SyncTransport — durable outbox", () => {
       code: "invalid_receipt",
       retryable: false,
     });
-    expect(await outboxRows(db)).toHaveLength(1);
+    expect(await outboxRows(db)).toHaveLength(0);
+    const quarantined = await transport.inspectQuarantine();
+    expect(quarantined).toEqual([
+      expect.objectContaining({
+        phase: "uplink",
+        code: "invalid_receipt",
+        permanent: true,
+      }),
+    ]);
+    const terminalChangeId = quarantined[0]?.changeId;
+    if (terminalChangeId === undefined)
+      throw new Error("expected terminal outbox quarantine entry");
+
+    await transport.retryQuarantined(terminalChangeId);
+    await transport.syncOnce();
+
+    expect(posts).toBe(2);
+    expect(await outboxRows(db)).toHaveLength(0);
+    expect(await transport.inspectQuarantine()).toEqual([]);
     await transport.dispose();
   });
 

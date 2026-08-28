@@ -34,6 +34,15 @@ Resolve every blocking sync-protocol review finding with regression-first change
 5. Add resumable Atrium grant backfill state and return the captured append snapshot upper bound.
 6. Enforce future-HLC bounds with stable protocol errors and make PostgreSQL duplicate insertion conflict-safe.
 
+
+## Completed remediation
+
+- `PalladiumEngine.init()` now rejects a persisted schema identity that differs from the requested schema before applying migrations.
+- Terminal invalid-receipt uploads move into the durable uplink quarantine, where inspection, retry, and discard can recover or intentionally remove them.
+- Generic SQLite history rebuilds legacy schemas into append-position history with canonical payload hashes; duplicate insertion uses conflict-safe `INSERT … ON CONFLICT`.
+- Atrium backfills legacy payload hashes, rebuilds the change table with its scoped primary key, and preserves an incomplete grant snapshot until every offered change has been delivered.
+- Regression coverage includes schema reopen mismatch, terminal-receipt recovery, generic SQLite migration/concurrency, Atrium legacy migration, and constrained resumed grant backfill.
+
 ## Verification
 
 - Run the new regression tests until green.

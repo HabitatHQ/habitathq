@@ -7,7 +7,6 @@ use std::{fs, path::PathBuf, str::FromStr};
 use uuid::Uuid;
 
 use crate::{Error, Result};
-
 const MIGRATE_CREATE: &str = "
 CREATE TABLE IF NOT EXISTS palladium_changes (
     append_seq INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -21,10 +20,125 @@ CREATE TABLE IF NOT EXISTS palladium_changes (
     UNIQUE(scope, id)
 )";
 
+#[derive(sqlx::FromRow)]
+struct LegacyChangeRow {
+    id: String,
+    scope: String,
+    hlc_millis: i64,
+    hlc_counter: i64,
+    hlc_node_id: String,
+    ops_json: String,
+}
+
+fn payload_hash(row: &LegacyChangeRow) -> Result<String> {
+    let id = Uuid::parse_str(&row.id)
+        .map_err(|error| Error::InvalidData(format!("invalid change id: {error}")))?;
+    let hlc = Hlc::from_db_parts(row.hlc_millis, row.hlc_counter, &row.hlc_node_id)
+        .map_err(Error::InvalidData)?;
+    let ops: Vec<Op> = serde_json::from_str(&row.ops_json)?;
+    let payload = palladium_core::canonical_change_bytes(&Change { id, hlc, ops })?;
+    Ok(format!("{:x}", sha2::Sha256::digest(payload)))
+}
+
+async fn backfill_payload_hashes(pool: &SqlitePool) -> Result<()> {
+    let rows: Vec<LegacyChangeRow> = sqlx::query_as(
+        "SELECT id, scope, hlc_millis, hlc_counter, hlc_node_id, ops_json
+           FROM palladium_changes
+          WHERE payload_hash IS NULL OR payload_hash = ''",
+    )
+    .fetch_all(pool)
+    .await?;
+    for row in rows {
+        let hash = payload_hash(&row)?;
+        sqlx::query("UPDATE palladium_changes SET payload_hash = ? WHERE scope = ? AND id = ?")
+            .bind(hash)
+            .bind(row.scope)
+            .bind(row.id)
+            .execute(pool)
+            .await?;
+    }
+    Ok(())
+}
+
+async fn rebuild_legacy_table(pool: &SqlitePool, has_scope: bool) -> Result<()> {
+    let scope = if has_scope {
+        "COALESCE(scope, 'default')"
+    } else {
+        "'default'"
+    };
+    let mut tx = pool.begin().await?;
+    sqlx::query("ALTER TABLE palladium_changes RENAME TO palladium_changes_legacy_v1")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(MIGRATE_CREATE).execute(&mut *tx).await?;
+    let rows: Vec<LegacyChangeRow> = sqlx::query_as(&format!(
+        "SELECT id, {scope} AS scope, hlc_millis, hlc_counter, hlc_node_id, ops_json
+           FROM palladium_changes_legacy_v1
+          ORDER BY rowid"
+    ))
+    .fetch_all(&mut *tx)
+    .await?;
+    for row in rows {
+        let hash = payload_hash(&row)?;
+        sqlx::query(
+            "INSERT INTO palladium_changes
+             (id, scope, hlc_millis, hlc_counter, hlc_node_id, ops_json, payload_hash)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(row.id)
+        .bind(row.scope)
+        .bind(row.hlc_millis)
+        .bind(row.hlc_counter)
+        .bind(row.hlc_node_id)
+        .bind(row.ops_json)
+        .bind(hash)
+        .execute(&mut *tx)
+        .await?;
+    }
+    sqlx::query("DROP TABLE palladium_changes_legacy_v1")
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
 async fn migrate(pool: &SqlitePool) -> Result<()> {
-    sqlx::query(MIGRATE_CREATE).execute(pool).await?;
+    let exists: Option<String> = sqlx::query_scalar(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'palladium_changes'",
+    )
+    .fetch_optional(pool)
+    .await?;
+    if exists.is_none() {
+        sqlx::query(MIGRATE_CREATE).execute(pool).await?;
+    } else {
+        let columns: Vec<(String,)> =
+            sqlx::query_as("SELECT name FROM pragma_table_info('palladium_changes')")
+                .fetch_all(pool)
+                .await?;
+        let has_column = |name: &str| columns.iter().any(|(column,)| column == name);
+        let has_scope = has_column("scope");
+        if has_column("append_seq") {
+            if !has_scope {
+                sqlx::query("ALTER TABLE palladium_changes ADD COLUMN scope TEXT")
+                    .execute(pool)
+                    .await?;
+            }
+            sqlx::query("UPDATE palladium_changes SET scope = 'default' WHERE scope IS NULL")
+                .execute(pool)
+                .await?;
+            if !has_column("payload_hash") {
+                sqlx::query("ALTER TABLE palladium_changes ADD COLUMN payload_hash TEXT")
+                    .execute(pool)
+                    .await?;
+            }
+            backfill_payload_hashes(pool).await?;
+        } else {
+            rebuild_legacy_table(pool, has_scope).await?;
+        }
+    }
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_changes_scope_append ON palladium_changes(scope, append_seq)")
-        .execute(pool).await?;
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
@@ -181,39 +295,52 @@ impl ChangeStore for SqliteStore {
         change: &Change,
     ) -> std::result::Result<palladium_core::InsertOutcome, Error> {
         palladium_core::validate_v1_change(change).map_err(Error::InvalidData)?;
-        let mut tx = self.pool.begin().await?;
         let payload = palladium_core::canonical_change_bytes(change)?;
         let hash = format!("{:x}", sha2::Sha256::digest(&payload));
-        let row: Option<(i64, String)> = sqlx::query_as(
-            "SELECT append_seq, payload_hash FROM palladium_changes WHERE scope = ? AND id = ?",
-        )
-        .bind(scope.as_str())
-        .bind(change.id.to_string())
-        .fetch_optional(&mut *tx)
-        .await?;
-        if let Some((seq, existing)) = row {
-            if existing != hash {
-                return Err(Error::InvalidData("change_conflict".into()));
-            }
-            tx.commit().await?;
-            let seq = u64::try_from(seq)
-                .map_err(|_| Error::InvalidData("append sequence is negative".into()))?;
-            return Ok(palladium_core::InsertOutcome::Duplicate(
-                palladium_core::AppendCursor::new(seq),
-            ));
-        }
         let millis = i64::try_from(change.hlc.millis())
             .map_err(|_| Error::InvalidData("hlc millis overflow".into()))?;
         let ops_json = serde_json::to_string(&change.ops)?;
-        let result = sqlx::query("INSERT INTO palladium_changes (id,scope,hlc_millis,hlc_counter,hlc_node_id,ops_json,payload_hash) VALUES (?,?,?,?,?,?,?)")
-            .bind(change.id.to_string()).bind(scope.as_str()).bind(millis).bind(i64::from(change.hlc.counter()))
-            .bind(change.hlc.node_id().to_string()).bind(ops_json).bind(hash).execute(&mut *tx).await?;
-        let seq = u64::try_from(result.last_insert_rowid())
-            .map_err(|_| Error::InvalidData("append sequence is negative".into()))?;
+        let mut tx = self.pool.begin().await?;
+        let inserted: Option<(i64,)> = sqlx::query_as(
+            "INSERT INTO palladium_changes
+             (id, scope, hlc_millis, hlc_counter, hlc_node_id, ops_json, payload_hash)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(scope, id) DO NOTHING
+             RETURNING append_seq",
+        )
+        .bind(change.id.to_string())
+        .bind(scope.as_str())
+        .bind(millis)
+        .bind(i64::from(change.hlc.counter()))
+        .bind(change.hlc.node_id().to_string())
+        .bind(ops_json)
+        .bind(&hash)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let (seq, inserted) = if let Some((seq,)) = inserted {
+            (seq, true)
+        } else {
+            let (seq, existing): (i64, String) = sqlx::query_as(
+                "SELECT append_seq, payload_hash FROM palladium_changes WHERE scope = ? AND id = ?",
+            )
+            .bind(scope.as_str())
+            .bind(change.id.to_string())
+            .fetch_one(&mut *tx)
+            .await?;
+            if existing != hash {
+                return Err(Error::InvalidData("change_conflict".into()));
+            }
+            (seq, false)
+        };
         tx.commit().await?;
-        Ok(palladium_core::InsertOutcome::Inserted(
-            palladium_core::AppendCursor::new(seq),
-        ))
+        let seq = u64::try_from(seq)
+            .map_err(|_| Error::InvalidData("append sequence is negative".into()))?;
+        let cursor = palladium_core::AppendCursor::new(seq);
+        Ok(if inserted {
+            palladium_core::InsertOutcome::Inserted(cursor)
+        } else {
+            palladium_core::InsertOutcome::Duplicate(cursor)
+        })
     }
 
     async fn page(
@@ -318,6 +445,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn concurrent_identical_inserts_return_inserted_and_duplicate() {
+        let store = SqliteStore::in_memory().await.unwrap();
+        let scope = Scope::new("a");
+        let change = Change::new(
+            Hlc::new(palladium_core::NodeId::from_uuid(Uuid::nil()), 1),
+            vec![],
+        );
+
+        let (first, second) =
+            tokio::join!(store.insert(&scope, &change), store.insert(&scope, &change));
+        let outcomes = [first.unwrap(), second.unwrap()];
+        assert!(outcomes
+            .iter()
+            .any(|outcome| matches!(outcome, palladium_core::InsertOutcome::Inserted(_))));
+        assert!(outcomes
+            .iter()
+            .any(|outcome| matches!(outcome, palladium_core::InsertOutcome::Duplicate(_))));
+    }
+
+    #[tokio::test]
     async fn rejects_change_beyond_v1_future_window_as_clock_skew(
     ) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let store = SqliteStore::in_memory().await?;
@@ -374,5 +521,50 @@ mod tests {
             Some("7")
         );
         assert!(second.caught_up);
+    }
+
+    #[tokio::test]
+    async fn legacy_history_is_rebuilt_with_append_positions_and_hashes(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await?;
+        sqlx::query(
+            "CREATE TABLE palladium_changes (
+                id TEXT PRIMARY KEY,
+                hlc_key TEXT NOT NULL,
+                hlc_millis INTEGER NOT NULL,
+                hlc_counter INTEGER NOT NULL,
+                hlc_node_id TEXT NOT NULL,
+                ops_json TEXT NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await?;
+        let id = Uuid::nil().to_string();
+        let node_id = Uuid::nil().to_string();
+        sqlx::query(
+            "INSERT INTO palladium_changes
+             (id, hlc_key, hlc_millis, hlc_counter, hlc_node_id, ops_json)
+             VALUES (?, 'legacy', 1, 0, ?, '[]')",
+        )
+        .bind(&id)
+        .bind(node_id)
+        .execute(&pool)
+        .await?;
+
+        migrate(&pool).await?;
+
+        let row: (i64, String, String) = sqlx::query_as(
+            "SELECT append_seq, scope, payload_hash FROM palladium_changes WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(row.0, 1);
+        assert_eq!(row.1, "default");
+        assert_eq!(row.2.len(), 64);
+        Ok(())
     }
 }

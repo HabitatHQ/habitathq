@@ -30,6 +30,12 @@ const ALICE = "00000000-0000-4000-8000-0000000a11ce";
 const BOB = "00000000-0000-4000-8000-00000000b0b0";
 const SERVER_URL = "http://localhost:13742";
 
+const ALTERNATE_SCHEMA: SchemaConfig = {
+  version: 1,
+  schema:
+    "CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, title TEXT NOT NULL, updated_at INTEGER NOT NULL, archived INTEGER NOT NULL DEFAULT 0)",
+};
+
 describe("durable sync state — nodeId + HLC across restart", () => {
   let dir: string;
   let file: string;
@@ -265,5 +271,39 @@ describe("durable sync state — schema identity", () => {
     expect(identity).toMatch(/^v1-1-[0-9a-f]{8}$/u);
     expect(await db.getSyncState("schema_identity_v1")).toBe(identity);
     await db.adapter.close();
+  });
+
+  it("rejects a different schema identity for an existing database", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "palladium-schema-identity-"));
+    const file = join(dir, "db.sqlite");
+    try {
+      const first = new PalladiumEngine<Schema>(
+        new NodeSqliteAdapter({ vfs: { type: "file", filename: file } }),
+        { nodeId: ALICE },
+      );
+      await first.init(SCHEMA);
+      const originalIdentity = first.initializedSchemaIdentity;
+      await first.adapter.close();
+
+      const second = new PalladiumEngine<Schema>(
+        new NodeSqliteAdapter({ vfs: { type: "file", filename: file } }),
+        { nodeId: ALICE },
+      );
+      await expect(second.init(ALTERNATE_SCHEMA)).rejects.toMatchObject({
+        name: "SchemaIdentityMismatchError",
+        actual: originalIdentity,
+      });
+      await second.adapter.close();
+
+      const reopened = new PalladiumEngine<Schema>(
+        new NodeSqliteAdapter({ vfs: { type: "file", filename: file } }),
+        { nodeId: ALICE },
+      );
+      await reopened.init(SCHEMA);
+      expect(await reopened.getSyncState("schema_identity_v1")).toBe(originalIdentity);
+      await reopened.adapter.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

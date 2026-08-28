@@ -206,6 +206,7 @@ impl AtriumDb {
         Self::upgrade_change_cursor_schema(&pool).await?;
         Self::upgrade_change_append_sequence(&pool).await?;
         Self::upgrade_change_append_payload(&pool).await?;
+        Self::upgrade_change_history_primary_key(&pool).await?;
         Ok(Self { pool })
     }
 
@@ -215,6 +216,76 @@ impl AtriumDb {
                 .execute(pool)
                 .await?;
         }
+        let rows: Vec<(String, String, i64, i64, String, String)> = sqlx::query_as(
+            "SELECT id, scope, hlc_millis, hlc_counter, hlc_node_id, ops_json
+               FROM palladium_changes
+              WHERE content_hash IS NULL OR content_hash = ''",
+        )
+        .fetch_all(pool)
+        .await?;
+        for (id, scope, millis, counter, node_id, ops_json) in rows {
+            let id = Uuid::parse_str(&id).map_err(AtriumError::internal)?;
+            let hlc =
+                Hlc::from_db_parts(millis, counter, &node_id).map_err(AtriumError::BadRequest)?;
+            let ops: Vec<Op> = serde_json::from_str(&ops_json).map_err(AtriumError::internal)?;
+            let canonical =
+                serde_json::to_vec(&Change { id, hlc, ops }).map_err(AtriumError::internal)?;
+            let hash = format!("{:x}", Sha256::digest(canonical));
+            sqlx::query("UPDATE palladium_changes SET content_hash = ? WHERE scope = ? AND id = ?")
+                .bind(hash)
+                .bind(scope)
+                .bind(id.to_string())
+                .execute(pool)
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn upgrade_change_history_primary_key(pool: &SqlitePool) -> Result<(), AtriumError> {
+        if Self::table_has_primary_key(pool, "palladium_changes", &["scope", "id"]).await? {
+            return Ok(());
+        }
+        let mut tx = pool.begin().await?;
+        sqlx::query(
+            "CREATE TABLE palladium_changes_replacement (
+                id TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                append_cursor INTEGER NOT NULL UNIQUE,
+                hlc_key TEXT NOT NULL,
+                hlc_millis INTEGER NOT NULL,
+                hlc_counter INTEGER NOT NULL,
+                hlc_node_id TEXT NOT NULL,
+                ops_json TEXT NOT NULL,
+                append_seq INTEGER NOT NULL,
+                content_hash TEXT NOT NULL,
+                PRIMARY KEY (scope, id)
+            )",
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO palladium_changes_replacement
+             (id, scope, append_cursor, hlc_key, hlc_millis, hlc_counter, hlc_node_id,
+              ops_json, append_seq, content_hash)
+             SELECT id, scope, append_cursor, hlc_key, hlc_millis, hlc_counter, hlc_node_id,
+                    ops_json, append_seq, content_hash
+               FROM palladium_changes",
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("DROP TABLE palladium_changes")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("ALTER TABLE palladium_changes_replacement RENAME TO palladium_changes")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "CREATE INDEX idx_changes_scope_append_cursor
+             ON palladium_changes (scope, append_cursor)",
+        )
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -224,6 +295,14 @@ impl AtriumDb {
         )
         .fetch_all(pool)
         .await?;
+        if !columns.iter().any(|(name,)| name == "scope") {
+            sqlx::query("ALTER TABLE palladium_changes ADD COLUMN scope TEXT")
+                .execute(pool)
+                .await?;
+            sqlx::query("UPDATE palladium_changes SET scope = 'default' WHERE scope IS NULL")
+                .execute(pool)
+                .await?;
+        }
         if !columns.iter().any(|(name,)| name == "append_cursor") {
             sqlx::query("ALTER TABLE palladium_changes ADD COLUMN append_cursor INTEGER")
                 .execute(pool)
@@ -839,11 +918,16 @@ impl AtriumDb {
         };
         let complete = complete == Some(1) || upper.is_some_and(|bound| through >= bound);
         sqlx::query(
-            "UPDATE grant_events SET backfill_cursor = ?, offered_through = NULL,
-             offered_upper_bound = NULL, offered_complete = NULL, delivered = ?
+            "UPDATE grant_events
+             SET backfill_cursor = ?,
+                 offered_through = NULL,
+                 offered_upper_bound = CASE WHEN ? != 0 THEN NULL ELSE offered_upper_bound END,
+                 offered_complete = NULL,
+                 delivered = ?
              WHERE id = ? AND workspace_id = ? AND user_id = ? AND delivered = 0",
         )
         .bind(through)
+        .bind(i32::from(complete))
         .bind(i32::from(complete))
         .bind(event_id)
         .bind(workspace)
@@ -1418,6 +1502,65 @@ mod tests {
             db.list_changes(&second_scope, 0, None).await.unwrap().len(),
             1
         );
+    }
+
+    #[tokio::test]
+    async fn legacy_change_history_rebuilds_scoped_primary_key_and_hashes(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let path = std::env::temp_dir().join(format!("atrium-legacy-{}.sqlite", Uuid::new_v4()));
+        std::fs::File::create(&path)?;
+        let url = format!("sqlite:{}", path.display());
+        let pool = sqlx::SqlitePool::connect(&url).await?;
+        sqlx::query(
+            "CREATE TABLE palladium_changes (
+                id TEXT PRIMARY KEY,
+                scope TEXT NOT NULL,
+                append_cursor INTEGER NOT NULL UNIQUE,
+                hlc_key TEXT NOT NULL,
+                hlc_millis INTEGER NOT NULL,
+                hlc_counter INTEGER NOT NULL,
+                hlc_node_id TEXT NOT NULL,
+                ops_json TEXT NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await?;
+        let id = Uuid::now_v7().to_string();
+        let node_id = Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO palladium_changes
+             (id, scope, append_cursor, hlc_key, hlc_millis, hlc_counter, hlc_node_id, ops_json)
+             VALUES (?, 'legacy', 1, 'legacy', 1, 0, ?, '[]')",
+        )
+        .bind(&id)
+        .bind(node_id)
+        .execute(&pool)
+        .await?;
+        pool.close().await;
+
+        let db = AtriumDb::open(&url).await?;
+        let primary_key: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT name, pk FROM pragma_table_info('palladium_changes') WHERE pk > 0 ORDER BY pk",
+        )
+        .fetch_all(&db.pool)
+        .await?;
+        assert_eq!(
+            primary_key
+                .into_iter()
+                .map(|(name, _)| name)
+                .collect::<Vec<_>>(),
+            vec!["scope", "id"]
+        );
+        let hash: String = sqlx::query_scalar(
+            "SELECT content_hash FROM palladium_changes WHERE scope = 'legacy' AND id = ?",
+        )
+        .bind(&id)
+        .fetch_one(&db.pool)
+        .await?;
+        assert_eq!(hash.len(), 64);
+        db.pool.close().await;
+        std::fs::remove_file(path)?;
+        Ok(())
     }
 
     #[tokio::test]

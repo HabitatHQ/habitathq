@@ -342,9 +342,13 @@ export class PalladiumEngine<S extends SchemaMap> {
     await this.#ensureSyncTables(this.adapter);
     await this.#loadDurableState();
     if (schema) {
+      const identity = schemaIdentity(schema);
+      const persistedIdentity = await this.getSyncState(STATE_SCHEMA_IDENTITY);
+      if (persistedIdentity !== null && persistedIdentity !== identity) {
+        throw new SchemaIdentityMismatchError(identity, persistedIdentity);
+      }
       this.#knownTables = extractSchemaTables(schema.schema);
       await applySchema(this.adapter, schema);
-      const identity = schemaIdentity(schema);
       await this.setSyncState(STATE_SCHEMA_IDENTITY, identity);
       this.#schemaIdentity = identity;
     }

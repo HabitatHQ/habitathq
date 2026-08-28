@@ -755,6 +755,100 @@ async fn grant_backfill_survives_event_ack_after_grantee_passed_history() {
 }
 
 #[tokio::test]
+async fn resumed_grant_offer_advances_only_through_delivered_backfill() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let (root, initial) = root_insert("notes");
+    let mut historical_ids = vec![initial["id"].as_str().unwrap().to_owned()];
+    assert_eq!(
+        post_change(&app, "alice", &ws, initial).await,
+        StatusCode::CREATED
+    );
+    for _ in 0..100 {
+        let historical = update("notes", root);
+        historical_ids.push(historical["id"].as_str().unwrap().to_owned());
+        assert_eq!(
+            post_change(&app, "alice", &ws, historical).await,
+            StatusCode::CREATED
+        );
+    }
+    let (_, passed_history) = call(
+        &app,
+        "GET",
+        "/v1/changes?cursor=100",
+        Some("bob"),
+        Some(&ws),
+        None,
+    )
+    .await;
+    assert_eq!(passed_history["cursor"], "101");
+    assert_eq!(
+        share(&app, "alice", &ws, root, "bob", "read").await,
+        StatusCode::OK
+    );
+
+    let (_, offered) = call(
+        &app,
+        "GET",
+        "/v1/changes?cursor=101",
+        Some("bob"),
+        Some(&ws),
+        None,
+    )
+    .await;
+    assert_eq!(offered["changes"].as_array().unwrap().len(), 100);
+    let event_id = offered["events"][0]["id"].as_i64().unwrap();
+    for _ in 0..99 {
+        assert_eq!(
+            post_change(&app, "alice", &ws, update("notes", root)).await,
+            StatusCode::CREATED
+        );
+    }
+
+    let (_, constrained) = call(
+        &app,
+        "GET",
+        "/v1/changes?cursor=101",
+        Some("bob"),
+        Some(&ws),
+        None,
+    )
+    .await;
+    assert_eq!(constrained["changes"].as_array().unwrap().len(), 100);
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/v1/changes/events/ack",
+        Some("bob"),
+        Some(&ws),
+        Some(json!({ "event_ids": [event_id] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (_, resumed) = call(
+        &app,
+        "GET",
+        &format!(
+            "/v1/changes?cursor={}",
+            constrained["cursor"].as_str().unwrap()
+        ),
+        Some("bob"),
+        Some(&ws),
+        None,
+    )
+    .await;
+    assert!(
+        resumed["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|change| change["id"].as_str() == Some(historical_ids[1].as_str())),
+        "the undelivered backfill tail must remain available after acknowledgement"
+    );
+}
+
+#[tokio::test]
 async fn page_upper_bound_is_scope_maximum_not_page_cursor() {
     let app = app().await;
     let ws = family(&app).await;

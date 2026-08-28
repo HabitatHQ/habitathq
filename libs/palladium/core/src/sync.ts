@@ -620,6 +620,17 @@ export class SyncTransport<S extends SchemaMap> {
           if (!(err instanceof Error && /duplicate column name:/iu.test(err.message))) throw err;
         }
       }
+      await this.#engine.adapter.exec(
+        `INSERT INTO ${OUTBOX_QUARANTINE_TABLE}
+         (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint, error_code, quarantined_at)
+         SELECT change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint,
+                'terminal_failure', created_at
+           FROM ${OUTBOX_TABLE}
+          WHERE terminal != 0
+         ON CONFLICT(change_id) DO NOTHING`,
+        [],
+      );
+      await this.#engine.adapter.exec(`DELETE FROM ${OUTBOX_TABLE} WHERE terminal != 0`, []);
       await this.#engine.setSyncState("schema_identity_v1", this.#schemaFingerprint);
       const savedAppendCursor = await this.#engine.getSyncState(STATE_APPEND_CURSOR);
       await this.#engine.adapter.exec(EVENT_DDL, []);
@@ -815,19 +826,22 @@ export class SyncTransport<S extends SchemaMap> {
 
   async #recordOutboxFailure(row: OutboxRow, outcome: PostOutcome): Promise<void> {
     const error = this.#lastError;
-    const terminal = outcome === "rejected" && error?.code === "invalid_receipt" ? 1 : 0;
-    const nextRetryAt = terminal
-      ? null
-      : (error?.nextRetryAt ?? (error?.retryable ? this.#backoffAt(row.retry_attempts + 1) : null));
+    const terminal = outcome === "rejected" && error?.code === "invalid_receipt";
+    if (terminal) {
+      await this.#quarantineOutbox(row, error.code);
+      return;
+    }
+    const nextRetryAt =
+      error?.nextRetryAt ?? (error?.retryable ? this.#backoffAt(row.retry_attempts + 1) : null);
     await this.#engine.adapter.exec(
       `UPDATE ${OUTBOX_TABLE}
-         SET retry_attempts = retry_attempts + 1, next_retry_at = ?, terminal = ?
+         SET retry_attempts = retry_attempts + 1, next_retry_at = ?, terminal = 0
        WHERE change_id = ?`,
-      [nextRetryAt, terminal, row.change_id],
+      [nextRetryAt, row.change_id],
     );
   }
 
-  async #quarantineOutbox(row: OutboxRow): Promise<void> {
+  async #quarantineOutbox(row: OutboxRow, code = "schema_incompatible"): Promise<void> {
     await this.#engine.adapter.exec(
       `INSERT INTO ${OUTBOX_QUARANTINE_TABLE}
        (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint, error_code, quarantined_at)
@@ -843,7 +857,7 @@ export class SyncTransport<S extends SchemaMap> {
         row.hlc_node_id,
         row.ops,
         row.schema_fingerprint,
-        "schema_incompatible",
+        code,
         Date.now(),
       ],
     );
@@ -1009,6 +1023,17 @@ export class SyncTransport<S extends SchemaMap> {
   }
   async discardQuarantined(changeId: string): Promise<void> {
     await this.#ensureInitialized();
+    const uplink = await this.#engine.adapter.exec<{ change_id: string }>(
+      `SELECT change_id FROM ${OUTBOX_QUARANTINE_TABLE} WHERE change_id = ?`,
+      [changeId],
+    );
+    if (uplink[0] !== undefined) {
+      await this.#engine.adapter.exec(
+        `DELETE FROM ${OUTBOX_QUARANTINE_TABLE} WHERE change_id = ?`,
+        [changeId],
+      );
+      return;
+    }
     const rows = await this.#engine.adapter.exec<{ change_id: string }>(
       `SELECT change_id FROM ${QUARANTINE_TABLE} WHERE change_id = ?`,
       [changeId],

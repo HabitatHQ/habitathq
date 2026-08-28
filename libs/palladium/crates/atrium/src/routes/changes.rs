@@ -163,19 +163,39 @@ async fn append_grant_backfills(
             all_caught_up = false;
             break;
         }
-        let Some((root, offered, offered_upper, offered_complete, backfill_cursor)) =
+        let Some((root, offered, offered_upper, _offered_complete, backfill_cursor)) =
             db.grant_offer_state(workspace, user, event.id).await?
         else {
             continue;
         };
         let (candidates, complete) = if let Some(through) = offered {
-            (
-                db.list_changes_through(workspace, backfill_cursor, through, None)
-                    .await?,
-                offered_complete.unwrap_or(false) || through >= offered_upper.unwrap_or(through),
-            )
+            let entries = db
+                .list_changes_through(workspace, backfill_cursor, through, None)
+                .await?;
+            let mut selected = Vec::new();
+            for entry in entries {
+                if change_root(db, workspace, &entry.change).await?.as_deref()
+                    == Some(root.as_str())
+                {
+                    selected.push(entry);
+                    if selected.len() >= remaining {
+                        break;
+                    }
+                }
+            }
+            let upper = offered_upper.unwrap_or(through);
+            let delivered_through = selected
+                .last()
+                .map_or(backfill_cursor, |entry| entry.append_seq);
+            let complete = delivered_through >= upper;
+            db.grant_offer(event.id, delivered_through, upper, complete)
+                .await?;
+            (selected, complete)
         } else {
-            let bound = db.workspace_append_bound(workspace).await?;
+            let bound = match offered_upper {
+                Some(bound) => bound,
+                None => db.workspace_append_bound(workspace).await?,
+            };
             let all = db
                 .list_changes_through(workspace, backfill_cursor, bound, None)
                 .await?;
