@@ -1,6 +1,7 @@
 //! [`PostgresStore`] — `PostgreSQL`-backed [`ChangeStore`] implementation.
 
 use palladium_core::{Change, ChangeStore, Hlc, InstanceConfig, Op, PostgresIsolation, Scope};
+use sha2::Digest;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -37,7 +38,6 @@ pub fn validate_identifier(name: &str) -> Result<()> {
 
 // ── Schema migration ──────────────────────────────────────────────────────
 
-const DEFAULT_SCOPE: &str = "default";
 const CHANGE_TABLE: &str = "palladium_changes";
 
 fn quote_identifier(name: &str) -> Result<String> {
@@ -52,24 +52,23 @@ fn change_table(schema: &str) -> Result<String> {
         quote_identifier(CHANGE_TABLE)?
     ))
 }
-
-fn migration_queries(table: &str) -> [String; 5] {
+fn migration_queries(table: &str) -> [String; 3] {
     [
         format!(
             "CREATE TABLE IF NOT EXISTS {table} (
-                id          UUID    NOT NULL PRIMARY KEY,
-                scope       TEXT    NOT NULL,
-                hlc_key     TEXT    NOT NULL,
-                hlc_millis  BIGINT  NOT NULL,
-                hlc_counter BIGINT  NOT NULL,
-                hlc_node_id TEXT    NOT NULL,
-                ops_json    JSONB   NOT NULL
-            )"
+            append_seq BIGSERIAL PRIMARY KEY,
+            id UUID NOT NULL,
+            scope TEXT NOT NULL,
+            hlc_millis BIGINT NOT NULL,
+            hlc_counter BIGINT NOT NULL,
+            hlc_node_id TEXT NOT NULL,
+            ops_json JSONB NOT NULL,
+            payload_hash TEXT NOT NULL,
+            UNIQUE(scope,id)
+        )"
         ),
-        format!("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS scope TEXT"),
-        format!("UPDATE {table} SET scope = $1 WHERE scope IS NULL"),
-        format!("ALTER TABLE {table} ALTER COLUMN scope SET NOT NULL"),
-        format!("CREATE INDEX IF NOT EXISTS idx_changes_scope_hlc ON {table} (scope, hlc_key)"),
+        format!("CREATE INDEX IF NOT EXISTS idx_changes_scope_append ON {table}(scope,append_seq)"),
+        format!("CREATE INDEX IF NOT EXISTS idx_changes_scope_id ON {table}(scope,id)"),
     ]
 }
 
@@ -157,12 +156,8 @@ impl PostgresStore {
     }
 
     async fn migrate_table(pool: &PgPool, table: &str) -> Result<()> {
-        for (index, query) in migration_queries(table).iter().enumerate() {
-            let mut q = sqlx::query(query);
-            if index == 2 {
-                q = q.bind(DEFAULT_SCOPE);
-            }
-            q.execute(pool).await?;
+        for query in migration_queries(table) {
+            sqlx::query(&query).execute(pool).await?;
         }
         Ok(())
     }
@@ -172,75 +167,105 @@ impl PostgresStore {
 
 impl ChangeStore for PostgresStore {
     type Error = Error;
-
-    async fn insert(&self, scope: &Scope, change: &Change) -> std::result::Result<(), Error> {
-        let id = change.id;
-        let hlc_key = change.hlc.sort_key();
-        let hlc_millis = i64::try_from(change.hlc.millis()).map_err(|_| {
-            Error::InvalidData(format!("hlc_millis {} overflows i64", change.hlc.millis()))
-        })?;
-        let hlc_counter = i64::from(change.hlc.counter());
-        let hlc_node_id = change.hlc.node_id().to_string();
-        let ops_json = serde_json::to_value(&change.ops)?;
-
-        let query = format!(
-            "INSERT INTO {} (id, scope, hlc_key, hlc_millis, hlc_counter, hlc_node_id, ops_json)
-             VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING",
-            self.table
-        );
-        sqlx::query(&query)
-            .bind(id)
-            .bind(scope.as_str())
-            .bind(hlc_key)
-            .bind(hlc_millis)
-            .bind(hlc_counter)
-            .bind(hlc_node_id)
-            .bind(ops_json)
-            .execute(&self.pool)
-            .await?;
-
-        Ok(())
-    }
-
-    async fn list_after(
+    async fn insert(
         &self,
         scope: &Scope,
-        after: Option<Hlc>,
-        limit: Option<u32>,
-    ) -> std::result::Result<Vec<Change>, Error> {
-        let mut qb = sqlx::QueryBuilder::new(format!(
-            "SELECT id, hlc_millis, hlc_counter, hlc_node_id, ops_json FROM {} WHERE scope = ",
+        change: &Change,
+    ) -> std::result::Result<palladium_core::InsertOutcome, Error> {
+        palladium_core::validate_v1_change(change).map_err(Error::InvalidData)?;
+        let payload = palladium_core::canonical_change_bytes(change)?;
+        let hash = format!("{:x}", sha2::Sha256::digest(&payload));
+        let millis = i64::try_from(change.hlc.millis())
+            .map_err(|_| Error::InvalidData("hlc millis overflow".into()))?;
+        let ops_json = serde_json::to_value(&change.ops)?;
+        let mut tx = self.pool.begin().await?;
+        let inserted: Option<(i64,)> = sqlx::query_as(&format!("INSERT INTO {} (id,scope,hlc_millis,hlc_counter,hlc_node_id,ops_json,payload_hash) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (scope,id) DO NOTHING RETURNING append_seq", self.table))
+            .bind(change.id).bind(scope.as_str()).bind(millis).bind(i64::from(change.hlc.counter())).bind(change.hlc.node_id().to_string()).bind(ops_json).bind(&hash)
+            .fetch_optional(&mut *tx).await?;
+        let (seq, inserted) = if let Some((seq,)) = inserted {
+            (seq, true)
+        } else {
+            let (seq, existing): (i64, String) = sqlx::query_as(&format!(
+                "SELECT append_seq,payload_hash FROM {} WHERE scope=$1 AND id=$2",
+                self.table
+            ))
+            .bind(scope.as_str())
+            .bind(change.id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if existing != hash {
+                return Err(Error::InvalidData("change_conflict".into()));
+            }
+            (seq, false)
+        };
+        tx.commit().await?;
+        let seq = u64::try_from(seq)
+            .map_err(|_| Error::InvalidData("append sequence is negative".into()))?;
+        let cursor = palladium_core::AppendCursor::new(seq);
+        Ok(if inserted {
+            palladium_core::InsertOutcome::Inserted(cursor)
+        } else {
+            palladium_core::InsertOutcome::Duplicate(cursor)
+        })
+    }
+    async fn page(
+        &self,
+        scope: &Scope,
+        after: Option<&palladium_core::AppendCursor>,
+        limit: u32,
+    ) -> std::result::Result<palladium_core::ChangePage, Error> {
+        let limit = limit.clamp(1, palladium_core::MAX_PAGE_SIZE);
+        let upper_db: (i64,) = sqlx::query_as(&format!(
+            "SELECT COALESCE(MAX(append_seq),0) FROM {} WHERE scope=$1",
             self.table
-        ));
-        qb.push_bind(scope.as_str().to_owned());
-        if let Some(hlc) = after {
-            qb.push(" AND hlc_key > ").push_bind(hlc.sort_key());
-        }
-        qb.push(" ORDER BY hlc_key");
-        if let Some(n) = limit {
-            qb.push(" LIMIT ").push_bind(i64::from(n));
-        }
-        let rows: Vec<ChangeRow> = qb.build_query_as().fetch_all(&self.pool).await?;
-        rows.into_iter().map(ChangeRow::try_into_change).collect()
+        ))
+        .bind(scope.as_str())
+        .fetch_one(&self.pool)
+        .await?;
+        let upper = u64::try_from(upper_db.0)
+            .map_err(|_| Error::InvalidData("append sequence is negative".into()))?;
+        let start = after.map_or(0, palladium_core::AppendCursor::position);
+        let start_db = i64::try_from(start)
+            .map_err(|_| Error::InvalidData("append cursor exceeds database range".into()))?;
+        let rows: Vec<ChangeRow> = sqlx::query_as(&format!("SELECT append_seq,id,hlc_millis,hlc_counter,hlc_node_id,ops_json FROM {} WHERE scope=$1 AND append_seq>$2 AND append_seq<=$3 ORDER BY append_seq LIMIT $4", self.table))
+            .bind(scope.as_str()).bind(start_db).bind(upper_db.0).bind(i64::from(limit)).fetch_all(&self.pool).await?;
+        let cursor = rows
+            .last()
+            .map(|row| {
+                u64::try_from(row.append_seq)
+                    .map(palladium_core::AppendCursor::new)
+                    .map_err(|_| Error::InvalidData("append sequence is negative".into()))
+            })
+            .transpose()?;
+        let changes = rows
+            .into_iter()
+            .map(ChangeRow::try_into_change)
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let caught_up = cursor
+            .as_ref()
+            .map_or(start >= upper, |c| c.position() >= upper);
+        Ok(palladium_core::ChangePage {
+            version: 1,
+            changes,
+            purges: Vec::new(),
+            events: Vec::new(),
+            cursor,
+            upper_bound: palladium_core::AppendCursor::new(upper.max(1)),
+            caught_up,
+            control: palladium_core::PageControl {
+                must_refetch: false,
+            },
+        })
     }
     async fn get(&self, scope: &Scope, id: Uuid) -> std::result::Result<Option<Change>, Error> {
-        let query = format!(
-            "SELECT id, hlc_millis, hlc_counter, hlc_node_id, ops_json FROM {} WHERE id = $1 AND scope = $2",
-            self.table
-        );
-        let row: Option<ChangeRow> = sqlx::query_as(&query)
-            .bind(id)
-            .bind(scope.as_str())
-            .fetch_optional(&self.pool)
-            .await?;
+        let row: Option<ChangeRow> = sqlx::query_as(&format!("SELECT append_seq,id,hlc_millis,hlc_counter,hlc_node_id,ops_json FROM {} WHERE id=$1 AND scope=$2", self.table)).bind(id).bind(scope.as_str()).fetch_optional(&self.pool).await?;
         row.map(ChangeRow::try_into_change).transpose()
     }
 }
 
-// ── Row mapping ───────────────────────────────────────────────────────────
-
 #[derive(sqlx::FromRow)]
 struct ChangeRow {
+    append_seq: i64,
     id: Uuid,
     hlc_millis: i64,
     hlc_counter: i64,
@@ -269,6 +294,16 @@ impl ChangeRow {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    #[cfg(feature = "integration-tests")]
+    use palladium_core::{Change, ChangeStore, Hlc, InsertOutcome, NodeId, Scope};
+    #[cfg(feature = "integration-tests")]
+    use std::sync::Arc;
+    #[cfg(feature = "integration-tests")]
+    use tokio::sync::Barrier;
+    #[cfg(feature = "integration-tests")]
+    use uuid::Uuid;
+
     // ── Identifier validator (no live connection needed) ──────────────────
 
     #[test]
@@ -287,54 +322,38 @@ mod tests {
         assert!(super::validate_identifier("1starts_with_digit").is_err());
         assert!(super::validate_identifier("semi;colon").is_err());
     }
-    #[test]
-    fn migration_qualifies_schema_and_backfills_legacy_scope() {
-        let table = super::change_table("tenant_a").unwrap();
-        let queries = super::migration_queries(&table);
-        assert!(queries[0].contains("\"tenant_a\".\"palladium_changes\""));
-        assert!(queries[1].contains("ADD COLUMN IF NOT EXISTS scope"));
-        assert!(queries[2].contains("WHERE scope IS NULL"));
-        assert_eq!(super::quote_identifier("bad-name").is_err(), true);
-    }
-
-    // ── Integration tests (require DATABASE_URL) ─────────────────────────
 
     #[cfg(feature = "integration-tests")]
-    mod integration {
-        use palladium_core::{Change, ChangeStore, Hlc, NodeId, Op, Scope};
-        use serde_json::json;
-        use sqlx::PgPool;
-        use uuid::Uuid;
+    /// Concurrent retries of one scoped change are idempotent, rather than
+    /// leaking a unique-constraint error from one transaction.
+    #[tokio::test]
+    async fn concurrent_identical_scoped_inserts_return_inserted_and_duplicate(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let Ok(url) = std::env::var("DATABASE_URL") else {
+            return Ok(());
+        };
+        let store = Arc::new(PostgresStore::connect(&url).await?);
+        let scope = Scope::new(format!("concurrency-{}", Uuid::new_v4()));
+        let change = Change::new(Hlc::new(NodeId::from_uuid(Uuid::nil()), 1), vec![]);
+        let barrier = Arc::new(Barrier::new(2));
 
-        use crate::PostgresStore;
-
-        fn node(n: u128) -> NodeId {
-            NodeId::from_uuid(Uuid::from_u128(n))
-        }
-
-        fn hlc(millis: u64, counter: u32, n: u128) -> Hlc {
-            Hlc::from_parts(millis, counter, node(n))
-        }
-
-        #[sqlx::test]
-        #[allow(clippy::unwrap_used)]
-        async fn insert_and_get(pool: PgPool) {
-            let store = PostgresStore::from_pool(pool);
-            PostgresStore::migrate(&store.pool).await.unwrap();
-
-            let change = Change::new(
-                hlc(1_000, 0, 1),
-                vec![Op::Insert {
-                    table: "test".into(),
-                    row_id: Uuid::new_v4(),
-                    data: json!({}),
-                }],
-            );
-
-            let scope = Scope::new("test-scope");
-            store.insert(&scope, &change).await.unwrap();
-            let got = store.get(&scope, change.id).await.unwrap();
-            assert_eq!(got.unwrap().id, change.id);
-        }
+        let insert = |store: Arc<PostgresStore>| {
+            let barrier = Arc::clone(&barrier);
+            let scope = scope.clone();
+            let change = change.clone();
+            async move {
+                barrier.wait().await;
+                store.insert(&scope, &change).await
+            }
+        };
+        let (left, right) = tokio::join!(insert(Arc::clone(&store)), insert(store));
+        let outcomes = [left?, right?];
+        assert!(outcomes
+            .iter()
+            .any(|outcome| matches!(outcome, InsertOutcome::Inserted(_))));
+        assert!(outcomes
+            .iter()
+            .any(|outcome| matches!(outcome, InsertOutcome::Duplicate(_))));
+        Ok(())
     }
 }

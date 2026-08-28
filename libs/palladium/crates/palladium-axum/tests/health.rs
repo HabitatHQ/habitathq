@@ -19,7 +19,12 @@ async fn app() -> axum::Router {
 async fn get_health_returns_200() {
     let resp = app()
         .await
-        .oneshot(Request::builder().uri("/v1/health").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/v1/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);

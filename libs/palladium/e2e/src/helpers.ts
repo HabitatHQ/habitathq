@@ -1,7 +1,7 @@
 /** Test-data builders for E2E specs. */
 
 import { randomUUID } from "node:crypto";
-import type { Hlc } from "@palladium/core";
+import { generateUuidV7, type Hlc } from "@palladium/core";
 import type { ServerChange, ServerOp } from "./client.js";
 
 /** Create a minimal valid [`Hlc`]. */
@@ -28,7 +28,7 @@ export function makeChange(overrides: Partial<ServerChange> = {}): ServerChange 
   return {
     id: randomUUID(),
     hlc: makeHlc(),
-    ops: [insertOp("items", randomUUID())],
+    ops: [insertOp("items", generateUuidV7())],
     ...overrides,
   };
 }

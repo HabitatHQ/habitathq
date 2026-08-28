@@ -6,13 +6,14 @@ use axum::{
     Json,
 };
 use serde::Serialize;
-use serde_json::json;
 
-/// JSON body returned for all error responses: `{ "error": "…" }`.
+/// Structured error response.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ErrorBody {
-    /// Human-readable description of the error.
-    pub error: String,
+    /// Stable machine-readable code.
+    pub code: String,
+    /// Human-readable description.
+    pub message: String,
 }
 
 /// Application-level HTTP error, convertible to an [`axum`] [`Response`].
@@ -30,10 +31,7 @@ pub enum AppError {
 }
 
 impl AppError {
-    /// Wraps any `Error` as an internal server error.
-    ///
-    /// Prefer this over a blanket `From<E>` impl so that `AppError` remains
-    /// free to implement `std::error::Error` itself in the future.
+    /// Wrap an error as internal.
     pub fn internal(err: impl std::error::Error + Send + Sync + 'static) -> Self {
         Self::Internal(Box::new(err))
     }
@@ -41,15 +39,26 @@ impl AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, message) = match self {
-            Self::NotFound => (StatusCode::NOT_FOUND, "not found".to_owned()),
-            Self::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
+        let (status, code, message) = match self {
+            Self::NotFound => (StatusCode::NOT_FOUND, "not_found", "not found".to_owned()),
+            Self::BadRequest(msg) => (StatusCode::BAD_REQUEST, "invalid_request", msg),
             Self::Internal(err) => {
                 tracing::error!(%err, "internal server error");
-                (StatusCode::INTERNAL_SERVER_ERROR, "internal server error".to_owned())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal",
+                    "internal server error".to_owned(),
+                )
             }
         };
-        (status, Json(json!({ "error": message }))).into_response()
+        (
+            status,
+            Json(ErrorBody {
+                code: code.to_owned(),
+                message,
+            }),
+        )
+            .into_response()
     }
 }
 

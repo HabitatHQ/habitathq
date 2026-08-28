@@ -32,9 +32,7 @@ describe("GET /api-doc/openapi.json", () => {
 
   it("spec defines Change and Hlc schemas", async () => {
     const spec = await client.getOpenApiSpec();
-    // biome-ignore lint/complexity/useLiteralKeys: bracket notation required by noPropertyAccessFromIndexSignature
     expect(spec.components?.schemas?.["Change"]).toBeDefined();
-    // biome-ignore lint/complexity/useLiteralKeys: bracket notation required by noPropertyAccessFromIndexSignature
     expect(spec.components?.schemas?.["Hlc"]).toBeDefined();
   });
 });

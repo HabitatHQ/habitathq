@@ -8,9 +8,7 @@
     clippy::cast_possible_truncation
 )]
 
-use criterion::{
-    black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
-};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use palladium_core::{Change, Hlc, NodeId, Op};
 use serde_json::json;
 use uuid::Uuid;
@@ -131,11 +129,9 @@ fn bench_change_serialize(c: &mut Criterion) {
     for &op_count in &[0_usize, 1, 5, 10, 50] {
         let change = Change::new(hlc, make_ops(op_count));
         g.throughput(Throughput::Elements(op_count.max(1) as u64));
-        g.bench_with_input(
-            BenchmarkId::new("ops", op_count),
-            &change,
-            |b, ch| b.iter(|| serde_json::to_string(black_box(ch)).unwrap()),
-        );
+        g.bench_with_input(BenchmarkId::new("ops", op_count), &change, |b, ch| {
+            b.iter(|| serde_json::to_string(black_box(ch)).unwrap())
+        });
     }
 
     g.finish();
@@ -150,11 +146,9 @@ fn bench_change_deserialize(c: &mut Criterion) {
     for &op_count in &[0_usize, 1, 5, 10, 50] {
         let json = serde_json::to_string(&Change::new(hlc, make_ops(op_count))).unwrap();
         g.throughput(Throughput::Elements(op_count.max(1) as u64));
-        g.bench_with_input(
-            BenchmarkId::new("ops", op_count),
-            &json,
-            |b, j| b.iter(|| serde_json::from_str::<Change>(black_box(j.as_str())).unwrap()),
-        );
+        g.bench_with_input(BenchmarkId::new("ops", op_count), &json, |b, j| {
+            b.iter(|| serde_json::from_str::<Change>(black_box(j.as_str())).unwrap())
+        });
     }
 
     g.finish();
@@ -177,11 +171,9 @@ fn bench_mixed_ops_serialize(c: &mut Criterion) {
             .collect();
         let change = Change::new(hlc, ops);
         g.throughput(Throughput::Elements(n as u64));
-        g.bench_with_input(
-            BenchmarkId::new("ops", n),
-            &change,
-            |b, ch| b.iter(|| serde_json::to_string(black_box(ch)).unwrap()),
-        );
+        g.bench_with_input(BenchmarkId::new("ops", n), &change, |b, ch| {
+            b.iter(|| serde_json::to_string(black_box(ch)).unwrap())
+        });
     }
 
     g.finish();

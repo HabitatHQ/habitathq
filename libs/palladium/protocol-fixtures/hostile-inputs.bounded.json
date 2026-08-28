@@ -1,0 +1,108 @@
+{
+  "bounds": {
+    "max_cases_per_decoder": 8,
+    "max_nesting_depth": 32,
+    "max_materialized_body_bytes": 8192
+  },
+  "typescript": {
+    "pages": [
+      {
+        "name": "truncated-page",
+        "body": "{\"version\":1"
+      },
+      {
+        "name": "bare-array-page",
+        "body": "[]"
+      },
+      {
+        "name": "unknown-page-version",
+        "body": "{\"version\":2,\"changes\":[],\"purges\":[],\"events\":[],\"cursor\":\"0\",\"upperBound\":\"0\",\"caughtUp\":true,\"control\":{\"mustRefetch\":false}}"
+      },
+      {
+        "name": "unknown-operation-tag",
+        "body": "{\"version\":1,\"changes\":[{\"id\":\"00000000-0000-4000-8000-000000000001\",\"hlc\":{\"wallMs\":1700000000000,\"counter\":0,\"nodeId\":\"00000000-0000-4000-8000-000000000002\"},\"ops\":[{\"op\":\"merge\",\"table\":\"notes\",\"row_id\":\"018f0f50-7b8d-7a1c-8e2f-1234567890ab\"}]}],\"purges\":[],\"events\":[],\"cursor\":\"0\",\"upperBound\":\"0\",\"caughtUp\":true,\"control\":{\"mustRefetch\":false}}"
+      },
+      {
+        "name": "overlong-page-cursor",
+        "body": "{\"version\":1,\"changes\":[],\"purges\":[],\"events\":[],\"cursor\":\"__LONG_CURSOR__\",\"upperBound\":\"0\",\"caughtUp\":true,\"control\":{\"mustRefetch\":false}}",
+        "long_cursor_length": 4097
+      },
+      {
+        "name": "deeply-nested-purges",
+        "body": "{\"version\":1,\"changes\":[],\"purges\":__NESTED_JSON__,\"events\":[],\"cursor\":\"0\",\"upperBound\":\"0\",\"caughtUp\":true,\"control\":{\"mustRefetch\":false}}",
+        "nested_depth": 32
+      }
+    ],
+    "receipts": [
+      {
+        "name": "truncated-receipt",
+        "body": "{\"version\":1"
+      },
+      {
+        "name": "unknown-receipt-outcome",
+        "body": "{\"version\":1,\"outcome\":\"queued\",\"cursor\":\"1\"}"
+      },
+      {
+        "name": "overlong-receipt-cursor",
+        "body": "{\"version\":1,\"outcome\":\"inserted\",\"cursor\":\"__LONG_CURSOR__\"}",
+        "long_cursor_length": 4097
+      }
+    ]
+  },
+  "atrium": [
+    {
+      "name": "empty-cursor",
+      "method": "GET",
+      "uri": "/v1/changes?cursor=",
+      "body": ""
+    },
+    {
+      "name": "unicode-cursor",
+      "method": "GET",
+      "uri": "/v1/changes?cursor=%F0%9F%92%A5",
+      "body": ""
+    },
+    {
+      "name": "overflowing-cursor",
+      "method": "GET",
+      "uri": "/v1/changes?cursor=9223372036854775808",
+      "body": ""
+    },
+    {
+      "name": "truncated-change-json",
+      "method": "POST",
+      "uri": "/v1/changes",
+      "content_type": "application/json",
+      "body": "{\"id\":"
+    },
+    {
+      "name": "unknown-change-operation",
+      "method": "POST",
+      "uri": "/v1/changes",
+      "content_type": "application/json",
+      "body": "{\"id\":\"00000000-0000-4000-8000-000000000001\",\"hlc\":{\"wallMs\":1700000000000,\"counter\":0,\"nodeId\":\"00000000-0000-4000-8000-000000000002\"},\"ops\":[{\"op\":\"merge\"}]}"
+    },
+    {
+      "name": "deeply-nested-change-operations",
+      "method": "POST",
+      "uri": "/v1/changes",
+      "content_type": "application/json",
+      "body": "{\"id\":\"00000000-0000-4000-8000-000000000001\",\"hlc\":{\"wallMs\":1700000000000,\"counter\":0,\"nodeId\":\"00000000-0000-4000-8000-000000000002\"},\"ops\":__NESTED_JSON__}",
+      "nested_depth": 32
+    },
+    {
+      "name": "duplicate-ack-key-wrong-final-type",
+      "method": "POST",
+      "uri": "/v1/changes/events/ack",
+      "content_type": "application/json",
+      "body": "{\"event_ids\":[1],\"event_ids\":\"not-an-array\"}"
+    },
+    {
+      "name": "invalid-utf8-ack-body",
+      "method": "POST",
+      "uri": "/v1/changes/events/ack",
+      "content_type": "application/json",
+      "body_hex": "fffe"
+    }
+  ]
+}

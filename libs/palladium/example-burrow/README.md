@@ -36,13 +36,17 @@ Then open **two tabs** to play both sides of a family:
 
 ## How it wires to Atrium
 
-The bare `SyncTransport` speaks palladium-axum's protocol; Atrium wraps changes
-in a `{ changes, purges }` envelope and derives the tenant scope from an
-`X-Workspace` header. `src/atrium.ts` adapts both without forking the transport:
+The example's transport target is Atrium, which authenticates the request,
+derives the tenant scope, and exposes the v1 page protocol. The complete wire,
+persistence, typed page-application, and lifecycle contract is
+[`../docs/SYNC-PROTOCOL-v1.md`](../docs/SYNC-PROTOCOL-v1.md).
 
 - **`authHeaders`** supplies `Authorization: Bearer <user>` + `X-Workspace: <id>`.
-- **`decodeChanges`** unwraps the envelope and applies server-driven purges
-  locally (via `applyRemote`, so they are not re-synced).
+- Atrium returns the v1 typed page envelope. The transport applies canonical
+  changes, typed ACL purges, and typed events in its built-in replay-safe page
+  transaction; no opaque decode or purge hook is configured by this example.
+- The durable local outbox is `_sync_outbox`; downlink uses the opaque `cursor`
+  and bounded `limit` fields from the v1 page protocol.
 - Control-plane calls (workspaces, invites, shares, blobs) go through the
   `AtriumApi` REST client.
 

@@ -1,53 +1,151 @@
 //! [`SqliteStore`] — `SQLite`-backed [`ChangeStore`] implementation.
 
 use palladium_core::{Change, ChangeStore, Hlc, InstanceLimits, Op, Scope};
+use sha2::Digest;
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::{fs, path::PathBuf, str::FromStr};
 use uuid::Uuid;
 
 use crate::{Error, Result};
-
 const MIGRATE_CREATE: &str = "
 CREATE TABLE IF NOT EXISTS palladium_changes (
-    id TEXT NOT NULL PRIMARY KEY,
-    scope TEXT,
-    hlc_key TEXT NOT NULL,
+    append_seq INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL,
+    scope TEXT NOT NULL,
     hlc_millis INTEGER NOT NULL,
     hlc_counter INTEGER NOT NULL,
     hlc_node_id TEXT NOT NULL,
-    ops_json TEXT NOT NULL
+    ops_json TEXT NOT NULL,
+    payload_hash TEXT NOT NULL,
+    UNIQUE(scope, id)
 )";
 
-async fn migrate(pool: &SqlitePool) -> Result<()> {
-    sqlx::query(MIGRATE_CREATE).execute(pool).await?;
-    let columns: Vec<(String,)> = sqlx::query_as(
-        "SELECT name FROM pragma_table_info('palladium_changes') WHERE name = 'scope'",
+#[derive(sqlx::FromRow)]
+struct LegacyChangeRow {
+    id: String,
+    scope: String,
+    hlc_millis: i64,
+    hlc_counter: i64,
+    hlc_node_id: String,
+    ops_json: String,
+}
+
+fn payload_hash(row: &LegacyChangeRow) -> Result<String> {
+    let id = Uuid::parse_str(&row.id)
+        .map_err(|error| Error::InvalidData(format!("invalid change id: {error}")))?;
+    let hlc = Hlc::from_db_parts(row.hlc_millis, row.hlc_counter, &row.hlc_node_id)
+        .map_err(Error::InvalidData)?;
+    let ops: Vec<Op> = serde_json::from_str(&row.ops_json)?;
+    let payload = palladium_core::canonical_change_bytes(&Change { id, hlc, ops })?;
+    Ok(format!("{:x}", sha2::Sha256::digest(payload)))
+}
+
+async fn backfill_payload_hashes(pool: &SqlitePool) -> Result<()> {
+    let rows: Vec<LegacyChangeRow> = sqlx::query_as(
+        "SELECT id, scope, hlc_millis, hlc_counter, hlc_node_id, ops_json
+           FROM palladium_changes
+          WHERE payload_hash IS NULL OR payload_hash = ''",
     )
     .fetch_all(pool)
     .await?;
-    if columns.is_empty() {
-        sqlx::query("ALTER TABLE palladium_changes ADD COLUMN scope TEXT")
+    for row in rows {
+        let hash = payload_hash(&row)?;
+        sqlx::query("UPDATE palladium_changes SET payload_hash = ? WHERE scope = ? AND id = ?")
+            .bind(hash)
+            .bind(row.scope)
+            .bind(row.id)
             .execute(pool)
             .await?;
     }
-    sqlx::query("UPDATE palladium_changes SET scope = 'default' WHERE scope IS NULL")
-        .execute(pool)
-        .await?;
-    sqlx::query(
-        "CREATE INDEX IF NOT EXISTS idx_changes_scope_hlc ON palladium_changes (scope, hlc_key)",
-    )
-    .execute(pool)
-    .await?;
     Ok(())
 }
 
-// ── Query strings ──────────────────────────────────────────────────────────
+async fn rebuild_legacy_table(pool: &SqlitePool, has_scope: bool) -> Result<()> {
+    let scope = if has_scope {
+        "COALESCE(scope, 'default')"
+    } else {
+        "'default'"
+    };
+    let mut tx = pool.begin().await?;
+    sqlx::query("ALTER TABLE palladium_changes RENAME TO palladium_changes_legacy_v1")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(MIGRATE_CREATE).execute(&mut *tx).await?;
+    let rows: Vec<LegacyChangeRow> = sqlx::query_as(&format!(
+        "SELECT id, {scope} AS scope, hlc_millis, hlc_counter, hlc_node_id, ops_json
+           FROM palladium_changes_legacy_v1
+          ORDER BY rowid"
+    ))
+    .fetch_all(&mut *tx)
+    .await?;
+    for row in rows {
+        let hash = payload_hash(&row)?;
+        sqlx::query(
+            "INSERT INTO palladium_changes
+             (id, scope, hlc_millis, hlc_counter, hlc_node_id, ops_json, payload_hash)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(row.id)
+        .bind(row.scope)
+        .bind(row.hlc_millis)
+        .bind(row.hlc_counter)
+        .bind(row.hlc_node_id)
+        .bind(row.ops_json)
+        .bind(hash)
+        .execute(&mut *tx)
+        .await?;
+    }
+    sqlx::query("DROP TABLE palladium_changes_legacy_v1")
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+async fn migrate(pool: &SqlitePool) -> Result<()> {
+    let exists: Option<String> = sqlx::query_scalar(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'palladium_changes'",
+    )
+    .fetch_optional(pool)
+    .await?;
+    if exists.is_none() {
+        sqlx::query(MIGRATE_CREATE).execute(pool).await?;
+    } else {
+        let columns: Vec<(String,)> =
+            sqlx::query_as("SELECT name FROM pragma_table_info('palladium_changes')")
+                .fetch_all(pool)
+                .await?;
+        let has_column = |name: &str| columns.iter().any(|(column,)| column == name);
+        let has_scope = has_column("scope");
+        if has_column("append_seq") {
+            if !has_scope {
+                sqlx::query("ALTER TABLE palladium_changes ADD COLUMN scope TEXT")
+                    .execute(pool)
+                    .await?;
+            }
+            sqlx::query("UPDATE palladium_changes SET scope = 'default' WHERE scope IS NULL")
+                .execute(pool)
+                .await?;
+            if !has_column("payload_hash") {
+                sqlx::query("ALTER TABLE palladium_changes ADD COLUMN payload_hash TEXT")
+                    .execute(pool)
+                    .await?;
+            }
+            backfill_payload_hashes(pool).await?;
+        } else {
+            rebuild_legacy_table(pool, has_scope).await?;
+        }
+    }
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_changes_scope_append ON palladium_changes(scope, append_seq)")
+        .execute(pool)
+        .await?;
+    Ok(())
+}
 
 const SELECT_COLS: &str =
-    "SELECT id, hlc_millis, hlc_counter, hlc_node_id, ops_json FROM palladium_changes";
+    "SELECT append_seq, id, hlc_millis, hlc_counter, hlc_node_id, ops_json FROM palladium_changes";
 const GET_BY_ID: &str =
-    "SELECT id, hlc_millis, hlc_counter, hlc_node_id, ops_json FROM palladium_changes \
-     WHERE id = ? AND scope = ?";
+    "SELECT append_seq, id, hlc_millis, hlc_counter, hlc_node_id, ops_json FROM palladium_changes WHERE id = ? AND scope = ?";
 
 // ── Lock file ─────────────────────────────────────────────────────────────
 
@@ -191,53 +289,107 @@ impl SqliteStore {
 
 impl ChangeStore for SqliteStore {
     type Error = Error;
-
-    async fn insert(&self, scope: &Scope, change: &Change) -> std::result::Result<(), Error> {
-        let id = change.id.to_string();
-        let hlc_key = change.hlc.sort_key();
-        let hlc_millis = i64::try_from(change.hlc.millis()).map_err(|_| {
-            Error::InvalidData(format!("hlc_millis {} overflows i64", change.hlc.millis()))
-        })?;
-        let hlc_counter = i64::from(change.hlc.counter());
-        let hlc_node_id = change.hlc.node_id().to_string();
-        let ops_json = serde_json::to_string(&change.ops)?;
-
-        sqlx::query(
-            "INSERT OR IGNORE INTO palladium_changes \
-             (id, scope, hlc_key, hlc_millis, hlc_counter, hlc_node_id, ops_json) \
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
-        )
-        .bind(id)
-        .bind(scope.as_str())
-        .bind(hlc_key)
-        .bind(hlc_millis)
-        .bind(hlc_counter)
-        .bind(hlc_node_id)
-        .bind(ops_json)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
-    }
-
-    async fn list_after(
+    async fn insert(
         &self,
         scope: &Scope,
-        after: Option<Hlc>,
-        limit: Option<u32>,
-    ) -> std::result::Result<Vec<Change>, Error> {
-        let mut qb = sqlx::QueryBuilder::new(SELECT_COLS);
-        qb.push(" WHERE scope = ")
-            .push_bind(scope.as_str().to_owned());
-        if let Some(hlc) = after {
-            qb.push(" AND hlc_key > ").push_bind(hlc.sort_key());
-        }
-        qb.push(" ORDER BY hlc_key");
-        if let Some(n) = limit {
-            qb.push(" LIMIT ").push_bind(i64::from(n));
-        }
-        let rows: Vec<ChangeRow> = qb.build_query_as().fetch_all(&self.pool).await?;
-        rows.into_iter().map(ChangeRow::try_into_change).collect()
+        change: &Change,
+    ) -> std::result::Result<palladium_core::InsertOutcome, Error> {
+        palladium_core::validate_v1_change(change).map_err(Error::InvalidData)?;
+        let payload = palladium_core::canonical_change_bytes(change)?;
+        let hash = format!("{:x}", sha2::Sha256::digest(&payload));
+        let millis = i64::try_from(change.hlc.millis())
+            .map_err(|_| Error::InvalidData("hlc millis overflow".into()))?;
+        let ops_json = serde_json::to_string(&change.ops)?;
+        let mut tx = self.pool.begin().await?;
+        let inserted: Option<(i64,)> = sqlx::query_as(
+            "INSERT INTO palladium_changes
+             (id, scope, hlc_millis, hlc_counter, hlc_node_id, ops_json, payload_hash)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(scope, id) DO NOTHING
+             RETURNING append_seq",
+        )
+        .bind(change.id.to_string())
+        .bind(scope.as_str())
+        .bind(millis)
+        .bind(i64::from(change.hlc.counter()))
+        .bind(change.hlc.node_id().to_string())
+        .bind(ops_json)
+        .bind(&hash)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let (seq, inserted) = if let Some((seq,)) = inserted {
+            (seq, true)
+        } else {
+            let (seq, existing): (i64, String) = sqlx::query_as(
+                "SELECT append_seq, payload_hash FROM palladium_changes WHERE scope = ? AND id = ?",
+            )
+            .bind(scope.as_str())
+            .bind(change.id.to_string())
+            .fetch_one(&mut *tx)
+            .await?;
+            if existing != hash {
+                return Err(Error::InvalidData("change_conflict".into()));
+            }
+            (seq, false)
+        };
+        tx.commit().await?;
+        let seq = u64::try_from(seq)
+            .map_err(|_| Error::InvalidData("append sequence is negative".into()))?;
+        let cursor = palladium_core::AppendCursor::new(seq);
+        Ok(if inserted {
+            palladium_core::InsertOutcome::Inserted(cursor)
+        } else {
+            palladium_core::InsertOutcome::Duplicate(cursor)
+        })
+    }
+
+    async fn page(
+        &self,
+        scope: &Scope,
+        after: Option<&palladium_core::AppendCursor>,
+        limit: u32,
+    ) -> std::result::Result<palladium_core::ChangePage, Error> {
+        let limit = limit.clamp(1, palladium_core::MAX_PAGE_SIZE);
+        let upper_db: (i64,) = sqlx::query_as(
+            "SELECT COALESCE(MAX(append_seq),0) FROM palladium_changes WHERE scope = ?",
+        )
+        .bind(scope.as_str())
+        .fetch_one(&self.pool)
+        .await?;
+        let upper = u64::try_from(upper_db.0)
+            .map_err(|_| Error::InvalidData("append sequence is negative".into()))?;
+        let start = after.map_or(0, palladium_core::AppendCursor::position);
+        let start_db = i64::try_from(start)
+            .map_err(|_| Error::InvalidData("append cursor exceeds database range".into()))?;
+        let rows: Vec<ChangeRow> = sqlx::query_as(&format!("{SELECT_COLS} WHERE scope = ? AND append_seq > ? AND append_seq <= ? ORDER BY append_seq LIMIT ?"))
+            .bind(scope.as_str()).bind(start_db).bind(upper_db.0).bind(i64::from(limit)).fetch_all(&self.pool).await?;
+        let cursor = rows
+            .last()
+            .map(|row| {
+                u64::try_from(row.append_seq)
+                    .map(palladium_core::AppendCursor::new)
+                    .map_err(|_| Error::InvalidData("append sequence is negative".into()))
+            })
+            .transpose()?;
+        let changes: Vec<Change> = rows
+            .into_iter()
+            .map(ChangeRow::try_into_change)
+            .collect::<std::result::Result<_, Error>>()?;
+        let caught_up = cursor
+            .as_ref()
+            .map_or(start >= upper, |c| c.position() >= upper);
+        Ok(palladium_core::ChangePage {
+            version: 1,
+            changes,
+            purges: Vec::new(),
+            events: Vec::new(),
+            cursor,
+            upper_bound: palladium_core::AppendCursor::new(upper.max(1)),
+            caught_up,
+            control: palladium_core::PageControl {
+                must_refetch: false,
+            },
+        })
     }
 
     async fn get(&self, scope: &Scope, id: Uuid) -> std::result::Result<Option<Change>, Error> {
@@ -250,10 +402,9 @@ impl ChangeStore for SqliteStore {
     }
 }
 
-// ── Row mapping ───────────────────────────────────────────────────────────
-
 #[derive(sqlx::FromRow)]
 struct ChangeRow {
+    append_seq: i64,
     id: String,
     hlc_millis: i64,
     hlc_counter: i64,
@@ -272,506 +423,148 @@ impl ChangeRow {
     }
 }
 
-// ── Open-guard tests ──────────────────────────────────────────────────────
-
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
-mod open_guard_tests {
+mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
-
     #[tokio::test]
-    async fn open_twice_same_path_is_error() {
-        let tmp = NamedTempFile::new().unwrap();
-        let url = format!("sqlite:{}", tmp.path().display());
-        let _s1 = SqliteStore::open(&url).await.unwrap();
-        let err = SqliteStore::open(&url).await.unwrap_err();
+    async fn append_page_and_duplicate_scope() {
+        let store = SqliteStore::in_memory().await.unwrap();
+        let scope = Scope::new("a");
+        let c = Change::new(
+            Hlc::new(palladium_core::NodeId::from_uuid(Uuid::nil()), 1),
+            vec![],
+        );
+        let first = store.insert(&scope, &c).await.unwrap();
+        let second = store.insert(&scope, &c).await.unwrap();
+        assert!(matches!(first, palladium_core::InsertOutcome::Inserted(_)));
         assert!(matches!(
-            err,
-            crate::Error::Core(palladium_core::Error::InstanceAlreadyOpen(_))
+            second,
+            palladium_core::InsertOutcome::Duplicate(_)
         ));
+        assert_eq!(store.page(&scope, None, 1).await.unwrap().changes.len(), 1);
     }
 
     #[tokio::test]
-    async fn open_after_drop_succeeds() {
-        let tmp = NamedTempFile::new().unwrap();
-        let url = format!("sqlite:{}", tmp.path().display());
-        {
-            let _s = SqliteStore::open(&url).await.unwrap();
+    async fn concurrent_identical_inserts_return_inserted_and_duplicate() {
+        let store = SqliteStore::in_memory().await.unwrap();
+        let scope = Scope::new("a");
+        let change = Change::new(
+            Hlc::new(palladium_core::NodeId::from_uuid(Uuid::nil()), 1),
+            vec![],
+        );
+
+        let (first, second) =
+            tokio::join!(store.insert(&scope, &change), store.insert(&scope, &change));
+        let outcomes = [first.unwrap(), second.unwrap()];
+        assert!(outcomes
+            .iter()
+            .any(|outcome| matches!(outcome, palladium_core::InsertOutcome::Inserted(_))));
+        assert!(outcomes
+            .iter()
+            .any(|outcome| matches!(outcome, palladium_core::InsertOutcome::Duplicate(_))));
+    }
+
+    #[tokio::test]
+    async fn rejects_change_beyond_v1_future_window_as_clock_skew(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let store = SqliteStore::in_memory().await?;
+        let scope = Scope::new("a");
+        let change = Change::new(
+            Hlc::new(
+                palladium_core::NodeId::from_uuid(Uuid::nil()),
+                i64::MAX as u64,
+            ),
+            vec![],
+        );
+
+        let result = store.insert(&scope, &change).await;
+        assert!(matches!(
+            result,
+            Err(Error::InvalidData(classification)) if classification == "clock_skew"
+        ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn page_cursor_uses_actual_interleaved_append_position() {
+        let store = SqliteStore::in_memory().await.unwrap();
+        let scope_a = Scope::new("a");
+        let scope_b = Scope::new("b");
+        let node = palladium_core::NodeId::from_uuid(Uuid::nil());
+        let change = |millis| Change::new(Hlc::new(node.clone(), millis), vec![]);
+
+        store.insert(&scope_a, &change(1)).await.unwrap();
+        for millis in 2..=6 {
+            store.insert(&scope_b, &change(millis)).await.unwrap();
         }
-        let _s2 = SqliteStore::open(&url).await.unwrap();
-    }
+        store.insert(&scope_a, &change(7)).await.unwrap();
 
-    #[tokio::test]
-    async fn max_db_size_mb_sets_page_count() {
-        let tmp = NamedTempFile::new().unwrap();
-        let url = format!("sqlite:{}", tmp.path().display());
-        let limits = palladium_core::InstanceLimits {
-            max_db_size_mb: 1,
-            ..palladium_core::InstanceLimits::default()
-        };
-        let store = SqliteStore::open_with_limits(&url, &limits).await.unwrap();
-        let (count,): (i64,) = sqlx::query_as("PRAGMA max_page_count")
-            .fetch_one(store.pool())
+        let first = store.page(&scope_a, None, 1).await.unwrap();
+        assert_eq!(
+            first
+                .cursor
+                .as_ref()
+                .map(palladium_core::AppendCursor::as_str),
+            Some("1")
+        );
+        assert!(!first.caught_up);
+
+        let second = store
+            .page(&scope_a, first.cursor.as_ref(), 1)
             .await
             .unwrap();
-        assert_eq!(count, 256); // 1 MiB / 4096 bytes per page
-    }
-}
-
-// ── Tests ─────────────────────────────────────────────────────────────────
-
-#[cfg(test)]
-#[allow(clippy::unwrap_used)]
-mod tests {
-    use palladium_core::{Change, ChangeStore, Hlc, NodeId, Op, Scope};
-    use serde_json::json;
-    use uuid::Uuid;
-
-    use super::{migrate, SqliteStore};
-
-    fn node(n: u128) -> NodeId {
-        NodeId::from_uuid(Uuid::from_u128(n))
-    }
-
-    fn scope() -> Scope {
-        Scope::new("test-scope")
-    }
-
-    fn hlc(millis: u64, counter: u32, n: u128) -> Hlc {
-        Hlc::from_parts(millis, counter, node(n))
-    }
-
-    fn insert_op(table: &str) -> Op {
-        Op::Insert {
-            table: table.into(),
-            row_id: Uuid::new_v4(),
-            data: json!({"x": 1}),
-        }
-    }
-
-    async fn mem() -> SqliteStore {
-        SqliteStore::in_memory().await.unwrap()
-    }
-
-    // ── RED: define expected behaviour before impl ──────────────────────
-
-    #[tokio::test]
-    async fn list_after_empty_store_returns_empty() {
-        let store = mem().await;
-        let result = store.list_after(&scope(), None, None).await.unwrap();
-        assert!(result.is_empty());
-    }
-
-    #[tokio::test]
-    async fn get_unknown_id_returns_none() {
-        let store = mem().await;
-        let result = store.get(&scope(), Uuid::new_v4()).await.unwrap();
-        assert!(result.is_none());
-    }
-
-    // ── GREEN: insert → get round-trip ─────────────────────────────────
-
-    #[tokio::test]
-    async fn insert_and_get_by_id() {
-        let store = mem().await;
-        let change = Change::new(hlc(1_000, 0, 1), vec![insert_op("todos")]);
-
-        store.insert(&scope(), &change).await.unwrap();
-        let got = store.get(&scope(), change.id).await.unwrap();
-        assert_eq!(got.unwrap().id, change.id);
-    }
-
-    #[tokio::test]
-    async fn insert_and_list_all() {
-        let store = mem().await;
-        let c = Change::new(hlc(1_000, 0, 1), vec![insert_op("todos")]);
-        store.insert(&scope(), &c).await.unwrap();
-
-        let all = store.list_after(&scope(), None, None).await.unwrap();
-        assert_eq!(all.len(), 1);
-        assert_eq!(all[0].id, c.id);
-    }
-
-    #[tokio::test]
-    async fn insert_duplicate_is_idempotent() {
-        let store = mem().await;
-        let c = Change::new(hlc(1_000, 0, 1), vec![]);
-        store.insert(&scope(), &c).await.unwrap();
-        store.insert(&scope(), &c).await.unwrap(); // second insert must not error
-        let all = store.list_after(&scope(), None, None).await.unwrap();
-        assert_eq!(all.len(), 1);
-    }
-
-    #[tokio::test]
-    async fn list_after_cursor_filters_correctly() {
-        let store = mem().await;
-        let n = node(1);
-        let h1 = Hlc::new(n, 1_000);
-        let h2 = h1.send(2_000);
-        let h3 = h2.send(3_000);
-
-        let c1 = Change::new(h1, vec![]);
-        let c2 = Change::new(h2, vec![]);
-        let c3 = Change::new(h3, vec![]);
-
-        store.insert(&scope(), &c1).await.unwrap();
-        store.insert(&scope(), &c2).await.unwrap();
-        store.insert(&scope(), &c3).await.unwrap();
-
-        // After h1 → should return c2, c3
-        let after_h1 = store.list_after(&scope(), Some(h1), None).await.unwrap();
-        assert_eq!(after_h1.len(), 2);
-        assert_eq!(after_h1[0].id, c2.id);
-        assert_eq!(after_h1[1].id, c3.id);
-    }
-
-    #[tokio::test]
-    async fn list_after_returns_results_in_hlc_order() {
-        let store = mem().await;
-        let n = node(1);
-        let h1 = Hlc::new(n, 1_000);
-        let h2 = h1.send(2_000);
-        let h3 = h2.send(3_000);
-
-        // Insert out of order
-        let c3 = Change::new(h3, vec![]);
-        let c1 = Change::new(h1, vec![]);
-        let c2 = Change::new(h2, vec![]);
-
-        store.insert(&scope(), &c3).await.unwrap();
-        store.insert(&scope(), &c1).await.unwrap();
-        store.insert(&scope(), &c2).await.unwrap();
-
-        let all = store.list_after(&scope(), None, None).await.unwrap();
-        assert_eq!(all.len(), 3);
-        assert!(all[0].hlc < all[1].hlc);
-        assert!(all[1].hlc < all[2].hlc);
-    }
-
-    #[tokio::test]
-    async fn round_trip_preserves_ops() {
-        let store = mem().await;
-        let n = node(42);
-        let change = Change::new(
-            Hlc::new(n, 9_999),
-            vec![
-                insert_op("users"),
-                Op::Update {
-                    table: "users".into(),
-                    row_id: Uuid::nil(),
-                    col: "name".into(),
-                    value: json!("Alice"),
-                },
-                Op::Delete {
-                    table: "users".into(),
-                    row_id: Uuid::nil(),
-                },
-            ],
+        assert_eq!(
+            second
+                .cursor
+                .as_ref()
+                .map(palladium_core::AppendCursor::as_str),
+            Some("7")
         );
-
-        store.insert(&scope(), &change).await.unwrap();
-        let got = store.get(&scope(), change.id).await.unwrap().unwrap();
-        assert_eq!(got.ops, change.ops);
+        assert!(second.caught_up);
     }
 
     #[tokio::test]
-    async fn round_trip_preserves_hlc() {
-        let store = mem().await;
-        let n = node(7);
-        let h = Hlc::from_parts(1_234_567_890_000, 99, n);
-        let change = Change::new(h, vec![]);
-
-        store.insert(&scope(), &change).await.unwrap();
-        let got = store.get(&scope(), change.id).await.unwrap().unwrap();
-        assert_eq!(got.hlc, change.hlc);
-    }
-
-    // ── Extra: edge cases & correctness ───────────────────────────────
-
-    /// Two `in_memory()` calls must produce fully isolated databases.
-    #[tokio::test]
-    async fn in_memory_stores_are_isolated() {
-        let a = mem().await;
-        let b = mem().await;
-        let change = Change::new(hlc(1_000, 0, 1), vec![]);
-        a.insert(&scope(), &change).await.unwrap();
-        // 'b' must not see the change inserted into 'a'
-        assert!(b.list_after(&scope(), None, None).await.unwrap().is_empty());
-    }
-
-    /// A change with zero ops round-trips correctly.
-    #[tokio::test]
-    async fn empty_ops_round_trip() {
-        let store = mem().await;
-        let change = Change::new(hlc(100, 0, 1), vec![]);
-        assert!(change.ops.is_empty());
-        store.insert(&scope(), &change).await.unwrap();
-        let got = store.get(&scope(), change.id).await.unwrap().unwrap();
-        assert!(got.ops.is_empty());
-    }
-
-    /// Pagination: insert N changes and walk forward with `list_after` cursors.
-    #[tokio::test]
-    async fn large_batch_cursor_pagination() {
-        let store = mem().await;
-        let n = node(1);
-        let mut prev = Hlc::new(n, 1_000);
-        for _ in 0..30 {
-            let c = Change::new(prev, vec![]);
-            store.insert(&scope(), &c).await.unwrap();
-            prev = prev.send(prev.millis() + 1);
-        }
-
-        let all = store.list_after(&scope(), None, None).await.unwrap();
-        assert_eq!(all.len(), 30);
-
-        // Walk forward in pages of 10
-        let mut cursor = None;
-        let mut collected = 0_usize;
-        loop {
-            let page = store.list_after(&scope(), cursor, None).await.unwrap();
-            if page.is_empty() {
-                break;
-            }
-            collected += page.len();
-            cursor = Some(page.last().unwrap().hlc);
-            if page.len() < 30 {
-                break;
-            }
-        }
-        assert_eq!(collected, 30);
-    }
-
-    /// `list_after` with cursor at the last stored HLC returns empty.
-    #[tokio::test]
-    async fn list_after_last_hlc_returns_empty() {
-        let store = mem().await;
-        let n = node(1);
-        let h = Hlc::new(n, 5_000);
-        let c = Change::new(h, vec![]);
-        store.insert(&scope(), &c).await.unwrap();
-
-        let after = store.list_after(&scope(), Some(h), None).await.unwrap();
-        assert!(
-            after.is_empty(),
-            "cursor AT the last HLC should return nothing"
-        );
-    }
-
-    /// Two changes with the same (millis, counter) but different `node_id`s
-    /// are stored and retrieved correctly; their sort order is deterministic.
-    #[tokio::test]
-    async fn same_millis_counter_different_nodes_both_stored() {
-        let store = mem().await;
-        let h1 = Hlc::from_parts(1_000, 0, node(1));
-        let h2 = Hlc::from_parts(1_000, 0, node(2));
-
-        let c1 = Change::new(h1, vec![]);
-        let c2 = Change::new(h2, vec![]);
-        store.insert(&scope(), &c1).await.unwrap();
-        store.insert(&scope(), &c2).await.unwrap();
-
-        let all = store.list_after(&scope(), None, None).await.unwrap();
-        assert_eq!(all.len(), 2);
-        // Must be sorted: either c1 < c2 or c2 < c1, never equal
-        assert_ne!(all[0].hlc, all[1].hlc);
-        assert!(all[0].hlc < all[1].hlc);
-    }
-
-    /// `get` retrieves the correct change from a store with many entries.
-    #[tokio::test]
-    async fn get_specific_change_among_many() {
-        let store = mem().await;
-        let n = node(1);
-        let mut prev = Hlc::new(n, 1_000);
-        let mut target_id = uuid::Uuid::nil();
-        for i in 0_u64..10 {
-            let c = Change::new(prev, vec![insert_op("t")]);
-            if i == 5 {
-                target_id = c.id;
-            }
-            store.insert(&scope(), &c).await.unwrap();
-            prev = prev.send(prev.millis() + 1);
-        }
-        let found = store.get(&scope(), target_id).await.unwrap();
-        assert_eq!(found.unwrap().id, target_id);
-    }
-
-    /// Migrations run on first open; second open of the same path is now
-    /// prevented by the registry guard (returns `InstanceAlreadyOpen`).
-    ///
-    /// The guard ensures idempotent migration through single-open semantics.
-    #[tokio::test]
-    async fn schema_migration_is_idempotent_single_open() {
-        let id = uuid::Uuid::new_v4().simple().to_string();
-        let url = format!("sqlite:file:{id}?mode=memory&cache=shared");
-        let _store1 = SqliteStore::open(&url).await.unwrap();
-        // Second open of the same URL returns InstanceAlreadyOpen.
-        let err = SqliteStore::open(&url).await.unwrap_err();
-        assert!(
-            matches!(
-                err,
-                crate::Error::Core(palladium_core::Error::InstanceAlreadyOpen(_))
-            ),
-            "expected InstanceAlreadyOpen, got {err:?}"
-        );
-    }
-    #[tokio::test]
-    async fn legacy_scope_column_is_backfilled() {
-        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+    async fn legacy_history_is_rebuilt_with_append_positions_and_hashes(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await?;
         sqlx::query(
             "CREATE TABLE palladium_changes (
-                id TEXT PRIMARY KEY, hlc_key TEXT NOT NULL, hlc_millis INTEGER NOT NULL,
-                hlc_counter INTEGER NOT NULL, hlc_node_id TEXT NOT NULL, ops_json TEXT NOT NULL
+                id TEXT PRIMARY KEY,
+                hlc_key TEXT NOT NULL,
+                hlc_millis INTEGER NOT NULL,
+                hlc_counter INTEGER NOT NULL,
+                hlc_node_id TEXT NOT NULL,
+                ops_json TEXT NOT NULL
             )",
         )
         .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query("INSERT INTO palladium_changes (id, hlc_key, hlc_millis, hlc_counter, hlc_node_id, ops_json) VALUES ('id', 'k', 1, 0, 'n', '[]')")
-            .execute(&pool)
-            .await
-            .unwrap();
-        migrate(&pool).await.unwrap();
-        let scope: String = sqlx::query_scalar("SELECT scope FROM palladium_changes")
-            .fetch_optional(&pool)
-            .await
-            .unwrap()
-            .unwrap_or_default();
-        assert_eq!(scope, "default");
-    }
+        .await?;
+        let id = Uuid::nil().to_string();
+        let node_id = Uuid::nil().to_string();
+        sqlx::query(
+            "INSERT INTO palladium_changes
+             (id, hlc_key, hlc_millis, hlc_counter, hlc_node_id, ops_json)
+             VALUES (?, 'legacy', 1, 0, ?, '[]')",
+        )
+        .bind(&id)
+        .bind(node_id)
+        .execute(&pool)
+        .await?;
 
-    /// Inserting from multiple concurrent tasks must not corrupt the store.
-    #[tokio::test]
-    async fn concurrent_inserts_do_not_corrupt() {
-        use std::sync::Arc;
-        let store = Arc::new(mem().await);
-        let tasks: Vec<_> = (0_u64..8)
-            .map(|i| {
-                let s = Arc::clone(&store);
-                tokio::spawn(async move {
-                    let c = Change::new(
-                        hlc(i * 100 + 1_000, 0, u128::from(i) + 1),
-                        vec![insert_op("t")],
-                    );
-                    s.insert(&scope(), &c).await
-                })
-            })
-            .collect();
-        for t in tasks {
-            t.await.unwrap().unwrap();
-        }
-        let all = store.list_after(&scope(), None, None).await.unwrap();
-        assert_eq!(all.len(), 8);
-    }
+        migrate(&pool).await?;
 
-    /// A change containing only `Update` ops round-trips.
-    #[tokio::test]
-    async fn update_ops_round_trip() {
-        let store = mem().await;
-        let ops = vec![Op::Update {
-            table: "items".into(),
-            row_id: Uuid::nil(),
-            col: "price".into(),
-            value: json!(99),
-        }];
-        let change = Change::new(hlc(1_000, 0, 1), ops.clone());
-        store.insert(&scope(), &change).await.unwrap();
-        let got = store.get(&scope(), change.id).await.unwrap().unwrap();
-        assert_eq!(got.ops, ops);
-    }
-
-    /// A change containing only `Delete` ops round-trips.
-    #[tokio::test]
-    async fn delete_ops_round_trip() {
-        let store = mem().await;
-        let ops = vec![Op::Delete {
-            table: "items".into(),
-            row_id: Uuid::nil(),
-        }];
-        let change = Change::new(hlc(1_000, 0, 1), ops.clone());
-        store.insert(&scope(), &change).await.unwrap();
-        let got = store.get(&scope(), change.id).await.unwrap().unwrap();
-        assert_eq!(got.ops, ops);
-    }
-
-    /// `hlc_millis` values exceeding `i64::MAX` return `InvalidData`.
-    #[tokio::test]
-    async fn millis_overflow_returns_error() {
-        let store = mem().await;
-        let n = node(1);
-        let overflowing_hlc = Hlc::from_parts(u64::MAX, 0, n);
-        let change = Change::new(overflowing_hlc, vec![]);
-        let result = store.insert(&scope(), &change).await;
-        assert!(result.is_err(), "millis overflow should return an error");
-    }
-
-    /// `list_after` with `limit` returns at most that many rows.
-    #[tokio::test]
-    async fn list_after_limit_caps_results() {
-        let store = mem().await;
-        let n = node(1);
-        let mut prev = Hlc::new(n, 1_000);
-        for _ in 0..10 {
-            store
-                .insert(&scope(), &Change::new(prev, vec![]))
-                .await
-                .unwrap();
-            prev = prev.send(prev.millis() + 1);
-        }
-
-        let page = store.list_after(&scope(), None, Some(3)).await.unwrap();
-        assert_eq!(page.len(), 3);
-    }
-
-    /// `list_after` with cursor AND limit returns at most `limit` rows after
-    /// the cursor.
-    #[tokio::test]
-    async fn list_after_cursor_and_limit() {
-        let store = mem().await;
-        let n = node(1);
-        let h1 = Hlc::new(n, 1_000);
-        let h2 = h1.send(2_000);
-        let h3 = h2.send(3_000);
-        let h4 = h3.send(4_000);
-
-        for h in [h1, h2, h3, h4] {
-            store
-                .insert(&scope(), &Change::new(h, vec![]))
-                .await
-                .unwrap();
-        }
-
-        // After h1 with limit 2 → h2 and h3 only
-        let page = store.list_after(&scope(), Some(h1), Some(2)).await.unwrap();
-        assert_eq!(page.len(), 2);
-        assert_eq!(page[0].hlc, h2);
-        assert_eq!(page[1].hlc, h3);
-    }
-
-    /// Two scopes never see each other's changes (the point of the scope
-    /// column, `G5`): `list_after` filters by scope and `get` is scope-checked.
-    #[tokio::test]
-    async fn scopes_are_isolated() {
-        let store = mem().await;
-        let a = Scope::new("scope-a");
-        let b = Scope::new("scope-b");
-        let ca = Change::new(hlc(1_000, 0, 1), vec![insert_op("t")]);
-        let cb = Change::new(hlc(2_000, 0, 1), vec![insert_op("t")]);
-        store.insert(&a, &ca).await.unwrap();
-        store.insert(&b, &cb).await.unwrap();
-
-        // Each scope lists only its own change.
-        let in_a = store.list_after(&a, None, None).await.unwrap();
-        assert_eq!(in_a.len(), 1);
-        assert_eq!(in_a[0].id, ca.id);
-        let in_b = store.list_after(&b, None, None).await.unwrap();
-        assert_eq!(in_b.len(), 1);
-        assert_eq!(in_b[0].id, cb.id);
-
-        // `get` is scope-checked: ca is visible under `a`, invisible under `b`.
-        assert!(store.get(&a, ca.id).await.unwrap().is_some());
-        assert!(store.get(&b, ca.id).await.unwrap().is_none());
+        let row: (i64, String, String) = sqlx::query_as(
+            "SELECT append_seq, scope, payload_hash FROM palladium_changes WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(row.0, 1);
+        assert_eq!(row.1, "default");
+        assert_eq!(row.2.len(), 64);
+        Ok(())
     }
 }

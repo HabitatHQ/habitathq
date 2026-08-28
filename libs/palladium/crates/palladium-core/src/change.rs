@@ -68,16 +68,14 @@ mod tests {
                 "valid"
             };
         }
-        if input
-            .get("hlc")
-            .map_or(true, |hlc| serde_json::from_value::<Hlc>(hlc.clone()).is_err())
-        {
+        if input.get("hlc").map_or(true, |hlc| {
+            serde_json::from_value::<Hlc>(hlc.clone()).is_err()
+        }) {
             return "invalid_hlc";
         }
-        if input
-            .get("ops")
-            .map_or(true, |ops| serde_json::from_value::<Vec<Op>>(ops.clone()).is_err())
-        {
+        if input.get("ops").map_or(true, |ops| {
+            serde_json::from_value::<Vec<Op>>(ops.clone()).is_err()
+        }) {
             return "invalid_op";
         }
         "valid"
@@ -99,10 +97,9 @@ mod tests {
         assert!(envelope.purges.is_empty());
         assert!(envelope.events.is_empty());
 
-        let invalid: Vec<InvalidFixture> = serde_json::from_str(include_str!(
-            "../../../protocol-fixtures/wire-invalid.json"
-        ))
-        .unwrap();
+        let invalid: Vec<InvalidFixture> =
+            serde_json::from_str(include_str!("../../../protocol-fixtures/wire-invalid.json"))
+                .unwrap();
         for fixture in invalid {
             assert_eq!(
                 classify_fixture(&fixture.input),

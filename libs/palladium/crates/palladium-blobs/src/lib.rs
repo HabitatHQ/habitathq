@@ -5,10 +5,10 @@
 //!
 //! [`Op`]: palladium_core::Op
 
+pub mod column_meta;
 mod error;
 pub mod filesystem;
 pub mod metadata;
-pub mod column_meta;
 
 pub use error::BlobError;
 
@@ -104,10 +104,8 @@ pub trait BlobStore: Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the operation fails.
-    fn delete(
-        &self,
-        id: BlobId,
-    ) -> impl std::future::Future<Output = Result<(), BlobError>> + Send;
+    fn delete(&self, id: BlobId)
+        -> impl std::future::Future<Output = Result<(), BlobError>> + Send;
 
     /// Returns `true` if a blob with `id` exists and has not been soft-deleted.
     ///
@@ -185,7 +183,8 @@ impl<T: BlobStore + 'static> DynBlobStore for T {
         &'a self,
         id: BlobId,
         data: &'a [u8],
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), BlobError>> + Send + 'a>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), BlobError>> + Send + 'a>>
+    {
         Box::pin(BlobStore::put(self, id, data))
     }
 
@@ -265,10 +264,7 @@ mod tests {
         let col_val = r.to_column_value();
         // Simulate what an Op would store
         let mut data = serde_json::Map::new();
-        data.insert(
-            "attachment".into(),
-            serde_json::Value::String(col_val),
-        );
+        data.insert("attachment".into(), serde_json::Value::String(col_val));
         // Round-trip
         let stored = data["attachment"].as_str().unwrap();
         let r2 = BlobRef::from_column_value(stored).unwrap();

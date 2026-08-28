@@ -6,12 +6,13 @@
  * `@palladium/core`'s `SyncTransport`.
  */
 
-import { createEngine, type PalladiumEngine, SyncTransport } from "@palladium/core";
+import { createEngine, type JsonValue, type PalladiumEngine, SyncTransport } from "@palladium/core";
 import { BrowserSqliteAdapter } from "@palladium/sqlite-browser";
 
 // ── Schema ─────────────────────────────────────────────────────────────────
 
 export interface NoteRow {
+  [key: string]: JsonValue;
   id: string;
   title: string;
   /** Stringified TipTap JSON. */
@@ -32,12 +33,11 @@ const SCHEMA = {
 export interface NotesSession {
   readonly engine: PalladiumEngine<NotesSchema>;
   readonly transport: SyncTransport<NotesSchema>;
-  stop(): Promise<void>;
+  dispose(): Promise<void>;
 }
 
 /**
- * Build a notes engine + transport, wire them up, hydrate from server.
- * The returned `stop()` clears the transport polling loop.
+ * The returned `dispose()` releases the transport's polling loop and ownership.
  */
 export async function createNotesSession(serverUrl: string, nodeId: string): Promise<NotesSession> {
   const engine = createEngine<NotesSchema>(new BrowserSqliteAdapter({ vfs: { type: "memory" } }), {
@@ -51,6 +51,6 @@ export async function createNotesSession(serverUrl: string, nodeId: string): Pro
   return {
     engine,
     transport,
-    stop: () => transport.stop(),
+    dispose: () => transport.dispose(),
   };
 }

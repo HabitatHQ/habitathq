@@ -1,86 +1,82 @@
 import { describe, expect, it } from "vitest";
+import { generateUuidV7 } from "../hlc.js";
+import type { JsonValue, SyncRow } from "../tx.js";
 import { TxBuilder } from "../tx.js";
 
-interface Schema {
-  tasks: { id: string; name: string; done: boolean };
-  users: { id: string; email: string };
-}
+type Task = SyncRow & { name: string; done: boolean; metadata?: JsonValue };
+type User = SyncRow & { email: string };
+
+type Schema = {
+  tasks: Task;
+  users: User;
+};
+
+const taskId = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+const userId = "018f0f50-7b8d-7a1c-8e2f-1234567890ac";
 
 describe("TxBuilder", () => {
-  it("records an insert op", () => {
+  it("records valid insert, update, and delete operations", () => {
     const tx = new TxBuilder<Schema>();
-    tx.insert("tasks", { id: "t1", name: "hello", done: false });
-    const ops = tx.build();
-    expect(ops).toHaveLength(1);
-    expect(ops[0]).toEqual({
-      type: "insert",
-      table: "tasks",
-      id: "t1",
-      data: { id: "t1", name: "hello", done: false },
-    });
+    tx.insert("tasks", { id: taskId, name: "hello", done: false });
+    tx.update("tasks", taskId, { done: true });
+    tx.delete("tasks", taskId);
+    expect(tx.build()).toEqual([
+      {
+        type: "insert",
+        table: "tasks",
+        id: taskId,
+        data: { id: taskId, name: "hello", done: false },
+      },
+      { type: "update", table: "tasks", id: taskId, patch: { done: true } },
+      { type: "delete", table: "tasks", id: taskId },
+    ]);
   });
 
-  it("records an update op", () => {
+  it("rejects ULIDs, UUIDv4, malformed IDs, and mismatched insert IDs", () => {
     const tx = new TxBuilder<Schema>();
-    tx.update("tasks", "t1", { done: true });
-    const ops = tx.build();
-    expect(ops).toHaveLength(1);
-    expect(ops[0]).toEqual({ type: "update", table: "tasks", id: "t1", patch: { done: true } });
+    expect(() => tx.delete("tasks", "01J2QJ5G8Q3Y5TQW3V9B6J1M2N")).toThrow();
+    expect(() => tx.delete("tasks", "018f0f50-7b8d-4a1c-8e2f-1234567890ab")).toThrow();
+    expect(() => tx.delete("tasks", "not-an-id")).toThrow();
+    expect(() => tx.insert("tasks", { id: userId, name: "x", done: false })).not.toThrow();
+    expect(() => tx.insert("tasks", { id: "bad", name: "x", done: false })).toThrow();
+    expect(tx.build()).toHaveLength(1);
   });
 
-  it("records a delete op", () => {
+  it("rejects non-JSON values before building operations", () => {
     const tx = new TxBuilder<Schema>();
-    tx.delete("tasks", "t1");
-    const ops = tx.build();
-    expect(ops).toHaveLength(1);
-    expect(ops[0]).toEqual({ type: "delete", table: "tasks", id: "t1" });
-  });
-
-  it("empty builder produces no ops", () => {
-    const tx = new TxBuilder<Schema>();
+    expect(() =>
+      tx.insert("tasks", { id: taskId, name: "x", done: false, metadata: { date: new Date() } }),
+    ).toThrow();
+    expect(() => tx.update("tasks", taskId, { metadata: { nested: undefined } })).toThrow();
+    expect(() => tx.update("tasks", taskId, { metadata: { nested: Number.NaN } })).toThrow();
     expect(tx.build()).toHaveLength(0);
   });
 
-  it("chains multiple ops preserving order", () => {
+  it("accepts nested JSON values", () => {
     const tx = new TxBuilder<Schema>();
-    tx.insert("users", { id: "u1", email: "a@b.com" });
-    tx.insert("tasks", { id: "t1", name: "Buy milk", done: false });
-    tx.update("tasks", "t1", { done: true });
-    tx.delete("users", "u1");
-    const ops = tx.build();
-    expect(ops).toHaveLength(4);
-    expect(ops.map((o) => o.type)).toEqual(["insert", "insert", "update", "delete"]);
+    tx.update("tasks", taskId, {
+      metadata: { labels: ["one", "two"], archived: false, count: 2 },
+    });
+    expect(tx.build()).toHaveLength(1);
   });
 
-  it("ops span multiple tables", () => {
+  it("rejects primary-key patches before appending an operation", () => {
     const tx = new TxBuilder<Schema>();
-    tx.insert("users", { id: "u1", email: "x@y.com" });
-    tx.insert("tasks", { id: "t1", name: "hi", done: false });
-    const tables = tx.build().map((o) => o.table);
-    expect(tables).toContain("users");
-    expect(tables).toContain("tasks");
+    tx.insert("users", { id: userId, email: "a@b.com" });
+    expect(() => tx.update("users", userId, { id: taskId })).toThrow();
+    expect(tx.build()).toHaveLength(1);
   });
 
-  it("build() is idempotent — multiple calls return same ops", () => {
+  it("chains operations and build is idempotent", () => {
     const tx = new TxBuilder<Schema>();
-    tx.insert("tasks", { id: "t1", name: "hi", done: false });
+    tx.insert("users", { id: userId, email: "a@b.com" });
     expect(tx.build()).toEqual(tx.build());
   });
 
-  it("fluent chaining returns the same builder instance", () => {
+  it("generates UUIDv7 IDs accepted by the builder", () => {
+    const id = generateUuidV7();
     const tx = new TxBuilder<Schema>();
-    const result = tx.insert("tasks", { id: "t1", name: "a", done: false });
-    expect(result).toBe(tx);
-  });
-
-  it("update op records only the partial patch fields", () => {
-    const tx = new TxBuilder<Schema>();
-    tx.update("tasks", "t1", { done: true });
-    const op = tx.build()[0];
-    expect(op).toMatchObject({ type: "update", patch: { done: true } });
-    // patch should only contain what was passed
-    if (op?.type === "update") {
-      expect(Object.keys(op.patch)).toEqual(["done"]);
-    }
+    tx.insert("tasks", { id, name: "generated", done: false });
+    expect(tx.build()[0]?.id).toBe(id);
   });
 });

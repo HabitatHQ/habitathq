@@ -3,9 +3,7 @@
 //! Run with: `cargo bench -p palladium-core --bench hlc`
 #![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
-use criterion::{
-    black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
-};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use palladium_core::{Hlc, NodeId};
 use uuid::Uuid;
 

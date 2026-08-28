@@ -23,14 +23,21 @@ export type {
   RemoteChange,
   SyncStatus,
 } from "./engine.js";
-export { createEngine, PalladiumEngine, toError } from "./engine.js";
+export {
+  createEngine,
+  PalladiumEngine,
+  SchemaIdentityMismatchError,
+  toError,
+} from "./engine.js";
 export { EventEmitter } from "./event-emitter.js";
 export type { Hlc } from "./hlc.js";
 export {
   compareHlc,
   createHlc,
+  generateUuidV7,
   hlcFromString,
   hlcToString,
+  isUuidV7,
   recvHlc,
   sendHlc,
 } from "./hlc.js";
@@ -57,12 +64,24 @@ export { isTransactable, supportsConstraintDeferral } from "./storage.js";
 export type {
   DeleteWireOp,
   InsertWireOp,
+  SyncError,
+  SyncEvent,
+  SyncPageEnvelope,
+  SyncQuarantineEntry,
+  SyncReceipt,
   SyncTransportOptions,
   UpdateWireOp,
   WireChange,
   WireOp,
 } from "./sync.js";
-export { hlcToAfterCursor, SyncTransport } from "./sync.js";
-export type { DeleteOp, InsertOp, Op, SchemaMap, UpdateOp } from "./tx.js";
-export { TxBuilder } from "./tx.js";
-export { generateUlid } from "./ulid.js";
+export { SyncTransport } from "./sync.js";
+export type {
+  DeleteOp,
+  InsertOp,
+  JsonValue,
+  Op,
+  SchemaMap,
+  SyncRow,
+  UpdateOp,
+} from "./tx.js";
+export { isJsonValue, isSyncRow, TxBuilder } from "./tx.js";

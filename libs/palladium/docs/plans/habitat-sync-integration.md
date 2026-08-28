@@ -2,6 +2,9 @@
 
 **Status:** Reframed to a **three-layer** architecture + **record-level ACL** + **POC-first** delivery — 2026-07-26 · **multi-device identity (`D22`) + timezone-robust UTC-HLC resolution (`D23`) folded in — 2026-08-01** · PR #33 **merged** (`74e11bf`) · prior O1–O14 resolved; the reframe opens O11a / O5a / O12a / O20 (§8)
 **Owner:** Jeel Bhavsar
+
+> **Non-normative integration plan:** This document predates Sync Protocol v1 and is retained for Habitat architecture history. Its sync wire, identity, outbox, cursor, page, acknowledgement, lifecycle, error, and ACL examples are superseded; use [`../SYNC-PROTOCOL-v1.md`](../SYNC-PROTOCOL-v1.md) for the release contract.
+
 **Created:** 2026-07-25 · **Revised:** 2026-08-01
 **PRs:** [#33 — habitat on the @palladium/worker bus](https://github.com/HabitatHQ/habitathq/pull/33) (merged) · [#35 — this ERD](https://github.com/HabitatHQ/habitathq/pull/35)
 **Harness:** `libs/palladium/e2e/src/__tests__/two-client-sync.test.ts`
@@ -97,19 +100,23 @@ The moves:
 
 ## 3. Current state
 
-### 3.1 Palladium's sync engine — built vs. not
+### 3.1 Historical Palladium sync snapshot — superseded
 
-Source: `libs/palladium/STATUS.md` + direct code reading.
+Source: the historical integration snapshot and direct code reading. This
+section is retained for architecture history only; it is not a report of v1
+conformance. The normative contract is [`../SYNC-PROTOCOL-v1.md`](../SYNC-PROTOCOL-v1.md).
 
-| Layer | Built | Detail |
+| Layer | Historical snapshot | Current documentation boundary |
 |---|---|---|
-| Engine (`@palladium/core`) | ✅ | `createEngine`/`PalladiumEngine` write-router over a `StorageAdapter`; `tx/insert/update/delete`, ``exec(sql`…`)``, HLC stamping (`nextSendHlc`/`receiveHlc`), emits `changes:local`, suppresses re-emit during `applyRemote`. `Hlc`, `generateUlid`, blob adapters, versioned migrations. |
-| Transport (`core/src/sync.ts`) | ✅ | `SyncTransport<S>` — POSTs local changes to `/v1/changes` via a durable `_sync_pending_changes` outbox; polls `GET /v1/changes?after=<hlc-cursor>`; applies via `engine.applyRemote()`; skips its own `nodeId`. |
-| Rust backend | ✅ | `palladium-axum` (generic over `ChangeStore`), SQLite/Postgres stores, blob storage, `palladium dev` CLI. Endpoints `POST/GET /v1/changes`, `/v1/health`, blobs, OpenAPI. **No auth.** |
-| **Conflict resolution** | ❌ | `applyRemote` applies unconditionally — **no HLC guard, no LWW, no CRDT**. |
-| **Auth / tenancy / auth seam** | ❌ | No identity, no scoping, **no seam to plug an app backend into**. |
-| **Bootstrap snapshot** | ❌ | Cold clients replay full change history. |
-| **App adoption** | ❌ | No app consumes the engine/transport. |
+| Engine (`@palladium/core`) | The snapshot described a write-router and early HLC transport. | Use the canonical Change and typed application requirements in v1. |
+| Transport | The snapshot used a pending-change outbox and HLC-based polling. | Current integrations use `_sync_outbox`, opaque `cursor` plus bounded `limit`, and a typed page envelope. |
+| Server | The snapshot described generic `ChangeStore` backends. | Current v1 server behavior is versioned and scoped; Atrium-specific authorization remains outside generic Palladium. |
+| Page application | The snapshot applied remote operations through an early hook. | v1 requires built-in typed changes, purges, events, and checkpoint application in one replay-safe transaction. |
+| Lifecycle | The snapshot did not establish exclusive ownership. | v1 requires one live `SyncTransport` per engine with explicit `start`, `poll`/`syncOnce`, `stop`, and idempotent `dispose`. |
+| Identity | The snapshot discussed UUID and ULID alternatives. | Replicated row IDs are canonical lowercase UUIDv7; `NodeId` and `Change.id` are UUIDv4. |
+
+The historical snapshot's “built” labels must not be interpreted as release
+claims. Consult the v1 conformance evidence ledger for implementation status.
 
 ### 3.2 Findings from live testing (2026-07-25)
 
@@ -259,11 +266,10 @@ These are the sharp edges of record-level ACL; the POC (Phase 5) must exercise g
 | # | Requirement |
 |---|---|
 | R-A1 | **Local-first** — fully usable offline with no account; no auth UI in the default flow. |
-| R-A2 | **Auth gated on sync intent** — the sign-in / create-or-join-family prompt appears only on sync opt-in. |
+| R-A6 | **Account- and workspace-switch isolation** — local sync state is scoped by `(Clerk user id, workspace id)`, not account alone. A user in multiple workspaces MUST partition the `_sync_outbox`, checkpoint, and typed page state per workspace so a switch cannot reuse another workspace's state. Use a per-account-per-workspace store (or workspace-qualified local keys). UUIDv7 row IDs remain workspace-independent; outbox and cursor state are workspace-partitioned. |
 | R-A3 | **Clerk provides identity**, behind Atrium (lazily mounted `@clerk/vue`). |
 | R-A4 | **Sync scopes to a workspace + record ACL** — a member sees the workspace's records they own or were granted. |
 | R-A5 | **Claim local data on first sync** — re-home local rows into the chosen workspace, owner = caller, **private by default** (§5.6). |
-| R-A6 | **Account- *and workspace* -switch isolation** — local sync state is scoped by **`(Clerk user id, workspace id)`**, not account alone. A user in multiple workspaces (`D15`, `R-A7`) must not share one outbox/cursor across them, or a workspace switch would leave `_sync_pending_changes` rows and the poll cursor bound to a **different** workspace's scope. Use a **per-account-per-workspace store** (or workspace-qualified local keys for the outbox + cursor). `D5` IDs are owner-scoped (workspace-independent) so re-homing stays safe, but the **outbox and cursor are workspace-partitioned**. A different sign-in opens a different DB; the anonymous pre-auth store is claimed on first sign-in. |
 | R-A7 | **Create or join a family**, **invite** members, coarse **owner/member** roles, **multi-workspace switch** (transport re-scopes). |
 | R-A8 | **Multi-device per user** (`D22`) — a user may be signed in on N devices; all converge, each edit is attributable to a device, and no device ignores a sibling device's edits. The device **self-registers** (`nodeId`) with Atrium on first authenticated sync. |
 
@@ -296,7 +302,7 @@ These are the sharp edges of record-level ACL; the POC (Phase 5) must exercise g
 
 ---
 
-## 7. Implementation plan (POC-first)
+## 7. Historical implementation plan — superseded
 
 Layers are largely **parallelizable**: Phase 1–2 (Palladium) and Phase 3 (Atrium) can proceed together; Phase 4 (POC app) depends on both.
 
@@ -328,11 +334,10 @@ Pure engine correctness — **no auth, no scope, no domain** (those are Phase 2 
 - *Timezone correctness (`D23`).* The HLC physical component is **UTC epoch millis** — the total order is **timezone-independent**, so two members editing the same column from different timezones resolve by *true* occurrence order (tie-break `nodeId`), never by local wall-clock. **Do not** feed any local/wall-clock time into the comparator. A user-facing edit instant is a distinct `display_ts` **column** (ordinary data, LWW'd like any other column), stored **UTC** and rendered in the viewer's local tz at the edge — it is never a conflict input. Add an assertion that `createHlc`/`sendHlc` read a UTC epoch source.
 - *Files.* `engine.ts` (`applyRemote` merge), `hlc.ts` (comparator, `recvHlc`, UTC-epoch source assertion), `_sync_row_meta` schema.
 - *Verify.* The `two-client-sync` `it.fails` convergence guard **flips green**; add a concurrent-column test (A sets col X, B sets col Y at overlapping HLCs → both survive; two writes to col X → higher HLC wins **regardless of arrival order**); add a **cross-timezone** test — two engines whose OS clocks report different tz offsets but the same UTC instant resolve identically (the loser is the one with the lower HLC, not the westernmost clock); add a **delete-tombstone** test — a delete then a **lower-HLC** update does **not** resurrect the row; a **higher-HLC** update does; an offline client that missed the delete receives it via replay and converges to deleted.
-
+- *Atomic checkpoint + recovery boundary (single transaction).* The v1 `_sync_outbox`, node identity, durable opaque cursor, engine HLC, and page checkpoint form one boundary. A local canonical change commits its outbox row atomically; a remote typed page commits changes, purges, events, and checkpoint together. Recovery retries the same durable item/page without loss or duplicate effects.
 **1c — Durable sync state (`D2b`; G6).**
 - *Problem.* `#cursor`, the engine HLC, and `nodeId` live **in memory**. On leader-worker failover the new leader re-hydrates from **full history** and the `nodeId` **churns** — breaking own-write skip and causal ordering.
 - *Change.* Persist `nodeId` (UUIDv7, minted once), the **durable applied cursor** (from 1a), and the engine HLC to a `_sync_state` table **through the `StorageAdapter`** (not OPFS directly — OPFS is `@palladium/sqlite-browser`'s concern; core only sees the adapter); rehydrate on leadership handoff instead of replaying from zero.
-- *Atomic checkpoint + recovery boundary (single transaction).* `nodeId`, engine HLC, durable applied cursor, and outbox (`_sync_pending_changes`) state form **one checkpoint** that must advance **atomically within the same transaction** as the operation it records: a remote-apply commit persists `{applied change, new cursor, advanced HLC}` together; a local append persists `{outbox row, advanced send-HLC}` together. On crash/failover, recovery **replays or retries any incomplete operation** from the last committed checkpoint so no change is lost or double-applied and **an HLC value is never reused** (the persisted HLC is the floor for the next `nextSendHlc`). This is the durable analogue of 1a's "highest contiguous applied HLC."
 - *Files.* `sync.ts` (checkpoint/cursor persistence, outbox), `engine.ts` (nodeId/HLC load+persist, transaction boundary), `storage.ts` (`_sync_state` via adapter).
 - *Verify.* Kill + restart the leader mid-sync → resumes from the persisted checkpoint (no full replay, `nodeId` stable, own-writes still skipped); a crash **between** applying a change and advancing the cursor recovers without loss or duplication; the recovered engine never re-issues a previously persisted HLC.
 

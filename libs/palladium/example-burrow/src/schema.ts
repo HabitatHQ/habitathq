@@ -1,4 +1,4 @@
-import type { SchemaConfig } from "@palladium/core";
+import type { JsonValue, SchemaConfig, SyncRow } from "@palladium/core";
 
 /**
  * The burrow POC surface (ERD §7.1): three aggregate roots, each with a child,
@@ -14,34 +14,40 @@ import type { SchemaConfig } from "@palladium/core";
  * `root_id` to match Atrium's registry.
  */
 export interface HabitRow {
+  [key: string]: JsonValue;
   id: string;
   name: string;
   created_at: number;
 }
 export interface CompletionRow {
+  [key: string]: JsonValue;
   id: string;
   root_id: string;
   day: string;
   done: number;
 }
 export interface ListRow {
+  [key: string]: JsonValue;
   id: string;
   name: string;
   created_at: number;
 }
 export interface ListItemRow {
+  [key: string]: JsonValue;
   id: string;
   root_id: string;
   text: string;
   done: number;
 }
 export interface NoteRow {
+  [key: string]: JsonValue;
   id: string;
   title: string;
   body: string;
   created_at: number;
 }
 export interface NoteImageRow {
+  [key: string]: JsonValue;
   id: string;
   root_id: string;
   blob_id: string;
@@ -49,6 +55,7 @@ export interface NoteImageRow {
 }
 
 export interface BurrowSchema {
+  [table: string]: SyncRow;
   habits: HabitRow;
   completions: CompletionRow;
   lists: ListRow;

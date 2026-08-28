@@ -144,7 +144,9 @@ mod tests {
     #[test]
     fn bearer_seam_maps_token_to_scope() {
         let seam = BearerTokenSeam;
-        let scope = seam.authenticate(&parts_with(Some("Bearer alice"))).unwrap();
+        let scope = seam
+            .authenticate(&parts_with(Some("Bearer alice")))
+            .unwrap();
         assert_eq!(scope.as_str(), "alice");
     }
 

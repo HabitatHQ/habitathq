@@ -1,4 +1,4 @@
-import { generateUlid, sql } from "@palladium/core";
+import { generateUuidV7, sql } from "@palladium/core";
 import { useLiveQuery, usePalladium, useSyncStatus } from "@palladium/react";
 import { useMemo, useState } from "react";
 import type { NoteRow, NotesSchema } from "./db.js";
@@ -19,7 +19,7 @@ export function App(): React.ReactElement {
   const selectedNote = notes.find((n) => n.id === selectedId) ?? null;
 
   async function handleNewNote(): Promise<void> {
-    const id = generateUlid();
+    const id = generateUuidV7();
     await db.insert("notes", {
       id,
       title: "",

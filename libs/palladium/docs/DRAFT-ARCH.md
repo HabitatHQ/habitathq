@@ -6,6 +6,8 @@
 
 A local-first sync engine. Rust backend, TypeScript frontend.
 
+> **Historical/non-normative:** This architecture draft predates Sync Protocol v1. It is retained for design history only. For all sync wire formats, identity, persistence, lifecycle, error, status, paging, checkpoint, and ACL behavior, follow [`SYNC-PROTOCOL-v1.md`](./SYNC-PROTOCOL-v1.md). Any example below that conflicts with that specification is obsolete and MUST NOT be implemented.
+
 ---
 
 ## Table of Contents
@@ -274,93 +276,12 @@ Supported subscription granularities:
 | Count-based | Re-emit only when the row count changes |
 | Pull-based | No subscription; manual `query.exec()` only |
 
-### Offline Queue
+### Historical sync sketches (superseded)
 
-All mutations are durably queued in a `_sync_pending_ops` SQLite table before being sent to the server. If SQLite is not yet initialised (very early boot), a memory fallback queue is used and drained once the DB is ready.
+The former offline-queue, transport, status, and bootstrap sketches in this section are retained in repository history, but are not implementation guidance. In particular, v1 uses the durable `_sync_outbox` Change queue, canonical UUIDv7 row IDs, server-issued append positions, bounded versioned page envelopes, typed replay-safe page application, structured errors, and explicit transport disposal. See [`SYNC-PROTOCOL-v1.md`](./SYNC-PROTOCOL-v1.md).
+### Bootstrap and delivery sketches (superseded)
 
-```sql
-CREATE TABLE _sync_pending_ops (
-  id       TEXT PRIMARY KEY,  -- ULID
-  hlc      TEXT NOT NULL,
-  ops      TEXT NOT NULL,     -- JSON: Op[]
-  queued_at INTEGER NOT NULL
-);
-```
-
-On reconnect, the pending queue is flushed in HLC order. Unsynced deltas whose age exceeds a configurable threshold trigger an app-defined staleness handler:
-
-```ts
-onStaleDelta: (delta) => 'keep' | 'drop' | 'alert'
-```
-
-### Sync Loop & Transport
-
-The sync transport is configurable at init time:
-
-```ts
-const db = new Palladium({
-  serverUrl: 'https://api.example.com',
-  transport: 'sse',   // 'sse' | 'ws' | 'polling'
-  auth: () => getToken(),
-});
-```
-
-**Downlink** (server → client): The Worker connects to the server using the chosen transport and streams incoming `Change` objects, writing them directly to SQLite and firing table invalidations.
-
-**Uplink** (client → server): Pending ops are sent over the same channel:
-- `sse` transport: HTTP `POST /sync/push`
-- `ws` transport: the open WebSocket channel
-
-Delta batching is configurable:
-
-```ts
-batchMode: 'immediate' | { debounce: 50 } | 'manual'
-```
-
-Sync status is observable:
-
-```ts
-engine.on('sync:status', (status) => { /* 'connected' | 'connecting' | 'offline' */ });
-engine.on('error', (err) => { /* network/sync errors */ });
-const { pendingCount, isOnline, lastSyncId } = engine.getSyncStatus();
-```
-
-### Bootstrap
-
-When a client connects for the first time (or after a re-bootstrap), it uses a **snapshot + delta catch-up** strategy:
-
-1. Client sends its current `last_sync_id` (or `null` for first boot).
-2. Server returns a **snapshot** of all current data at a known `sync_id`.
-3. Client hydrates its local SQLite from the snapshot.
-4. Client streams all deltas with `sync_id > snapshot_sync_id` to catch up.
-
-If a client has been offline longer than the server's tombstone TTL (configurable per workspace), the server forces a full re-bootstrap.
-
-```mermaid
-sequenceDiagram
-    participant W as Client Worker
-    participant S as Server
-    participant DB as Local SQLite
-    participant BC as Broadcaster
-
-    W->>S: GET /sync/bootstrap?since=null
-    S-->>W: { snapshot, sync_id: "018e..." }
-    W->>DB: Hydrate tables from snapshot
-    W->>S: Subscribe SSE (since=018e...)
-
-    loop Delta catch-up
-        S-->>W: SSE: Change (sync_id > 018e...)
-        W->>DB: Apply delta
-        W-->>W: Notify LiveQuery listeners
-    end
-
-    Note over W,BC: Steady-state: new changes arrive via broadcaster
-
-    BC-->>S: publish(workspace_id, delta)
-    S-->>W: SSE: new Change
-    W->>DB: Write delta, fire invalidations
-```
-
+The former snapshot/SSE/bootstrap sketch is historical. v1 bootstrap and steady-state delivery use the versioned bounded page protocol, opaque append checkpoint, `caughtUp`, and explicit resnapshot control defined in [`SYNC-PROTOCOL-v1.md`](./SYNC-PROTOCOL-v1.md). It MUST NOT be used as a wire contract.
 ### CRDT Fields (Yjs)
 
 Rich text and other complex structured data use [Yjs](https://yjs.dev/) as a CRDT layer. Yjs is opt-in per column, declared via SQL `COMMENT` annotations (see [Schema & Migrations](#schema--migrations-frontend)).
@@ -436,7 +357,6 @@ CREATE TABLE _sync_deltas (
   table_name    TEXT        NOT NULL,
   row_id        TEXT        NOT NULL,
   operation     CHAR(1)     NOT NULL CHECK (operation IN ('I','U','D')),
-  col_name      TEXT,                   -- NULL for Insert/Delete
   old_value     JSONB,
   new_value     JSONB,
   client_id     TEXT        NOT NULL,   -- NodeId of originating client

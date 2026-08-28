@@ -11,7 +11,13 @@
  */
 
 import { setTimeout as sleep } from "node:timers/promises";
-import { createEngine, type PalladiumEngine, SyncTransport, sql } from "@palladium/core";
+import {
+  createEngine,
+  generateUuidV7,
+  type PalladiumEngine,
+  SyncTransport,
+  sql,
+} from "@palladium/core";
 import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { E2E_BASE_URL } from "../setup/server.js";
@@ -48,6 +54,7 @@ async function makeClient(nodeId: string): Promise<Client> {
   const transport = new SyncTransport(engine, {
     serverUrl: E2E_BASE_URL,
     pollIntervalMs: POLL_MS,
+    terminalPolicy: "degraded_skip",
   });
   await transport.start();
   return { engine, transport, stop: () => transport.stop() };
@@ -85,7 +92,7 @@ describe("two-client sync", () => {
   });
 
   it("insert on A propagates to B", async () => {
-    const id = crypto.randomUUID();
+    const id = generateUuidV7();
     await a.engine.insert("tasks", { id, text: "hello from A", done: 0 });
 
     const rows = await waitFor(b, (r) => r.some((t) => t.id === id));
@@ -95,7 +102,7 @@ describe("two-client sync", () => {
   });
 
   it("update on A propagates to B", async () => {
-    const id = crypto.randomUUID();
+    const id = generateUuidV7();
     await a.engine.insert("tasks", { id, text: "todo", done: 0 });
     await waitFor(b, (r) => r.some((t) => t.id === id));
 
@@ -106,7 +113,7 @@ describe("two-client sync", () => {
   });
 
   it("delete on A propagates to B", async () => {
-    const id = crypto.randomUUID();
+    const id = generateUuidV7();
     await a.engine.insert("tasks", { id, text: "ephemeral", done: 0 });
     await waitFor(b, (r) => r.some((t) => t.id === id));
 
@@ -115,8 +122,8 @@ describe("two-client sync", () => {
   });
 
   it("bidirectional: writes from both clients converge", async () => {
-    const idA = crypto.randomUUID();
-    const idB = crypto.randomUUID();
+    const idA = generateUuidV7();
+    const idB = generateUuidV7();
     await a.engine.insert("tasks", { id: idA, text: "from A", done: 0 });
     await b.engine.insert("tasks", { id: idB, text: "from B", done: 0 });
 
@@ -129,7 +136,7 @@ describe("two-client sync", () => {
   // on both clients converge deterministically to the higher-HLC value — the
   // winner is the same on both sides, regardless of arrival order.
   it("concurrent update to the same column converges (LWW)", async () => {
-    const id = crypto.randomUUID();
+    const id = generateUuidV7();
     await a.engine.insert("tasks", { id, text: "seed", done: 0 });
     await waitFor(b, (r) => r.some((t) => t.id === id));
 
@@ -158,7 +165,7 @@ describe("two-client sync", () => {
   // Column-level granularity: concurrent writes to DIFFERENT columns of the same
   // row both survive on both clients (neither clobbers the other).
   it("concurrent writes to different columns both survive", async () => {
-    const id = crypto.randomUUID();
+    const id = generateUuidV7();
     await a.engine.insert("tasks", { id, text: "base", done: 0 });
     await waitFor(b, (r) => r.some((t) => t.id === id));
 

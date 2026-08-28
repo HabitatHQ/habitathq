@@ -58,16 +58,16 @@ async fn start_store() -> (ContainerAsync<Postgres>, PostgresStore) {
     let port = container.get_host_port_ipv4(5432).await.expect("get port");
     let url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
 
-    let store = PostgresStore::connect(&url).await.expect("connect to store");
+    let store = PostgresStore::connect(&url)
+        .await
+        .expect("connect to store");
     (container, store)
 }
 
 fn print_metrics(label: &str, count: usize, elapsed: Duration) {
     let secs = elapsed.as_secs_f64();
     let ops_per_sec = count as f64 / secs;
-    println!(
-        "[{label}] {count} changes in {secs:.3}s = {ops_per_sec:.0} changes/sec"
-    );
+    println!("[{label}] {count} changes in {secs:.3}s = {ops_per_sec:.0} changes/sec");
 }
 
 // ── average load test ─────────────────────────────────────────────────────
@@ -94,7 +94,10 @@ async fn load_average_sequential_inserts() {
 
     // Verify: all changes are retrievable.
     let read_start = Instant::now();
-    let all = store.list_after(None, None).await.expect("list_after failed");
+    let all = store
+        .list_after(None, None)
+        .await
+        .expect("list_after failed");
     let read_elapsed = read_start.elapsed();
     print_metrics("load/read", all.len(), read_elapsed);
 
@@ -129,7 +132,11 @@ async fn load_interleaved_reads_and_writes() {
 
         // Read all so far (simulates a sync client catching up).
         let seen = store.list_after(None, None).await.expect("list_after");
-        assert_eq!(seen.len(), inserted_total, "batch {batch}: row count mismatch");
+        assert_eq!(
+            seen.len(),
+            inserted_total,
+            "batch {batch}: row count mismatch"
+        );
     }
     print_metrics("load/interleaved", inserted_total, start.elapsed());
 }
@@ -277,7 +284,10 @@ async fn spike_burst_then_recovery() {
     for _ in 0..WARMUP {
         wall += 1;
         hlc = hlc.send(wall);
-        store.insert(&make_change(hlc, 1)).await.expect("warmup insert");
+        store
+            .insert(&make_change(hlc, 1))
+            .await
+            .expect("warmup insert");
     }
     let warmup_elapsed = t0.elapsed();
     print_metrics("spike/warmup", WARMUP, warmup_elapsed);
@@ -287,7 +297,10 @@ async fn spike_burst_then_recovery() {
     for _ in 0..SPIKE {
         wall += 1;
         hlc = hlc.send(wall);
-        store.insert(&make_change(hlc, 5)).await.expect("spike insert");
+        store
+            .insert(&make_change(hlc, 5))
+            .await
+            .expect("spike insert");
     }
     let spike_elapsed = t1.elapsed();
     print_metrics("spike/burst", SPIKE, spike_elapsed);
@@ -297,7 +310,10 @@ async fn spike_burst_then_recovery() {
     for _ in 0..COOLDOWN {
         wall += 1;
         hlc = hlc.send(wall);
-        store.insert(&make_change(hlc, 1)).await.expect("cooldown insert");
+        store
+            .insert(&make_change(hlc, 1))
+            .await
+            .expect("cooldown insert");
     }
     let cooldown_elapsed = t2.elapsed();
     print_metrics("spike/cooldown", COOLDOWN, cooldown_elapsed);
@@ -305,7 +321,12 @@ async fn spike_burst_then_recovery() {
     // Assert all changes made it through.
     let total = WARMUP + SPIKE + COOLDOWN;
     let all = store.list_after(None, None).await.expect("list_after");
-    assert_eq!(all.len(), total, "data loss during spike: expected {total}, got {}", all.len());
+    assert_eq!(
+        all.len(),
+        total,
+        "data loss during spike: expected {total}, got {}",
+        all.len()
+    );
 }
 
 /// Spike from multiple concurrent sources simultaneously: 20 goroutines each

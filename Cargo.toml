@@ -64,9 +64,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 
 # Utilities
-uuid = { version = "1", features = ["v4", "serde"] }
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = { version = "2" }
+sha2 = { version = "0.10" }
 anyhow = { version = "1" }
 
 # Tracing / observability

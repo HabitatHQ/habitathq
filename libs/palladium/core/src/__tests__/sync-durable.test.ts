@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PalladiumEngine } from "../engine.js";
 import { compareHlc } from "../hlc.js";
 import type { SchemaConfig } from "../migration.js";
+import { sql } from "../sql.js";
 import { SyncTransport, type WireChange } from "../sync.js";
 
 interface Schema {
@@ -25,9 +26,15 @@ const SCHEMA: SchemaConfig = {
     "CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, title TEXT NOT NULL, updated_at INTEGER NOT NULL)",
 };
 
-const ALICE = "00000000-0000-0000-0000-0000000a11ce";
-const BOB = "00000000-0000-0000-0000-00000000b0b0";
+const ALICE = "00000000-0000-4000-8000-0000000a11ce";
+const BOB = "00000000-0000-4000-8000-00000000b0b0";
 const SERVER_URL = "http://localhost:13742";
+
+const ALTERNATE_SCHEMA: SchemaConfig = {
+  version: 1,
+  schema:
+    "CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, title TEXT NOT NULL, updated_at INTEGER NOT NULL, archived INTEGER NOT NULL DEFAULT 0)",
+};
 
 describe("durable sync state — nodeId + HLC across restart", () => {
   let dir: string;
@@ -49,7 +56,11 @@ describe("durable sync state — nodeId + HLC across restart", () => {
       },
     );
     await engine1.init(SCHEMA);
-    await engine1.insert("notes", { id: "n1", title: "hi", updated_at: 1 });
+    await engine1.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      title: "hi",
+      updated_at: 1,
+    });
     const nodeId1 = engine1.nodeId;
     const hlc1 = engine1.currentHlc;
     expect(nodeId1).toBe(BOB);
@@ -92,14 +103,14 @@ describe("durable sync state — poll cursor across transport restart", () => {
   it("persists the cursor and resumes from it (no full re-hydration)", async () => {
     const db = await makeEngine(BOB);
     const c1: WireChange = {
-      id: "c1",
+      id: "00000000-0000-4000-8000-0000000000c1",
       hlc: { wallMs: 1_700_000_000_000, counter: 0, nodeId: ALICE },
       ops: [
         {
           op: "insert",
           table: "notes",
-          row_id: "n1",
-          data: { id: "n1", title: "x", updated_at: 1 },
+          row_id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          data: { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab", title: "x", updated_at: 1 },
         },
       ],
     };
@@ -111,42 +122,188 @@ describe("durable sync state — poll cursor across transport restart", () => {
       if (!served) {
         served = true;
         return new Response(
-          JSON.stringify({ changes: [c1], cursor: "1", purges: [], events: [] }),
+          JSON.stringify({
+            version: 1,
+            changes: [c1],
+            cursor: "1",
+            upperBound: "1",
+            purges: [],
+            events: [],
+            caughtUp: true,
+            control: { mustRefetch: false },
+          }),
           {
             status: 200,
             headers: { "Content-Type": "application/json" },
           },
         );
       }
-      return new Response(JSON.stringify({ changes: [], cursor: "1", purges: [], events: [] }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          version: 1,
+          changes: [],
+          purges: [],
+          events: [],
+          cursor: "1",
+          upperBound: "1",
+          caughtUp: true,
+          control: { mustRefetch: false },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
     };
     const t1 = new SyncTransport(db, { serverUrl: SERVER_URL, fetch: fetch1 });
     await t1.start();
-    await t1.stop();
+    await t1.dispose();
 
     const cursor = "1";
     expect(await db.getSyncState("append_cursor_v1")).toBe(cursor);
 
     // Second transport session over the same store: it must resume from the
-    // persisted cursor — the very first GET carries ?after=<cursor>.
+    // persisted cursor — the first GET carries ?limit=100&cursor=<cursor>.
     const seenUrls: string[] = [];
     const fetch2: typeof globalThis.fetch = async (input, init) => {
       if (init?.method === "POST") return new Response("{}", { status: 201 });
       seenUrls.push(
         typeof input === "string" ? input : input instanceof Request ? input.url : input.href,
       );
-      return new Response("[]", {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          version: 1,
+          changes: [],
+          purges: [],
+          events: [],
+          cursor: "1",
+          upperBound: "1",
+          caughtUp: true,
+          control: { mustRefetch: false },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
     };
     const t2 = new SyncTransport(db, { serverUrl: SERVER_URL, fetch: fetch2 });
     await t2.start();
-    await t2.stop();
+    await t2.dispose();
 
-    expect(seenUrls[0]).toBe(`${SERVER_URL}/v1/changes?after=${cursor}`);
+    expect(seenUrls[0]).toBe(`${SERVER_URL}/v1/changes?limit=100&cursor=${cursor}`);
+  });
+
+  it("quarantines an atomic remote change without committing its valid prefix", async () => {
+    const db = await makeEngine(BOB);
+    const change: WireChange = {
+      id: "00000000-0000-4000-8000-0000000000c2",
+      hlc: { wallMs: 1_700_000_000_001, counter: 0, nodeId: ALICE },
+      ops: [
+        {
+          op: "insert",
+          table: "notes",
+          row_id: "018f0f50-7b8d-7a1c-8e2f-1234567890ad",
+          data: {
+            id: "018f0f50-7b8d-7a1c-8e2f-1234567890ad",
+            title: "must roll back",
+            updated_at: 1,
+          },
+        },
+        {
+          // The second operation fails after the first has mutated the row.
+          op: "insert",
+          table: "notes",
+          row_id: "018f0f50-7b8d-7a1c-8e2f-1234567890ae",
+          data: { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ae", updated_at: 1 },
+        },
+      ],
+    };
+    const fetch: typeof globalThis.fetch = async (_input, init) => {
+      if (init?.method === "POST") return new Response("{}", { status: 201 });
+      return new Response(
+        JSON.stringify({
+          version: 1,
+          changes: [change],
+          purges: [],
+          events: [],
+          cursor: "2",
+          upperBound: "2",
+          caughtUp: true,
+          control: { mustRefetch: false },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+    const transport = new SyncTransport(db, {
+      serverUrl: SERVER_URL,
+      fetch,
+      terminalPolicy: "block",
+    });
+
+    await expect(transport.poll()).resolves.toBeUndefined();
+
+    const notes = await db.exec<Schema["notes"]>(
+      sql`SELECT id FROM notes WHERE id = ${"018f0f50-7b8d-7a1c-8e2f-1234567890ad"}`,
+    );
+    expect(notes).toEqual([]);
+    expect(await transport.inspectQuarantine()).toEqual([
+      expect.objectContaining({
+        phase: "downlink",
+        changeId: change.id,
+        attempts: 1,
+        permanent: false,
+      }),
+    ]);
+    expect(await db.getSyncState("append_cursor_v1")).toBeNull();
+    expect(db.getSyncStatus()).toBe("degraded");
+    await transport.dispose();
+  });
+});
+
+describe("durable sync state — schema identity", () => {
+  it("persists the initialized fingerprint in sync state", async () => {
+    const db = new PalladiumEngine<Schema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }), {
+      nodeId: ALICE,
+    });
+    await db.init(SCHEMA);
+    const identity = db.initializedSchemaIdentity;
+    expect(identity).toMatch(/^v1-1-[0-9a-f]{8}$/u);
+    expect(await db.getSyncState("schema_identity_v1")).toBe(identity);
+    await db.adapter.close();
+  });
+
+  it("rejects a different schema identity for an existing database", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "palladium-schema-identity-"));
+    const file = join(dir, "db.sqlite");
+    try {
+      const first = new PalladiumEngine<Schema>(
+        new NodeSqliteAdapter({ vfs: { type: "file", filename: file } }),
+        { nodeId: ALICE },
+      );
+      await first.init(SCHEMA);
+      const originalIdentity = first.initializedSchemaIdentity;
+      await first.adapter.close();
+
+      const second = new PalladiumEngine<Schema>(
+        new NodeSqliteAdapter({ vfs: { type: "file", filename: file } }),
+        { nodeId: ALICE },
+      );
+      await expect(second.init(ALTERNATE_SCHEMA)).rejects.toMatchObject({
+        name: "SchemaIdentityMismatchError",
+        actual: originalIdentity,
+      });
+      await second.adapter.close();
+
+      const reopened = new PalladiumEngine<Schema>(
+        new NodeSqliteAdapter({ vfs: { type: "file", filename: file } }),
+        { nodeId: ALICE },
+      );
+      await reopened.init(SCHEMA);
+      expect(await reopened.getSyncState("schema_identity_v1")).toBe(originalIdentity);
+      await reopened.adapter.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -20,9 +20,7 @@ export interface ServerChange {
   readonly hlc: Hlc;
   readonly ops: ServerOp[];
 }
-export function hlcToAfterCursor(hlc: Hlc): string {
-  return `${String(hlc.wallMs).padStart(20, "0")}_${String(hlc.counter).padStart(10, "0")}_${hlc.nodeId.replaceAll("-", "").padStart(32, "0")}`;
-}
+
 export interface OpenApiSpec {
   readonly openapi: string;
   readonly info: { readonly title: string; readonly version: string };
@@ -41,12 +39,27 @@ export class PalladiumClient {
       body: JSON.stringify(change),
     });
   }
-  async getChanges(after?: string): Promise<ServerChange[]> {
+  async getChanges(after?: string): Promise<{
+    readonly version: 1;
+    readonly changes: ServerChange[];
+    readonly cursor: string | null;
+    readonly upperBound: string;
+    readonly caughtUp: boolean;
+    readonly control: { readonly mustRefetch: boolean };
+  }> {
     const url = new URL(`${this.base}/v1/changes`);
-    if (after !== undefined) url.searchParams.set("after", after);
+    if (after !== undefined) url.searchParams.set("cursor", after);
+    url.searchParams.set("limit", "100");
     const res = await fetch(url.toString());
     if (!res.ok) throw new Error(`GET /v1/changes failed: ${res.status}`);
-    return res.json() as Promise<ServerChange[]>;
+    return res.json() as Promise<{
+      readonly version: 1;
+      readonly changes: ServerChange[];
+      readonly cursor: string | null;
+      readonly upperBound: string;
+      readonly caughtUp: boolean;
+      readonly control: { readonly mustRefetch: boolean };
+    }>;
   }
   async getOpenApiSpec(): Promise<OpenApiSpec> {
     const res = await fetch(`${this.base}/api-doc/openapi.json`);

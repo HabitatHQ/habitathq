@@ -71,17 +71,20 @@ where
 
     // Collect all bytes from the `file` multipart field.
     let mut data: Option<(Vec<u8>, String)> = None;
-    while let Some(field) = multipart.next_field().await.map_err(|e| {
-        AppError::BadRequest(format!("multipart error: {e}"))
-    })? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("multipart error: {e}")))?
+    {
         if field.name() == Some("file") {
             let mime = field
                 .content_type()
                 .unwrap_or("application/octet-stream")
                 .to_owned();
-            let bytes = field.bytes().await.map_err(|e| {
-                AppError::BadRequest(format!("failed to read field: {e}"))
-            })?;
+            let bytes = field
+                .bytes()
+                .await
+                .map_err(|e| AppError::BadRequest(format!("failed to read field: {e}")))?;
             data = Some((bytes.to_vec(), mime));
             break;
         }
@@ -212,18 +215,12 @@ mod tests {
         let mut body = Vec::new();
         body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
         body.extend_from_slice(
-            "Content-Disposition: form-data; name=\"file\"; filename=\"test.bin\"\r\n"
-                .as_bytes(),
+            "Content-Disposition: form-data; name=\"file\"; filename=\"test.bin\"\r\n".as_bytes(),
         );
-        body.extend_from_slice(
-            format!("Content-Type: {content_type}\r\n\r\n").as_bytes(),
-        );
+        body.extend_from_slice(format!("Content-Type: {content_type}\r\n\r\n").as_bytes());
         body.extend_from_slice(content);
         body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
-        (
-            format!("multipart/form-data; boundary={boundary}"),
-            body,
-        )
+        (format!("multipart/form-data; boundary={boundary}"), body)
     }
 
     #[tokio::test]

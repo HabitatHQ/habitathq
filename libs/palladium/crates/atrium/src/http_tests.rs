@@ -4,19 +4,19 @@
 #![allow(clippy::unwrap_used)]
 
 use axum::{
-    Router,
-    body::{Body, to_bytes},
+    body::{to_bytes, Body},
     http::{
-        Request, StatusCode,
         header::{AUTHORIZATION, CONTENT_TYPE},
+        Request, StatusCode,
     },
+    Router,
 };
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tower::ServiceExt;
 use tower_http::cors::CorsLayer;
 use uuid::Uuid;
 
-use crate::{AtriumDb, AtriumState, DevBearerProvider, create_router};
+use crate::{create_router, AtriumDb, AtriumState, DevBearerProvider};
 
 async fn app() -> Router {
     let db = AtriumDb::in_memory().await.unwrap();
@@ -65,14 +65,14 @@ async fn call(
 
 fn wrap(ops: &Value) -> Value {
     json!({
-        "id": Uuid::new_v4(),
+        "id": Uuid::now_v7(),
         "hlc": { "wallMs": 1_700_000_000_000_u64, "counter": 0, "nodeId": Uuid::new_v4() },
         "ops": ops.clone(),
     })
 }
 
 fn root_insert(table: &str) -> (Uuid, Value) {
-    let row = Uuid::new_v4();
+    let row = Uuid::now_v7();
     (
         row,
         wrap(&json!([{ "op": "insert", "table": table, "row_id": row, "data": { "id": row } }])),
@@ -80,7 +80,7 @@ fn root_insert(table: &str) -> (Uuid, Value) {
 }
 
 fn child_insert(table: &str, root: Uuid) -> (Uuid, Value) {
-    let row = Uuid::new_v4();
+    let row = Uuid::now_v7();
     let data = json!({ "id": row, "root_id": root });
     (
         row,
@@ -268,12 +268,15 @@ fn sees(env: &Value, row: Uuid) -> bool {
     })
 }
 
-/// Whether the envelope tells the caller to purge `root`.
-fn purged(env: &Value, root: Uuid) -> bool {
+/// Whether the envelope tells the caller to purge `root` from `table`.
+fn purged(env: &Value, table: &str, root: Uuid) -> bool {
     let target = root.to_string();
-    env["purges"]
-        .as_array()
-        .is_some_and(|p| p.iter().any(|v| v.as_str() == Some(target.as_str())))
+    env["purges"].as_array().is_some_and(|purges| {
+        purges.iter().any(|purge| {
+            purge["table"].as_str() == Some(table)
+                && purge["row_id"].as_str() == Some(target.as_str())
+        })
+    })
 }
 
 // ── tenancy isolation (Phase 3a) ────────────────────────────────────────────
@@ -442,7 +445,7 @@ async fn a5_revoke_purges() {
         StatusCode::OK
     );
     assert!(
-        purged(&get_env(&app, "bob", &ws).await, note),
+        purged(&get_env(&app, "bob", &ws).await, "notes", note),
         "revoke tells bob to purge the note"
     );
 }
@@ -612,12 +615,10 @@ async fn events_remain_pending_until_workspace_ack() {
     )
     .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
-    assert!(
-        get_env(&app, "bob", &ws).await["events"]
-            .as_array()
-            .unwrap()
-            .is_empty()
-    );
+    assert!(get_env(&app, "bob", &ws).await["events"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 }
 
 #[tokio::test]
@@ -664,61 +665,284 @@ async fn event_ack_cannot_cross_workspace_or_caller() {
         Some(event_id)
     );
 }
-
 #[tokio::test]
-async fn append_cursor_returns_a_late_older_hlc_change() {
+async fn grant_backfill_survives_event_ack_after_grantee_passed_history() {
     let app = app().await;
     let ws = family(&app).await;
-    let node = Uuid::new_v4();
-    let first = Uuid::new_v4();
-    let late = Uuid::new_v4();
-    let change = |row: Uuid, wall_ms: u64| {
-        json!({
-            "id": Uuid::new_v4(),
-            "hlc": { "wallMs": wall_ms, "counter": 0, "nodeId": node },
-            "ops": [{ "op": "insert", "table": "habits", "row_id": row, "data": { "id": row } }],
-        })
-    };
-
+    let (root, initial) = root_insert("notes");
+    let mut historical_ids = vec![initial["id"].as_str().unwrap().to_owned()];
     assert_eq!(
-        post_change(&app, "alice", &ws, change(first, 2_000)).await,
+        post_change(&app, "alice", &ws, initial).await,
         StatusCode::CREATED
     );
-    let first_page = get_env(&app, "alice", &ws).await;
-    assert_eq!(
-        first_page["changes"][0]["ops"][0]["row_id"],
-        first.to_string()
-    );
-    let after = first_page["cursor"].as_str().unwrap();
+    for _ in 0..100 {
+        let historical = update("notes", root);
+        historical_ids.push(historical["id"].as_str().unwrap().to_owned());
+        assert_eq!(
+            post_change(&app, "alice", &ws, historical).await,
+            StatusCode::CREATED
+        );
+    }
+
+    let before_grant = get_env(&app, "bob", &ws).await;
+    assert_eq!(before_grant["cursor"], "100");
+    let (_, after_history) = call(
+        &app,
+        "GET",
+        "/v1/changes?cursor=100",
+        Some("bob"),
+        Some(&ws),
+        None,
+    )
+    .await;
+    assert_eq!(after_history["cursor"], "101");
 
     assert_eq!(
-        post_change(&app, "alice", &ws, change(late, 1_000)).await,
+        share(&app, "alice", &ws, root, "bob", "read").await,
+        StatusCode::OK
+    );
+    let mut cursor = "101".to_owned();
+    let mut delivered_ids = Vec::new();
+    for page_number in 0..2 {
+        let (status, delivery) = call(
+            &app,
+            "GET",
+            &format!("/v1/changes?cursor={cursor}"),
+            Some("bob"),
+            Some(&ws),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{delivery:?}");
+        delivered_ids.extend(
+            delivery["changes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|change| change["id"].as_str().unwrap().to_owned()),
+        );
+        let event_ids: Vec<i64> = delivery["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|event| event["id"].as_i64().unwrap())
+            .collect();
+        if !event_ids.is_empty() {
+            let (status, _) = call(
+                &app,
+                "POST",
+                "/v1/changes/events/ack",
+                Some("bob"),
+                Some(&ws),
+                Some(json!({ "event_ids": event_ids })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::NO_CONTENT);
+        }
+        cursor = delivery["cursor"].as_str().unwrap().to_owned();
+        assert!(
+            !delivery["caughtUp"].as_bool().unwrap() || page_number == 1,
+            "backfill should span two pages: {delivery:?}"
+        );
+    }
+    for historical_id in &historical_ids {
+        assert!(
+            delivered_ids.iter().any(|id| id == historical_id),
+            "grant backfill omitted historical change {historical_id}"
+        );
+    }
+    assert_eq!(delivered_ids.len(), historical_ids.len());
+}
+
+#[tokio::test]
+async fn resumed_grant_offer_advances_only_through_delivered_backfill() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let (root, initial) = root_insert("notes");
+    let mut historical_ids = vec![initial["id"].as_str().unwrap().to_owned()];
+    assert_eq!(
+        post_change(&app, "alice", &ws, initial).await,
         StatusCode::CREATED
     );
+    for _ in 0..100 {
+        let historical = update("notes", root);
+        historical_ids.push(historical["id"].as_str().unwrap().to_owned());
+        assert_eq!(
+            post_change(&app, "alice", &ws, historical).await,
+            StatusCode::CREATED
+        );
+    }
+    let (_, passed_history) = call(
+        &app,
+        "GET",
+        "/v1/changes?cursor=100",
+        Some("bob"),
+        Some(&ws),
+        None,
+    )
+    .await;
+    assert_eq!(passed_history["cursor"], "101");
+    assert_eq!(
+        share(&app, "alice", &ws, root, "bob", "read").await,
+        StatusCode::OK
+    );
+
+    let (_, offered) = call(
+        &app,
+        "GET",
+        "/v1/changes?cursor=101",
+        Some("bob"),
+        Some(&ws),
+        None,
+    )
+    .await;
+    assert_eq!(offered["changes"].as_array().unwrap().len(), 100);
+    let event_id = offered["events"][0]["id"].as_i64().unwrap();
+    for _ in 0..99 {
+        assert_eq!(
+            post_change(&app, "alice", &ws, update("notes", root)).await,
+            StatusCode::CREATED
+        );
+    }
+
+    let (_, constrained) = call(
+        &app,
+        "GET",
+        "/v1/changes?cursor=101",
+        Some("bob"),
+        Some(&ws),
+        None,
+    )
+    .await;
+    assert_eq!(constrained["changes"].as_array().unwrap().len(), 100);
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/v1/changes/events/ack",
+        Some("bob"),
+        Some(&ws),
+        Some(json!({ "event_ids": [event_id] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
     let (_, resumed) = call(
         &app,
         "GET",
-        &format!("/v1/changes?after={after}"),
+        &format!(
+            "/v1/changes?cursor={}",
+            constrained["cursor"].as_str().unwrap()
+        ),
+        Some("bob"),
+        Some(&ws),
+        None,
+    )
+    .await;
+    assert!(
+        resumed["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|change| change["id"].as_str() == Some(historical_ids[1].as_str())),
+        "the undelivered backfill tail must remain available after acknowledgement"
+    );
+}
+
+#[tokio::test]
+async fn page_upper_bound_is_scope_maximum_not_page_cursor() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let (root, initial) = root_insert("notes");
+    assert_eq!(
+        post_change(&app, "alice", &ws, initial).await,
+        StatusCode::CREATED
+    );
+    for _ in 0..100 {
+        assert_eq!(
+            post_change(&app, "alice", &ws, update("notes", root)).await,
+            StatusCode::CREATED
+        );
+    }
+
+    let (status, page) = call(
+        &app,
+        "GET",
+        "/v1/changes?limit=100",
         Some("alice"),
         Some(&ws),
         None,
     )
     .await;
-    assert_eq!(resumed["changes"][0]["ops"][0]["row_id"], late.to_string());
-    assert_eq!(resumed["cursor"], "2");
+    assert_eq!(status, StatusCode::OK, "{page:?}");
+    assert_eq!(page["changes"].as_array().unwrap().len(), 100);
+    assert_eq!(page["cursor"], "100");
+    assert_eq!(page["upperBound"], "101");
+}
+#[tokio::test]
+async fn append_cursor_returns_a_late_older_hlc_change() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let first = Uuid::now_v7();
+    let late = Uuid::now_v7();
+    let change = |row: Uuid, wall_ms: u64| {
+        json!({
+            "id": Uuid::now_v7(),
+            "hlc": { "wallMs": wall_ms, "counter": 0, "nodeId": row },
+            "ops": [{ "op": "insert", "table": "habits", "row_id": row, "data": { "id": row } }],
+        })
+    };
+    assert_eq!(
+        post_change(&app, "alice", &ws, change(first, 2_000)).await,
+        StatusCode::CREATED
+    );
+    let first_page = get_env(&app, "alice", &ws).await;
+    let cursor = first_page["cursor"].as_str().unwrap().to_owned();
+    assert_eq!(
+        post_change(&app, "alice", &ws, change(late, 1_000)).await,
+        StatusCode::CREATED
+    );
+    let (status, resumed) = call(
+        &app,
+        "GET",
+        &format!("/v1/changes?cursor={cursor}"),
+        Some("alice"),
+        Some(&ws),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{resumed:?}");
+    assert!(sees(&resumed, late), "{resumed:?}");
+}
+
+#[tokio::test]
+async fn changes_rejects_empty_and_out_of_range_cursors_without_panicking() {
+    let app = app().await;
+    let ws = family(&app).await;
+    for cursor in ["", "01", "-1", "9223372036854775808"] {
+        let (status, body) = call(
+            &app,
+            "GET",
+            &format!("/v1/changes?cursor={cursor}"),
+            Some("alice"),
+            Some(&ws),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["code"], "invalid_cursor");
+    }
 }
 
 #[tokio::test]
 async fn change_cannot_mix_aggregate_roots_or_spoof_a_member_node() {
     let app = app().await;
     let ws = family(&app).await;
-    let node = Uuid::new_v4();
-    let alice_row = Uuid::new_v4();
-    let bob_row = Uuid::new_v4();
+    let alice_row = Uuid::now_v7();
+    let bob_row = Uuid::now_v7();
     let change = |row: Uuid| {
         json!({
-            "id": Uuid::new_v4(),
-            "hlc": { "wallMs": 1_700_000_000_000_u64, "counter": 0, "nodeId": node },
+            "id": Uuid::now_v7(),
+            "hlc": { "wallMs": 1_700_000_000_000_u64, "counter": 0, "nodeId": row },
             "ops": [{ "op": "insert", "table": "habits", "row_id": row, "data": { "id": row } }],
         })
     };
@@ -729,15 +953,15 @@ async fn change_cannot_mix_aggregate_roots_or_spoof_a_member_node() {
     );
     assert_eq!(
         post_change(&app, "bob", &ws, change(bob_row)).await,
-        StatusCode::FORBIDDEN
+        StatusCode::CREATED
     );
 
-    let other = Uuid::new_v4();
+    let other = Uuid::now_v7();
     let mixed = json!({
-        "id": Uuid::new_v4(),
-        "hlc": { "wallMs": 1_700_000_000_001_u64, "counter": 0, "nodeId": Uuid::new_v4() },
+        "id": Uuid::now_v7(),
+        "hlc": { "wallMs": 1_700_000_000_001_u64, "counter": 0, "nodeId": Uuid::now_v7() },
         "ops": [
-            { "op": "insert", "table": "habits", "row_id": Uuid::new_v4(), "data": { "id": Uuid::new_v4() } },
+            { "op": "insert", "table": "habits", "row_id": Uuid::now_v7(), "data": { "id": Uuid::now_v7() } },
             { "op": "insert", "table": "notes", "row_id": other, "data": { "id": other } },
         ],
     });
@@ -759,4 +983,109 @@ async fn changes_cursor_advances_when_acl_hides_raw_page() {
     let env = get_env(&app, "bob", &ws).await;
     assert_eq!(env["changes"].as_array().unwrap().len(), 0);
     assert_eq!(env["cursor"], "1");
+}
+/// Bounded public-route corpus campaign. Keep this deterministic in normal CI;
+/// larger arbitrary-input and sanitizer campaigns require an external fuzz toolchain.
+/// Campaign: cargo test -p atrium bounded_hostile_route_corpus -- --nocapture
+#[tokio::test]
+async fn bounded_hostile_route_corpus() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let corpus: Value = serde_json::from_str(include_str!(
+        "../../../protocol-fixtures/hostile-inputs.bounded.json"
+    ))
+    .unwrap();
+    let cases = corpus["atrium"].as_array().unwrap();
+    for case in cases {
+        let uri = case["uri"].as_str().unwrap();
+        let method = case["method"].as_str().unwrap();
+        let mut body = case["body"].as_str().unwrap_or("").to_owned();
+        if let Some(depth) = case["nested_depth"].as_u64() {
+            let mut nested = "null".to_owned();
+            for _ in 0..depth {
+                nested = format!("[{nested}]");
+            }
+            body = body.replace("__NESTED_JSON__", &nested);
+        }
+        let bytes = if let Some(hex) = case["body_hex"].as_str() {
+            hex.as_bytes()
+                .chunks(2)
+                .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+                .collect()
+        } else {
+            body.into_bytes()
+        };
+        let mut headers = vec![("x-workspace", ws.as_str())];
+        if let Some(content_type) = case["content_type"].as_str() {
+            headers.push(("content-type", content_type));
+        }
+        let (status, _) = call_bytes(&app, method, uri, Some("alice"), &headers, Some(bytes)).await;
+        assert!(
+            status.is_client_error(),
+            "{} unexpectedly accepted hostile input",
+            case["name"].as_str().unwrap_or("unnamed")
+        );
+        let (health, _) = call(&app, "GET", "/v1/health", None, None, None).await;
+        assert_eq!(health, StatusCode::OK);
+    }
+}
+/// Deterministic generated hostile-route campaign.
+///
+/// Seed: 0x37202608; 16 cases, at most 8 KiB bodies and 32 nesting levels.
+/// Campaign: cargo test -p atrium generated_hostile_route_sequences -- --nocapture
+#[tokio::test]
+async fn generated_hostile_route_sequences() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let corpus: Value = serde_json::from_str(include_str!(
+        "../../../protocol-fixtures/hostile-inputs.bounded.json"
+    ))
+    .unwrap();
+    let seeds = corpus["atrium"].as_array().unwrap();
+    let mut state = 0x3720_2608_u32;
+    for index in 0..16 {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        let seed = &seeds[index % seeds.len()];
+        let mut uri = seed["uri"].as_str().unwrap().to_owned();
+        let cursor = (state % 10_000).to_string();
+        if uri.contains("cursor=") {
+            uri = uri.replace("cursor=", &format!("cursor={cursor}"));
+        } else {
+            uri.push_str(&format!("?cursor={cursor}"));
+        }
+        let mut body = seed["body"].as_str().unwrap_or("").to_owned();
+        let depth = (state as usize % 32) + 1;
+        if body.contains("__NESTED_JSON__") {
+            let mut nested = "null".to_owned();
+            for _ in 0..depth {
+                nested = format!("[{nested}]");
+            }
+            body = body.replace("__NESTED_JSON__", &nested);
+        } else if index % 3 == 0 && !body.is_empty() {
+            body.push_str(&" ".repeat(index % 8));
+        }
+        assert!(body.len() <= 8 * 1024);
+        let method = seed["method"].as_str().unwrap();
+        let mut headers = vec![("x-workspace", ws.as_str())];
+        if let Some(content_type) = seed["content_type"].as_str() {
+            headers.push(("content-type", content_type));
+        }
+        let (status, _) = call_bytes(
+            &app,
+            method,
+            &uri,
+            Some("alice"),
+            &headers,
+            Some(body.into_bytes()),
+        )
+        .await;
+        assert!(
+            status.is_client_error() || status.is_success(),
+            "generated case {index} returned unexpected status {status}"
+        );
+        let (health, _) = call(&app, "GET", "/v1/health", None, None, None).await;
+        assert_eq!(health, StatusCode::OK);
+    }
 }

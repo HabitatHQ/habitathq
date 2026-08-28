@@ -1,27 +1,13 @@
-import type { PalladiumEngine, WireChange } from "@palladium/core";
-import { createEngine, SyncTransport } from "@palladium/core";
+import type { PalladiumEngine } from "@palladium/core";
+import { createEngine, generateUuidV7, SyncTransport } from "@palladium/core";
 import { BrowserSqliteAdapter } from "@palladium/sqlite-browser";
-import { BURROW_SCHEMA, type BurrowSchema, CHILD_TABLES, ROOT_TABLES } from "./schema.js";
+import { BURROW_SCHEMA, type BurrowSchema } from "./schema.js";
 
-/** Fresh id. The Atrium wire types row_id/node_id as UUID (non-UUID → 422). */
-export const newId = (): string => crypto.randomUUID();
+/** Fresh replicated row identifier. */
+export const newId = (): string => generateUuidV7();
 
 /** Default Atrium dev server. Override with `?server=` in the URL. */
 export const DEFAULT_SERVER = "http://localhost:4000";
-
-/** Atrium's `GET /v1/changes` envelope (extends the bare palladium-axum array). */
-interface ChangeEvent {
-  readonly id: number;
-  readonly kind: "grant" | "revoke";
-  readonly root_id: string;
-}
-
-interface ChangesEnvelope {
-  changes: WireChange[];
-  cursor?: string | null;
-  purges: string[];
-  events?: ChangeEvent[];
-}
 
 /** A workspace member as returned by `GET /v1/workspaces/:id/members`. */
 export interface Member {
@@ -164,35 +150,6 @@ export class AtriumApi {
 }
 
 /**
- * Apply server-driven purges as local-only removals. `purgeLocal` clears the
- * row and sync metadata, refreshes live queries, and never emits `changes:local`
- * or creates an outbound outbox change.
- */
-async function applyPurges(
-  engine: PalladiumEngine<BurrowSchema>,
-  rootIds: string[],
-): Promise<void> {
-  for (const rootId of rootIds) {
-    const rows: Array<{ table: keyof BurrowSchema & string; id: string }> = [];
-    for (const child of CHILD_TABLES) {
-      const childRows = await engine.adapter.exec<{ id: string }>(
-        `SELECT id FROM ${child} WHERE root_id = ?`,
-        [rootId],
-      );
-      for (const { id } of childRows) rows.push({ table: child, id });
-    }
-    for (const root of ROOT_TABLES) {
-      const rootRows = await engine.adapter.exec<{ id: string }>(
-        `SELECT id FROM ${root} WHERE id = ?`,
-        [rootId],
-      );
-      for (const { id } of rootRows) rows.push({ table: root, id });
-    }
-    for (const row of rows) await engine.purgeLocal(row.table, row.id);
-  }
-}
-
-/**
  * A device's stable node id, persisted per (user, workspace) so a reload keeps
  * the same identity — the durable sync cursor and own-write skipping both key
  * off it, so a fresh id every load would re-hydrate and mis-attribute writes.
@@ -250,13 +207,10 @@ async function buildEngine(
 }
 
 /**
- * Build and start one account: a local persistent SQLite engine plus an
- * Atrium-aware `SyncTransport`.
+ * Build and start one account with an Atrium-aware `SyncTransport`.
  *
- * The transport reuses Palladium's hardened change loop unchanged; Atrium's
- * protocol differences are supplied as config: the bearer + `X-Workspace`
- * selector via `authHeaders`, and the `{ changes, purges }` envelope via
- * `decodeChanges` (which also drives local purges).
+ * The transport validates and applies the versioned page envelope itself,
+ * including replay-safe local purges. Authentication remains request scoped.
  */
 export async function createAccount(opts: {
   user: string;
@@ -270,37 +224,10 @@ export async function createAccount(opts: {
   const transport = new SyncTransport<BurrowSchema>(engine, {
     serverUrl,
     pollIntervalMs: opts.pollIntervalMs ?? 600,
-    // TODO(clerk): swap the dev bearer (`opts.user` is the raw user id) for a
-    // real Clerk session JWT — `Authorization: Bearer ${await clerk.session.getToken()}`.
-    // Atrium's ClerkProvider (JWKS verify) reads `sub` as the user id; no other
-    // change here. The `X-Workspace` selector stays as-is.
     authHeaders: () => ({
       Authorization: `Bearer ${opts.user}`,
       "X-Workspace": opts.workspaceId,
     }),
-    decodeChanges: async (body) => {
-      if (Array.isArray(body)) return body as WireChange[];
-      const env = body as ChangesEnvelope;
-      if (env.purges?.length) await applyPurges(engine, env.purges);
-      const changes = env.changes ?? [];
-      return env.cursor === undefined ? { changes } : { changes, cursor: env.cursor };
-    },
-    acknowledgeChanges: async (body) => {
-      const env = body as ChangesEnvelope;
-      const eventIds = (env.events ?? []).map((event) => event.id);
-      if (eventIds.length === 0) return;
-      await fetch(`${serverUrl.replace(/\/+$/, "")}/v1/changes/events/ack`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${opts.user}`,
-          "X-Workspace": opts.workspaceId,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ event_ids: eventIds }),
-      }).then((res) => {
-        if (!res.ok) throw new Error(`POST /v1/changes/events/ack → ${res.status}`);
-      });
-    },
   });
   await transport.start();
 
