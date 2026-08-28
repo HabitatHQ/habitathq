@@ -285,6 +285,18 @@ impl AtriumDb {
         )
         .execute(&mut *tx)
         .await?;
+        sqlx::query(
+            "CREATE UNIQUE INDEX idx_changes_append_seq
+             ON palladium_changes (append_seq)",
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "CREATE INDEX idx_changes_scope_append_seq
+             ON palladium_changes (scope, append_seq)",
+        )
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -1550,6 +1562,18 @@ mod tests {
                 .map(|(name, _)| name)
                 .collect::<Vec<_>>(),
             vec!["scope", "id"]
+        );
+        let indexes: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM sqlite_master
+             WHERE type = 'index'
+               AND name IN ('idx_changes_append_seq', 'idx_changes_scope_append_seq')
+             ORDER BY name",
+        )
+        .fetch_all(&db.pool)
+        .await?;
+        assert_eq!(
+            indexes,
+            vec!["idx_changes_append_seq", "idx_changes_scope_append_seq"]
         );
         let hash: String = sqlx::query_scalar(
             "SELECT content_hash FROM palladium_changes WHERE scope = 'legacy' AND id = ?",
