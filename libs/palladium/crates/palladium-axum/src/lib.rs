@@ -37,7 +37,11 @@ pub(crate) mod error;
 pub(crate) mod routes;
 pub(crate) mod state;
 
-pub use auth::{AuthRejection, AuthScope, AuthSeam, BearerTokenSeam, StaticScopeSeam};
+pub use auth::{
+    Action, AuthPrincipal, AuthenticationError, Authenticator, AuthorizationError,
+    AuthorizationRequest, Authorizer, BearerAuthenticator, BearerScopeAuthorizer, Grant, Principal,
+    Resource, StaticAuthenticator, StaticAuthorizer,
+};
 pub use error::{AppError, ErrorBody};
 pub use routes::{create_router, ApiDoc};
 pub use state::AppState;

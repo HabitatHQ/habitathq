@@ -1,5 +1,9 @@
 //! Versioned change history handlers.
-use crate::{auth::AuthScope, error::AppError, state::AppState};
+use crate::{
+    auth::{Action, AuthPrincipal, AuthorizationRequest, Resource},
+    error::AppError,
+    state::AppState,
+};
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -15,7 +19,6 @@ struct PostReceipt {
     outcome: &'static str,
     cursor: String,
 }
-
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
 pub(super) struct ListQuery {
     pub cursor: Option<String>,
@@ -23,20 +26,31 @@ pub(super) struct ListQuery {
 }
 
 #[utoipa::path(post, path="/v1/changes", tag="changes", request_body=Change, responses((status=201, body=PostReceipt, description="accepted")))]
-
 pub(super) async fn post_changes<S>(
     State(state): State<AppState<S>>,
-    AuthScope(scope): AuthScope,
+    AuthPrincipal(principal): AuthPrincipal,
     Json(change): Json<Change>,
 ) -> Result<impl IntoResponse, AppError>
 where
     S: ChangeStore + Send + Sync,
     S::Error: std::error::Error + Send + Sync + 'static,
 {
+    let grant = state
+        .authorizer
+        .authorize(AuthorizationRequest {
+            principal: &principal,
+            action: Action::WriteChanges,
+            resource: Resource::ChangeStream,
+        })
+        .await
+        .map_err(|error| match error {
+            crate::auth::AuthorizationError::Forbidden(message) => AppError::Forbidden(message),
+            crate::auth::AuthorizationError::NotFound => AppError::NotFound,
+        })?;
     palladium_core::validate_v1_change(&change).map_err(AppError::BadRequest)?;
     let outcome = state
         .store
-        .insert(&scope, &change)
+        .insert(grant.scope(), &change)
         .await
         .map_err(AppError::internal)?;
     let (outcome, cursor) = match outcome {
@@ -56,7 +70,7 @@ where
 #[utoipa::path(get, path="/v1/changes", tag="changes", params(ListQuery), responses((status=200, body=ChangePage, description="page")))]
 pub(super) async fn get_changes<S>(
     State(state): State<AppState<S>>,
-    AuthScope(scope): AuthScope,
+    AuthPrincipal(principal): AuthPrincipal,
     Query(params): Query<ListQuery>,
 ) -> Result<impl IntoResponse, AppError>
 where
@@ -69,10 +83,22 @@ where
         .map(AppendCursor::parse)
         .transpose()
         .map_err(AppError::BadRequest)?;
+    let grant = state
+        .authorizer
+        .authorize(AuthorizationRequest {
+            principal: &principal,
+            action: Action::ReadChanges,
+            resource: Resource::ChangeStream,
+        })
+        .await
+        .map_err(|error| match error {
+            crate::auth::AuthorizationError::Forbidden(message) => AppError::Forbidden(message),
+            crate::auth::AuthorizationError::NotFound => AppError::NotFound,
+        })?;
     let page = state
         .store
         .page(
-            &scope,
+            grant.scope(),
             after.as_ref(),
             params.limit.unwrap_or(MAX_PAGE_SIZE),
         )

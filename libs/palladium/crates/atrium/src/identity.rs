@@ -172,10 +172,15 @@ impl IdentityProvider for JwtJwksProvider {
             .get(&kid)
             .ok_or_else(|| AtriumError::Unauthorized("unknown JWT key".to_owned()))?;
         let mut validation = Validation::new(Algorithm::RS256);
+        validation.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
+        validation.validate_nbf = true;
         validation.set_issuer(&[self.issuer.as_str()]);
         validation.set_audience(&[self.audience.as_str()]);
         let token = decode::<Claims>(token, key, &validation)
             .map_err(|_| AtriumError::Unauthorized("invalid JWT".to_owned()))?;
+        if token.claims.sub.trim().is_empty() {
+            return Err(AtriumError::Unauthorized("JWT subject is empty".to_owned()));
+        }
         Ok(UserId::new(token.claims.sub))
     }
 }
