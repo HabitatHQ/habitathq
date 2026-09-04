@@ -1,10 +1,6 @@
-//! The [`AuthSeam`] — how the host derives an authenticated store [`Scope`].
-//!
-//! Palladium stays vendor- and domain-neutral: it defines this seam and calls
-//! it on every scoped request, but ships only trivial in-repo implementations.
-//! A real host (Atrium) implements [`AuthSeam`] to verify a token and map the
-//! caller to the opaque scope they may touch. Clients never supply the scope
-//! (`D11`/`D17`).
+//! The [`AuthSeam`] derives an authenticated, opaque store [`Scope`].
+
+use std::{future::Future, pin::Pin};
 
 use axum::{
     extract::FromRequestParts,
@@ -12,149 +8,320 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use palladium_blobs::BlobId;
 use palladium_core::Scope;
-use serde_json::json;
 
-use crate::state::AppState;
+use crate::{error::ErrorBody, state::AppState};
 
-/// Rejection returned when a request cannot be authenticated → HTTP `401`.
-#[derive(Debug)]
-pub struct AuthRejection(String);
+type AuthnFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<Principal, AuthenticationError>> + Send + 'a>>;
+type AuthzFuture<'a> = Pin<Box<dyn Future<Output = Result<Grant, AuthorizationError>> + Send + 'a>>;
 
-impl AuthRejection {
-    /// Build a rejection with a human-readable reason.
+/// A verified caller identity supplied by an [`Authenticator`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Principal(String);
+
+impl Principal {
+    /// Construct a principal from an identity verified by the host.
     #[must_use]
-    pub fn new(msg: impl Into<String>) -> Self {
-        Self(msg.into())
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+    /// Return the host-defined identity key.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
-impl IntoResponse for AuthRejection {
+/// An operation whose access is being decided.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(missing_docs)]
+pub enum Action {
+    ReadChanges,
+    WriteChanges,
+    CreateBlob,
+    ReadBlob,
+    DeleteBlob,
+    PresignBlob,
+}
+
+/// The route-level resource being authorized.
+#[allow(missing_docs)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Resource {
+    ChangeStream,
+    BlobCollection,
+    Blob(BlobId),
+}
+
+/// Input to an [`Authorizer`] decision.
+#[derive(Debug, Clone, Copy)]
+pub struct AuthorizationRequest<'a> {
+    /// Authenticated caller.
+    pub principal: &'a Principal,
+    /// Requested operation.
+    pub action: Action,
+    /// Resource targeted by the operation.
+    pub resource: Resource,
+}
+
+/// A successful authorization result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Grant {
+    scope: Scope,
+}
+
+impl Grant {
+    /// Build a grant for an opaque store scope.
+    #[must_use]
+    pub const fn new(scope: Scope) -> Self {
+        Self { scope }
+    }
+    /// Borrow the authorized store scope.
+    #[must_use]
+    pub const fn scope(&self) -> &Scope {
+        &self.scope
+    }
+}
+
+/// Authentication failure, rendered using the v1 error envelope.
+#[derive(Debug)]
+#[allow(missing_docs)]
+pub enum AuthenticationError {
+    Unauthorized(String),
+    Unavailable(String),
+}
+
+impl AuthenticationError {
+    /// Build an unauthorized rejection.
+    #[must_use]
+    pub fn unauthorized(message: impl Into<String>) -> Self {
+        Self::Unauthorized(message.into())
+    }
+    /// Build an unavailable-provider rejection.
+    #[must_use]
+    pub fn unavailable(message: impl Into<String>) -> Self {
+        Self::Unavailable(message.into())
+    }
+}
+
+impl IntoResponse for AuthenticationError {
     fn into_response(self) -> Response {
-        (StatusCode::UNAUTHORIZED, Json(json!({ "error": self.0 }))).into_response()
+        let (status, code, message) = match self {
+            Self::Unauthorized(message) => (StatusCode::UNAUTHORIZED, "unauthorized", message),
+            Self::Unavailable(message) => {
+                (StatusCode::SERVICE_UNAVAILABLE, "auth_unavailable", message)
+            }
+        };
+        (
+            status,
+            Json(ErrorBody {
+                code: code.to_owned(),
+                message,
+            }),
+        )
+            .into_response()
     }
 }
 
-/// Derives the authenticated, opaque store [`Scope`] for a request.
-///
-/// The host maps an authenticated caller to the scope they may touch; Palladium
-/// calls this on every scoped request and uses **only** the returned scope.
-pub trait AuthSeam: Send + Sync + 'static {
-    /// Authenticate `parts` and return the caller's scope, or reject (`401`).
-    ///
-    /// # Errors
-    /// Returns [`AuthRejection`] when the request is not authenticated.
-    fn authenticate(&self, parts: &Parts) -> Result<Scope, AuthRejection>;
+/// Authorization failure, rendered using the v1 error envelope.
+#[allow(missing_docs)]
+#[derive(Debug)]
+pub enum AuthorizationError {
+    Forbidden(String),
+    NotFound,
 }
 
-/// A seam that ignores the request and always returns one fixed scope, making
-/// the server single-tenant. This is the default (local/dev and tests).
-#[derive(Debug, Clone)]
-pub struct StaticScopeSeam(Scope);
+impl AuthorizationError {
+    /// Build a forbidden rejection.
+    #[must_use]
+    pub fn forbidden(message: impl Into<String>) -> Self {
+        Self::Forbidden(message.into())
+    }
+}
 
-impl StaticScopeSeam {
-    /// Build a static seam that always yields `scope`.
+impl IntoResponse for AuthorizationError {
+    fn into_response(self) -> Response {
+        let (status, code, message) = match self {
+            Self::Forbidden(message) => (StatusCode::FORBIDDEN, "forbidden", message),
+            Self::NotFound => (StatusCode::NOT_FOUND, "not_found", "not found".to_owned()),
+        };
+        (
+            status,
+            Json(ErrorBody {
+                code: code.to_owned(),
+                message,
+            }),
+        )
+            .into_response()
+    }
+}
+
+/// Verifies request credentials and returns a typed caller identity.
+pub trait Authenticator: Send + Sync + 'static {
+    /// Authenticate `parts`.
+    fn authenticate<'a>(&'a self, parts: &'a Parts) -> AuthnFuture<'a>;
+}
+
+/// Authorizes a route operation and derives its opaque store scope.
+pub trait Authorizer: Send + Sync + 'static {
+    /// Authorize `request`, returning the only scope route handlers may use.
+    fn authorize<'a>(&'a self, request: AuthorizationRequest<'a>) -> AuthzFuture<'a>;
+}
+
+/// Development authenticator that maps a bearer token to a principal.
+#[derive(Debug, Clone, Default)]
+pub struct BearerAuthenticator;
+
+impl Authenticator for BearerAuthenticator {
+    fn authenticate<'a>(&'a self, parts: &'a Parts) -> AuthnFuture<'a> {
+        Box::pin(async move {
+            let token = parts
+                .headers
+                .get(AUTHORIZATION)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.strip_prefix("Bearer "))
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    AuthenticationError::unauthorized("missing or malformed bearer token")
+                })?;
+            Ok(Principal::new(token))
+        })
+    }
+}
+
+/// Development authorizer that maps a principal directly to one scope.
+#[derive(Debug, Clone, Default)]
+pub struct BearerScopeAuthorizer;
+
+impl Authorizer for BearerScopeAuthorizer {
+    fn authorize<'a>(&'a self, request: AuthorizationRequest<'a>) -> AuthzFuture<'a> {
+        let grant = Grant::new(Scope::new(request.principal.as_str()));
+        Box::pin(async move { Ok(grant) })
+    }
+}
+
+/// A test/local authenticator that always returns one fixed principal.
+#[derive(Debug, Clone)]
+pub struct StaticAuthenticator(Principal);
+impl StaticAuthenticator {
+    /// Build an authenticator that always yields `principal`.
+    #[must_use]
+    pub const fn new(principal: Principal) -> Self {
+        Self(principal)
+    }
+}
+impl Authenticator for StaticAuthenticator {
+    fn authenticate<'a>(&'a self, _parts: &'a Parts) -> AuthnFuture<'a> {
+        let principal = self.0.clone();
+        Box::pin(async move { Ok(principal) })
+    }
+}
+
+/// A test/local authorizer that grants every operation in one fixed scope.
+#[derive(Debug, Clone)]
+pub struct StaticAuthorizer(Scope);
+impl StaticAuthorizer {
+    /// Build an authorizer that grants `scope`.
     #[must_use]
     pub const fn new(scope: Scope) -> Self {
         Self(scope)
     }
 }
-
-impl Default for StaticScopeSeam {
-    fn default() -> Self {
-        Self(Scope::new("default"))
+impl Authorizer for StaticAuthorizer {
+    fn authorize<'a>(&'a self, _request: AuthorizationRequest<'a>) -> AuthzFuture<'a> {
+        let grant = Grant::new(self.0.clone());
+        Box::pin(async move { Ok(grant) })
     }
 }
 
-impl AuthSeam for StaticScopeSeam {
-    fn authenticate(&self, _parts: &Parts) -> Result<Scope, AuthRejection> {
-        Ok(self.0.clone())
-    }
-}
-
-/// A trivial seam that maps the `Authorization: Bearer <token>` header to
-/// `Scope::new(<token>)`, rejecting requests without a bearer token.
-///
-/// It stands in for a real host seam (Atrium verifies a JWT and derives the
-/// scope) so the seam can be exercised end-to-end without a vendor.
-#[derive(Debug, Clone, Default)]
-pub struct BearerTokenSeam;
-
-impl AuthSeam for BearerTokenSeam {
-    fn authenticate(&self, parts: &Parts) -> Result<Scope, AuthRejection> {
-        let token = parts
-            .headers
-            .get(AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Bearer "))
-            .map(str::trim)
-            .filter(|t| !t.is_empty())
-            .ok_or_else(|| AuthRejection::new("missing or malformed bearer token"))?;
-        Ok(Scope::new(token))
-    }
-}
-
-/// Axum extractor yielding the authenticated [`Scope`] by invoking the
-/// [`AuthSeam`] stored in [`AppState`]. A rejection short-circuits the handler
-/// with `401` before the store is touched.
+/// Axum extractor that authenticates the request once.
 #[derive(Debug, Clone)]
-pub struct AuthScope(pub Scope);
+pub struct AuthPrincipal(pub Principal);
 
-// axum-core 0.4's `FromRequestParts` is an `#[async_trait]`, so the impl must
-// use the same macro rather than a native `async fn`.
 #[axum::async_trait]
-impl<S> FromRequestParts<AppState<S>> for AuthScope
+impl<S> FromRequestParts<AppState<S>> for AuthPrincipal
 where
     S: Send + Sync,
 {
-    type Rejection = AuthRejection;
-
+    type Rejection = AuthenticationError;
     async fn from_request_parts(
         parts: &mut Parts,
         state: &AppState<S>,
     ) -> Result<Self, Self::Rejection> {
-        state.auth.authenticate(parts).map(AuthScope)
+        state.authenticator.authenticate(parts).await.map(Self)
     }
 }
-
-// ── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use axum::http::{header::AUTHORIZATION, Request};
-
-    use super::{AuthSeam, BearerTokenSeam, StaticScopeSeam};
-
+    use super::{
+        Action, AuthenticationError, Authenticator, AuthorizationRequest, Authorizer,
+        BearerAuthenticator, BearerScopeAuthorizer, Principal, Resource,
+    };
+    use axum::{
+        http::{header::AUTHORIZATION, Request, StatusCode},
+        response::IntoResponse,
+    };
     fn parts_with(auth: Option<&str>) -> axum::http::request::Parts {
         let mut builder = Request::builder().uri("/");
-        if let Some(a) = auth {
-            builder = builder.header(AUTHORIZATION, a);
+        if let Some(value) = auth {
+            builder = builder.header(AUTHORIZATION, value);
         }
         builder.body(()).unwrap().into_parts().0
     }
-
-    #[test]
-    fn static_seam_ignores_request_and_returns_fixed_scope() {
-        let seam = StaticScopeSeam::default();
-        let scope = seam.authenticate(&parts_with(None)).unwrap();
-        assert_eq!(scope.as_str(), "default");
-    }
-
-    #[test]
-    fn bearer_seam_maps_token_to_scope() {
-        let seam = BearerTokenSeam;
-        let scope = seam
+    #[tokio::test]
+    async fn bearer_authenticator_maps_token_to_principal() {
+        let principal = BearerAuthenticator
             .authenticate(&parts_with(Some("Bearer alice")))
+            .await
             .unwrap();
-        assert_eq!(scope.as_str(), "alice");
+        assert_eq!(principal.as_str(), "alice");
     }
-
+    #[tokio::test]
+    async fn bearer_authenticator_rejects_missing_or_malformed_token() {
+        assert!(BearerAuthenticator
+            .authenticate(&parts_with(None))
+            .await
+            .is_err());
+        assert!(BearerAuthenticator
+            .authenticate(&parts_with(Some("Basic xyz")))
+            .await
+            .is_err());
+        assert!(BearerAuthenticator
+            .authenticate(&parts_with(Some("Bearer   ")))
+            .await
+            .is_err());
+    }
+    #[tokio::test]
+    async fn bearer_scope_authorizer_derives_scope_from_principal() {
+        let principal = Principal::new("alice");
+        let grant = BearerScopeAuthorizer
+            .authorize(AuthorizationRequest {
+                principal: &principal,
+                action: Action::ReadChanges,
+                resource: Resource::ChangeStream,
+            })
+            .await
+            .unwrap();
+        assert_eq!(grant.scope().as_str(), "alice");
+    }
     #[test]
-    fn bearer_seam_rejects_missing_token() {
-        let seam = BearerTokenSeam;
-        assert!(seam.authenticate(&parts_with(None)).is_err());
-        assert!(seam.authenticate(&parts_with(Some("Basic xyz"))).is_err());
-        assert!(seam.authenticate(&parts_with(Some("Bearer   "))).is_err());
+    fn failures_use_distinct_statuses() {
+        assert_eq!(
+            AuthenticationError::unauthorized("x")
+                .into_response()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            super::AuthorizationError::forbidden("x")
+                .into_response()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
     }
 }

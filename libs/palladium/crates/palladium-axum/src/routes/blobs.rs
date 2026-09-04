@@ -1,9 +1,11 @@
 //! Handlers for the `/v1/blobs` endpoints.
-//!
-//! These endpoints require a [`DynBlobStore`] to be configured in [`AppState`].
-//! If none is set every handler returns a 400 error.
-
+use crate::{
+    auth::{Action, AuthPrincipal, AuthorizationRequest, Resource},
+    error::AppError,
+    state::AppState,
+};
 use axum::{
+    body::Body,
     extract::{Multipart, Path, State},
     http::{header, StatusCode},
     response::{IntoResponse, Response},
@@ -14,62 +16,56 @@ use palladium_core::ChangeStore;
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::{error::AppError, state::AppState};
-
-// ── Response types ────────────────────────────────────────────────────────
-
-/// Response body for `POST /v1/blobs`.
 #[derive(Serialize)]
 struct BlobCreated {
-    id: Uuid,
+    id: BlobId,
     size: u64,
     mime: String,
 }
-
-/// Response body for `GET /v1/blobs/:id/presigned`.
 #[derive(Serialize)]
 struct PresignedUrl {
     url: String,
 }
-
-// ── Helper ────────────────────────────────────────────────────────────────
-
-/// Return a 400 error when no blob store is configured.
-fn no_blob_store() -> AppError {
-    AppError::BadRequest("blob storage is not configured".into())
-}
-
-/// Map a [`palladium_blobs::BlobError`] to an [`AppError`].
-fn blob_err(e: palladium_blobs::BlobError) -> AppError {
-    if matches!(e, palladium_blobs::BlobError::NotFound(_)) {
-        AppError::NotFound
-    } else {
-        AppError::internal(e)
-    }
-}
-
-// ── Default TTL for pre-signed URLs ──────────────────────────────────────
-
-/// Default TTL for pre-signed URLs (15 minutes).
 const DEFAULT_PRESIGN_TTL_SECS: u64 = 900;
 
-// ── POST /v1/blobs ────────────────────────────────────────────────────────
+async fn authorize<S: ChangeStore + Send + Sync>(
+    state: &AppState<S>,
+    principal: &crate::auth::Principal,
+    action: Action,
+    resource: Resource,
+) -> Result<(), AppError> {
+    state
+        .authorizer
+        .authorize(AuthorizationRequest {
+            principal,
+            action,
+            resource,
+        })
+        .await
+        .map(|_| ())
+        .map_err(|error| match error {
+            crate::auth::AuthorizationError::Forbidden(message) => AppError::Forbidden(message),
+            crate::auth::AuthorizationError::NotFound => AppError::NotFound,
+        })
+}
 
-/// `POST /v1/blobs` — upload a blob via `multipart/form-data`.
-///
-/// Expects a `multipart/form-data` body with a field named `file`.
-/// Returns `201 Created` with `{ "id": "<uuid>", "size": <bytes>, "mime": "..." }`.
 pub(super) async fn post_blob<S>(
     State(state): State<AppState<S>>,
+    AuthPrincipal(principal): AuthPrincipal,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, AppError>
 where
     S: ChangeStore + Send + Sync,
     S::Error: std::error::Error + Send + Sync + 'static,
 {
+    authorize(
+        &state,
+        &principal,
+        Action::CreateBlob,
+        Resource::BlobCollection,
+    )
+    .await?;
     let bs = state.blob_store.as_ref().ok_or_else(no_blob_store)?;
-
-    // Collect all bytes from the `file` multipart field.
     let mut data: Option<(Vec<u8>, String)> = None;
     while let Some(field) = multipart
         .next_field()
@@ -89,94 +85,71 @@ where
             break;
         }
     }
-
     let (bytes, mime) = data.ok_or_else(|| AppError::BadRequest("missing `file` field".into()))?;
-    let id: BlobId = Uuid::new_v4();
+    let id = Uuid::new_v4();
     #[allow(clippy::cast_possible_truncation)]
     let size = bytes.len() as u64;
-
     bs.put(id, &bytes).await.map_err(AppError::internal)?;
-
     Ok((StatusCode::CREATED, Json(BlobCreated { id, size, mime })))
 }
 
-// ── GET /v1/blobs/:id ─────────────────────────────────────────────────────
-
-/// `GET /v1/blobs/:id` — download blob bytes.
-///
-/// Returns the raw bytes with `Content-Type: application/octet-stream`.
-/// Returns `404` if the blob does not exist or has been deleted.
 pub(super) async fn get_blob<S>(
     State(state): State<AppState<S>>,
+    AuthPrincipal(principal): AuthPrincipal,
     Path(id): Path<Uuid>,
 ) -> Result<Response, AppError>
 where
     S: ChangeStore + Send + Sync,
     S::Error: std::error::Error + Send + Sync + 'static,
 {
+    authorize(&state, &principal, Action::ReadBlob, Resource::Blob(id)).await?;
     let bs = state.blob_store.as_ref().ok_or_else(no_blob_store)?;
-
     let bytes = bs.get(id).await.map_err(blob_err)?;
-
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/octet-stream")
-        .body(axum::body::Body::from(bytes))
+        .body(Body::from(bytes))
         .map_err(AppError::internal)
 }
 
-// ── DELETE /v1/blobs/:id ──────────────────────────────────────────────────
-
-/// `DELETE /v1/blobs/:id` — soft-delete a blob.
-///
-/// Returns `204 No Content` on success, `404` if the blob is unknown.
 pub(super) async fn delete_blob<S>(
     State(state): State<AppState<S>>,
+    AuthPrincipal(principal): AuthPrincipal,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError>
 where
     S: ChangeStore + Send + Sync,
     S::Error: std::error::Error + Send + Sync + 'static,
 {
+    authorize(&state, &principal, Action::DeleteBlob, Resource::Blob(id)).await?;
     let bs = state.blob_store.as_ref().ok_or_else(no_blob_store)?;
-
     bs.delete(id).await.map_err(blob_err)?;
-
     Ok(StatusCode::NO_CONTENT)
 }
 
-// ── GET /v1/blobs/:id/presigned ──────────────────────────────────────────
-
-/// `GET /v1/blobs/:id/presigned` — generate a pre-signed download URL.
-///
-/// Returns `{ "url": "…" }` if the backend supports pre-signed URLs.
-/// Returns `501 Not Implemented` if the backend does not support it.
 pub(super) async fn get_presigned<S>(
     State(state): State<AppState<S>>,
+    AuthPrincipal(principal): AuthPrincipal,
     Path(id): Path<Uuid>,
 ) -> Result<Response, AppError>
 where
     S: ChangeStore + Send + Sync,
     S::Error: std::error::Error + Send + Sync + 'static,
 {
+    authorize(&state, &principal, Action::PresignBlob, Resource::Blob(id)).await?;
     let bs = state.blob_store.as_ref().ok_or_else(no_blob_store)?;
-
-    Ok(bs
-        .presigned_get_url(id, DEFAULT_PRESIGN_TTL_SECS)
-        .map_or_else(
-            || {
-                (
-                    StatusCode::NOT_IMPLEMENTED,
-                    Json(serde_json::json!({
-                        "error": "presigned URLs not supported by this backend"
-                    })),
-                )
-                    .into_response()
-            },
-            |url| Json(PresignedUrl { url }).into_response(),
-        ))
+    Ok(bs.presigned_get_url(id, DEFAULT_PRESIGN_TTL_SECS).map_or_else(|| (StatusCode::NOT_IMPLEMENTED, Json(serde_json::json!({"error": "presigned URLs not supported by this backend"}))).into_response(), |url| Json(PresignedUrl { url }).into_response()))
 }
 
+fn no_blob_store() -> AppError {
+    AppError::BadRequest("blob storage is not configured".into())
+}
+fn blob_err(error: palladium_blobs::BlobError) -> AppError {
+    match error {
+        palladium_blobs::BlobError::NotFound(_) => AppError::NotFound,
+        other => AppError::internal(other),
+    }
+}
 // ── Tests ─────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

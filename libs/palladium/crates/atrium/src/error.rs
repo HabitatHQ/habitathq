@@ -28,6 +28,9 @@ pub enum AtriumError {
     /// The request conflicts with immutable server state → `409`.
     #[error("conflict: {0}")]
     Conflict(String),
+    /// The configured identity provider cannot currently be reached → `503`.
+    #[error("identity provider unavailable: {0}")]
+    ProviderUnavailable(String),
     /// An unexpected internal error → `500`.
     #[error("internal error")]
     Internal(#[source] Box<dyn std::error::Error + Send + Sync>),
@@ -70,6 +73,11 @@ impl IntoResponse for AtriumError {
                 };
                 (StatusCode::CONFLICT, code, message)
             }
+            Self::ProviderUnavailable(message) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "provider_unavailable",
+                message,
+            ),
             Self::Internal(err) => {
                 tracing::error!(%err, "internal server error");
                 (

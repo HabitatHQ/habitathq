@@ -14,7 +14,7 @@
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use palladium_axum::{create_router, AppState};
+use palladium_axum::{create_router, AppState, BearerAuthenticator, BearerScopeAuthorizer};
 use palladium_core::{ChangeStore, Scope, ServerConfig, MAX_PAGE_SIZE};
 use palladium_sqlite::SqliteStore;
 use tower_http::cors::CorsLayer;
@@ -173,7 +173,9 @@ async fn run_dev(
     let store = SqliteStore::open(db_url).await?;
     let state = match auth {
         AuthMode::Static => AppState::new(store),
-        AuthMode::Bearer => AppState::new(store).with_auth_seam(palladium_axum::BearerTokenSeam),
+        AuthMode::Bearer => AppState::new(store)
+            .with_authenticator(BearerAuthenticator)
+            .with_authorizer(BearerScopeAuthorizer),
     };
     let app = create_router(state, CorsLayer::permissive());
     let addr = format!("0.0.0.0:{port}");
