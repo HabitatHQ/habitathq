@@ -15,6 +15,7 @@ name = "atrium"
 path = "src/main.rs"
 
 [dependencies]
+testcontainers = { workspace = true, optional = true }
 palladium-core = { path = "../palladium-core" }
 palladium-sqlite = { path = "../palladium-sqlite" }
 axum = { workspace = true }
@@ -35,6 +36,9 @@ reqwest = { version = "0.12", default-features = false, features = [
   "json",
   "rustls-tls",
 ] }
+[features]
+oidc-testcontainers = ["dep:testcontainers"]
+
 
 [dev-dependencies]
 tower = { workspace = true }

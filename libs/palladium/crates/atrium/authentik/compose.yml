@@ -1,0 +1,76 @@
+name: atrium-authentik
+
+services:
+  postgresql:
+    image: docker.io/library/postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PG_DB:-authentik}
+      POSTGRES_USER: ${PG_USER:-authentik}
+      POSTGRES_PASSWORD: ${PG_PASS:?set PG_PASS in .env}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $$POSTGRES_DB -U $$POSTGRES_USER"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    volumes:
+      - authentik-postgresql:/var/lib/postgresql/data
+
+  server:
+    image: ghcr.io/goauthentik/server:2026.8.1
+    command: server
+    restart: unless-stopped
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    environment:
+      AUTHENTIK_POSTGRESQL__HOST: postgresql
+      AUTHENTIK_POSTGRESQL__NAME: ${PG_DB:-authentik}
+      AUTHENTIK_POSTGRESQL__USER: ${PG_USER:-authentik}
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_PASS:?set PG_PASS in .env}
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?set AUTHENTIK_SECRET_KEY in .env}
+    healthcheck:
+      test: ["CMD", "ak", "healthcheck"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+      start_period: 120s
+    ports:
+      - "127.0.0.1:${AUTHENTIK_HTTP_PORT:-9000}:9000"
+      - "127.0.0.1:${AUTHENTIK_HTTPS_PORT:-9443}:9443"
+    shm_size: 512mb
+    volumes:
+      - authentik-data:/data
+
+  worker:
+    image: ghcr.io/goauthentik/server:2026.8.1
+    command: worker
+    restart: unless-stopped
+    user: root
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    environment:
+      AUTHENTIK_POSTGRESQL__HOST: postgresql
+      AUTHENTIK_POSTGRESQL__NAME: ${PG_DB:-authentik}
+      AUTHENTIK_POSTGRESQL__USER: ${PG_USER:-authentik}
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_PASS:?set PG_PASS in .env}
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?set AUTHENTIK_SECRET_KEY in .env}
+    healthcheck:
+      test: ["CMD", "ak", "healthcheck"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+      start_period: 120s
+    shm_size: 512mb
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - authentik-data:/data
+      - authentik-certs:/certs
+      - ./blueprints:/blueprints/atrium:ro
+
+volumes:
+  authentik-postgresql:
+  authentik-data:
+  authentik-certs:

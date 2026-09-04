@@ -1,0 +1,47 @@
+version: 1
+metadata:
+  name: Atrium local OIDC provider
+  labels:
+    app: atrium
+    environment: local
+
+entries:
+  - model: authentik_providers_oauth2.oauth2provider
+    id: atrium-local-provider
+    state: present
+    identifiers:
+      name: atrium-local
+    attrs:
+      name: atrium-local
+      client_type: public
+      issuer_mode: per_provider
+      redirect_uris:
+        - url: http://127.0.0.1:5173/auth/callback
+          matching_mode: strict
+      sub_mode: hashed_user_id
+      include_claims_in_id_token: true
+      grant_types:
+        - authorization_code
+        - refresh_token
+      property_mappings:
+        - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+        - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+        - !Find [authentik_providers_oauth2.scopemapping, [scope_name, email]]
+        - !Find [authentik_providers_oauth2.scopemapping, [scope_name, offline_access]]
+      signing_key:
+        !Find [authentik_crypto.certificatekeypair, [name, authentik Self-signed Certificate]]
+      authentication_flow: !Find [authentik_flows.flow, [slug, default-authentication-flow]]
+      authorization_flow:
+        !Find [authentik_flows.flow, [slug, default-provider-authorization-explicit-consent]]
+      invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+
+  - model: authentik_core.application
+    id: atrium-local-application
+    state: present
+    identifiers:
+      slug: atrium
+    attrs:
+      name: Atrium (local)
+      slug: atrium
+      provider: !Find [authentik_providers_oauth2.oauth2provider, [name, atrium-local]]
+      policy_engine_mode: any

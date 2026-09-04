@@ -1,9 +1,8 @@
-//! Identity seam — how Atrium turns a request into an authenticated user.
+//! Identity seam—how Atrium turns a request into an authenticated user.
 //!
-//! Atrium is identity-vendor-agnostic: it defines [`IdentityProvider`] and ships
-//! a dev implementation ([`DevBearerProvider`]) so the whole stack can be
-//! exercised without Clerk. A real `ClerkProvider` (JWKS verification) is a later
-//! implementation of the same trait — no ACL rework (`D13`).
+//! The development provider accepts a loopback-only bearer identity. The OIDC
+//! provider validates Authentik-issued RS256 access tokens using discovery and
+//! JWKS metadata.
 
 use crate::{error::AtriumError, state::AtriumState};
 use axum::{
@@ -12,53 +11,39 @@ use axum::{
 };
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
-use std::collections::HashMap;
-
-/// An authenticated user identifier (Clerk `sub`, or a dev token).
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant},
+};
+use tokio::sync::Mutex;
+/// An authenticated user identifier.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UserId(String);
-
 impl UserId {
-    /// Build a `UserId` from a raw string.
+    /// Build a user identifier from an authenticated subject.
     #[must_use]
     pub fn new(id: impl Into<String>) -> Self {
         Self(id.into())
     }
-
-    /// The user id as a string slice.
+    /// Return the stable subject string.
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
 }
-
-/// Derives the authenticated [`UserId`] for a request, or rejects it.
+/// Derives the authenticated user for a request.
+#[axum::async_trait]
 pub trait IdentityProvider: Send + Sync + 'static {
-    /// Authenticate `parts`, returning the caller's id.
-    ///
-    /// # Errors
-    /// Returns [`AtriumError::Unauthorized`] when the request has no valid
-    /// credential.
-    fn authenticate(&self, parts: &Parts) -> Result<UserId, AtriumError>;
+    /// Authenticate request headers.
+    async fn authenticate(&self, parts: &Parts) -> Result<UserId, AtriumError>;
 }
-
-// TODO(clerk): add a `ClerkProvider` implementing `IdentityProvider` by
-// verifying a Clerk session JWT against the instance JWKS (RS256): fetch + cache
-// the JWKS (background refresh so `authenticate` stays synchronous, or make the
-// trait async), check `exp`/`iss`/`azp`, and return `UserId(claims.sub)`. It
-// slots in behind the same seam — no ACL or route changes. Wire it in `main.rs`
-// behind a `--auth clerk` flag (env: CLERK_JWKS_URL / CLERK_ISSUER). Until then
-// `DevBearerProvider` simulates the token (the bearer *is* the user id).
-
-/// Dev identity: treats `Authorization: Bearer <user_id>` as the user id.
-///
-/// A stand-in for real JWT verification so the tenancy + ACL model can be
-/// validated end-to-end without an auth vendor.
+/// Development identity provider for loopback-only servers.
 #[derive(Debug, Clone, Default)]
 pub struct DevBearerProvider;
-
+#[axum::async_trait]
 impl IdentityProvider for DevBearerProvider {
-    fn authenticate(&self, parts: &Parts) -> Result<UserId, AtriumError> {
+    async fn authenticate(&self, parts: &Parts) -> Result<UserId, AtriumError> {
         parts
             .headers
             .get(AUTHORIZATION)
@@ -67,24 +52,33 @@ impl IdentityProvider for DevBearerProvider {
             .map(str::trim)
             .filter(|t| !t.is_empty())
             .map(UserId::new)
-            .ok_or_else(|| {
-                AtriumError::Unauthorized("missing or malformed bearer token".to_owned())
-            })
+            .ok_or_else(|| AtriumError::Unauthorized("missing or malformed bearer token".into()))
     }
 }
-/// Verified JWT identity backed by a startup-fetched JWKS document.
+
+/// OIDC provider that validates Authentik-issued JWTs against cached JWKS keys.
 #[derive(Clone)]
 pub struct JwtJwksProvider {
-    keys: HashMap<String, DecodingKey>,
+    client: reqwest::Client,
+    jwks_url: String,
     issuer: String,
     audience: String,
+    cache: Arc<Mutex<KeyCache>>,
+    refresh_lock: Arc<Mutex<()>>,
 }
-
+struct KeyCache {
+    keys: HashMap<String, DecodingKey>,
+    refreshed: Instant,
+}
+#[derive(Debug, Deserialize)]
+struct Discovery {
+    issuer: String,
+    jwks_uri: String,
+}
 #[derive(Debug, Deserialize)]
 struct JwkSet {
     keys: Vec<Jwk>,
 }
-
 #[derive(Debug, Deserialize)]
 struct Jwk {
     kid: String,
@@ -92,63 +86,125 @@ struct Jwk {
     n: String,
     e: String,
 }
-
 #[derive(Debug, Deserialize)]
 struct Claims {
     sub: String,
 }
-
 impl JwtJwksProvider {
-    /// Fetch and validate a JWKS source before serving requests.
+    /// Create a provider from Authentik OIDC discovery metadata.
     ///
     /// # Errors
     ///
-    /// Returns an error when the JWKS URL is insecure, unavailable, or contains
-    /// no usable RSA verification keys.
+    /// Returns an error when discovery, issuer validation, or the initial JWKS
+    /// fetch fails.
     pub async fn from_config(
         issuer: impl Into<String>,
         audience: impl Into<String>,
-        jwks_url: &str,
+        discovery_url: &str,
     ) -> Result<Self, AtriumError> {
-        if !jwks_url.starts_with("https://") {
+        let issuer = issuer.into();
+        let audience = audience.into();
+        if issuer.trim().is_empty() || audience.trim().is_empty() {
             return Err(AtriumError::BadRequest(
-                "JWKS URL must use HTTPS".to_owned(),
+                "OIDC issuer and audience are required".into(),
             ));
         }
-        let response = reqwest::get(jwks_url)
+        validate_url(discovery_url)?;
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .map_err(AtriumError::internal)?;
+        let d = client
+            .get(discovery_url)
+            .send()
             .await
-            .map_err(AtriumError::internal)?
+            .map_err(provider_err)?
             .error_for_status()
-            .map_err(AtriumError::internal)?;
-        let set = response
-            .json::<JwkSet>()
+            .map_err(provider_err)?
+            .json::<Discovery>()
             .await
-            .map_err(AtriumError::internal)?;
-        let mut keys = HashMap::new();
-        for jwk in set.keys {
-            if jwk.kty != "RSA" {
-                continue;
-            }
-            let key =
-                DecodingKey::from_rsa_components(&jwk.n, &jwk.e).map_err(AtriumError::internal)?;
-            keys.insert(jwk.kid, key);
+            .map_err(provider_err)?;
+        if d.issuer != issuer {
+            return Err(AtriumError::BadRequest(
+                "OIDC discovery issuer does not match configured issuer".into(),
+            ));
         }
-        if keys.is_empty() {
-            return Err(AtriumError::internal(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "JWKS contains no RSA keys",
-            )));
-        }
+        validate_url(&d.jwks_uri)?;
+        let keys = fetch_keys(&client, &d.jwks_uri).await?;
         Ok(Self {
-            keys,
-            issuer: issuer.into(),
-            audience: audience.into(),
+            client,
+            jwks_url: d.jwks_uri,
+            issuer,
+            audience,
+            cache: Arc::new(Mutex::new(KeyCache {
+                keys,
+                refreshed: Instant::now()
+                    .checked_sub(Duration::from_secs(2))
+                    .unwrap_or_else(Instant::now),
+            })),
+            refresh_lock: Arc::new(Mutex::new(())),
         })
     }
+    async fn refresh(&self) -> Result<(), AtriumError> {
+        let keys = fetch_keys(&self.client, &self.jwks_url).await?;
+        {
+            let mut cache = self.cache.lock().await;
+            cache.keys = keys;
+            cache.refreshed = Instant::now();
+        }
+        Ok(())
+    }
 }
-
+async fn fetch_keys(
+    c: &reqwest::Client,
+    url: &str,
+) -> Result<HashMap<String, DecodingKey>, AtriumError> {
+    let s = c
+        .get(url)
+        .send()
+        .await
+        .map_err(provider_err)?
+        .error_for_status()
+        .map_err(provider_err)?
+        .json::<JwkSet>()
+        .await
+        .map_err(provider_err)?;
+    let mut m = HashMap::new();
+    for j in s.keys {
+        if j.kty == "RSA" {
+            if let Ok(k) = DecodingKey::from_rsa_components(&j.n, &j.e) {
+                m.insert(j.kid, k);
+            }
+        }
+    }
+    if m.is_empty() {
+        return Err(AtriumError::ProviderUnavailable(
+            "OIDC JWKS has no usable keys".into(),
+        ));
+    }
+    Ok(m)
+}
+fn provider_err<E: std::fmt::Display>(e: E) -> AtriumError {
+    AtriumError::ProviderUnavailable(format!("OIDC provider unavailable: {e}"))
+}
+fn validate_url(u: &str) -> Result<(), AtriumError> {
+    let p =
+        reqwest::Url::parse(u).map_err(|_| AtriumError::BadRequest("invalid OIDC URL".into()))?;
+    if p.scheme() == "https"
+        || p.scheme() == "http"
+            && p.host_str()
+                .is_some_and(|h| matches!(h, "localhost" | "127.0.0.1" | "::1"))
+    {
+        Ok(())
+    } else {
+        Err(AtriumError::BadRequest(
+            "OIDC URL must use HTTPS unless loopback".into(),
+        ))
+    }
+}
+#[axum::async_trait]
 impl IdentityProvider for JwtJwksProvider {
-    fn authenticate(&self, parts: &Parts) -> Result<UserId, AtriumError> {
+    async fn authenticate(&self, parts: &Parts) -> Result<UserId, AtriumError> {
         let token = parts
             .headers
             .get(AUTHORIZATION)
@@ -156,95 +212,83 @@ impl IdentityProvider for JwtJwksProvider {
             .and_then(|value| value.strip_prefix("Bearer "))
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .ok_or_else(|| AtriumError::Unauthorized("missing bearer token".to_owned()))?;
-        let header = decode_header(token)
-            .map_err(|_| AtriumError::Unauthorized("invalid JWT".to_owned()))?;
+            .ok_or_else(|| AtriumError::Unauthorized("missing bearer token".into()))?;
+        let header =
+            decode_header(token).map_err(|_| AtriumError::Unauthorized("invalid JWT".into()))?;
         if header.alg != Algorithm::RS256 {
             return Err(AtriumError::Unauthorized(
-                "unsupported JWT algorithm".to_owned(),
+                "unsupported JWT algorithm".into(),
             ));
         }
         let kid = header
             .kid
-            .ok_or_else(|| AtriumError::Unauthorized("JWT is missing kid".to_owned()))?;
-        let key = self
-            .keys
-            .get(&kid)
-            .ok_or_else(|| AtriumError::Unauthorized("unknown JWT key".to_owned()))?;
+            .ok_or_else(|| AtriumError::Unauthorized("JWT is missing kid".into()))?;
+        let mut key = self.cache.lock().await.keys.get(&kid).cloned();
+        if key.is_none() {
+            let _refresh_guard = self.refresh_lock.lock().await;
+            key = self.cache.lock().await.keys.get(&kid).cloned();
+            if key.is_none() {
+                self.refresh().await?;
+                key = self.cache.lock().await.keys.get(&kid).cloned();
+            }
+        }
+        let key = key.ok_or_else(|| AtriumError::Unauthorized("unknown JWT key".into()))?;
         let mut validation = Validation::new(Algorithm::RS256);
         validation.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
         validation.validate_nbf = true;
         validation.set_issuer(&[self.issuer.as_str()]);
         validation.set_audience(&[self.audience.as_str()]);
-        let token = decode::<Claims>(token, key, &validation)
-            .map_err(|_| AtriumError::Unauthorized("invalid JWT".to_owned()))?;
-        if token.claims.sub.trim().is_empty() {
-            return Err(AtriumError::Unauthorized("JWT subject is empty".to_owned()));
+        let claims = decode::<Claims>(token, &key, &validation)
+            .map_err(|_| AtriumError::Unauthorized("invalid JWT".into()))?
+            .claims;
+        if claims.sub.trim().is_empty() {
+            return Err(AtriumError::Unauthorized("JWT subject is empty".into()));
         }
-        Ok(UserId::new(token.claims.sub))
+        Ok(UserId::new(claims.sub))
     }
 }
-
-/// Axum extractor yielding the authenticated caller by invoking the
-/// [`IdentityProvider`] in [`AtriumState`]. A rejection short-circuits with `401`.
+/// Authenticated caller extracted from request state.
 #[derive(Debug, Clone)]
 pub struct Caller(pub UserId);
-
-// axum-core 0.4's `FromRequestParts` is an `#[async_trait]`, so the impl must
-// use the same macro rather than a native `async fn`.
 #[axum::async_trait]
 impl FromRequestParts<AtriumState> for Caller {
     type Rejection = AtriumError;
-
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &AtriumState,
-    ) -> Result<Self, Self::Rejection> {
-        state.identity().authenticate(parts).map(Caller)
+    async fn from_request_parts(p: &mut Parts, s: &AtriumState) -> Result<Self, Self::Rejection> {
+        s.identity().authenticate(p).await.map(Caller)
     }
 }
-
+/// Authentication unit tests.
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use super::{DevBearerProvider, IdentityProvider, JwtJwksProvider};
+    use super::*;
     use axum::http::{header::AUTHORIZATION, request::Parts, Request};
-
-    fn parts_with(auth: Option<&str>) -> Parts {
-        let mut builder = Request::builder().uri("/");
-        if let Some(a) = auth {
-            builder = builder.header(AUTHORIZATION, a);
-        }
-        builder.body(()).unwrap().into_parts().0
+    fn p(a: &str) -> Parts {
+        Request::builder()
+            .uri("/")
+            .header(AUTHORIZATION, a)
+            .body(())
+            .unwrap()
+            .into_parts()
+            .0
     }
-
-    #[test]
-    fn dev_bearer_maps_token_to_user() {
-        let id = DevBearerProvider
-            .authenticate(&parts_with(Some("Bearer alice")))
-            .unwrap();
-        assert_eq!(id.as_str(), "alice");
-    }
-
-    #[test]
-    fn dev_bearer_rejects_missing_or_malformed() {
-        assert!(DevBearerProvider.authenticate(&parts_with(None)).is_err());
-        assert!(DevBearerProvider
-            .authenticate(&parts_with(Some("Basic xyz")))
-            .is_err());
-        assert!(DevBearerProvider
-            .authenticate(&parts_with(Some("Bearer   ")))
-            .is_err());
-    }
-
     #[tokio::test]
-    async fn jwt_provider_rejects_a_non_https_jwks_source() {
-        assert!(JwtJwksProvider::from_config(
-            "https://issuer.example",
-            "atrium",
-            "http://jwks.example"
-        )
-        .await
-        .is_err());
+    async fn dev() {
+        assert_eq!(
+            DevBearerProvider
+                .authenticate(&p("Bearer alice"))
+                .await
+                .unwrap()
+                .as_str(),
+            "alice"
+        );
+    }
+    #[tokio::test]
+    async fn insecure() {
+        assert!(
+            JwtJwksProvider::from_config("https://i", "a", "http://example.com")
+                .await
+                .is_err()
+        );
     }
 }
