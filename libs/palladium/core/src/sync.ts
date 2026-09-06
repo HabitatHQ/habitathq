@@ -155,6 +155,8 @@ export interface SyncTransportOptions {
   readonly fetch?: typeof globalThis.fetch;
   /** Optional schema identity. Defaults to the initialized engine identity. */
   readonly schemaFingerprint?: string;
+  /** Node identity sent with every protocol request. Defaults to the engine node ID. */
+  readonly nodeId?: string;
   readonly authHeaders?: (ctx: {
     readonly refresh: boolean;
   }) => Record<string, string> | Promise<Record<string, string>>;
@@ -567,6 +569,7 @@ export class SyncTransport<S extends SchemaMap> {
   readonly #fetch: typeof globalThis.fetch;
   readonly #requestTimeoutMs: number | undefined;
   readonly #authHeaders?: SyncTransportOptions["authHeaders"];
+  readonly #nodeId: string;
   readonly #schemaFingerprint: string;
   readonly #terminalPolicy: NonNullable<SyncTransportOptions["terminalPolicy"]>;
   #cursor: string | null = null;
@@ -657,6 +660,7 @@ export class SyncTransport<S extends SchemaMap> {
     this.#serverUrl = options.serverUrl.replace(/\/+$/, "");
     this.#pollIntervalMs = options.pollIntervalMs ?? 1_000;
     this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
+    this.#nodeId = options.nodeId ?? engine.nodeId;
     this.#schemaFingerprint = schemaFingerprint;
     this.#authHeaders = options.authHeaders;
     this.#terminalPolicy = options.terminalPolicy ?? "block";
@@ -689,8 +693,11 @@ export class SyncTransport<S extends SchemaMap> {
    * Fetch with the auth-decoration hook applied.
    */
   #fetchWithAuth(input: string, init?: RequestInit): Promise<Response> {
-    if (this.#authHeaders === undefined) return this.#fetch(input, init);
-    return this.#fetchDecorated(this.#authHeaders, input, init);
+    const headers = new Headers(init?.headers);
+    headers.set("X-Palladium-Node", this.#nodeId);
+    const request = { ...init, headers };
+    if (this.#authHeaders === undefined) return this.#fetch(input, request);
+    return this.#fetchDecorated(this.#authHeaders, input, request);
   }
   async #fetchDecorated(
     authHeaders: NonNullable<SyncTransportOptions["authHeaders"]>,
@@ -706,6 +713,7 @@ export class SyncTransport<S extends SchemaMap> {
       }
       const headers = new Headers(init?.headers);
       for (const [k, v] of Object.entries(extra)) headers.set(k, v);
+      headers.set("X-Palladium-Node", this.#nodeId);
       return this.#fetch(input, { ...init, headers });
     };
     const res = await send(false);

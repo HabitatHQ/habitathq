@@ -16,6 +16,17 @@ use crate::{
 };
 
 const WORKSPACE_HEADER: &str = "x-workspace";
+const MAX_EVENT_ACKS: usize = 1_000;
+const NODE_HEADER: &str = "x-palladium-node";
+
+fn node_of(headers: &HeaderMap) -> String {
+    headers
+        .get(NODE_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map_or_else(|| "legacy".to_owned(), str::to_owned)
+}
 
 fn workspace_of(headers: &HeaderMap) -> Result<String, AtriumError> {
     headers
@@ -150,6 +161,7 @@ async fn append_grant_backfills(
     db: &AtriumDb,
     workspace: &str,
     user: &str,
+    node_id: &str,
     events: &[PendingEvent],
     changes: &mut Vec<Change>,
     limit: u32,
@@ -163,8 +175,9 @@ async fn append_grant_backfills(
             all_caught_up = false;
             break;
         }
-        let Some((root, offered, offered_upper, _offered_complete, backfill_cursor)) =
-            db.grant_offer_state(workspace, user, event.id).await?
+        let Some((root, offered, offered_upper, _offered_complete, backfill_cursor)) = db
+            .grant_offer_state(workspace, user, node_id, event.id)
+            .await?
         else {
             continue;
         };
@@ -244,7 +257,9 @@ pub(super) async fn get_changes(
     let workspace = workspace_of(&headers)?;
     let db = state.db();
     db.require_member(&workspace, user.as_str()).await?;
-
+    let node_id = node_of(&headers);
+    db.register_node(&workspace, user.as_str(), &node_id)
+        .await?;
     let after = match params.cursor.as_deref() {
         None => 0,
         Some(value) => parse_append_cursor(value)?,
@@ -254,6 +269,9 @@ pub(super) async fn get_changes(
         return Err(AtriumError::BadRequest("invalid_request".to_owned()));
     }
     let upper_bound = db.workspace_append_bound(&workspace).await?;
+    if after > upper_bound {
+        return Err(AtriumError::BadRequest("invalid_cursor".to_owned()));
+    }
     let history = db
         .list_changes_through(&workspace, after, upper_bound, Some(limit))
         .await?;
@@ -269,11 +287,31 @@ pub(super) async fn get_changes(
             changes.push(change);
         }
     }
-    let events = db.pending_events(&workspace, user.as_str()).await?;
-    let backfills_caught_up =
-        append_grant_backfills(db, &workspace, user.as_str(), &events, &mut changes, limit).await?;
+    let events = db
+        .pending_events(&workspace, user.as_str(), &node_id)
+        .await?;
+    let backfills_caught_up = append_grant_backfills(
+        db,
+        &workspace,
+        user.as_str(),
+        &node_id,
+        &events,
+        &mut changes,
+        limit,
+    )
+    .await?;
     let mut purges = Vec::new();
-    for event in events.iter().filter(|event| event.kind == EVENT_REVOKE) {
+    for (index, event) in events
+        .iter()
+        .enumerate()
+        .filter(|(_, event)| event.kind == EVENT_REVOKE)
+    {
+        if events[index + 1..]
+            .iter()
+            .any(|later| later.root_id == event.root_id && later.kind == EVENT_GRANT)
+        {
+            continue;
+        }
         let record = db
             .get_record(&workspace, &event.root_id)
             .await?
@@ -299,7 +337,7 @@ pub(super) async fn get_changes(
     }))
 }
 
-/// Acknowledge pending event ids for the authenticated caller and workspace.
+/// Acknowledge pending event ids for the authenticated caller and device.
 pub(super) async fn acknowledge_events(
     State(state): State<AtriumState>,
     Caller(user): Caller,
@@ -307,10 +345,14 @@ pub(super) async fn acknowledge_events(
     Json(req): Json<AckRequest>,
 ) -> Result<StatusCode, AtriumError> {
     let workspace = workspace_of(&headers)?;
+    if req.event_ids.len() > MAX_EVENT_ACKS {
+        return Err(AtriumError::BadRequest("too_many_event_ids".to_owned()));
+    }
+    let node_id = node_of(&headers);
     state.db().require_member(&workspace, user.as_str()).await?;
     state
         .db()
-        .acknowledge_events(&workspace, user.as_str(), &req.event_ids)
+        .acknowledge_events(&workspace, user.as_str(), &node_id, &req.event_ids)
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }

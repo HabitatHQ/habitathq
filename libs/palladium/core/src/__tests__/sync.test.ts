@@ -1380,6 +1380,56 @@ describe("SyncTransport — auth decoration (§2b)", () => {
     expect(tokensSent).toContain("Bearer old");
     expect(tokensSent).toContain("Bearer new");
   });
+
+  it("attaches the engine node ID to upload, downlink, and event acknowledgement", async () => {
+    const db = await makeEngine(ALICE);
+    const event = {
+      id: 1,
+      kind: "grant" as const,
+      root_id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+    };
+    const calls: FetchCall[] = [];
+    const fetch: typeof globalThis.fetch = async (input, init) => {
+      const call = {
+        input: typeof input === "string" ? input : (input as URL | Request).toString(),
+        init: init ?? undefined,
+      };
+      calls.push(call);
+      if (init?.method === "POST" && call.input.endsWith("/v1/changes"))
+        return jsonResponse(receipt(), 201);
+      if (call.input.endsWith("/events/ack")) return new Response(null, { status: 204 });
+      return jsonResponse({ ...page(), events: [event] });
+    };
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+
+    await db.insert("notes", {
+      id: "01991f8a-7b3c-7000-8000-000000000127",
+      title: "a",
+      updated_at: 1,
+    });
+    await transport.syncOnce();
+
+    expect(calls).toHaveLength(3);
+    expect(
+      calls.every((call) => new Headers(call.init?.headers).get("X-Palladium-Node") === ALICE),
+    ).toBe(true);
+    await transport.dispose();
+  });
+
+  it("uses an explicit nodeId instead of the engine node ID", async () => {
+    const db = await makeEngine(ALICE);
+    const { calls, fetch } = makeFakeFetch(() => jsonResponse(page()));
+    const transport = new SyncTransport(db, {
+      serverUrl: SERVER_URL,
+      fetch,
+      nodeId: BOB,
+    });
+
+    await transport.poll();
+
+    expect(new Headers(calls[0]?.init?.headers).get("X-Palladium-Node")).toBe(BOB);
+    await transport.dispose();
+  });
 });
 
 describe("SyncTransport — Atrium append cursor", () => {

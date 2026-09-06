@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS grant_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     workspace_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
+    node_id TEXT NOT NULL DEFAULT 'legacy',
     root_id TEXT NOT NULL,
     kind TEXT NOT NULL,
     delivered INTEGER NOT NULL DEFAULT 0,
@@ -487,8 +488,14 @@ impl AtriumDb {
         Ok(())
     }
 
-    /// Add durable acknowledgement and offer state to grant events.
     async fn upgrade_grant_backfill_schema(pool: &SqlitePool) -> Result<(), AtriumError> {
+        if !Self::table_has_column(pool, "grant_events", "node_id").await? {
+            sqlx::query(
+                "ALTER TABLE grant_events ADD COLUMN node_id TEXT NOT NULL DEFAULT 'legacy'",
+            )
+            .execute(pool)
+            .await?;
+        }
         for (column, definition) in [
             ("backfill_cursor", "INTEGER NOT NULL DEFAULT 0"),
             ("offered_through", "INTEGER"),
@@ -503,6 +510,12 @@ impl AtriumDb {
                 .await?;
             }
         }
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_grant_events_pending
+             ON grant_events (workspace_id, user_id, node_id, delivered, id)",
+        )
+        .execute(pool)
+        .await?;
         Ok(())
     }
 
@@ -801,6 +814,36 @@ impl AtriumDb {
         Ok(())
     }
 
+    pub async fn register_node(
+        &self,
+        workspace: &str,
+        user: &str,
+        node_id: &str,
+    ) -> Result<(), AtriumError> {
+        sqlx::query(
+            "INSERT OR IGNORE INTO member_nodes (workspace_id, user_id, node_id)
+             VALUES (?, ?, ?)",
+        )
+        .bind(workspace)
+        .bind(user)
+        .bind(node_id)
+        .execute(&self.pool)
+        .await?;
+        let owner = sqlx::query_scalar::<_, String>(
+            "SELECT user_id FROM member_nodes WHERE workspace_id = ? AND node_id = ?",
+        )
+        .bind(workspace)
+        .bind(node_id)
+        .fetch_one(&self.pool)
+        .await?;
+        if owner != user {
+            return Err(AtriumError::Forbidden(
+                "node is already registered to another user".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
     pub async fn enqueue_event(
         &self,
         workspace: &str,
@@ -808,15 +851,29 @@ impl AtriumDb {
         root_id: &str,
         kind: &str,
     ) -> Result<(), AtriumError> {
-        sqlx::query(
-            "INSERT INTO grant_events (workspace_id, user_id, root_id, kind) VALUES (?, ?, ?, ?)",
+        let mut nodes: Vec<String> = sqlx::query_scalar(
+            "SELECT node_id FROM member_nodes WHERE workspace_id = ? AND user_id = ?",
         )
         .bind(workspace)
         .bind(user)
-        .bind(root_id)
-        .bind(kind)
-        .execute(&self.pool)
+        .fetch_all(&self.pool)
         .await?;
+        if nodes.is_empty() {
+            nodes.push("legacy".to_owned());
+        }
+        for node_id in nodes {
+            sqlx::query(
+                "INSERT INTO grant_events (workspace_id, user_id, node_id, root_id, kind)
+                 VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(workspace)
+            .bind(user)
+            .bind(node_id)
+            .bind(root_id)
+            .bind(kind)
+            .execute(&self.pool)
+            .await?;
+        }
         Ok(())
     }
 
@@ -845,15 +902,18 @@ impl AtriumDb {
         &self,
         workspace: &str,
         user: &str,
+        node_id: &str,
         event_id: i64,
     ) -> Result<Option<(String, Option<i64>, Option<i64>, Option<bool>, i64)>, AtriumError> {
         Ok(sqlx::query_as::<_, (String, Option<i64>, Option<i64>, Option<i64>, i64)>(
             "SELECT root_id, offered_through, offered_upper_bound, offered_complete, backfill_cursor
-             FROM grant_events WHERE id = ? AND workspace_id = ? AND user_id = ? AND delivered = 0",
+             FROM grant_events
+             WHERE id = ? AND workspace_id = ? AND user_id = ? AND node_id = ? AND delivered = 0",
         )
         .bind(event_id)
         .bind(workspace)
         .bind(user)
+        .bind(node_id)
         .fetch_optional(&self.pool)
         .await?
         .map(|(root, through, upper, complete, cursor)| {
@@ -910,16 +970,19 @@ impl AtriumDb {
         &self,
         workspace: &str,
         user: &str,
+        node_id: &str,
         event_id: i64,
     ) -> Result<bool, AtriumError> {
         let mut tx = self.pool.begin().await?;
         let state = sqlx::query_as::<_, (Option<i64>, Option<i64>, Option<i64>)>(
             "SELECT offered_through, offered_upper_bound, offered_complete
-             FROM grant_events WHERE id = ? AND workspace_id = ? AND user_id = ? AND delivered = 0",
+             FROM grant_events
+             WHERE id = ? AND workspace_id = ? AND user_id = ? AND node_id = ? AND delivered = 0",
         )
         .bind(event_id)
         .bind(workspace)
         .bind(user)
+        .bind(node_id)
         .fetch_optional(&mut *tx)
         .await?;
         let Some((through, upper, complete)) = state else {
@@ -931,12 +994,10 @@ impl AtriumDb {
         let complete = complete == Some(1) || upper.is_some_and(|bound| through >= bound);
         sqlx::query(
             "UPDATE grant_events
-             SET backfill_cursor = ?,
-                 offered_through = NULL,
+             SET backfill_cursor = ?, offered_through = NULL,
                  offered_upper_bound = CASE WHEN ? != 0 THEN NULL ELSE offered_upper_bound END,
-                 offered_complete = NULL,
-                 delivered = ?
-             WHERE id = ? AND workspace_id = ? AND user_id = ? AND delivered = 0",
+                 offered_complete = NULL, delivered = ?
+             WHERE id = ? AND workspace_id = ? AND user_id = ? AND node_id = ? AND delivered = 0",
         )
         .bind(through)
         .bind(i32::from(complete))
@@ -944,6 +1005,7 @@ impl AtriumDb {
         .bind(event_id)
         .bind(workspace)
         .bind(user)
+        .bind(node_id)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
@@ -954,13 +1016,15 @@ impl AtriumDb {
         &self,
         workspace: &str,
         user: &str,
+        node_id: &str,
     ) -> Result<Vec<PendingEvent>, AtriumError> {
         Ok(sqlx::query_as::<_, (i64, String, String)>(
             "SELECT id, kind, root_id FROM grant_events
-             WHERE workspace_id = ? AND user_id = ? AND delivered = 0 ORDER BY id",
+             WHERE workspace_id = ? AND user_id = ? AND node_id = ? AND delivered = 0 ORDER BY id",
         )
         .bind(workspace)
         .bind(user)
+        .bind(node_id)
         .fetch_all(&self.pool)
         .await?
         .into_iter()
@@ -968,11 +1032,12 @@ impl AtriumDb {
         .collect())
     }
 
-    /// Acknowledge events for this caller/workspace, advancing grant progress.
+    /// Acknowledge events for this caller/workspace/device.
     pub async fn acknowledge_events(
         &self,
         workspace: &str,
         user: &str,
+        node_id: &str,
         event_ids: &[i64],
     ) -> Result<(), AtriumError> {
         let mut ids = event_ids.to_vec();
@@ -985,6 +1050,7 @@ impl AtriumDb {
             sqlx::QueryBuilder::new("SELECT id, kind FROM grant_events WHERE workspace_id = ");
         lookup.push_bind(workspace);
         lookup.push(" AND user_id = ").push_bind(user);
+        lookup.push(" AND node_id = ").push_bind(node_id);
         lookup.push(" AND id IN (");
         let mut separated = lookup.separated(", ");
         for id in &ids {
@@ -994,21 +1060,21 @@ impl AtriumDb {
         let owned: Vec<(i64, String)> = lookup.build_query_as().fetch_all(&self.pool).await?;
         if owned.len() != ids.len() {
             return Err(AtriumError::Forbidden(
-                "event acknowledgement includes an event outside this caller or workspace"
-                    .to_owned(),
+                "event acknowledgement includes an event outside this caller or device".to_owned(),
             ));
         }
         for (id, kind) in owned {
             if kind == EVENT_GRANT {
-                self.acknowledge_grant(workspace, user, id).await?;
+                self.acknowledge_grant(workspace, user, node_id, id).await?;
             } else {
                 sqlx::query(
                     "UPDATE grant_events SET delivered = 1
-                     WHERE id = ? AND workspace_id = ? AND user_id = ?",
+                     WHERE id = ? AND workspace_id = ? AND user_id = ? AND node_id = ?",
                 )
                 .bind(id)
                 .bind(workspace)
                 .bind(user)
+                .bind(node_id)
                 .execute(&self.pool)
                 .await?;
             }
