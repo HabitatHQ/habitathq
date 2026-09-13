@@ -1,12 +1,15 @@
 /**
  * Returns the part of the layout viewport covered by the virtual keyboard.
  *
- * On iOS, `window.innerHeight` continues to represent the layout viewport
- * while `visualViewport.height` shrinks when the keyboard opens.
+ * On iOS, `window.innerHeight` continues to represent the layout viewport.
+ * Normalize visual viewport height by pinch-zoom scale so zoom alone is not
+ * mistaken for keyboard occlusion, while a keyboard remains detectable at any
+ * zoom level.
  */
 export function getKeyboardInset(
   layoutViewportHeight: number,
-  visualViewport: Pick<VisualViewport, 'height' | 'offsetTop'>,
+  visualViewport: Pick<VisualViewport, 'height' | 'scale'>,
 ): number {
-  return Math.max(0, layoutViewportHeight - visualViewport.height - visualViewport.offsetTop)
+  const scale = visualViewport.scale > 0 ? visualViewport.scale : 1
+  return Math.max(0, layoutViewportHeight - visualViewport.height * scale)
 }
