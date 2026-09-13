@@ -65,6 +65,12 @@
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
   }
+
+  /* The iOS keyboard overlays fixed elements in an installed PWA. The app
+     updates this custom property from the Visual Viewport API. */
+  .keyboard-aware-viewport {
+    bottom: var(--keyboard-inset-height, 0px);
+  }
 }
 
 /* ── Modal scroll lock ────────────────────────────────────────────────────────
@@ -131,6 +137,27 @@ body:has(.modal-backdrop) {
   input[type="url"],
   input[type="date"],
   input[type="time"],
+  input[type="datetime-local"],
+  input[type="password"],
+  input:not([type]),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
+/* Standalone iOS PWAs can report a fine primary pointer despite accepting
+   touch. Keep the safeguard outside the pointer media query for WebKit. */
+@supports (-webkit-touch-callout: none) {
+  input[type="text"],
+  input[type="search"],
+  input[type="email"],
+  input[type="number"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="date"],
+  input[type="time"],
+  input[type="datetime-local"],
   input[type="password"],
   input:not([type]),
   textarea,

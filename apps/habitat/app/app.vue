@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Capacitor } from '@capacitor/core'
+import { getKeyboardInset } from '~/utils/keyboard-viewport'
 
 const db = useDatabase()
 const evictionDetected = useState('eviction-detected', () => false)
@@ -30,6 +31,32 @@ const isNative = Capacitor.isNativePlatform()
 const ONBOARDED_KEY = 'habitat-permissions-onboarded'
 const showPermissionModal = ref(false)
 const permissionSetupRunning = ref(false)
+let keyboardViewport: VisualViewport | null = null
+
+/** Keep fixed sheets above the iOS PWA software keyboard. */
+function syncKeyboardInset() {
+  const viewport = window.visualViewport
+  if (!viewport) return
+  document.documentElement.style.setProperty(
+    '--keyboard-inset-height',
+    `${getKeyboardInset(window.innerHeight, viewport)}px`,
+  )
+}
+
+onMounted(() => {
+  keyboardViewport = window.visualViewport
+  if (!keyboardViewport) return
+
+  syncKeyboardInset()
+  keyboardViewport.addEventListener('resize', syncKeyboardInset)
+  keyboardViewport.addEventListener('scroll', syncKeyboardInset)
+})
+
+onBeforeUnmount(() => {
+  keyboardViewport?.removeEventListener('resize', syncKeyboardInset)
+  keyboardViewport?.removeEventListener('scroll', syncKeyboardInset)
+  document.documentElement.style.removeProperty('--keyboard-inset-height')
+})
 
 onMounted(async () => {
   // ── 1. Notifications — runs independently of DB readiness ───────────────

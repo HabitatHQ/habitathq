@@ -332,7 +332,7 @@ onMounted(() => {
     <Transition name="sheet-slide">
       <div
         v-if="cellEdit"
-        class="fixed inset-x-0 bottom-0 z-50 bg-(--ui-bg-muted) border-t border-(--ui-border-accented)"
+        class="fixed inset-x-0 bottom-0 keyboard-aware-viewport z-50 bg-(--ui-bg-muted) border-t border-(--ui-border-accented)"
       >
         <!-- Drag handle -->
         <div class="flex justify-center pt-2.5 pb-1">

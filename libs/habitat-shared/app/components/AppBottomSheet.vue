@@ -101,7 +101,7 @@ onUnmounted(() => {
       <div
         v-if="modelValue"
         ref="sheetRef"
-        class="fixed inset-0 z-50 flex justify-center"
+        class="fixed inset-0 keyboard-aware-viewport z-50 flex justify-center"
         :class="variant === 'sheet' ? 'items-end sm:items-center' : 'items-center'"
         role="dialog"
         aria-modal="true"
