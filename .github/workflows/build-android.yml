@@ -35,6 +35,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Workspace packages publish only generated dist/ entry points; a fresh
+      # runner must build them before Nuxt resolves Habitat's worker import.
+      - name: Build workspace deps
+        run: |
+          pnpm --filter "@palladium/core" build
+          pnpm --filter "@palladium/sqlite-browser" build
+          pnpm --filter "@palladium/sqlite-capacitor" build
+          pnpm --filter "@palladium/nuxt" build
+          pnpm --filter "@palladium/worker" build
+
       - name: Build web assets and sync
         run: pnpm --filter ${{ inputs.app }} build:native
 
