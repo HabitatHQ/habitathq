@@ -41,6 +41,7 @@ import type {
   DbAdapter,
   ExportSelection,
   FocusSession,
+  FocusSessionSummary,
   Habit,
   HabitatExport,
   HabitLog,
@@ -1398,6 +1399,14 @@ export async function getFocusSessions(
   )
 }
 
+/** Summary is intentionally separate from the capped session-history query. */
+export async function getFocusSessionSummary(db: DbAdapter): Promise<FocusSessionSummary> {
+  const summaries = await db.queryAll<FocusSessionSummary>(
+    'SELECT COUNT(*) AS session_count, COALESCE(SUM(duration_seconds), 0) AS total_seconds FROM focus_sessions',
+  )
+  return summaries[0] ?? { session_count: 0, total_seconds: 0 }
+}
+
 export async function createFocusSession(
   db: DbAdapter,
   payload: Omit<FocusSession, 'id'>,
@@ -2065,6 +2074,8 @@ export async function dispatch(db: DbAdapter, req: WorkerRequestBody): Promise<u
       return getTodos(db)
     case 'GET_FOCUS_SESSIONS':
       return getFocusSessions(db, req.payload)
+    case 'GET_FOCUS_SESSION_SUMMARY':
+      return getFocusSessionSummary(db)
     case 'CREATE_FOCUS_SESSION':
       return createFocusSession(db, req.payload)
     case 'CREATE_TODO':

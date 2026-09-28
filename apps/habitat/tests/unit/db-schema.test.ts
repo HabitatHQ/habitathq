@@ -402,4 +402,42 @@ describe('SCHEMA_DDL / migration parity', () => {
       await columnMeta(ref, 'checkin_templates'),
     )
   })
+
+  it('backfills dated notes and adds planner storage for a v24 database', async () => {
+    // SQLite cannot add a NOT NULL column without a default to a populated table.
+    // The upgrade is therefore nullable at the storage layer, but every old note
+    // is backfilled and new writes always provide entry_date.
+    const { adapter } = freshDb()
+    await applyDdl(adapter)
+    await adapter.exec('DROP INDEX idx_scribbles_entry_date')
+    await adapter.exec('ALTER TABLE scribbles DROP COLUMN entry_date')
+    await adapter.exec('ALTER TABLE todos DROP COLUMN scheduled_time')
+    await adapter.exec('DROP TABLE focus_sessions')
+    await adapter.exec(
+      "INSERT INTO scribbles (id,title,content,tags,annotations,created_at,updated_at) VALUES ('legacy-note','', '', '[]', '{}', '2026-05-14T09:30:00.000Z', '2026-05-14T09:30:00.000Z')",
+    )
+    await adapter.exec(
+      "INSERT INTO todos (id,title,created_at,updated_at) VALUES ('legacy-todo','Legacy task','2026-05-14T09:30:00.000Z','2026-05-14T09:30:00.000Z')",
+    )
+
+    const exec = plainExec(adapter)
+    const migration = SCHEMA_CONFIG.migrations?.[25] as MigrationStep[]
+    for (const step of migration) {
+      if (typeof step === 'function') await step(exec)
+      else await exec(step)
+    }
+
+    const note = await adapter.queryOne<{ entry_date: string }>(
+      "SELECT entry_date FROM scribbles WHERE id = 'legacy-note'",
+    )
+    const todo = await adapter.queryOne<{ scheduled_time: string | null }>(
+      "SELECT scheduled_time FROM todos WHERE id = 'legacy-todo'",
+    )
+    const sessions = await adapter.queryAll<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'focus_sessions'",
+    )
+    expect(note?.entry_date).toBe('2026-05-14')
+    expect(todo?.scheduled_time).toBeNull()
+    expect(sessions).toHaveLength(1)
+  })
 })
