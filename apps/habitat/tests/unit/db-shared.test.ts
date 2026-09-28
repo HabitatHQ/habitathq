@@ -130,7 +130,7 @@ function completionRow(id = 'c1'): Record<string, unknown> {
 function todoRow(id = 't1'): Record<string, unknown> {
   return {
     id, title: 'Buy milk', description: '', due_date: null, priority: 'medium',
-    estimated_minutes: null, is_done: 0, done_at: null, done_count: 0, last_done_at: null,
+    scheduled_time: null, estimated_minutes: null, is_done: 0, done_at: null, done_count: 0, last_done_at: null,
     tags: '[]', annotations: '{}', is_recurring: 0, recurrence_rule: null,
     show_in_bored: 0, bored_category_id: null, archived_at: null,
     created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z',
@@ -140,6 +140,7 @@ function todoRow(id = 't1'): Record<string, unknown> {
 function scribbleRow(id = 'sc1'): Record<string, unknown> {
   return {
     id, title: 'Note', content: 'Hello', tags: '[]', annotations: '{}',
+    entry_date: '2025-01-01',
     created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z',
   }
 }
@@ -692,6 +693,30 @@ describe('archiveTodo', () => {
     await shared.archiveTodo(db, 't1')
     expect(db.calls[0]!.sql).toContain('archived_at')
     expect(db.calls[0]!.bind).toContain('t1')
+  })
+})
+
+describe('getFocusSessionSummary', () => {
+  it('uses an uncapped aggregate for all completed focus sessions', async () => {
+    const db = new MockDbAdapter()
+    db.setRows('FROM focus_sessions', [{ session_count: 201, total_seconds: 12_345 }])
+
+    await expect(shared.getFocusSessionSummary(db)).resolves.toEqual({
+      session_count: 201,
+      total_seconds: 12_345,
+    })
+
+    const call = db.calls[0]!
+    expect(call.sql).toContain('COUNT(*)')
+    expect(call.sql).toContain('SUM(duration_seconds)')
+    expect(call.sql).not.toContain('LIMIT')
+  })
+
+  it('returns an empty summary when there are no focus sessions', async () => {
+    await expect(shared.getFocusSessionSummary(new MockDbAdapter())).resolves.toEqual({
+      session_count: 0,
+      total_seconds: 0,
+    })
   })
 })
 

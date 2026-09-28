@@ -4,8 +4,10 @@ import type { Completion, Scribble, Todo } from '~/types/database'
 type CalendarView = 'month' | 'week'
 
 const db = useDatabase()
+const { impact, selectionChanged } = useHaptics()
 const now = new Date()
-const today = now.toISOString().slice(0, 10)
+const today = dateKey(now)
+const calendarViews: CalendarView[] = ['month', 'week']
 const calendarView = ref<CalendarView>('month')
 const cursor = ref(new Date(now.getFullYear(), now.getMonth(), 1))
 const selected = ref(today)
@@ -15,7 +17,10 @@ const completions = ref<Completion[]>([])
 const loading = ref(true)
 
 function dateKey(date: Date) {
-  return date.toISOString().slice(0, 10)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 function dateFor(key: string) {
@@ -98,6 +103,7 @@ async function selectView(nextView: CalendarView) {
       ? new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1)
       : selectedDate
   await loadPeriod()
+  void selectionChanged()
 }
 
 async function movePeriod(direction: -1 | 1) {
@@ -106,6 +112,7 @@ async function movePeriod(direction: -1 | 1) {
   else next.setDate(next.getDate() + direction * 7)
   cursor.value = next
   await loadPeriod()
+  void impact('light')
 }
 
 async function goToToday() {
@@ -114,6 +121,13 @@ async function goToToday() {
   cursor.value =
     calendarView.value === 'month' ? new Date(date.getFullYear(), date.getMonth(), 1) : date
   await loadPeriod()
+  void impact('light')
+}
+
+function selectDate(date: string) {
+  if (selected.value === date) return
+  selected.value = date
+  void impact('light')
 }
 
 onMounted(async () => {
@@ -132,19 +146,18 @@ onMounted(async () => {
 
     <section class="rounded-2xl border border-(--ui-border) bg-(--ui-bg-elevated) p-3 shadow-sm">
       <div class="mb-4 flex items-center justify-between gap-3">
-        <UButton :icon="resolveIcon('chevron-left')" color="neutral" variant="ghost" aria-label="Previous period" @click="movePeriod(-1)" />
-        <button type="button" class="text-sm font-bold text-(--ui-text)" @click="goToToday">{{ periodTitle }}</button>
-        <UButton :icon="resolveIcon('chevron-right')" color="neutral" variant="ghost" aria-label="Next period" @click="movePeriod(1)" />
+        <UButton class="min-h-11 min-w-11" :icon="resolveIcon('chevron-left')" color="neutral" variant="ghost" aria-label="Previous period" @click="movePeriod(-1)" />
+        <button type="button" class="min-h-11 rounded-lg px-3 text-sm font-bold text-(--ui-text)" @click="goToToday">{{ periodTitle }}</button>
+        <UButton class="min-h-11 min-w-11" :icon="resolveIcon('chevron-right')" color="neutral" variant="ghost" aria-label="Next period" @click="movePeriod(1)" />
       </div>
 
-      <div class="mb-4 flex rounded-xl border border-(--ui-border) bg-(--ui-bg-muted) p-1" role="tablist" aria-label="Calendar view">
+      <div class="mb-4 flex rounded-xl border border-(--ui-border) bg-(--ui-bg-muted) p-1" role="group" aria-label="Calendar view">
         <button
-          v-for="view in ['month', 'week'] as CalendarView[]"
+          v-for="view in calendarViews"
           :key="view"
           type="button"
-          role="tab"
-          :aria-selected="calendarView === view"
-          class="flex-1 rounded-lg py-1.5 text-sm font-semibold capitalize transition-colors"
+          :aria-pressed="calendarView === view"
+          class="min-h-11 flex-1 rounded-lg py-1.5 text-sm font-semibold capitalize transition-colors"
           :class="calendarView === view ? 'bg-(--ui-bg) text-(--ui-text) shadow-sm' : 'text-(--ui-text-dimmed)'"
           @click="selectView(view)"
         >
@@ -167,7 +180,8 @@ onMounted(async () => {
             calendarView === 'month' && !isCurrentMonth(date) && date !== selected ? 'opacity-35' : 'hover:bg-(--ui-bg-muted)',
           ]"
           :aria-label="dateFor(date).toLocaleDateString()"
-          @click="selected = date"
+          :aria-current="date === today ? 'date' : undefined"
+          @click="selectDate(date)"
         >
           <span class="text-sm font-bold">{{ dateFor(date).getDate() }}</span>
           <span v-if="calendarView === 'week'" class="mt-1 hidden text-[11px] font-medium sm:block" :class="date === selected ? 'text-white/75' : 'text-(--ui-text-dimmed)'">{{ taskCount(date) ? `${taskCount(date)} task${taskCount(date) === 1 ? '' : 's'}` : 'Open' }}</span>

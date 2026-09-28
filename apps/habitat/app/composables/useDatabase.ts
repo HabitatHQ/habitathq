@@ -16,6 +16,7 @@ import type {
   DbInfo,
   ExportSelection,
   FocusSession,
+  FocusSessionSummary,
   Habit,
   HabitatExport,
   HabitLog,
@@ -195,6 +196,8 @@ export function useDatabase() {
         type: 'GET_FOCUS_SESSIONS',
         payload: { ...(from ? { from } : {}), ...(to ? { to } : {}) },
       }),
+    getFocusSessionSummary: (): Promise<FocusSessionSummary> =>
+      sendToWorker({ type: 'GET_FOCUS_SESSION_SUMMARY' }),
     createFocusSession: (p: Omit<FocusSession, 'id'>): Promise<FocusSession> =>
       sendToWorker({ type: 'CREATE_FOCUS_SESSION', payload: p }),
     getBoredCategories: (): Promise<BoredCategory[]> =>

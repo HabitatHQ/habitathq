@@ -215,6 +215,12 @@ export interface FocusSession {
   duration_seconds: number
 }
 
+/** Aggregate focus metrics across the full, uncapped session history. */
+export interface FocusSessionSummary {
+  session_count: number
+  total_seconds: number
+}
+
 export type BoredOracleResult =
   | { source: 'activity'; activity: BoredActivity; category: BoredCategory }
   | { source: 'todo'; todo: Todo; category: BoredCategory | null }
@@ -349,6 +355,7 @@ export type WorkerRequest =
   | { id: string; type: 'GET_CHECKIN_SUMMARY_FOR_DATE'; payload: { date: string } }
   | { id: string; type: 'GET_SCRIBBLES_FOR_DATE'; payload: { date: string } }
   | { id: string; type: 'GET_FOCUS_SESSIONS'; payload?: { from?: string; to?: string } }
+  | { id: string; type: 'GET_FOCUS_SESSION_SUMMARY' }
   | { id: string; type: 'CREATE_FOCUS_SESSION'; payload: Omit<FocusSession, 'id'> }
   | { id: string; type: 'GET_BORED_CATEGORIES' }
   | { id: string; type: 'CREATE_BORED_CATEGORY'; payload: Omit<BoredCategory, 'id' | 'created_at'> }
