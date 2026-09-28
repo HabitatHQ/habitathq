@@ -54,6 +54,24 @@ test.describe('Navigation smoke tests', () => {
     await expect(page.getByRole('heading', { name: /insights/i })).toBeVisible()
   })
 
+  test('/plan route renders planner heading', async ({ page }) => {
+    await page.goto('/plan')
+    await page.waitForLoadState('networkidle')
+    await expect(page.getByRole('heading', { name: 'Plan' })).toBeVisible()
+  })
+
+  test('/calendar route renders calendar heading', async ({ page }) => {
+    await page.goto('/calendar')
+    await page.waitForLoadState('networkidle')
+    await expect(page.getByRole('heading', { name: 'Calendar' })).toBeVisible()
+  })
+
+  test('/time route renders time heading', async ({ page }) => {
+    await page.goto('/time')
+    await page.waitForLoadState('networkidle')
+    await expect(page.getByRole('heading', { name: 'Time' })).toBeVisible()
+  })
+
   test('/archive route renders archive heading', async ({ page }) => {
     await page.goto('/archive')
     await page.waitForLoadState('networkidle')

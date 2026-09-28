@@ -4,3 +4,16 @@ packages:
   - "libs/habitat-db"
   - "libs/habitat-shared"
   - "libs/habitat-utils"
+
+# Nuxt's dev server requires its bundler and file watcher postinstall binaries.
+allowBuilds:
+  esbuild: true
+  '@parcel/watcher': true
+  '@biomejs/biome': false
+  electron: false
+  lefthook: false
+  onnxruntime-node: false
+  protobufjs: false
+  sharp: false
+  tesseract.js: false
+  vue-demi: false

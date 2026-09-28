@@ -4,6 +4,26 @@ import type { ExportSelection, HabitatExport } from '~/types/database'
 
 const db = useDatabase()
 const toast = useToast()
+const isDev = import.meta.dev
+const seeding = ref(false)
+
+async function seedDemoData() {
+  seeding.value = true
+  try {
+    const result = await useSeedDev().seedDemoData()
+    toast.add({
+      title: 'Demo data loaded',
+      description: `${result.habits} habits, ${result.todos} tasks, and ${result.notes} dated notes are ready to explore.`,
+      color: 'success',
+      duration: 6000,
+    })
+  } catch (err) {
+    logError('[seedDemoData]', err)
+    toast.add({ title: 'Could not load demo data', color: 'error', duration: 4000 })
+  } finally {
+    seeding.value = false
+  }
+}
 
 // ─── JSON export ───────────────────────────────────────────────────────────────
 
@@ -45,6 +65,7 @@ const EXPORT_GROUPS: ExportGroup[] = [
     label: 'TODOs & Bored',
     items: [
       { key: 'todos', label: 'TODOs' },
+      { key: 'focus_sessions', label: 'Focus sessions', parent: 'todos' },
       { key: 'bored_categories', label: 'Bored categories' },
       { key: 'bored_activities', label: 'Bored activities', parent: 'bored_categories' },
     ],
@@ -65,6 +86,7 @@ function defaultExportSelection(): ExportSelection {
     scribbles: true,
     checkin_entries: true,
     todos: true,
+    focus_sessions: true,
     bored_categories: true,
     bored_activities: true,
   }
@@ -523,6 +545,19 @@ async function nukeOpfs(reload: boolean) {
           />
         </div>
 
+      </UCard>
+    </section>
+
+    <section v-if="isDev" class="space-y-2">
+      <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Development</p>
+      <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0' }">
+        <div class="flex items-center justify-between gap-4 px-4 py-3.5">
+          <div class="space-y-0.5">
+            <p class="text-sm font-medium">Load demo data</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Add habits, planner tasks, calendar notes, focus time, and check-ins. Safe to run more than once.</p>
+          </div>
+          <UButton :icon="resolveIcon('sparkles')" variant="ghost" color="primary" size="sm" :loading="seeding" @click="seedDemoData" />
+        </div>
       </UCard>
     </section>
 

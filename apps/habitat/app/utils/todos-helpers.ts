@@ -20,6 +20,7 @@ export interface TodoFormState {
   title: string
   description: string
   due_date: string
+  scheduled_time?: string
   priority: 'high' | 'medium' | 'low'
   estimated_minutes: string | number
   is_recurring: boolean
@@ -44,11 +45,16 @@ export function buildTodoPayload(
   existingAnnotations: Record<string, string> | null,
 ) {
   const mins = form.estimated_minutes === '' ? null : Number(form.estimated_minutes)
+  const scheduledTime = form.scheduled_time || null
+  if (scheduledTime && (!Number.isFinite(mins) || mins === null || mins <= 0)) {
+    throw new Error('Scheduled tasks need a positive duration')
+  }
   const tags = form.tags.map((t) => t.trim()).filter(Boolean)
   return {
     title: form.title.trim(),
     description: form.description.trim(),
     due_date: form.due_date || null,
+    scheduled_time: scheduledTime,
     priority: form.priority,
     estimated_minutes: mins,
     is_recurring: form.is_recurring,

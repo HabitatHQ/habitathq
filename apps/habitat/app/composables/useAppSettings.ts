@@ -7,6 +7,7 @@ export interface AppSettings {
   enableJournalling: boolean
   enableHealth: boolean
   enableTodos: boolean
+  enablePlanner: boolean
   enableBored: boolean
   autoShowBored: boolean
   enableContextFilter: boolean
@@ -43,6 +44,7 @@ const DEFAULTS: AppSettings = {
   enableJournalling: true,
   enableHealth: false,
   enableTodos: true,
+  enablePlanner: true,
   enableBored: false,
   autoShowBored: true,
   enableContextFilter: false,
@@ -97,6 +99,7 @@ export const PROFILE_SETTINGS: Record<AppProfile, Partial<AppSettings>> = {
     enableJournalling: false,
     enableHealth: false,
     enableTodos: true,
+    enablePlanner: true,
     enableContextFilter: true,
     enableTimer: true,
     enableBored: true,
@@ -105,6 +108,7 @@ export const PROFILE_SETTINGS: Record<AppProfile, Partial<AppSettings>> = {
     enableJournalling: true,
     enableHealth: false,
     enableTodos: true,
+    enablePlanner: true,
     enableContextFilter: true,
     enableTimer: true,
     enableBored: true,

@@ -246,13 +246,13 @@ describe('SCHEMA_CONFIG seeds', () => {
 // ─── Schema config structure ─────────────────────────────────────────────────
 
 describe('SCHEMA_CONFIG', () => {
-  it('has version 24', () => {
-    expect(SCHEMA_CONFIG.version).toBe(24)
+  it('has version 25', () => {
+    expect(SCHEMA_CONFIG.version).toBe(25)
   })
 
-  it('defines migrations for versions 11-24', () => {
+  it('defines migrations for versions 11-25', () => {
     const keys = Object.keys(SCHEMA_CONFIG.migrations ?? {}).map(Number).sort((a, b) => a - b)
-    expect(keys).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24])
+    expect(keys).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25])
   })
 
   it('has seeds array', () => {
@@ -318,7 +318,7 @@ describe('migration 21 (tag normalization)', () => {
     const { adapter } = freshDb()
     await applyDdl(adapter)
     await adapter.exec(
-      `INSERT INTO scribbles (id, title, content, tags, created_at, updated_at) VALUES ('s1', 'S', '', ?, '2026-01-01', '2026-01-01')`,
+      `INSERT INTO scribbles (id, title, content, tags, entry_date, created_at, updated_at) VALUES ('s1', 'S', '', ?, '2026-01-01', '2026-01-01', '2026-01-01')`,
       [JSON.stringify(['spark', 'dream'])],
     )
 

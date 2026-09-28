@@ -107,6 +107,8 @@ async function confirmEnd() {
 async function confirmDone() {
   const itemId = timerComp.timer?.itemId
   const itemType = timerComp.timer?.itemType
+  const startedAt = timerComp.timer?.startedAt
+  const durationSeconds = timerComp.currentElapsed
   timerComp.stopTimer()
   showEndConfirm.value = false
   void impact('heavy')
@@ -115,6 +117,14 @@ async function confirmDone() {
     try {
       if (itemType === 'todo') {
         await db.toggleTodo(itemId)
+        if (durationSeconds > 0) {
+          await db.createFocusSession({
+            todo_id: itemId,
+            started_at: new Date(startedAt ?? Date.now() - durationSeconds * 1000).toISOString(),
+            completed_at: new Date().toISOString(),
+            duration_seconds: durationSeconds,
+          })
+        }
         toast.add({ title: 'Task marked done', color: 'success', duration: 2000 })
       } else if (itemType === 'bored') {
         await db.markBoredActivityDone(itemId)

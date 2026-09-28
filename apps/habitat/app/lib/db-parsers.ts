@@ -183,6 +183,7 @@ export function parseScribble(row: Record<string, unknown>): Scribble {
     content: (row['content'] as string) ?? '',
     tags: safeJsonParse(row['tags'] as string | null, []),
     annotations: safeJsonParse(row['annotations'] as string | null, {}),
+    entry_date: (row['entry_date'] as string | null) ?? (row['created_at'] as string).slice(0, 10),
     created_at: row['created_at'] as string,
     updated_at: row['updated_at'] as string,
   }
@@ -244,6 +245,7 @@ export function parseTodo(row: Record<string, unknown>): Todo {
     title: row['title'] as string,
     description: (row['description'] as string) ?? '',
     due_date: row['due_date'] as string | null,
+    scheduled_time: row['scheduled_time'] as string | null,
     priority: ((row['priority'] as string) ?? 'medium') as 'high' | 'medium' | 'low',
     estimated_minutes: row['estimated_minutes'] as number | null,
     is_done: Boolean(row['is_done']),

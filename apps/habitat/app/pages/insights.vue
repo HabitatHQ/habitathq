@@ -14,7 +14,7 @@ const tabs = computed<{ key: TabKey; label: string }[]>(() => {
   <div class="space-y-5">
     <header>
       <p class="text-sm text-(--ui-text-dimmed)">Overview</p>
-      <h2 class="text-2xl font-bold">Insights</h2>
+      <h2 class="text-2xl font-bold">Insights &amp; Analytics</h2>
     </header>
 
     <!-- Tabs -->

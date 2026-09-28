@@ -40,6 +40,7 @@ import type {
   Completion,
   DbAdapter,
   ExportSelection,
+  FocusSession,
   Habit,
   HabitatExport,
   HabitLog,
@@ -902,27 +903,30 @@ export async function getScribbles(db: DbAdapter): Promise<Scribble[]> {
 
 export async function getScribblesForDate(db: DbAdapter, date: string): Promise<Scribble[]> {
   const rows = await db.queryAll<Record<string, unknown>>(
-    'SELECT * FROM scribbles WHERE updated_at LIKE ? ORDER BY updated_at DESC',
-    [`${date}%`],
+    'SELECT * FROM scribbles WHERE entry_date = ? ORDER BY updated_at DESC',
+    [date],
   )
   return rows.map(parseScribble)
 }
 
 export async function createScribble(
   db: DbAdapter,
-  payload: Omit<Scribble, 'id' | 'created_at' | 'updated_at'>,
+  payload: Omit<Scribble, 'id' | 'created_at' | 'updated_at' | 'entry_date'> & {
+    entry_date?: string
+  },
 ): Promise<Scribble> {
   const id = crypto.randomUUID()
   const now = new Date().toISOString()
   await db.exec(
-    `INSERT INTO scribbles (id, title, content, tags, annotations, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?)`,
+    `INSERT INTO scribbles (id, title, content, tags, annotations, entry_date, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?)`,
     [
       id,
       payload.title ?? '',
       payload.content ?? '',
       JSON.stringify(payload.tags ?? []),
       JSON.stringify(payload.annotations ?? {}),
+      payload.entry_date ?? now.slice(0, 10),
       now,
       now,
     ],
@@ -945,6 +949,7 @@ export async function updateScribble(
       { kind: 'nullable', name: 'content', fallback: '' },
       { kind: 'json', name: 'tags', fallback: [] },
       { kind: 'json', name: 'annotations', fallback: {} },
+      { kind: 'nullable', name: 'entry_date' },
     ]),
   )
   await execDynamicUpdate(db, 'scribbles', id, pairs)
@@ -1262,21 +1267,23 @@ export async function createTodo(
     | 'done_count'
     | 'last_done_at'
     | 'archived_at'
-  >,
+    | 'scheduled_time'
+  > & { scheduled_time?: string | null },
 ): Promise<Todo> {
   const id = crypto.randomUUID()
   const now = new Date().toISOString()
   await db.exec(
     `INSERT INTO todos
-     (id,title,description,due_date,priority,estimated_minutes,is_done,done_count,
+     (id,title,description,due_date,scheduled_time,priority,estimated_minutes,is_done,done_count,
       tags,annotations,is_recurring,recurrence_rule,show_in_bored,bored_category_id,
       created_at,updated_at)
-     VALUES (?,?,?,?,?,?,0,0,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,0,0,?,?,?,?,?,?,?,?)`,
     [
       id,
       payload.title,
       payload.description,
       payload.due_date ?? null,
+      payload.scheduled_time ?? null,
       payload.priority ?? 'medium',
       payload.estimated_minutes ?? null,
       JSON.stringify(payload.tags ?? []),
@@ -1302,6 +1309,7 @@ export async function updateTodo(
     { kind: 'nullable', name: 'title' },
     { kind: 'nullable', name: 'description' },
     { kind: 'nullable', name: 'due_date' },
+    { kind: 'nullable', name: 'scheduled_time' },
     { kind: 'nullable', name: 'priority' },
     { kind: 'nullable', name: 'estimated_minutes' },
     { kind: 'nullable', name: 'recurrence_rule' },
@@ -1367,6 +1375,45 @@ export async function toggleTodo(db: DbAdapter, id: string): Promise<Todo> {
 export async function deleteAllTodos(db: DbAdapter): Promise<null> {
   await db.exec('DELETE FROM todos')
   return null
+}
+
+export async function getFocusSessions(
+  db: DbAdapter,
+  range: { from?: string; to?: string } = {},
+): Promise<FocusSession[]> {
+  const clauses: string[] = []
+  const args: string[] = []
+  if (range.from) {
+    clauses.push('completed_at >= ?')
+    args.push(range.from)
+  }
+  if (range.to) {
+    clauses.push('completed_at < ?')
+    args.push(range.to)
+  }
+  const where = clauses.length ? ` WHERE ${clauses.join(' AND ')}` : ''
+  return db.queryAll<FocusSession>(
+    `SELECT * FROM focus_sessions${where} ORDER BY completed_at DESC LIMIT 200`,
+    args,
+  )
+}
+
+export async function createFocusSession(
+  db: DbAdapter,
+  payload: Omit<FocusSession, 'id'>,
+): Promise<FocusSession> {
+  const session = { id: crypto.randomUUID(), ...payload }
+  await db.exec(
+    'INSERT INTO focus_sessions (id,todo_id,started_at,completed_at,duration_seconds) VALUES (?,?,?,?,?)',
+    [
+      session.id,
+      session.todo_id,
+      session.started_at,
+      session.completed_at,
+      session.duration_seconds,
+    ],
+  )
+  return session
 }
 
 // ─── Misc ─────────────────────────────────────────────────────────────────────
@@ -1577,6 +1624,7 @@ export async function exportJsonData(db: DbAdapter, sel: ExportSelection): Promi
         await db.queryAll<Record<string, unknown>>('SELECT * FROM todos ORDER BY created_at ASC')
       ).map(parseTodo)
     : []
+  const focus_sessions = sel.focus_sessions ? await getFocusSessions(db) : []
 
   return {
     version: 1,
@@ -1595,6 +1643,7 @@ export async function exportJsonData(db: DbAdapter, sel: ExportSelection): Promi
     bored_categories,
     bored_activities,
     todos,
+    focus_sessions,
   }
 }
 
@@ -1717,13 +1766,14 @@ export async function importJson(db: DbAdapter, data: HabitatExport): Promise<nu
     }
     for (const s of data.scribbles ?? []) {
       await db.exec(
-        'INSERT OR IGNORE INTO scribbles (id,title,content,tags,annotations,created_at,updated_at) VALUES (?,?,?,?,?,?,?)',
+        'INSERT OR IGNORE INTO scribbles (id,title,content,tags,annotations,entry_date,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)',
         [
           s.id,
           s.title ?? '',
           s.content ?? '',
           JSON.stringify(s.tags ?? []),
           JSON.stringify(s.annotations ?? {}),
+          s.entry_date ?? s.created_at.slice(0, 10),
           s.created_at,
           s.updated_at,
         ],
@@ -1769,15 +1819,16 @@ export async function importJson(db: DbAdapter, data: HabitatExport): Promise<nu
     for (const t of data.todos ?? []) {
       await db.exec(
         `INSERT OR IGNORE INTO todos
-         (id,title,description,due_date,priority,estimated_minutes,is_done,done_at,
+         (id,title,description,due_date,scheduled_time,priority,estimated_minutes,is_done,done_at,
           done_count,last_done_at,tags,annotations,is_recurring,recurrence_rule,
           show_in_bored,bored_category_id,archived_at,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           t.id,
           t.title,
           t.description,
           t.due_date ?? null,
+          t.scheduled_time ?? null,
           t.priority ?? 'medium',
           t.estimated_minutes ?? null,
           t.is_done ? 1 : 0,
@@ -1793,6 +1844,18 @@ export async function importJson(db: DbAdapter, data: HabitatExport): Promise<nu
           t.archived_at ?? null,
           t.created_at,
           t.updated_at,
+        ],
+      )
+    }
+    for (const session of data.focus_sessions ?? []) {
+      await db.exec(
+        'INSERT OR IGNORE INTO focus_sessions (id,todo_id,started_at,completed_at,duration_seconds) VALUES (?,?,?,?,?)',
+        [
+          session.id,
+          session.todo_id,
+          session.started_at,
+          session.completed_at,
+          session.duration_seconds,
         ],
       )
     }
@@ -2000,6 +2063,10 @@ export async function dispatch(db: DbAdapter, req: WorkerRequestBody): Promise<u
       return deleteAllBoredData(db)
     case 'GET_TODOS':
       return getTodos(db)
+    case 'GET_FOCUS_SESSIONS':
+      return getFocusSessions(db, req.payload)
+    case 'CREATE_FOCUS_SESSION':
+      return createFocusSession(db, req.payload)
     case 'CREATE_TODO':
       return createTodo(db, req.payload)
     case 'UPDATE_TODO':

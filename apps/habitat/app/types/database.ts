@@ -120,6 +120,8 @@ export interface Scribble {
   content: string
   tags: string[]
   annotations: Record<string, string>
+  /** The day this note belongs to, independent of when it was captured. */
+  entry_date: string
   created_at: string
   updated_at: string
 }
@@ -187,6 +189,7 @@ export interface Todo {
   title: string
   description: string
   due_date: string | null
+  scheduled_time: string | null
   priority: 'high' | 'medium' | 'low'
   estimated_minutes: number | null
   is_done: boolean
@@ -202,6 +205,14 @@ export interface Todo {
   archived_at: string | null
   created_at: string
   updated_at: string
+}
+
+export interface FocusSession {
+  id: string
+  todo_id: string
+  started_at: string
+  completed_at: string
+  duration_seconds: number
 }
 
 export type BoredOracleResult =
@@ -307,7 +318,9 @@ export type WorkerRequest =
   | {
       id: string
       type: 'CREATE_SCRIBBLE'
-      payload: Omit<Scribble, 'id' | 'created_at' | 'updated_at'>
+      payload: Omit<Scribble, 'id' | 'created_at' | 'updated_at' | 'entry_date'> & {
+        entry_date?: string
+      }
     }
   | { id: string; type: 'UPDATE_SCRIBBLE'; payload: Partial<Scribble> & { id: string } }
   | { id: string; type: 'DELETE_SCRIBBLE'; payload: { id: string } }
@@ -335,6 +348,8 @@ export type WorkerRequest =
   | { id: string; type: 'IMPORT_JSON'; payload: HabitatExport }
   | { id: string; type: 'GET_CHECKIN_SUMMARY_FOR_DATE'; payload: { date: string } }
   | { id: string; type: 'GET_SCRIBBLES_FOR_DATE'; payload: { date: string } }
+  | { id: string; type: 'GET_FOCUS_SESSIONS'; payload?: { from?: string; to?: string } }
+  | { id: string; type: 'CREATE_FOCUS_SESSION'; payload: Omit<FocusSession, 'id'> }
   | { id: string; type: 'GET_BORED_CATEGORIES' }
   | { id: string; type: 'CREATE_BORED_CATEGORY'; payload: Omit<BoredCategory, 'id' | 'created_at'> }
   | { id: string; type: 'UPDATE_BORED_CATEGORY'; payload: Partial<BoredCategory> & { id: string } }
@@ -373,7 +388,8 @@ export type WorkerRequest =
         | 'done_count'
         | 'last_done_at'
         | 'archived_at'
-      >
+        | 'scheduled_time'
+      > & { scheduled_time?: string | null }
     }
   | { id: string; type: 'UPDATE_TODO'; payload: Partial<Todo> & { id: string } }
   | { id: string; type: 'DELETE_TODO'; payload: { id: string } }
@@ -455,6 +471,7 @@ export interface HabitatExport {
   bored_categories: BoredCategory[]
   bored_activities: BoredActivity[]
   todos: Todo[]
+  focus_sessions?: FocusSession[]
 }
 
 /** Which tables to include when exporting JSON. */
@@ -473,6 +490,7 @@ export interface ExportSelection {
   bored_categories: boolean
   bored_activities: boolean
   todos: boolean
+  focus_sessions?: boolean
 }
 
 export type { DbAdapter } from '@palladium/core'

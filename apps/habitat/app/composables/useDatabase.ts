@@ -15,6 +15,7 @@ import type {
   Completion,
   DbInfo,
   ExportSelection,
+  FocusSession,
   Habit,
   HabitatExport,
   HabitLog,
@@ -133,8 +134,11 @@ export function useDatabase() {
     getCheckinCompletionsForDate: (date: string): Promise<CheckinCompletion[]> =>
       sendToWorker({ type: 'GET_CHECKIN_COMPLETIONS_FOR_DATE', payload: { date } }),
     getScribbles: (): Promise<Scribble[]> => sendToWorker({ type: 'GET_SCRIBBLES' }),
-    createScribble: (p: Omit<Scribble, 'id' | 'created_at' | 'updated_at'>): Promise<Scribble> =>
-      sendToWorker({ type: 'CREATE_SCRIBBLE', payload: p }),
+    createScribble: (
+      p: Omit<Scribble, 'id' | 'created_at' | 'updated_at' | 'entry_date'> & {
+        entry_date?: string
+      },
+    ): Promise<Scribble> => sendToWorker({ type: 'CREATE_SCRIBBLE', payload: p }),
     updateScribble: (p: Partial<Scribble> & { id: string }): Promise<Scribble> =>
       sendToWorker({ type: 'UPDATE_SCRIBBLE', payload: p }),
     deleteScribble: (id: string): Promise<null> =>
@@ -186,6 +190,13 @@ export function useDatabase() {
       sendToWorker({ type: 'GET_CHECKIN_SUMMARY_FOR_DATE', payload: { date } }),
     getScribblesForDate: (date: string): Promise<Scribble[]> =>
       sendToWorker({ type: 'GET_SCRIBBLES_FOR_DATE', payload: { date } }),
+    getFocusSessions: (from?: string, to?: string): Promise<FocusSession[]> =>
+      sendToWorker({
+        type: 'GET_FOCUS_SESSIONS',
+        payload: { ...(from ? { from } : {}), ...(to ? { to } : {}) },
+      }),
+    createFocusSession: (p: Omit<FocusSession, 'id'>): Promise<FocusSession> =>
+      sendToWorker({ type: 'CREATE_FOCUS_SESSION', payload: p }),
     getBoredCategories: (): Promise<BoredCategory[]> =>
       sendToWorker({ type: 'GET_BORED_CATEGORIES' }),
     createBoredCategory: (p: Omit<BoredCategory, 'id' | 'created_at'>): Promise<BoredCategory> =>
@@ -230,7 +241,8 @@ export function useDatabase() {
         | 'done_count'
         | 'last_done_at'
         | 'archived_at'
-      >,
+        | 'scheduled_time'
+      > & { scheduled_time?: string | null },
     ): Promise<Todo> => sendToWorker({ type: 'CREATE_TODO', payload: p }),
     updateTodo: (p: Partial<Todo> & { id: string }): Promise<Todo> =>
       sendToWorker({ type: 'UPDATE_TODO', payload: p }),

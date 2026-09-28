@@ -123,11 +123,13 @@ export const SCHEMA_DDL = `
     content     TEXT NOT NULL DEFAULT '',
     tags        TEXT NOT NULL DEFAULT '[]',
     annotations TEXT NOT NULL DEFAULT '{}',
+    entry_date  TEXT NOT NULL,
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL
   );
 
   CREATE INDEX IF NOT EXISTS idx_scribbles_updated ON scribbles(updated_at);
+  CREATE INDEX IF NOT EXISTS idx_scribbles_entry_date ON scribbles(entry_date);
 
   CREATE TABLE IF NOT EXISTS reminders (
     id           TEXT PRIMARY KEY,
@@ -182,6 +184,7 @@ export const SCHEMA_DDL = `
     title             TEXT NOT NULL,
     description       TEXT NOT NULL DEFAULT '',
     due_date          TEXT,
+    scheduled_time    TEXT,
     priority          TEXT NOT NULL DEFAULT 'medium',
     estimated_minutes INTEGER,
     is_done           INTEGER NOT NULL DEFAULT 0,
@@ -201,6 +204,15 @@ export const SCHEMA_DDL = `
 
   CREATE INDEX IF NOT EXISTS idx_todos_due_date ON todos(due_date);
   CREATE INDEX IF NOT EXISTS idx_todos_is_done  ON todos(is_done);
+
+  CREATE TABLE IF NOT EXISTS focus_sessions (
+    id               TEXT PRIMARY KEY,
+    todo_id          TEXT NOT NULL REFERENCES todos(id) ON DELETE CASCADE,
+    started_at       TEXT NOT NULL,
+    completed_at     TEXT NOT NULL,
+    duration_seconds INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_focus_sessions_completed ON focus_sessions(completed_at);
 
   CREATE TABLE IF NOT EXISTS voice_notes (
     id         TEXT PRIMARY KEY,
@@ -568,7 +580,7 @@ const SEEDS: Seed[] = [
 
 export const SCHEMA_CONFIG: SchemaConfig = {
   schema: SCHEMA_DDL,
-  version: 24,
+  version: 25,
   migrations: {
     11: [
       `CREATE TABLE IF NOT EXISTS bored_categories (
@@ -739,6 +751,28 @@ export const SCHEMA_CONFIG: SchemaConfig = {
         if (!cols.some((c) => c.name === 'color')) {
           await exec('ALTER TABLE checkin_templates ADD COLUMN color TEXT')
         }
+      },
+    ],
+    25: [
+      async (exec: MigrationExec) => {
+        const scribbleCols = await exec<{ name: string }>("PRAGMA table_info('scribbles')")
+        if (!scribbleCols.some((c) => c.name === 'entry_date')) {
+          await exec('ALTER TABLE scribbles ADD COLUMN entry_date TEXT')
+          await exec(
+            'UPDATE scribbles SET entry_date = substr(created_at, 1, 10) WHERE entry_date IS NULL',
+          )
+        }
+        const todoCols = await exec<{ name: string }>("PRAGMA table_info('todos')")
+        if (!todoCols.some((c) => c.name === 'scheduled_time')) {
+          await exec('ALTER TABLE todos ADD COLUMN scheduled_time TEXT')
+        }
+        await exec(`CREATE TABLE IF NOT EXISTS focus_sessions (
+          id TEXT PRIMARY KEY, todo_id TEXT NOT NULL REFERENCES todos(id) ON DELETE CASCADE,
+          started_at TEXT NOT NULL, completed_at TEXT NOT NULL, duration_seconds INTEGER NOT NULL
+        )`)
+        await exec(
+          'CREATE INDEX IF NOT EXISTS idx_focus_sessions_completed ON focus_sessions(completed_at)',
+        )
       },
     ],
   },

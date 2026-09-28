@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { Todo } from '~/types/database'
-import { priorityColor, formatDueDate, isOverdue, sortByPriority, PRIORITY_ORDER } from '~/utils/todos-helpers'
+import { buildTodoPayload, priorityColor, formatDueDate, isOverdue, sortByPriority, PRIORITY_ORDER } from '~/utils/todos-helpers'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -10,6 +10,7 @@ function makeTodo(overrides: Partial<Todo> = {}): Todo {
     title: 'Test todo',
     description: '',
     due_date: null,
+    scheduled_time: null,
     priority: 'medium',
     estimated_minutes: null,
     is_done: false,
@@ -35,6 +36,16 @@ describe('PRIORITY_ORDER', () => {
   it('ranks high < medium < low', () => {
     expect(PRIORITY_ORDER['high']).toBeLessThan(PRIORITY_ORDER['medium']!)
     expect(PRIORITY_ORDER['medium']).toBeLessThan(PRIORITY_ORDER['low']!)
+  })
+})
+
+describe('buildTodoPayload', () => {
+  it('keeps a scheduled start time with its duration', () => {
+    expect(buildTodoPayload({ title: 'Deep work', description: '', due_date: '2026-09-28', scheduled_time: '09:00', priority: 'medium', estimated_minutes: 30, is_recurring: false, recurrence_rule: 'daily', show_in_bored: false, bored_category_id: '', tags: [] }, null).scheduled_time).toBe('09:00')
+  })
+
+  it('rejects a scheduled task without duration', () => {
+    expect(() => buildTodoPayload({ title: 'Deep work', description: '', due_date: '2026-09-28', scheduled_time: '09:00', priority: 'medium', estimated_minutes: '', is_recurring: false, recurrence_rule: 'daily', show_in_bored: false, bored_category_id: '', tags: [] }, null)).toThrow('positive duration')
   })
 })
 

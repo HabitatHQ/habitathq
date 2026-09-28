@@ -27,6 +27,7 @@ const form = reactive({
   title: '',
   description: '',
   due_date: '',
+  scheduled_time: '',
   priority: 'medium' as 'high' | 'medium' | 'low',
   estimated_minutes: '' as string | number,
   is_recurring: false,
@@ -59,6 +60,7 @@ watch(
         title: todo.title,
         description: todo.description,
         due_date: todo.due_date ?? '',
+        scheduled_time: todo.scheduled_time ?? '',
         priority: todo.priority,
         estimated_minutes: todo.estimated_minutes ?? '',
         is_recurring: todo.is_recurring,
@@ -72,6 +74,7 @@ watch(
         title: '',
         description: '',
         due_date: props.defaultDate,
+        scheduled_time: '',
         priority: 'medium',
         estimated_minutes: '',
         is_recurring: false,
@@ -202,6 +205,10 @@ function jotKindIcon(kind: string | undefined): string {
 
       <UFormField label="Due date">
         <AppTextField v-model="form.due_date" type="date" class="w-full" />
+      </UFormField>
+
+      <UFormField label="Start time">
+        <AppTextField v-model="form.scheduled_time" type="time" class="w-full" @update:model-value="() => { if (form.scheduled_time && !form.estimated_minutes) form.estimated_minutes = 30 }" />
       </UFormField>
 
       <UFormField label="Priority">

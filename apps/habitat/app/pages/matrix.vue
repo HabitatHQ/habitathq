@@ -214,7 +214,7 @@ onMounted(() => {
         </svg>
       </div>
       <div class="text-center">
-        <p class="text-sm text-(--ui-text-dimmed)">Quick fill</p>
+        <p class="text-sm text-(--ui-text-dimmed)">Habit grids · Quick fill</p>
         <h2 class="text-2xl font-bold">{{ pageTitle }}</h2>
       </div>
     </header>

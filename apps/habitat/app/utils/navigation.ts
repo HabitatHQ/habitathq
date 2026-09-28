@@ -7,6 +7,7 @@ export interface NavItem {
   today?: boolean
   health?: boolean
   todos?: boolean
+  planner?: boolean
   bored?: boolean
   journalling?: boolean
 }
@@ -16,6 +17,7 @@ export const ALL_NAV_ITEMS: NavItem[] = [
   { to: '/habits', icon: resolveIcon('list-bullet'), label: 'Habits' },
   { to: '/checkin', icon: resolveIcon('pencil-square'), label: 'Check-in', journalling: true },
   { to: '/todos', icon: resolveIcon('check-circle'), label: 'TODOs', todos: true },
+  { to: '/plan', icon: resolveIcon('calendar-days'), label: 'Plan', planner: true },
   { to: '/bored', icon: resolveIcon('face-smile'), label: 'Bored', bored: true },
   { to: '/health', icon: resolveIcon('heart'), label: 'Health', health: true },
   { to: '/jots', icon: resolveIcon('document-text'), label: 'Jots', journalling: true },

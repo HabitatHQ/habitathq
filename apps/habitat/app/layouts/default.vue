@@ -123,6 +123,7 @@ const enabledNavItems = computed(() =>
     if (i.health && !settings.value.enableHealth) return false
     if (i.journalling && !settings.value.enableJournalling) return false
     if (i.todos && !settings.value.enableTodos) return false
+    if (i.planner && !(settings.value.enableTodos && settings.value.enablePlanner)) return false
     if (i.bored && !(settings.value.enableTodos && settings.value.enableBored)) return false
     return true
   }),
@@ -593,6 +594,24 @@ function toggleColorMode() {
             v-if="showAvatarMenu"
             class="absolute right-0 top-full mt-1 w-44 bg-(--ui-bg-muted) border border-(--ui-border) rounded-xl p-1.5 z-50 shadow-lg space-y-0.5"
           >
+            <NuxtLink
+              to="/plan"
+              class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+              :class="isActive('/plan') ? 'bg-primary-500/10 text-primary-400' : 'text-(--ui-text) hover:bg-(--ui-bg-elevated)'"
+              @click="showAvatarMenu = false"
+            ><AppIcon name="calendar-days" class="w-4 h-4" />Plan</NuxtLink>
+            <NuxtLink
+              to="/calendar"
+              class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+              :class="isActive('/calendar') ? 'bg-primary-500/10 text-primary-400' : 'text-(--ui-text) hover:bg-(--ui-bg-elevated)'"
+              @click="showAvatarMenu = false"
+            ><AppIcon name="calendar" class="w-4 h-4" />Calendar</NuxtLink>
+            <NuxtLink
+              to="/time"
+              class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+              :class="isActive('/time') ? 'bg-primary-500/10 text-primary-400' : 'text-(--ui-text) hover:bg-(--ui-bg-elevated)'"
+              @click="showAvatarMenu = false"
+            ><AppIcon name="timer" class="w-4 h-4" />Time</NuxtLink>
             <NuxtLink
               to="/matrix"
               class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
