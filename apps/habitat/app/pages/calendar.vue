@@ -19,6 +19,10 @@ type AgendaItem = {
   color: string
   duration: number | null
 }
+type CalendarNotePayload = Pick<
+  Scribble,
+  'title' | 'content' | 'tags' | 'annotations' | 'entry_date'
+>
 
 const db = useDatabase()
 const route = useRoute()
@@ -39,6 +43,9 @@ const loading = ref(true)
 const showTodoModal = ref(false)
 const editingTodo = ref<Todo | null>(null)
 const formDefaultDate = ref('')
+const showNoteSheet = ref(false)
+const editingNote = ref<Scribble | null>(null)
+const savingNote = ref(false)
 
 const visibleDays = computed(() => {
   if (calendarView.value === 'day') return [selected.value]
@@ -188,6 +195,40 @@ function openEdit(todo: Todo) {
   formDefaultDate.value = ''
   showTodoModal.value = true
 }
+function openNewNote() {
+  editingNote.value = null
+  showNoteSheet.value = true
+}
+function openNote(note: Scribble) {
+  editingNote.value = note
+  showNoteSheet.value = true
+}
+function updateLocalNote(note: Scribble) {
+  const index = notes.value.findIndex((item) => item.id === note.id)
+  if (index >= 0) notes.value[index] = note
+  else notes.value.unshift(note)
+}
+async function saveCalendarNote(payload: CalendarNotePayload) {
+  if (savingNote.value) return
+  savingNote.value = true
+  try {
+    const note = editingNote.value
+      ? await db.updateScribble({ id: editingNote.value.id, ...payload })
+      : await db.createScribble(payload)
+    updateLocalNote(note)
+    showNoteSheet.value = false
+    void notification('success')
+  } catch (error) {
+    logError('[calendar/saveNote]', error)
+    toast.add({ title: 'Failed to save note', color: 'error', duration: 4000 })
+  } finally {
+    savingNote.value = false
+  }
+}
+function openNoteInJots(note: Scribble) {
+  showNoteSheet.value = false
+  void navigateTo(`/jots/edit-${note.id}?calendarDate=${selected.value}`)
+}
 async function saveTodo(payload: Parameters<typeof db.createTodo>[0]) {
   try {
     if (editingTodo.value) {
@@ -231,7 +272,7 @@ onMounted(async () => {
       <section class="overflow-hidden rounded-2xl border border-(--ui-border) bg-(--ui-bg-elevated)"><div class="flex items-center justify-between border-b border-(--ui-border) px-4 py-3"><div><h2 class="font-semibold">Schedule</h2><p class="text-xs text-(--ui-text-dimmed)">Timed habits and tasks, in order</p></div><UButton size="xs" variant="soft" :icon="resolveIcon('plus')" @click="openAdd()">Add task</UButton></div><ul v-if="scheduledAgenda.length" class="divide-y divide-(--ui-border)"><li v-for="item in scheduledAgenda" :key="item.id" class="grid grid-cols-[3.5rem_1fr] gap-3 px-4 py-3"><p class="pt-2 text-right text-xs font-semibold type-code text-(--ui-text-dimmed)">{{ item.time }}</p><div v-if="item.todo" class="flex min-h-14 items-center gap-3 rounded-xl border border-(--ui-border) bg-(--ui-bg) px-3"><button type="button" class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border" :aria-label="`${item.todo.is_done ? 'Reopen' : 'Complete'} ${item.label}`" @click="toggleTodo(item.todo)"><AppIcon v-if="item.todo.is_done" name="check" class="h-4 w-4 text-primary-500" /></button><button type="button" class="min-w-0 flex-1 text-left" @click="openEdit(item.todo)"><span class="block truncate font-semibold" :class="item.todo.is_done ? 'line-through text-(--ui-text-dimmed)' : ''">{{ item.label }}</span><span class="text-xs text-(--ui-text-dimmed)"><template v-if="item.duration">{{ item.duration }} min · </template>Task</span></button></div><div v-else class="flex min-h-14 items-center gap-3 rounded-xl border border-dashed border-(--ui-border) px-3"><span class="h-2.5 w-2.5 rounded-full" :style="{ backgroundColor: item.color }" /><span class="font-semibold">{{ item.label }}</span></div></li></ul><EmptyState v-else icon="clock" title="Open time" description="Add a task or give one a start time." /></section>
       <section v-if="untimedDue.length" class="space-y-2"><div class="px-1"><h2 class="font-semibold">Due today</h2><p class="text-xs text-(--ui-text-dimmed)">Tasks without a start time</p></div><ul class="space-y-2"><AppCard v-for="todo in untimedDue" :key="todo.id" tag="li" class="flex items-center gap-3"><button class="flex h-7 w-7 items-center justify-center rounded-full border" @click="toggleTodo(todo)"><AppIcon v-if="todo.is_done" name="check" class="h-4 w-4 text-primary-500" /></button><button class="min-w-0 flex-1 text-left" @click="openEdit(todo)"><p class="truncate font-semibold" :class="todo.is_done ? 'line-through text-(--ui-text-dimmed)' : ''">{{ todo.title }}</p><p class="text-xs text-(--ui-text-dimmed)">{{ todo.priority }} priority</p></button></AppCard></ul></section>
       <section v-if="backlog.length" class="space-y-2"><div class="px-1"><h2 class="font-semibold">Backlog</h2><p class="text-xs text-(--ui-text-dimmed)">Tasks waiting for a date</p></div><ul class="space-y-2"><AppCard v-for="todo in backlog" :key="todo.id" tag="li" class="flex items-center gap-3"><span class="h-2.5 w-2.5 rounded-full" :style="{ backgroundColor: priorityColor(todo) }" /><button class="min-w-0 flex-1 text-left" @click="openEdit(todo)"><p class="truncate font-semibold">{{ todo.title }}</p><p class="text-xs text-(--ui-text-dimmed)">{{ todo.priority }} priority</p></button></AppCard></ul></section>
-      <section class="overflow-hidden rounded-2xl border border-(--ui-border) bg-(--ui-bg-elevated)"><div class="border-b border-(--ui-border) px-4 py-3"><p class="text-xs font-semibold uppercase tracking-wide text-(--ui-text-dimmed)">{{ periodTitle }}</p><h2 class="mt-0.5 text-lg font-bold">Notes & activity</h2></div><div class="space-y-2 p-3"><AppCard v-if="selectedHabits.length"><p class="font-semibold">{{ selectedHabits.length }} habit {{ selectedHabits.length === 1 ? 'completion' : 'completions' }}</p></AppCard><AppCard v-for="note in selectedNotes" :key="note.id" tag="NuxtLink" :to="`/jots/edit-${note.id}?calendarDate=${selected}`"><p class="font-semibold">{{ note.title || 'Untitled note' }}</p><p class="truncate text-xs text-(--ui-text-dimmed)">{{ note.content }}</p></AppCard><EmptyState v-if="!selectedHabits.length && !selectedNotes.length" icon="document-text" title="A quiet day" :description="notePrompt" /><UButton :to="{ path: '/jots/new', query: { date: selected, calendarNote: '1' } }" variant="soft" color="primary" block :icon="resolveIcon('plus')">{{ notePrompt }}</UButton></div></section>
+      <section class="overflow-hidden rounded-2xl border border-(--ui-border) bg-(--ui-bg-elevated)"><div class="border-b border-(--ui-border) px-4 py-3"><p class="text-xs font-semibold uppercase tracking-wide text-(--ui-text-dimmed)">{{ periodTitle }}</p><h2 class="mt-0.5 text-lg font-bold">Notes & activity</h2></div><div class="space-y-2 p-3"><AppCard v-if="selectedHabits.length"><p class="font-semibold">{{ selectedHabits.length }} habit {{ selectedHabits.length === 1 ? 'completion' : 'completions' }}</p></AppCard><AppCard v-for="note in selectedNotes" :key="note.id" tag="button" class="w-full text-left hover:border-(--ui-border-accented)" @click="openNote(note)"><p class="font-semibold">{{ note.title || 'Untitled note' }}</p><p class="truncate text-xs text-(--ui-text-dimmed)">{{ note.content }}</p></AppCard><EmptyState v-if="!selectedHabits.length && !selectedNotes.length" icon="document-text" title="A quiet day" :description="notePrompt" /><UButton variant="soft" color="primary" block :icon="resolveIcon('plus')" @click="openNewNote">{{ notePrompt }}</UButton></div></section>
     </template>
     <section v-else-if="calendarView === 'week'" class="grid gap-3 sm:grid-cols-7">
       <button v-for="date in visibleDays" :key="date" type="button" class="min-h-44 rounded-2xl border border-(--ui-border) bg-(--ui-bg-elevated) p-3 text-left" @click="selectDate(date)">
@@ -248,5 +289,6 @@ onMounted(async () => {
     </section>
     <template v-else><section class="rounded-2xl border border-(--ui-border) bg-(--ui-bg-elevated) p-3"><div class="grid grid-cols-7 text-center text-[11px] font-semibold uppercase tracking-wide text-(--ui-text-dimmed)"><span v-for="day in ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']" :key="day" class="pb-2">{{ day }}</span></div><div class="grid grid-cols-7 gap-1"><button v-for="date in visibleDays" :key="date" type="button" class="relative flex min-h-14 flex-col rounded-xl p-1.5 text-left" :class="[date === today ? 'bg-primary-500/10' : 'hover:bg-(--ui-bg-muted)', !isCurrentMonth(date) ? 'opacity-35' : '']" :aria-label="dateForKey(date).toLocaleDateString()" @click="selectDate(date)"><span class="text-sm font-bold">{{ dateForKey(date).getDate() }}</span><span class="mt-auto flex gap-1"><i v-if="completionCount(date)" class="h-1.5 w-1.5 rounded-full bg-emerald-500" /><i v-if="taskCount(date)" class="h-1.5 w-1.5 rounded-full bg-amber-500" /><i v-if="noteCount(date)" class="h-1.5 w-1.5 rounded-full bg-primary-500" /></span></button></div></section><p class="flex justify-center gap-3 text-xs text-(--ui-text-dimmed)"><span>Habits</span><span>Tasks</span><span>Notes</span></p></template>
     <TodoFormModal v-model:open="showTodoModal" :editing-todo="editingTodo" :bored-categories="boredCategories" :suggest-tags="suggestTags" :default-date="formDefaultDate" @save="saveTodo" @todo-updated="updateTodo" />
+    <CalendarNoteSheet v-model:open="showNoteSheet" :note="editingNote" :entry-date="selected" :saving="savingNote" @save="saveCalendarNote" @open-in-jots="openNoteInJots" />
   </div>
 </template>

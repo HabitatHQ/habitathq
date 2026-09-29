@@ -6,6 +6,7 @@ import {
   getJotDate,
   groupJotsByDate,
   groupJotsByTags,
+  hasCalendarNoteTag,
   isCalendarNote,
 } from '~/utils/jots-helpers'
 
@@ -61,6 +62,14 @@ describe('isCalendarNote', () => {
     expect(isCalendarNote(makeTextJot({ tags: [CALENDAR_NOTE_TAG] }))).toBe(true)
     expect(isCalendarNote(makeTextJot({ tags: ['daily'] }))).toBe(false)
     expect(isCalendarNote(makeVoiceJot('voice', '2026-05-28T10:00:00Z'))).toBe(false)
+  })
+})
+
+describe('hasCalendarNoteTag', () => {
+  it('recognizes the reserved tag on a dated text note', () => {
+    expect(hasCalendarNoteTag([CALENDAR_NOTE_TAG])).toBe(true)
+    expect(hasCalendarNoteTag(['work', CALENDAR_NOTE_TAG])).toBe(true)
+    expect(hasCalendarNoteTag(['work'])).toBe(false)
   })
 })
 

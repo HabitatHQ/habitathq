@@ -2,6 +2,10 @@ import type { JotItem } from '~/composables/useJotsStore'
 
 export const CALENDAR_NOTE_TAG = 'calendar-note'
 
+export function hasCalendarNoteTag(tags: string[]): boolean {
+  return tags.includes(CALENDAR_NOTE_TAG)
+}
+
 export interface JotSection {
   label: string
   items: JotItem[]
@@ -12,7 +16,7 @@ export function getJotDate(item: JotItem): string {
 }
 
 export function isCalendarNote(item: JotItem): boolean {
-  return item.kind === 'text' && item.data.tags.includes(CALENDAR_NOTE_TAG)
+  return item.kind === 'text' && hasCalendarNoteTag(item.data.tags)
 }
 
 /**
