@@ -864,6 +864,113 @@ async fn resumed_grant_offer_advances_only_through_delivered_backfill() {
 }
 
 #[tokio::test]
+async fn revoked_partial_grant_backfill_never_reappears_on_the_next_page() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let (root, initial) = root_insert("notes");
+    assert_eq!(
+        post_change(&app, "alice", &ws, initial).await,
+        StatusCode::CREATED
+    );
+    for _ in 0..100 {
+        assert_eq!(
+            post_change(&app, "alice", &ws, update("notes", root)).await,
+            StatusCode::CREATED
+        );
+    }
+    assert_eq!(
+        share(&app, "alice", &ws, root, "bob", "read").await,
+        StatusCode::OK
+    );
+
+    let first = get_env(&app, "bob", &ws).await;
+    assert_eq!(first["changes"].as_array().unwrap().len(), 100);
+    assert!(first["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|event| event["kind"] == "grant"));
+    assert_eq!(
+        unshare(&app, "alice", &ws, root, "bob").await,
+        StatusCode::OK
+    );
+
+    let (_, after_revoke) = call(
+        &app,
+        "GET",
+        &format!("/v1/changes?cursor={}", first["cursor"].as_str().unwrap()),
+        Some("bob"),
+        Some(&ws),
+        None,
+    )
+    .await;
+    assert!(
+        after_revoke["changes"].as_array().unwrap().is_empty(),
+        "a revoked member must not receive the remaining backfill"
+    );
+    assert_eq!(
+        after_revoke["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|event| event["kind"].as_str())
+            .collect::<Vec<_>>(),
+        vec![Some("revoke")]
+    );
+}
+
+#[tokio::test]
+async fn stale_revoke_event_cannot_purge_a_regranted_device() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let (root, change) = root_insert("notes");
+    assert_eq!(
+        post_change(&app, "alice", &ws, change).await,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        share(&app, "alice", &ws, root, "bob", "read").await,
+        StatusCode::OK
+    );
+    let initial = get_env(&app, "bob", &ws).await;
+    let grant_id = initial["events"][0]["id"].as_i64().unwrap();
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/v1/changes/events/ack",
+        Some("bob"),
+        Some(&ws),
+        Some(json!({ "event_ids": [grant_id] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    assert_eq!(
+        unshare(&app, "alice", &ws, root, "bob").await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        share(&app, "alice", &ws, root, "bob", "read").await,
+        StatusCode::OK
+    );
+    let regranted = get_env(&app, "bob", &ws).await;
+    assert!(
+        regranted["purges"].as_array().unwrap().is_empty(),
+        "the obsolete revoke must not purge the current grant"
+    );
+    assert_eq!(
+        regranted["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|event| event["kind"].as_str())
+            .collect::<Vec<_>>(),
+        vec![Some("grant")]
+    );
+    assert!(sees(&regranted, root));
+}
+
+#[tokio::test]
 async fn page_upper_bound_is_scope_maximum_not_page_cursor() {
     let app = app().await;
     let ws = family(&app).await;

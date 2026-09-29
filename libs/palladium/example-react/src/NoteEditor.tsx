@@ -8,12 +8,11 @@
  *   the content actually differs from what we last saved.
  */
 
-import type { PalladiumEngine } from "@palladium/core";
 import Placeholder from "@tiptap/extension-placeholder";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useRef } from "react";
-import type { NoteRow, NotesSchema } from "./db.js";
+import type { NoteRow } from "./db.js";
 
 const EMPTY_DOC = JSON.stringify({ type: "doc", content: [{ type: "paragraph" }] });
 
@@ -27,10 +26,13 @@ function safeParse(s: string): object {
 
 interface Props {
   note: NoteRow;
-  db: PalladiumEngine<NotesSchema>;
+  onUpdate(
+    id: string,
+    patch: Partial<Pick<NoteRow, "title" | "content" | "updated_at">>,
+  ): Promise<void>;
 }
 
-export function NoteEditor({ note, db }: Props): React.ReactElement {
+export function NoteEditor({ note, onUpdate }: Props): React.ReactElement {
   // Track the last content we wrote to the DB so we can distinguish local
   // writes (already in editor) from remote updates (need to push to editor).
   const lastSavedContentRef = useRef(note.content);
@@ -42,7 +44,7 @@ export function NoteEditor({ note, db }: Props): React.ReactElement {
     onUpdate: ({ editor: e }) => {
       const content = JSON.stringify(e.getJSON());
       lastSavedContentRef.current = content;
-      void db.update("notes", note.id, {
+      void onUpdate(note.id, {
         content,
         updated_at: Date.now(),
       });
@@ -62,7 +64,7 @@ export function NoteEditor({ note, db }: Props): React.ReactElement {
   function handleTitleChange(e: React.ChangeEvent<HTMLInputElement>): void {
     const title = e.target.value;
     lastSavedTitleRef.current = title;
-    void db.update("notes", note.id, { title, updated_at: Date.now() });
+    void onUpdate(note.id, { title, updated_at: Date.now() });
   }
 
   // Sync remote title changes into the uncontrolled input.

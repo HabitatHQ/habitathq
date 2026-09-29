@@ -117,6 +117,28 @@ jobs:
         run: pnpm --filter @palladium/core test
       - name: Live Rust server end-to-end and network faults
         run: pnpm --filter @palladium/e2e test
+      - name: Build browser recovery prerequisites
+        run: |
+          pnpm --filter @palladium/sqlite-browser build
+          pnpm --filter @palladium/worker build
+          pnpm --filter @palladium/react build
+          pnpm --filter @palladium/example-react typecheck
+          pnpm --filter @palladium/example-multitab typecheck
+      - name: Install browser recovery runtime
+        run: pnpm --filter @palladium/example-react exec playwright install --with-deps chromium
+      - name: Browser OPFS sync and ownership recovery
+        run: |
+          pnpm --filter @palladium/example-react exec playwright test
+          pnpm --filter @palladium/example-multitab exec playwright test
+      - name: Retain browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-recovery-results
+          path: |
+            libs/palladium/example-react/test-results/
+            libs/palladium/example-multitab/test-results/
+          if-no-files-found: ignore
       - name: Extended replayable simulation campaign
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         env:

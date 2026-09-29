@@ -1,8 +1,12 @@
+import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { EventEmitter } from "node:events";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createInterface } from "node:readline";
 import { setTimeout as delay } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 import {
   createEngine,
   generateUuidV7,
@@ -13,7 +17,7 @@ import {
 } from "@palladium/core";
 import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { buildRustPackage, type ManagedServer, rustBinary, startServer } from "../setup/process.js";
+import { type ManagedServer, rustBinary, startServer, WORKSPACE_ROOT } from "../setup/process.js";
 
 type TaskRow = { id: string; text: string; done: number };
 type TasksSchema = { tasks: TaskRow };
@@ -25,6 +29,38 @@ const SCHEMA: SchemaConfig = {
 };
 const RETRY_TIMEOUT_MS = 4_000;
 const WAIT_POLL_MS = 25;
+const CLIENT_FIXTURE = fileURLToPath(new URL("../fixtures/sync-crash-client.mjs", import.meta.url));
+
+type ServerChange = {
+  readonly id: string;
+  readonly hlc: { readonly wallMs: number; readonly counter: number; readonly nodeId: string };
+  readonly ops: readonly unknown[];
+};
+
+type FixtureMessage =
+  | {
+      readonly event: "durable-outbox";
+      readonly changeId: string;
+      readonly checkpoint: string | null;
+    }
+  | {
+      readonly event: "drained";
+      readonly outbox: readonly { readonly change_id: string }[];
+      readonly rows: readonly TaskRow[];
+      readonly checkpoint: string | null;
+    }
+  | { readonly event: "error"; readonly message: string };
+
+interface FixtureProcess {
+  readonly child: ChildProcess;
+  readonly messages: FixtureMessage[];
+  readonly exited: Promise<{
+    readonly code: number | null;
+    readonly signal: NodeJS.Signals | null;
+  }>;
+  readonly events: EventEmitter;
+  readonly stderr: () => string;
+}
 
 interface Client {
   readonly engine: PalladiumEngine<TasksSchema>;
@@ -97,11 +133,7 @@ class TransparentFaultFetch {
   };
 }
 
-let server: ManagedServer | undefined;
-let tmpDir: string | undefined;
-const clients: Client[] = [];
-
-async function startTestServer(port?: number): Promise<ManagedServer> {
+async function startTestServer(port?: number, env?: NodeJS.ProcessEnv): Promise<ManagedServer> {
   if (tmpDir === undefined) throw new Error("test temporary directory is not initialized");
   return startServer({
     name: "palladium resilience server",
@@ -110,8 +142,80 @@ async function startTestServer(port?: number): Promise<ManagedServer> {
     cwd: tmpDir,
     readinessPath: "/api-doc/openapi.json",
     ...(port === undefined ? {} : { port }),
+    ...(env === undefined ? {} : { env }),
   });
 }
+
+function crashEnvironment(
+  boundary: "before-commit" | "after-commit",
+  changeId: string,
+  marker: string,
+): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    PALLADIUM_SQLITE_CRASH_APPEND: boundary,
+    PALLADIUM_SQLITE_CRASH_CHANGE_ID: changeId,
+    PALLADIUM_SQLITE_CRASH_MARKER: marker,
+  };
+}
+
+function startClientFixture(
+  mode: "enqueue" | "drain",
+  filename: string,
+  serverUrl: string,
+  rowId: string,
+  text: string,
+): FixtureProcess {
+  const child = spawn(process.execPath, [CLIENT_FIXTURE, mode, filename, serverUrl, rowId, text], {
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  const messages: FixtureMessage[] = [];
+  const events = new EventEmitter();
+  let stderr = "";
+  const stdout = child.stdout;
+  if (stdout === null) throw new Error("client fixture did not expose stdout");
+  const lines = createInterface({ input: stdout });
+  lines.on("line", (line) => {
+    const message: unknown = JSON.parse(line);
+    if (typeof message === "object" && message !== null && "event" in message) {
+      messages.push(message as FixtureMessage);
+      events.emit("message");
+    }
+  });
+  child.stderr?.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString();
+  });
+  const exited = new Promise<{
+    readonly code: number | null;
+    readonly signal: NodeJS.Signals | null;
+  }>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code, signal) => resolve({ code, signal }));
+  });
+  const fixture = { child, messages, events, exited, stderr: () => stderr };
+  fixtureProcesses.push(fixture);
+  return fixture;
+}
+
+function taskChange(rowId: string, text: string): ServerChange {
+  return {
+    id: randomUUID(),
+    hlc: { wallMs: Date.now(), counter: 0, nodeId: randomUUID() },
+    ops: [{ op: "insert", table: "tasks", row_id: rowId, data: { id: rowId, text, done: 0 } }],
+  };
+}
+
+async function postServerChange(serverUrl: string, change: ServerChange): Promise<Response> {
+  return fetch(`${serverUrl}/v1/changes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(change),
+  });
+}
+let server: ManagedServer | undefined;
+let tmpDir: string | undefined;
+const clients: Client[] = [];
+const fixtureProcesses: FixtureProcess[] = [];
 
 async function makeClient(
   filename: string,
@@ -177,8 +281,63 @@ async function retryWhenDue(client: Client): Promise<void> {
     return row !== undefined && row.next_retry_at !== null && row.next_retry_at <= Date.now();
   });
 }
+async function waitForFixtureMessage<T extends FixtureMessage["event"]>(
+  fixture: FixtureProcess,
+  event: T,
+): Promise<Extract<FixtureMessage, { readonly event: T }>> {
+  const matching = (): Extract<FixtureMessage, { readonly event: T }> | undefined => {
+    const failure = fixture.messages.find(
+      (message): message is Extract<FixtureMessage, { readonly event: "error" }> =>
+        message.event === "error",
+    );
+    if (failure !== undefined) {
+      throw new Error(`client fixture failed: ${failure.message}\n${fixture.stderr()}`);
+    }
+    return fixture.messages.find(
+      (message): message is Extract<FixtureMessage, { readonly event: T }> =>
+        message.event === event,
+    );
+  };
+  const initial = matching();
+  if (initial !== undefined) return initial;
 
-async function serverHistory(serverUrl: string): Promise<readonly { id: string }[]> {
+  return new Promise<Extract<FixtureMessage, { readonly event: T }>>((resolve, reject) => {
+    // Bound a hung external process; success resolves on its stdout handshake, not elapsed time.
+    const timeout = setTimeout(() => failed(new Error(`Timed out waiting for ${event}`)), 10_000);
+    function cleanup(): void {
+      clearTimeout(timeout);
+      fixture.events.off("message", settle);
+      fixture.child.off("exit", exited);
+      fixture.child.off("error", failed);
+    }
+    function settle(): void {
+      try {
+        const message = matching();
+        if (message === undefined) return;
+        cleanup();
+        resolve(message);
+      } catch (error) {
+        cleanup();
+        reject(error);
+      }
+    }
+    function exited(): void {
+      cleanup();
+      reject(new Error(`client fixture exited before reporting ${event}\n${fixture.stderr()}`));
+    }
+    function failed(error: Error): void {
+      cleanup();
+      reject(error);
+    }
+    fixture.events.on("message", settle);
+    fixture.child.once("exit", exited);
+    fixture.child.once("error", failed);
+  });
+}
+
+async function serverHistory(
+  serverUrl: string,
+): Promise<readonly { id: string; ops: readonly unknown[] }[]> {
   const response = await fetch(`${serverUrl}/v1/changes?limit=100`);
   expect(response.ok).toBe(true);
   const body: unknown = await response.json();
@@ -188,18 +347,38 @@ async function serverHistory(serverUrl: string): Promise<readonly { id: string }
       : undefined;
   if (!Array.isArray(changes)) throw new Error("real server returned an invalid history envelope");
   return changes.filter(
-    (change: unknown): change is { id: string } =>
+    (change: unknown): change is { id: string; ops: readonly unknown[] } =>
       typeof change === "object" &&
       change !== null &&
       !Array.isArray(change) &&
       "id" in change &&
-      typeof change.id === "string",
+      typeof change.id === "string" &&
+      "ops" in change &&
+      Array.isArray(change.ops),
   );
+}
+
+async function receiptCursor(response: Response): Promise<string> {
+  expect(response.status).toBe(201);
+  const receipt: unknown = await response.json();
+  if (
+    typeof receipt !== "object" ||
+    receipt === null ||
+    Array.isArray(receipt) ||
+    !("cursor" in receipt) ||
+    typeof receipt.cursor !== "string"
+  ) {
+    throw new Error("real server returned an invalid change receipt");
+  }
+  return receipt.cursor;
 }
 
 describe("SyncTransport resilience against the real Rust server", () => {
   beforeAll(() => {
-    buildRustPackage("palladium-cli");
+    execFileSync("cargo", ["build", "-p", "palladium-cli", "--features", "crash-test-fixtures"], {
+      cwd: WORKSPACE_ROOT,
+      stdio: "inherit",
+    });
   }, 120_000);
 
   beforeEach(async () => {
@@ -209,6 +388,14 @@ describe("SyncTransport resilience against the real Rust server", () => {
 
   afterEach(async () => {
     let clientFailure: unknown;
+    await Promise.all(
+      fixtureProcesses.splice(0).map(async (fixture) => {
+        if (fixture.child.exitCode === null && fixture.child.signalCode === null) {
+          fixture.child.kill("SIGKILL");
+        }
+        await fixture.exited;
+      }),
+    );
     try {
       await Promise.all(clients.splice(0).map((client) => client.close()));
     } catch (error) {
@@ -338,5 +525,111 @@ describe("SyncTransport resilience against the real Rust server", () => {
     expect(
       (await serverHistory(server.baseUrl)).filter((change) => change.id === changeId),
     ).toHaveLength(1);
+  });
+  it("retains an acknowledged server append across SIGKILL with its exact receipt checkpoint", async () => {
+    if (server === undefined || tmpDir === undefined) throw new Error("server fixture unavailable");
+    const rowId = generateUuidV7();
+    const change = taskChange(rowId, "acknowledged before SIGKILL");
+    const cursor = await receiptCursor(await postServerChange(server.baseUrl, change));
+    const port = server.port;
+
+    await server.crash();
+    server = await startTestServer(port);
+
+    expect((await serverHistory(server.baseUrl)).filter((entry) => entry.id === change.id)).toEqual(
+      [expect.objectContaining({ id: change.id, ops: change.ops })],
+    );
+    const consumer = track(
+      await makeClient(join(tmpDir, "acknowledged-consumer.db"), server.baseUrl),
+    );
+    await consumer.transport.syncOnce();
+    expect(await taskRows(consumer)).toEqual([
+      { id: rowId, text: "acknowledged before SIGKILL", done: 0 },
+    ]);
+    expect(await checkpoint(consumer)).toBe(cursor);
+  });
+
+  it("loses no append when the real server aborts before the SQLite commit boundary", async () => {
+    if (server === undefined || tmpDir === undefined) throw new Error("server fixture unavailable");
+    const rowId = generateUuidV7();
+    const change = taskChange(rowId, "before commit");
+    const marker = join(tmpDir, "before-commit.marker");
+    const port = server.port;
+    await server.crash();
+    server = await startTestServer(port, crashEnvironment("before-commit", change.id, marker));
+
+    await expect(postServerChange(server.baseUrl, change)).rejects.toThrow();
+    await server.crash();
+    expect(await readFile(marker, "utf8")).toBe(`before-commit:${change.id}\n`);
+    server = await startTestServer(port);
+
+    expect((await serverHistory(server.baseUrl)).filter((entry) => entry.id === change.id)).toEqual(
+      [],
+    );
+    const cursor = await receiptCursor(await postServerChange(server.baseUrl, change));
+    expect((await serverHistory(server.baseUrl)).filter((entry) => entry.id === change.id)).toEqual(
+      [expect.objectContaining({ id: change.id, ops: change.ops })],
+    );
+    const consumer = track(
+      await makeClient(join(tmpDir, "before-commit-consumer.db"), server.baseUrl),
+    );
+    await consumer.transport.syncOnce();
+    expect(await taskRows(consumer)).toEqual([{ id: rowId, text: "before commit", done: 0 }]);
+    expect(await checkpoint(consumer)).toBe(cursor);
+  });
+
+  it("retries an after-commit server abort as one exact durable append", async () => {
+    if (server === undefined || tmpDir === undefined) throw new Error("server fixture unavailable");
+    const rowId = generateUuidV7();
+    const change = taskChange(rowId, "after commit");
+    const marker = join(tmpDir, "after-commit.marker");
+    const port = server.port;
+    await server.crash();
+    server = await startTestServer(port, crashEnvironment("after-commit", change.id, marker));
+
+    await expect(postServerChange(server.baseUrl, change)).rejects.toThrow();
+    await server.crash();
+    expect(await readFile(marker, "utf8")).toBe(`after-commit:${change.id}\n`);
+    server = await startTestServer(port);
+
+    const retry = await postServerChange(server.baseUrl, change);
+    const cursor = await receiptCursor(retry);
+    expect((await serverHistory(server.baseUrl)).filter((entry) => entry.id === change.id)).toEqual(
+      [expect.objectContaining({ id: change.id, ops: change.ops })],
+    );
+    const consumer = track(
+      await makeClient(join(tmpDir, "after-commit-consumer.db"), server.baseUrl),
+    );
+    await consumer.transport.syncOnce();
+    expect(await taskRows(consumer)).toEqual([{ id: rowId, text: "after commit", done: 0 }]);
+    expect(await checkpoint(consumer)).toBe(cursor);
+  });
+
+  it("drains an exact durable local outbox after the client process is SIGKILLed", async () => {
+    if (server === undefined || tmpDir === undefined) throw new Error("server fixture unavailable");
+    const rowId = generateUuidV7();
+    const text = "client outbox survives SIGKILL";
+    const filename = join(tmpDir, "killed-client.db");
+    const enqueuer = startClientFixture("enqueue", filename, server.baseUrl, rowId, text);
+    const durable = await waitForFixtureMessage(enqueuer, "durable-outbox");
+    expect(durable.checkpoint).toBeNull();
+
+    enqueuer.child.kill("SIGKILL");
+    expect(await enqueuer.exited).toEqual({ code: null, signal: "SIGKILL" });
+
+    const reopened = startClientFixture("drain", filename, server.baseUrl, rowId, text);
+    const drained = await waitForFixtureMessage(reopened, "drained");
+    expect(await reopened.exited).toEqual({ code: 0, signal: null });
+    expect(drained.outbox).toEqual([]);
+    expect(drained.rows).toEqual([{ id: rowId, text, done: 0 }]);
+    expect(drained.checkpoint).not.toBeNull();
+    expect(
+      (await serverHistory(server.baseUrl)).filter((entry) => entry.id === durable.changeId),
+    ).toEqual([
+      expect.objectContaining({
+        id: durable.changeId,
+        ops: [{ op: "insert", table: "tasks", row_id: rowId, data: { id: rowId, text, done: 0 } }],
+      }),
+    ]);
   });
 });

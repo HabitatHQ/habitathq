@@ -4,6 +4,8 @@ use fs2::FileExt;
 use palladium_core::{Change, ChangeStore, Hlc, InstanceLimits, Op, Scope};
 use sha2::Digest;
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
+#[cfg(feature = "crash-test-fixtures")]
+use std::io::Write;
 use std::{fs, path::PathBuf, str::FromStr};
 use uuid::Uuid;
 
@@ -20,6 +22,36 @@ CREATE TABLE IF NOT EXISTS palladium_changes (
     payload_hash TEXT NOT NULL,
     UNIQUE(scope, id)
 )";
+#[cfg(feature = "crash-test-fixtures")]
+fn crash_at_append_boundary(boundary: &str, change_id: Uuid) -> Result<()> {
+    let Ok(configured) = std::env::var("PALLADIUM_SQLITE_CRASH_APPEND") else {
+        return Ok(());
+    };
+    if configured != boundary {
+        return Ok(());
+    }
+    let Ok(target) = std::env::var("PALLADIUM_SQLITE_CRASH_CHANGE_ID") else {
+        return Ok(());
+    };
+    if target != change_id.to_string() {
+        return Ok(());
+    }
+    let Ok(marker) = std::env::var("PALLADIUM_SQLITE_CRASH_MARKER") else {
+        return Ok(());
+    };
+    let mut marker = match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(marker)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(()),
+        Err(error) => return Err(Error::Io(error)),
+    };
+    writeln!(marker, "{boundary}:{change_id}").map_err(Error::Io)?;
+    marker.sync_all().map_err(Error::Io)?;
+    std::process::abort();
+}
 
 #[derive(sqlx::FromRow)]
 struct LegacyChangeRow {
@@ -330,7 +362,15 @@ impl ChangeStore for SqliteStore {
             }
             (seq, false)
         };
+        #[cfg(feature = "crash-test-fixtures")]
+        if inserted {
+            crash_at_append_boundary("before-commit", change.id)?;
+        }
         tx.commit().await?;
+        #[cfg(feature = "crash-test-fixtures")]
+        if inserted {
+            crash_at_append_boundary("after-commit", change.id)?;
+        }
         let seq = u64::try_from(seq)
             .map_err(|_| Error::InvalidData("append sequence is negative".into()))?;
         let cursor = palladium_core::AppendCursor::new(seq);

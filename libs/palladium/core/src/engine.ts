@@ -532,7 +532,7 @@ export class PalladiumEngine<S extends SchemaMap> {
     return true;
   }
 
-  async #applyNewRemoteChange(
+  async #reconcileRemoteChange(
     adpt: StorageAdapter,
     ops: ReadonlyArray<Op<S>>,
     hlc: Hlc,
@@ -589,8 +589,11 @@ export class PalladiumEngine<S extends SchemaMap> {
     const scope = change.scope ?? "default";
     const payload = JSON.stringify({ hlc: change.hlc, ops: canonicalOps });
     const duplicate = await this.#isDuplicateRemoteChange(adpt, scope, change.id, payload);
+    // ACL purges clear row versions, not immutable change identities. Reconcile
+    // a matching replay so a later grant can restore history; LWW keeps ordinary
+    // duplicates idempotent and preserves newer local writes and tombstones.
+    await this.#reconcileRemoteChange(adpt, change.ops, change.hlc, touchedTables);
     if (!duplicate) {
-      await this.#applyNewRemoteChange(adpt, change.ops, change.hlc, touchedTables);
       await this.#recordRemoteChange(adpt, scope, change.id, payload);
     }
     await this.#checkpointRemoteState(adpt, cursor);

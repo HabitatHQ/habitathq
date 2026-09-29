@@ -8,7 +8,10 @@
     "types": ["vite/client"],
     "paths": {
       "@palladium/core": ["../core/src/index.ts"],
-      "@palladium/react": ["../react/src/index.ts"]
+      "@palladium/react": ["../react/src/index.ts"],
+      "@palladium/sqlite-browser": ["../sqlite-browser/src/index.ts"],
+      "@palladium/worker": ["../worker/src/index.ts"],
+      "@palladium/worker/owner": ["../worker/src/db-owner.ts"]
     }
   },
   "include": ["src", "e2e", "playwright.config.ts", "vite.config.ts"]

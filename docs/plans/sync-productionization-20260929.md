@@ -32,3 +32,13 @@
 - No new production fault-injection endpoints.
 - No claim of arbitrary scheduler exploration or full distributed-systems verification. The simulation is bounded, deterministic, and replayable.
 - No compatibility path for obsolete cursors, queues, or wire envelopes.
+
+## PR resilience extension
+
+1. Add deterministic process-termination checks around durable local commits, server receipts, and replay. Verify exact data, change identity, and append cardinality after reopening; distinguish application crash from power-loss guarantees.
+2. Exercise grant/revoke/regrant with partial backfill, offline devices, and lost acknowledgements. Check intermediate responses for unauthorized data as well as eventual root/child convergence.
+3. Run real browser SQLite WASM/OPFS recovery and multi-tab ownership checks in CI. Pending local writes must survive reload or owner loss and synchronize after reconnect.
+4. Keep faults in test fixtures, preserve the production protocol, and fix demonstrated defects rather than weakening assertions.
+5. Run the integrated Rust, client, HTTP E2E, and browser gates before committing and updating PR #43.
+
+This extension does not claim full-system DST, mobile lifecycle coverage, storage power-loss simulation, Postgres failover, or sustained-load qualification.

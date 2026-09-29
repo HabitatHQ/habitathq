@@ -1,49 +1,93 @@
-import { generateUuidV7, sql } from "@palladium/core";
-import { useLiveQuery, usePalladium, useSyncStatus } from "@palladium/react";
-import { useMemo, useState } from "react";
-import type { NoteRow, NotesSchema } from "./db.js";
+import type { WorkerConnection } from "@palladium/worker";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { NoteRow, NotesService, NotesSnapshot } from "./db.js";
 import { NoteEditor } from "./NoteEditor.js";
 
-export function App(): React.ReactElement {
-  const db = usePalladium<NotesSchema>();
-  const status = useSyncStatus();
-  const { rows: rawNotes } = useLiveQuery<NoteRow>(sql`SELECT * FROM notes`);
+interface AppProps {
+  readonly connection: WorkerConnection<NotesService>;
+}
+
+const EMPTY_SNAPSHOT: NotesSnapshot = {
+  nodeId: "",
+  notes: [],
+  pendingCount: 0,
+  syncStatus: "uninitialized",
+};
+
+export function App({ connection }: AppProps): React.ReactElement {
+  const [snapshot, setSnapshot] = useState<NotesSnapshot>(EMPTY_SNAPSHOT);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // Sort client-side — MemoryAdapter does not support ORDER BY.
-  const notes = useMemo(
-    () => [...rawNotes].sort((a, b) => b.updated_at - a.updated_at),
-    [rawNotes],
-  );
+  const refresh = useCallback(async (): Promise<void> => {
+    try {
+      setSnapshot(await connection.service.snapshot());
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [connection]);
 
-  const selectedNote = notes.find((n) => n.id === selectedId) ?? null;
-
-  async function handleNewNote(): Promise<void> {
-    const id = generateUuidV7();
-    await db.insert("notes", {
-      id,
-      title: "",
-      content: JSON.stringify({ type: "doc", content: [{ type: "paragraph" }] }),
-      updated_at: Date.now(),
+  useEffect(() => {
+    connection.onInvalidate(() => void refresh());
+    connection.onRole(() => void refresh());
+    connection.onError(setError);
+    void connection.service.ping().then(refresh, (err: unknown) => {
+      setError(err instanceof Error ? err.message : String(err));
     });
-    setSelectedId(id);
+  }, [connection, refresh]);
+
+  const notes = useMemo(
+    () => [...snapshot.notes].sort((a, b) => b.updated_at - a.updated_at),
+    [snapshot.notes],
+  );
+  const selectedNote = notes.find((note) => note.id === selectedId) ?? null;
+
+  async function createNote(): Promise<void> {
+    try {
+      const id = await connection.service.createNote();
+      setSelectedId(id);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   }
 
-  async function handleDelete(id: string, e: React.MouseEvent): Promise<void> {
-    e.stopPropagation();
-    await db.delete("notes", id);
-    if (selectedId === id) setSelectedId(null);
+  async function updateNote(
+    id: string,
+    patch: Partial<Pick<NoteRow, "title" | "content" | "updated_at">>,
+  ): Promise<void> {
+    try {
+      await connection.service.updateNote(id, patch);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function deleteNote(id: string): Promise<void> {
+    try {
+      await connection.service.deleteNote(id);
+      if (selectedId === id) setSelectedId(null);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   return (
     <div style={layoutStyle}>
-      {/* ── Sidebar ──────────────────────────────────────────────────── */}
       <aside style={sidebarStyle}>
         <div style={sidebarHeaderStyle}>
-          <span style={statusDotStyle(status)} data-testid="sync-status" title={status} />
+          <span
+            data-testid="sync-status"
+            data-status={snapshot.syncStatus}
+            style={statusDotStyle(snapshot.syncStatus)}
+            title={snapshot.syncStatus}
+          />
           <button
             data-testid="new-note-btn"
-            onClick={() => void handleNewNote()}
+            onClick={() => void createNote()}
             style={newBtnStyle}
             type="button"
           >
@@ -52,7 +96,12 @@ export function App(): React.ReactElement {
         </div>
         <ul data-testid="notes-list" style={notesListStyle}>
           {notes.map((note) => (
-            <li key={note.id} data-testid="note-item" style={noteItemWrapperStyle}>
+            <li
+              key={note.id}
+              data-testid="note-item"
+              data-row-id={import.meta.env["VITE_E2E"] === "true" ? note.id : undefined}
+              style={noteItemWrapperStyle}
+            >
               <button
                 aria-pressed={selectedId === note.id}
                 onClick={() => setSelectedId(note.id)}
@@ -63,7 +112,7 @@ export function App(): React.ReactElement {
               </button>
               <button
                 data-testid="delete-note-btn"
-                onClick={(e) => void handleDelete(note.id, e)}
+                onClick={() => void deleteNote(note.id)}
                 style={deleteBtnStyle}
                 title="Delete"
                 type="button"
@@ -74,12 +123,19 @@ export function App(): React.ReactElement {
           ))}
           {notes.length === 0 && <li style={emptyStyle}>No notes yet — create one!</li>}
         </ul>
+        {error !== null && <p data-testid="sync-error">{error}</p>}
+        {import.meta.env["VITE_E2E"] === "true" && (
+          <output data-testid="sync-diagnostics">
+            <span data-testid="node-id">{snapshot.nodeId}</span>
+            <span data-testid="pending-outbox-count">{snapshot.pendingCount}</span>
+            <span data-testid="sync-status-value">{snapshot.syncStatus}</span>
+          </output>
+        )}
       </aside>
 
-      {/* ── Editor pane ──────────────────────────────────────────────── */}
       <main style={mainStyle}>
         {selectedNote ? (
-          <NoteEditor note={selectedNote} db={db} />
+          <NoteEditor note={selectedNote} onUpdate={updateNote} />
         ) : (
           <div style={placeholderStyle}>
             <p>Select a note or click &ldquo;+ New Note&rdquo;</p>
@@ -89,8 +145,6 @@ export function App(): React.ReactElement {
     </div>
   );
 }
-
-// ── Styles ──────────────────────────────────────────────────────────────────
 
 const layoutStyle: React.CSSProperties = {
   display: "flex",
@@ -116,10 +170,13 @@ const sidebarHeaderStyle: React.CSSProperties = {
 };
 
 const statusColors: Record<string, string> = {
-  idle: "#4caf50",
+  caught_up: "#4caf50",
   syncing: "#ff9800",
-  error: "#f44336",
+  degraded: "#f44336",
   offline: "#9e9e9e",
+  hydrating: "#ff9800",
+  uninitialized: "#9e9e9e",
+  blocked_auth: "#f44336",
 };
 
 function statusDotStyle(status: string): React.CSSProperties {

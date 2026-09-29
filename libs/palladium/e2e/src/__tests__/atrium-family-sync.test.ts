@@ -244,7 +244,11 @@ interface Client {
   transport: SyncTransport<BurrowSchema>;
   dispose(): Promise<void>;
 }
-async function makeClient(user: string, ws: string): Promise<Client> {
+interface ClientOptions {
+  fetch?: typeof globalThis.fetch;
+}
+
+async function makeClient(user: string, ws: string, options: ClientOptions = {}): Promise<Client> {
   const nodeId = randomUUID();
   const engine = createEngine<BurrowSchema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }), {
     nodeId,
@@ -254,6 +258,7 @@ async function makeClient(user: string, ws: string): Promise<Client> {
     serverUrl: BASE_URL,
     pollIntervalMs: POLL_MS,
     authHeaders: () => ({ Authorization: `Bearer ${user}`, "X-Workspace": ws }),
+    ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
   });
   await transport.start();
   return { nodeId, engine, transport, dispose: () => transport.dispose() };
@@ -274,6 +279,29 @@ async function acknowledgedEventCount(client: Client): Promise<number> {
     [],
   );
   return rows[0]?.n ?? 0;
+}
+
+interface AtriumEnvelope {
+  changes: WireChange[];
+  events: Array<{ id: number; kind: string; root_id: string }>;
+  purges: Array<{ table: string; row_id: string }>;
+  cursor: string;
+}
+
+async function changes(
+  user: string,
+  ws: string,
+  nodeId: string,
+  cursor?: string,
+): Promise<AtriumEnvelope> {
+  const query = new URLSearchParams({ limit: "100" });
+  if (cursor !== undefined) query.set("cursor", cursor);
+  const res = await rest("GET", `/v1/changes?${query}`, user, undefined, {
+    "X-Workspace": ws,
+    "X-Palladium-Node": nodeId,
+  });
+  expect(res.status).toBe(200);
+  return (await res.json()) as AtriumEnvelope;
 }
 
 /** Wait until `predicate` holds for the client, else throw. */
@@ -544,6 +572,207 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
     await bobTwo.transport.start();
     await waitUntil(async () => (await count(bobTwo, "notes", note)) === 0);
     await waitUntil(async () => (await acknowledgedEventCount(bobTwo)) === 2);
+  });
+
+  it("never backfills a revoked root or child after a partial grant offer", async () => {
+    const ws = await family();
+    const alice = track(await makeClient("alice", ws));
+    const bob = track(await makeClient("bob", ws));
+    await bob.transport.stop();
+
+    const note = newId();
+    const image = newId();
+    await alice.engine.insert("notes", {
+      id: note,
+      title: "Private history",
+      body: "owner-only",
+      created_at: Date.now(),
+    });
+    await alice.engine.insert("note_images", {
+      id: image,
+      root_id: note,
+      blob_id: newId(),
+      caption: "private child",
+    });
+    await waitServerHas("alice", ws, alice.nodeId, image);
+    for (let index = 0; index < 100; index += 1) {
+      const historical: WireChange = {
+        id: randomUUID(),
+        hlc: { wallMs: Date.now() + index, counter: 0, nodeId: randomUUID() },
+        ops: [
+          {
+            op: "update",
+            table: "notes",
+            row_id: note,
+            col: "title",
+            value: `owner-history-${index}`,
+          },
+        ],
+      };
+      expect(
+        (await rest("POST", "/v1/changes", "alice", historical, { "X-Workspace": ws })).status,
+      ).toBe(201);
+    }
+
+    expect((await share("alice", ws, note, "bob", "read")).status).toBe(200);
+    const offered = await changes("bob", ws, bob.nodeId);
+    expect(offered.changes).toHaveLength(100);
+    expect(offered.changes.some((change) => change.ops.some((op) => op.row_id === note))).toBe(
+      true,
+    );
+    expect(offered.events.map((event) => event.kind)).toContain("grant");
+
+    expect((await unshare("alice", ws, note, "bob")).status).toBe(200);
+    const afterRevoke = await changes("bob", ws, bob.nodeId, offered.cursor);
+    expect(afterRevoke.changes.some((change) => change.ops.some((op) => op.row_id === note))).toBe(
+      false,
+    );
+    expect(afterRevoke.changes.some((change) => change.ops.some((op) => op.row_id === image))).toBe(
+      false,
+    );
+    expect(afterRevoke.events.map((event) => event.kind)).toEqual(["revoke"]);
+    expect(afterRevoke.purges).toEqual(
+      expect.arrayContaining([
+        { table: "notes", row_id: note },
+        { table: "note_images", row_id: image },
+      ]),
+    );
+  });
+
+  it("does not purge a regranted offline device with its stale revoke", async () => {
+    const ws = await family();
+    const alice = track(await makeClient("alice", ws));
+    const bob = track(await makeClient("bob", ws));
+
+    const note = newId();
+    const image = newId();
+    await alice.engine.insert("notes", {
+      id: note,
+      title: "Regrantable",
+      body: "authoritative",
+      created_at: Date.now(),
+    });
+    await alice.engine.insert("note_images", {
+      id: image,
+      root_id: note,
+      blob_id: newId(),
+      caption: "authoritative child",
+    });
+    await waitServerHas("alice", ws, alice.nodeId, image);
+    expect((await share("alice", ws, note, "bob", "read")).status).toBe(200);
+    await waitUntil(async () => (await count(bob, "note_images", image)) === 1);
+
+    await bob.transport.stop();
+    expect((await unshare("alice", ws, note, "bob")).status).toBe(200);
+    expect((await share("alice", ws, note, "bob", "read")).status).toBe(200);
+
+    const recovery = await changes("bob", ws, bob.nodeId);
+    expect(recovery.events.map((event) => event.kind)).not.toContain("revoke");
+    expect(recovery.events.map((event) => event.kind)).toContain("grant");
+    expect(recovery.purges).toEqual([]);
+    await bob.transport.start();
+    await waitUntil(
+      async () =>
+        (await count(bob, "notes", note)) === 1 && (await count(bob, "note_images", image)) === 1,
+    );
+  });
+
+  it("replays a lost device acknowledgement without consuming its sibling event", async () => {
+    const ws = await family();
+    const alice = track(await makeClient("alice", ws));
+    let rejectNextAck = false;
+    const lossyFetch: typeof globalThis.fetch = async (input, init) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (rejectNextAck && url.endsWith("/v1/changes/events/ack")) {
+        rejectNextAck = false;
+        return new Response("lost acknowledgement", { status: 503 });
+      }
+      return globalThis.fetch(input, init);
+    };
+    const bobOne = track(await makeClient("bob", ws, { fetch: lossyFetch }));
+    const bobTwo = track(await makeClient("bob", ws));
+    await bobOne.transport.stop();
+    await bobTwo.transport.stop();
+
+    const note = newId();
+    await alice.engine.insert("notes", {
+      id: note,
+      title: "Device acknowledgement",
+      body: "",
+      created_at: Date.now(),
+    });
+    await waitServerHas("alice", ws, alice.nodeId, note);
+    rejectNextAck = true;
+    expect((await share("alice", ws, note, "bob", "read")).status).toBe(200);
+
+    await bobOne.transport.start();
+    expect(await count(bobOne, "notes", note)).toBe(1);
+    expect(await acknowledgedEventCount(bobOne)).toBe(0);
+    await bobTwo.transport.start();
+    expect(await count(bobTwo, "notes", note)).toBe(1);
+    expect(await acknowledgedEventCount(bobTwo)).toBe(1);
+
+    await bobOne.transport.poll();
+    expect(await acknowledgedEventCount(bobOne)).toBe(1);
+    expect(await acknowledgedEventCount(bobTwo)).toBe(1);
+  });
+
+  it("rejects stale offline writes through revoke and restores the owner state on regrant", async () => {
+    const ws = await family();
+    const alice = track(await makeClient("alice", ws));
+    const bob = track(await makeClient("bob", ws));
+
+    const note = newId();
+    const image = newId();
+    await alice.engine.insert("notes", {
+      id: note,
+      title: "Owner title",
+      body: "owner body",
+      created_at: Date.now(),
+    });
+    await alice.engine.insert("note_images", {
+      id: image,
+      root_id: note,
+      blob_id: newId(),
+      caption: "owner child",
+    });
+    await waitServerHas("alice", ws, alice.nodeId, image);
+    expect((await share("alice", ws, note, "bob", "write")).status).toBe(200);
+    await waitUntil(async () => (await count(bob, "note_images", image)) === 1);
+
+    await bob.transport.stop();
+    await bob.engine.update("notes", note, { body: "stale offline body" });
+    await bob.engine.update("note_images", image, { caption: "stale offline child" });
+    expect((await unshare("alice", ws, note, "bob")).status).toBe(200);
+    await bob.transport.start();
+    await waitUntil(
+      async () =>
+        (await count(bob, "notes", note)) === 0 && (await count(bob, "note_images", image)) === 0,
+    );
+
+    const ownerBeforeRegrant = await alice.engine.exec<{ body: string }>(
+      sql`SELECT body FROM notes WHERE id = ${note}`,
+    );
+    expect(ownerBeforeRegrant[0]?.body).toBe("owner body");
+    expect((await share("alice", ws, note, "bob", "write")).status).toBe(200);
+    const serverBackfill = await changes("bob", ws, bob.nodeId);
+    expect(
+      serverBackfill.changes.some((change) => change.ops.some((op) => op.row_id === note)),
+    ).toBe(true);
+    expect(
+      serverBackfill.changes.some((change) => change.ops.some((op) => op.row_id === image)),
+    ).toBe(true);
+    expect(serverBackfill.purges).toEqual([]);
+    await bob.transport.poll();
+    await waitUntil(
+      async () =>
+        (await count(bob, "notes", note)) === 1 && (await count(bob, "note_images", image)) === 1,
+    );
+    const regranted = await bob.engine.exec<{ body: string }>(
+      sql`SELECT body FROM notes WHERE id = ${note}`,
+    );
+    expect(regranted[0]?.body).toBe("owner body");
   });
 
   it("A5: revoke purges the note from the ex-grantee", async () => {

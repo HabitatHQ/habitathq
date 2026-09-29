@@ -18,6 +18,7 @@ path = "src/main.rs"
 default = ["clap", "tokio-rt"]
 clap = ["dep:clap"]
 tokio-rt = ["tokio/rt-multi-thread"]
+crash-test-fixtures = ["palladium-sqlite/crash-test-fixtures"]
 
 [dependencies]
 palladium-core = { path = "../palladium-core" }

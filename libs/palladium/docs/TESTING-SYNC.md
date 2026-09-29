@@ -37,6 +37,27 @@ pnpm --filter @palladium/e2e test
 
 `@palladium/e2e` imports the built `@palladium/core` package; build it first so the suite cannot exercise stale `dist` output. The suite spawns isolated real Palladium and Atrium processes on ephemeral loopback ports, waits with bounded readiness checks, and cleans each process before deleting its SQLite state. It proves receipt loss after a real server commit, truncated downlink checkpoint safety, partition/reconnect, durable client reopen, crash/restart recovery, and two-device Atrium event delivery. Cargo and SQLite-compatible local server execution are required. If Cargo artifacts are redirected, set `CARGO_TARGET_DIR` so the launcher can locate the binaries.
 
+Crash-boundary checks build the CLI with the default-off `crash-test-fixtures` feature. A change-ID-scoped failpoint terminates the server immediately before or after the SQLite append commit. The tests also SIGKILL a server after an acknowledged write and a separate client process after its durable outbox handshake. Recovery assertions cover exact row contents, append identity/count, receipts, and persisted checkpoints. These are process-crash tests, not power-loss or filesystem-corruption tests.
+
+Atrium schedules cover partial grant backfill interrupted by revoke, revoke/regrant before device acknowledgement, lost device ACK responses, sibling-device isolation, and rejected offline writes followed by authoritative regrant. Assertions check intermediate authorization outcomes and root/child data, not only eventual convergence.
+
+## Browser OPFS recovery
+
+```sh
+pnpm --filter @palladium/sqlite-browser build
+pnpm --filter @palladium/worker build
+pnpm --filter @palladium/react build
+pnpm --filter @palladium/example-react build
+pnpm --filter @palladium/example-multitab build
+pnpm exec playwright install chromium
+pnpm --filter @palladium/example-react exec playwright test
+pnpm --filter @palladium/example-multitab exec playwright test
+```
+
+The React example runs the real engine and transport in a dedicated SQLite WASM/OPFS worker. Its suite retains create, title, rich-text, bidirectional edit, delete, and reload behavior checks, and adds tab/worker closure with a durable offline write followed by reopen/reconnect recovery. The multi-tab suite checks persisted state through leader loss and continued writes by the successor. CI runs both suites and uploads failure artifacts. Locally, `PLAYWRIGHT_CHANNEL=chrome` selects an already-installed Chrome instead of downloaded Chromium.
+
+The seeded engine simulation controls generated remote changes and their delivery schedules against an independent LWW oracle; it does not simulate local transactions through the complete transport/server stack. Browser quota exhaustion, mobile lifecycle, arbitrary scheduler exploration, storage power loss, and sustained-load qualification remain outside these gates.
+
 ## Manual wire spot-check (optional)
 
 With a compatible v1 server running, verify response shapes rather than treating HTTP success alone as acknowledgement:

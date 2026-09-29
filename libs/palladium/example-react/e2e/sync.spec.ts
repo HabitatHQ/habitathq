@@ -1,200 +1,255 @@
-/**
- * E2E sync tests — two browser instances of the React notes app communicating
- * through a live Palladium backend.
- *
- * Topology:
- *
- *   Page A (node = alice-uuid)  ─── POST /v1/changes ──►  Palladium backend
- *   Page B (node = bob-uuid)    ─── GET  /v1/changes ──►  (SQLite store)
- *
- * Each test opens two independent browser contexts so that storage, memory,
- * and React state are fully isolated between instances.  A 3-second settle
- * window covers the 1-second poll interval plus debounce and processing time.
- *
- * Node IDs are zero-padded UUIDs for readable test output.
- */
+import { randomUUID } from "node:crypto";
+import { type Browser, type BrowserContext, expect, type Page, test } from "@playwright/test";
 
-import { type Browser, expect, type Page, test } from "@playwright/test";
+const SYNC_TIMEOUT = 15_000;
 
-const ALICE = "00000000-0000-0000-0000-000000000001";
-const BOB = "00000000-0000-0000-0000-000000000002";
+type Instance = {
+  readonly context: BrowserContext;
+  readonly database: string;
+  readonly nodeId: string;
+  page: Page;
+};
 
-/** How long to wait for a change to propagate from one instance to another. */
-const SYNC_TIMEOUT = 5_000;
-
-// ── Helpers ─────────────────────────────────────────────────────────────────
-
-async function openInstance(browser: Browser, nodeId: string): Promise<Page> {
-  const ctx = await browser.newContext();
-  const page = await ctx.newPage();
-  await page.goto(`/?node=${nodeId}`);
-  // Wait until the notes list is rendered (app has finished init + first render).
-  await page.waitForSelector('[data-testid="notes-list"]');
-  return page;
+function isUuidV7(value: string | null): boolean {
+  return (
+    value !== null &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value)
+  );
 }
 
-/** Unique suffix per test run so concurrent / repeated runs don't collide. */
-function uid(): string {
-  return Math.random().toString(36).slice(2, 7);
+async function openInstance(
+  browser: Browser,
+  database = randomUUID(),
+  nodeId = randomUUID(),
+): Promise<Instance> {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(`/?database=${database}&node=${nodeId}`);
+  await expect(page.getByTestId("notes-list")).toBeVisible();
+  await expect(page.getByTestId("node-id")).toHaveText(nodeId);
+  return { context, database, nodeId, page };
 }
 
-// ── Tests ────────────────────────────────────────────────────────────────────
+async function reopen(instance: Instance): Promise<void> {
+  instance.page = await instance.context.newPage();
+  await instance.page.goto(`/?database=${instance.database}&node=${instance.nodeId}`);
+  await expect(instance.page.getByTestId("notes-list")).toBeVisible();
+  await expect(instance.page.getByTestId("node-id")).toHaveText(instance.nodeId);
+}
 
-test.describe("two-instance sync", () => {
-  test("note created in A appears in B's list", async ({ browser }) => {
-    const pageA = await openInstance(browser, ALICE);
-    const pageB = await openInstance(browser, BOB);
+async function pendingCount(page: Page): Promise<number> {
+  return Number(await page.getByTestId("pending-outbox-count").textContent());
+}
 
-    const title = `Hello from Alice ${uid()}`;
+test.describe("OPFS-backed v1 sync recovery", () => {
+  test("offline outbox survives abrupt tab termination, then converges through the Rust backend", async ({
+    browser,
+  }) => {
+    const writer = await openInstance(browser);
+    const reader = await openInstance(browser);
+    const title = `offline recovery ${randomUUID()}`;
 
-    // Create a note in page A.
-    await pageA.getByTestId("new-note-btn").click();
-    await pageA.getByTestId("note-title").fill(title);
+    try {
+      await writer.context.setOffline(true);
+      await writer.page.getByTestId("new-note-btn").click();
+      await writer.page.getByTestId("note-title").fill(title);
 
-    // Wait for the title update to propagate to the server and then to page B.
-    await expect(pageB.getByTestId("note-item").filter({ hasText: title })).toBeVisible({
-      timeout: SYNC_TIMEOUT,
-    });
+      const writerNote = writer.page.getByTestId("note-item").filter({ hasText: title });
+      await expect(writerNote).toBeVisible();
+      expect(isUuidV7(await writerNote.getAttribute("data-row-id"))).toBe(true);
+      await expect.poll(() => pendingCount(writer.page)).toBeGreaterThan(0);
 
-    await pageA.context().close();
-    await pageB.context().close();
+      // Closing the tab terminates its dedicated worker without calling the service's disposal path.
+      await writer.page.close();
+      await writer.context.setOffline(false);
+      await reopen(writer);
+
+      // The reopened owner reads the same OPFS store before transport recovery drains its durable outbox.
+      await expect(writer.page.getByTestId("note-item").filter({ hasText: title })).toBeVisible({
+        timeout: SYNC_TIMEOUT,
+      });
+      await expect.poll(() => pendingCount(writer.page), { timeout: SYNC_TIMEOUT }).toBe(0);
+
+      await expect(reader.page.getByTestId("note-item").filter({ hasText: title })).toBeVisible({
+        timeout: SYNC_TIMEOUT,
+      });
+    } finally {
+      await writer.context.close();
+      await reader.context.close();
+    }
   });
 
-  test("note title edited in A updates in B's sidebar", async ({ browser }) => {
-    const pageA = await openInstance(browser, ALICE);
-    const pageB = await openInstance(browser, BOB);
+  test("reload reopens the same OPFS database with its v1 row and node identities", async ({
+    browser,
+  }) => {
+    const writer = await openInstance(browser);
+    const reader = await openInstance(browser);
+    const title = `reload recovery ${randomUUID()}`;
 
-    const initial = `Initial ${uid()}`;
-    const updated = `Updated ${uid()}`;
+    try {
+      await writer.page.getByTestId("new-note-btn").click();
+      await writer.page.getByTestId("note-title").fill(title);
 
-    // Create note in A with initial title.
-    await pageA.getByTestId("new-note-btn").click();
-    await pageA.getByTestId("note-title").fill(initial);
+      const writerNote = writer.page.getByTestId("note-item").filter({ hasText: title });
+      await expect(writerNote).toBeVisible();
+      const rowId = await writerNote.getAttribute("data-row-id");
+      expect(isUuidV7(rowId)).toBe(true);
 
-    // Confirm note exists in B.
-    await expect(pageB.getByTestId("note-item").filter({ hasText: initial })).toBeVisible({
-      timeout: SYNC_TIMEOUT,
-    });
+      await expect(reader.page.getByTestId("note-item").filter({ hasText: title })).toBeVisible({
+        timeout: SYNC_TIMEOUT,
+      });
+      await expect.poll(() => pendingCount(writer.page), { timeout: SYNC_TIMEOUT }).toBe(0);
 
-    // Update the title in A.
-    await pageA.getByTestId("note-title").fill(updated);
-
-    // Verify B reflects the new title.
-    await expect(pageB.getByTestId("note-item").filter({ hasText: updated })).toBeVisible({
-      timeout: SYNC_TIMEOUT,
-    });
-
-    await pageA.context().close();
-    await pageB.context().close();
+      await writer.page.reload();
+      await expect(writer.page.getByTestId("node-id")).toHaveText(writer.nodeId);
+      const reloadedNote = writer.page.getByTestId("note-item").filter({ hasText: title });
+      await expect(reloadedNote).toBeVisible({ timeout: SYNC_TIMEOUT });
+      expect(await reloadedNote.getAttribute("data-row-id")).toBe(rowId);
+    } finally {
+      await writer.context.close();
+      await reader.context.close();
+    }
   });
 
-  test("rich-text content typed in A appears in B's editor", async ({ browser }) => {
-    const pageA = await openInstance(browser, ALICE);
-    const pageB = await openInstance(browser, BOB);
+  test("note created in one v1 client appears in another", async ({ browser }) => {
+    const writer = await openInstance(browser);
+    const reader = await openInstance(browser);
+    const title = `created in writer ${randomUUID()}`;
 
-    const title = `Content sync ${uid()}`;
-    const body = `Paragraph from Alice ${uid()}`;
-
-    // Create note in A.
-    await pageA.getByTestId("new-note-btn").click();
-    await pageA.getByTestId("note-title").fill(title);
-
-    // Type body text into the TipTap editor.
-    await pageA.getByTestId("editor-content").locator("[contenteditable]").click();
-    await pageA.keyboard.type(body);
-
-    // Wait for note to appear in B's list, then open it.
-    const noteBItem = pageB.getByTestId("note-item").filter({ hasText: title });
-    await expect(noteBItem).toBeVisible({ timeout: SYNC_TIMEOUT });
-    await noteBItem.click();
-
-    // B's editor should contain the typed text.
-    await expect(pageB.getByTestId("editor-content").locator("[contenteditable]")).toContainText(
-      body,
-      { timeout: SYNC_TIMEOUT },
-    );
-
-    await pageA.context().close();
-    await pageB.context().close();
+    try {
+      await writer.page.getByTestId("new-note-btn").click();
+      await writer.page.getByTestId("note-title").fill(title);
+      await expect(reader.page.getByTestId("note-item").filter({ hasText: title })).toBeVisible({
+        timeout: SYNC_TIMEOUT,
+      });
+    } finally {
+      await writer.context.close();
+      await reader.context.close();
+    }
   });
 
-  test("note created in B appears in A's list (bidirectional)", async ({ browser }) => {
-    const pageA = await openInstance(browser, ALICE);
-    const pageB = await openInstance(browser, BOB);
+  test("title edits propagate to another v1 client", async ({ browser }) => {
+    const writer = await openInstance(browser);
+    const reader = await openInstance(browser);
+    const initialTitle = `initial title ${randomUUID()}`;
+    const updatedTitle = `updated title ${randomUUID()}`;
 
-    const titleFromA = `From Alice ${uid()}`;
-    const titleFromB = `From Bob ${uid()}`;
+    try {
+      await writer.page.getByTestId("new-note-btn").click();
+      await writer.page.getByTestId("note-title").fill(initialTitle);
+      await expect(
+        reader.page.getByTestId("note-item").filter({ hasText: initialTitle }),
+      ).toBeVisible({
+        timeout: SYNC_TIMEOUT,
+      });
 
-    // A creates a note.
-    await pageA.getByTestId("new-note-btn").click();
-    await pageA.getByTestId("note-title").fill(titleFromA);
-
-    // B creates a note concurrently.
-    await pageB.getByTestId("new-note-btn").click();
-    await pageB.getByTestId("note-title").fill(titleFromB);
-
-    // Both notes should eventually appear in both lists.
-    await expect(pageA.getByTestId("note-item").filter({ hasText: titleFromB })).toBeVisible({
-      timeout: SYNC_TIMEOUT,
-    });
-
-    await expect(pageB.getByTestId("note-item").filter({ hasText: titleFromA })).toBeVisible({
-      timeout: SYNC_TIMEOUT,
-    });
-
-    await pageA.context().close();
-    await pageB.context().close();
+      await writer.page.getByTestId("note-title").fill(updatedTitle);
+      await expect(
+        reader.page.getByTestId("note-item").filter({ hasText: updatedTitle }),
+      ).toBeVisible({
+        timeout: SYNC_TIMEOUT,
+      });
+    } finally {
+      await writer.context.close();
+      await reader.context.close();
+    }
   });
 
-  test("note deleted in A disappears from B's list", async ({ browser }) => {
-    const pageA = await openInstance(browser, ALICE);
-    const pageB = await openInstance(browser, BOB);
+  test("rich text typed in one v1 client is available from another", async ({ browser }) => {
+    const writer = await openInstance(browser);
+    const reader = await openInstance(browser);
+    const title = `rich text ${randomUUID()}`;
+    const body = `paragraph ${randomUUID()}`;
 
-    const title = `To be deleted ${uid()}`;
+    try {
+      await writer.page.getByTestId("new-note-btn").click();
+      await writer.page.getByTestId("note-title").fill(title);
+      await writer.page.getByTestId("editor-content").locator("[contenteditable]").click();
+      await writer.page.keyboard.type(body);
 
-    // Create note in A.
-    await pageA.getByTestId("new-note-btn").click();
-    await pageA.getByTestId("note-title").fill(title);
-
-    // Confirm it appears in B.
-    await expect(pageB.getByTestId("note-item").filter({ hasText: title })).toBeVisible({
-      timeout: SYNC_TIMEOUT,
-    });
-
-    // Delete it in A.
-    await pageA
-      .getByTestId("note-item")
-      .filter({ hasText: title })
-      .getByTestId("delete-note-btn")
-      .click();
-
-    // Confirm it disappears from B.
-    await expect(pageB.getByTestId("note-item").filter({ hasText: title })).not.toBeVisible({
-      timeout: SYNC_TIMEOUT,
-    });
-
-    await pageA.context().close();
-    await pageB.context().close();
+      const readerNote = reader.page.getByTestId("note-item").filter({ hasText: title });
+      await expect(readerNote).toBeVisible({ timeout: SYNC_TIMEOUT });
+      await readerNote.click();
+      await expect(
+        reader.page.getByTestId("editor-content").locator("[contenteditable]"),
+      ).toContainText(body, { timeout: SYNC_TIMEOUT });
+    } finally {
+      await writer.context.close();
+      await reader.context.close();
+    }
   });
 
-  test("page reload hydrates notes from server", async ({ browser }) => {
-    const pageA = await openInstance(browser, ALICE);
+  test("two v1 clients accept concurrent notes bidirectionally", async ({ browser }) => {
+    const first = await openInstance(browser);
+    const second = await openInstance(browser);
+    const firstTitle = `first client ${randomUUID()}`;
+    const secondTitle = `second client ${randomUUID()}`;
 
-    const title = `Persisted ${uid()}`;
+    try {
+      await first.page.getByTestId("new-note-btn").click();
+      await first.page.getByTestId("note-title").fill(firstTitle);
+      await second.page.getByTestId("new-note-btn").click();
+      await second.page.getByTestId("note-title").fill(secondTitle);
 
-    // Create note.
-    await pageA.getByTestId("new-note-btn").click();
-    await pageA.getByTestId("note-title").fill(title);
-    await pageA.waitForTimeout(1_500); // let the write reach the server
+      await expect(
+        first.page.getByTestId("note-item").filter({ hasText: secondTitle }),
+      ).toBeVisible({
+        timeout: SYNC_TIMEOUT,
+      });
+      await expect(
+        second.page.getByTestId("note-item").filter({ hasText: firstTitle }),
+      ).toBeVisible({
+        timeout: SYNC_TIMEOUT,
+      });
+    } finally {
+      await first.context.close();
+      await second.context.close();
+    }
+  });
 
-    // Reload the page — memory is cleared, state must be rebuilt from server.
-    await pageA.reload();
-    await pageA.waitForSelector('[data-testid="notes-list"]');
+  test("delete from one v1 client removes the note from another", async ({ browser }) => {
+    const writer = await openInstance(browser);
+    const reader = await openInstance(browser);
+    const title = `deleted note ${randomUUID()}`;
 
-    await expect(pageA.getByTestId("note-item").filter({ hasText: title })).toBeVisible({
-      timeout: SYNC_TIMEOUT,
-    });
+    try {
+      await writer.page.getByTestId("new-note-btn").click();
+      await writer.page.getByTestId("note-title").fill(title);
+      const readerNote = reader.page.getByTestId("note-item").filter({ hasText: title });
+      await expect(readerNote).toBeVisible({ timeout: SYNC_TIMEOUT });
 
-    await pageA.context().close();
+      await writer.page
+        .getByTestId("note-item")
+        .filter({ hasText: title })
+        .getByTestId("delete-note-btn")
+        .click();
+      await expect(readerNote).not.toBeVisible({ timeout: SYNC_TIMEOUT });
+    } finally {
+      await writer.context.close();
+      await reader.context.close();
+    }
+  });
+
+  test("reload preserves notes hydrated from the Rust backend", async ({ browser }) => {
+    const writer = await openInstance(browser);
+    const reloader = await openInstance(browser);
+    const title = `server hydration ${randomUUID()}`;
+
+    try {
+      await writer.page.getByTestId("new-note-btn").click();
+      await writer.page.getByTestId("note-title").fill(title);
+      await expect(reloader.page.getByTestId("note-item").filter({ hasText: title })).toBeVisible({
+        timeout: SYNC_TIMEOUT,
+      });
+
+      await reloader.page.reload();
+      await expect(reloader.page.getByTestId("node-id")).toHaveText(reloader.nodeId);
+      await expect(reloader.page.getByTestId("note-item").filter({ hasText: title })).toBeVisible({
+        timeout: SYNC_TIMEOUT,
+      });
+    } finally {
+      await writer.context.close();
+      await reloader.context.close();
+    }
   });
 });

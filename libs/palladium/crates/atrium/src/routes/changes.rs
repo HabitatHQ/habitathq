@@ -186,6 +186,9 @@ async fn append_grant_backfills(
         else {
             continue;
         };
+        if !db.can_read(workspace, user, &root).await? {
+            continue;
+        }
         let (candidates, complete) = if let Some(through) = offered {
             let entries = db
                 .list_changes_through(workspace, backfill_cursor, through, None)
@@ -243,6 +246,9 @@ async fn append_grant_backfills(
                 .any(|existing| existing.id == entry.change.id)
             {
                 continue;
+            }
+            if !db.can_read(workspace, user, &root).await? {
+                break;
             }
             if change_root(db, workspace, &entry.change).await?.as_deref() == Some(root.as_str()) {
                 changes.push(entry.change);

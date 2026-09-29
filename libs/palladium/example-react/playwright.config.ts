@@ -22,6 +22,7 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${APP_PORT}`,
     trace: "on-first-retry",
+    ...(process.env["PLAYWRIGHT_CHANNEL"] ? { channel: process.env["PLAYWRIGHT_CHANNEL"] } : {}),
   },
 
   globalSetup: "./e2e/globalSetup.ts",
@@ -41,6 +42,6 @@ export default defineConfig({
     url: `http://localhost:${APP_PORT}`,
     reuseExistingServer: !isCI,
     timeout: 60_000,
-    env: { PALLADIUM_API: `http://localhost:${API_PORT}` },
+    env: { PALLADIUM_API: `http://localhost:${API_PORT}`, VITE_E2E: "true" },
   },
 });

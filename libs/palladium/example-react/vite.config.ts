@@ -11,19 +11,37 @@ export default defineConfig({
     exclude: ["@sqlite.org/sqlite-wasm"],
   },
   resolve: {
-    alias: {
-      "@palladium/sqlite-browser": fileURLToPath(
-        new URL("../sqlite-browser/src/index.ts", import.meta.url),
-      ),
-    },
+    alias: [
+      {
+        find: "@palladium/worker/owner",
+        replacement: fileURLToPath(new URL("../worker/src/db-owner.ts", import.meta.url)),
+      },
+      {
+        find: "@palladium/worker",
+        replacement: fileURLToPath(new URL("../worker/src/index.ts", import.meta.url)),
+      },
+      {
+        find: "@palladium/sqlite-browser",
+        replacement: fileURLToPath(new URL("../sqlite-browser/src/index.ts", import.meta.url)),
+      },
+    ],
   },
   server: {
+    headers: {
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "require-corp",
+    },
     proxy: {
-      // Forward /v1/* to the Palladium backend, avoiding CORS in the browser.
       "/v1": {
         target: PALLADIUM_API,
         changeOrigin: true,
       },
+    },
+  },
+  preview: {
+    headers: {
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "require-corp",
     },
   },
 });
