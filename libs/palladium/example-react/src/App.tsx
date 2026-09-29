@@ -1,5 +1,5 @@
 import type { WorkerConnection } from "@palladium/worker";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { NoteRow, NotesService, NotesSnapshot } from "./db.js";
 import { NoteEditor } from "./NoteEditor.js";
 
@@ -18,10 +18,25 @@ export function App({ connection }: AppProps): React.ReactElement {
   const [snapshot, setSnapshot] = useState<NotesSnapshot>(EMPTY_SNAPSHOT);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const writes = useRef({ pending: 0, revision: 0 });
+  const refreshRevision = useRef(0);
 
   const refresh = useCallback(async (): Promise<void> => {
+    if (writes.current.pending > 0) return;
+    const writeRevision = writes.current.revision;
+    const requestRevision = ++refreshRevision.current;
     try {
-      setSnapshot(await connection.service.snapshot());
+      const next = await connection.service.snapshot();
+      // A worker snapshot can describe an earlier keystroke. Never publish it
+      // over newer edits, or let an older request replace a newer snapshot.
+      if (
+        writes.current.pending > 0 ||
+        writes.current.revision !== writeRevision ||
+        refreshRevision.current !== requestRevision
+      ) {
+        return;
+      }
+      setSnapshot(next);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -57,12 +72,16 @@ export function App({ connection }: AppProps): React.ReactElement {
     id: string,
     patch: Partial<Pick<NoteRow, "title" | "content" | "updated_at">>,
   ): Promise<void> {
+    writes.current.pending += 1;
+    writes.current.revision += 1;
     try {
       await connection.service.updateNote(id, patch);
-      await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      writes.current.pending -= 1;
     }
+    await refresh();
   }
 
   async function deleteNote(id: string): Promise<void> {
@@ -135,7 +154,7 @@ export function App({ connection }: AppProps): React.ReactElement {
 
       <main style={mainStyle}>
         {selectedNote ? (
-          <NoteEditor note={selectedNote} onUpdate={updateNote} />
+          <NoteEditor key={selectedNote.id} note={selectedNote} onUpdate={updateNote} />
         ) : (
           <div style={placeholderStyle}>
             <p>Select a note or click &ldquo;+ New Note&rdquo;</p>

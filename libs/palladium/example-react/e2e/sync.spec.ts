@@ -166,13 +166,16 @@ test.describe("OPFS-backed v1 sync recovery", () => {
       await writer.page.getByTestId("note-title").fill(title);
       await writer.page.getByTestId("editor-content").locator("[contenteditable]").click();
       await writer.page.keyboard.type(body);
+      await expect(
+        writer.page.getByTestId("editor-content").locator("[contenteditable]"),
+      ).toHaveText(body);
 
       const readerNote = reader.page.getByTestId("note-item").filter({ hasText: title });
       await expect(readerNote).toBeVisible({ timeout: SYNC_TIMEOUT });
       await readerNote.click();
       await expect(
         reader.page.getByTestId("editor-content").locator("[contenteditable]"),
-      ).toContainText(body, { timeout: SYNC_TIMEOUT });
+      ).toHaveText(body, { timeout: SYNC_TIMEOUT });
     } finally {
       await writer.context.close();
       await reader.context.close();
