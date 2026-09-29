@@ -10,6 +10,8 @@ import {
   injectFullCspMetaTag,
 } from './lib/csp-hashes'
 
+type VitePlugin = { name: string }
+
 const buildTarget = process.env['BUILD_TARGET'] // 'pwa' | 'native' | undefined (defaults to dev/pwa)
 
 // Base path for all pages — set via NUXT_APP_BASE_URL env var (e.g. '/habitat/' for GitHub Pages).
@@ -151,7 +153,9 @@ export default defineNuxtConfig({
         ],
       },
       injectManifest: {
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2,wasm}'],
+        globPatterns: [
+          '**/*.{js,css,html,json,webmanifest,svg,png,jpg,jpeg,gif,webp,avif,ico,woff,woff2,ttf,otf,eot,wasm}',
+        ],
       },
       devOptions: {
         // Keep disabled in dev: Vite already serves COOP/COEP headers directly,
@@ -209,8 +213,7 @@ export default defineNuxtConfig({
               ),
           },
         },
-        // biome-ignore lint/suspicious/noExplicitAny: rollup Plugin vs vite PluginOption mismatch
-      }) as any,
+      }) as unknown as VitePlugin,
     ],
   },
 
