@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { isProxy, reactive } from 'vue'
 
 vi.mock('~/composables/useTagSuggestions', () => ({
   useTagSuggestions: () => ({ loadTags: async () => {}, suggest: () => [] }),
@@ -68,11 +69,11 @@ describe('CalendarNoteSheet', () => {
   })
 
   it('edits ordinary tags while preserving the Calendar-managed tag and date', async () => {
-    const note = {
+    const note = reactive({
       id: 'note-1', title: 'Review', content: 'Details', entry_date: '2026-09-27',
       tags: [CALENDAR_NOTE_TAG, 'work'], annotations: { source: 'calendar' },
       created_at: '2026-09-27T10:00:00Z', updated_at: '2026-09-27T10:00:00Z',
-    }
+    })
     const wrapper = mount(CalendarNoteSheet, {
       props: { open: true, note, entryDate: '2026-09-28' },
       global,
@@ -88,5 +89,6 @@ describe('CalendarNoteSheet', () => {
       annotations: { source: 'calendar' },
       entry_date: '2026-09-27',
     })
+    expect(isProxy(wrapper.emitted('save')![0]?.[0].annotations)).toBe(false)
   })
 })

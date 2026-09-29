@@ -64,7 +64,7 @@ function save() {
     content: form.content.trim(),
     entry_date: form.entryDate,
     tags: [...form.tags],
-    annotations: props.note?.annotations ?? {},
+    annotations: { ...(props.note?.annotations ?? {}) },
   })
 }
 
