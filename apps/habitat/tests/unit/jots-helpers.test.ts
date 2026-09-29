@@ -1,7 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import type { JotItem } from '~/composables/useJotsStore'
 import type { Scribble } from '~/types/database'
-import { groupJotsByDate, groupJotsByTags, getJotDate } from '~/utils/jots-helpers'
+import {
+  CALENDAR_NOTE_TAG,
+  getJotDate,
+  groupJotsByDate,
+  groupJotsByTags,
+  isCalendarNote,
+} from '~/utils/jots-helpers'
 
 function makeTextJot(overrides: Partial<Scribble> & { id?: string } = {}): JotItem {
   return {
@@ -47,6 +53,14 @@ describe('getJotDate', () => {
   it('returns created_at for image jots', () => {
     const item = makeImageJot('i1', '2026-05-18T06:00:00Z')
     expect(getJotDate(item)).toBe('2026-05-18T06:00:00Z')
+  })
+})
+
+describe('isCalendarNote', () => {
+  it('recognizes only text jots carrying the reserved calendar tag', () => {
+    expect(isCalendarNote(makeTextJot({ tags: [CALENDAR_NOTE_TAG] }))).toBe(true)
+    expect(isCalendarNote(makeTextJot({ tags: ['daily'] }))).toBe(false)
+    expect(isCalendarNote(makeVoiceJot('voice', '2026-05-28T10:00:00Z'))).toBe(false)
   })
 })
 

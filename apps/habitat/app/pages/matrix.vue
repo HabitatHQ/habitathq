@@ -63,7 +63,9 @@ onMounted(() => {
   })
 })
 
-const pageTitle = computed(() => (isDesktop.value ? 'Month' : 'Week'))
+const dateRangeLabel = computed(() =>
+  isDesktop.value ? 'Last 30 days' : `Last ${settings.value.weekDays} days`,
+)
 
 // ─── Days to display ──────────────────────────────────────────────────────────
 
@@ -214,8 +216,8 @@ onMounted(() => {
         </svg>
       </div>
       <div class="text-center">
-        <p class="text-sm text-(--ui-text-dimmed)">Habit grids · Quick fill</p>
-        <h2 class="text-2xl font-bold">{{ pageTitle }}</h2>
+        <p class="text-sm text-(--ui-text-dimmed)">{{ dateRangeLabel }} · Quick fill</p>
+        <h2 class="text-2xl font-bold">Habit Grid</h2>
       </div>
     </header>
 

@@ -209,8 +209,6 @@ describe('parseStrictCspSetting', () => {
       pomodoroCyclesBeforeLong: 4,
       weekDays: 3,
       matrixReverseDays: false,
-      todoCalendarView: false,
-      todoCalendarGrain: 'month',
       showTagsOnHabits: false,
       showAnnotationsOnHabits: false,
       showTagsOnToday: false,

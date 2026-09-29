@@ -1,5 +1,7 @@
 import type { JotItem } from '~/composables/useJotsStore'
 
+export const CALENDAR_NOTE_TAG = 'calendar-note'
+
 export interface JotSection {
   label: string
   items: JotItem[]
@@ -7,6 +9,10 @@ export interface JotSection {
 
 export function getJotDate(item: JotItem): string {
   return item.kind === 'text' ? item.data.updated_at : item.data.created_at
+}
+
+export function isCalendarNote(item: JotItem): boolean {
+  return item.kind === 'text' && item.data.tags.includes(CALENDAR_NOTE_TAG)
 }
 
 /**

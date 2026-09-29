@@ -142,11 +142,6 @@ async function confirmHealthSetup() {
           />
         </div>
 
-        <div v-if="appSettings.enableTodos" class="flex items-center justify-between px-4 py-3.5">
-          <div class="space-y-0.5"><p class="text-sm font-medium">Daily planner</p><p class="text-xs text-(--ui-text-dimmed)">Show the Day and Week planning tab.</p></div>
-          <USwitch :model-value="appSettings.enablePlanner" @update:model-value="setAppSetting('enablePlanner', $event)" />
-        </div>
-
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
             <p class="text-sm font-medium">Enable Health</p>

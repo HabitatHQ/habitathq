@@ -121,17 +121,17 @@ test.describe('Page load — key elements visible', () => {
     await expect(page.getByText("I'm Bored")).toBeVisible({ timeout: 8000 })
   })
 
-  test('/matrix desktop — "Month" heading', async ({ page }) => {
+  test('/matrix desktop — Habit Grid heading', async ({ page }) => {
     await page.goto('/matrix')
     await page.waitForLoadState('networkidle')
-    await expect(page.getByRole('heading', { name: 'Month' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Habit Grid' })).toBeVisible()
   })
 
-  test('/matrix mobile — "Week" heading', async ({ page }) => {
+  test('/matrix mobile — Habit Grid heading', async ({ page }) => {
     await page.setViewportSize(MOBILE)
     await page.goto('/matrix')
     await page.waitForLoadState('networkidle')
-    await expect(page.getByRole('heading', { name: 'Week' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Habit Grid' })).toBeVisible()
   })
 
   test('/settings — shows navigation list', async ({ page }) => {

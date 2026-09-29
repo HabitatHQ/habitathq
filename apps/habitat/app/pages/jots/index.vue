@@ -3,7 +3,7 @@ import type { ImageNote, JotItem, VoiceNote } from '~/composables/useJotsStore'
 import type { Scribble } from '~/types/database'
 import { toLocalDateKey } from '~/utils/format'
 import type { JotSection } from '~/utils/jots-helpers'
-import { groupJotsByDate, groupJotsByTags } from '~/utils/jots-helpers'
+import { groupJotsByDate, groupJotsByTags, isCalendarNote } from '~/utils/jots-helpers'
 
 const router = useRouter()
 const { selectionChanged } = useHaptics()
@@ -45,12 +45,14 @@ const gridView = ref(false)
 interface JotsFilterDefaults {
   types: Array<'text' | 'voice' | 'image'>
   categorizeBy: 'created' | 'tags'
+  showCalendarNotes: boolean
 }
 
 const JOTS_FILTER_KEY = 'jots-filter-defaults'
 const JOTS_HARDCODED: JotsFilterDefaults = {
   types: ['text', 'voice', 'image'],
   categorizeBy: 'created',
+  showCalendarNotes: false,
 }
 
 function readJotsDefaults(): JotsFilterDefaults {
@@ -69,6 +71,7 @@ const searchQuery = ref('')
 const searchExpanded = ref(false)
 const typeFilter = ref(new Set<'text' | 'voice' | 'image'>(savedDefaults.value.types))
 const categorizeBy = ref<'created' | 'tags'>(savedDefaults.value.categorizeBy)
+const showCalendarNotes = ref(savedDefaults.value.showCalendarNotes)
 const showFilterPopover = ref(false)
 
 function toggleType(kind: 'text' | 'voice' | 'image') {
@@ -86,6 +89,7 @@ const activeFilterCount = computed(() => {
     if (typeFilter.value.has(k) !== dTypes.has(k)) count++
   }
   if (categorizeBy.value !== savedDefaults.value.categorizeBy) count++
+  if (showCalendarNotes.value !== savedDefaults.value.showCalendarNotes) count++
   return count
 })
 
@@ -95,6 +99,7 @@ function makeDefaultView() {
   const defaults: JotsFilterDefaults = {
     types: [...typeFilter.value],
     categorizeBy: categorizeBy.value,
+    showCalendarNotes: showCalendarNotes.value,
   }
   localStorage.setItem(JOTS_FILTER_KEY, JSON.stringify(defaults))
   savedDefaults.value = defaults
@@ -107,6 +112,7 @@ const filteredJots = computed((): JotItem[] => {
   let list = timeline.value
 
   list = list.filter((item) => typeFilter.value.has(item.kind))
+  if (!showCalendarNotes.value) list = list.filter((item) => !isCalendarNote(item))
 
   const q = searchQuery.value.trim().toLowerCase()
   if (q) {
@@ -141,6 +147,7 @@ const groupedJots = computed((): JotSection[] => {
 function resetFilters() {
   typeFilter.value = new Set(savedDefaults.value.types)
   categorizeBy.value = savedDefaults.value.categorizeBy
+  showCalendarNotes.value = savedDefaults.value.showCalendarNotes
   void selectionChanged()
 }
 
@@ -531,6 +538,18 @@ onUnmounted(() => {
                 @click="toggleType('voice')"
               >Voice</button>
             </div>
+          </div>
+
+          <div class="flex items-center justify-between gap-3 border-t border-(--ui-border)/50 pt-3">
+            <div>
+              <p class="text-xs font-medium text-(--ui-text)">Show calendar notes</p>
+              <p class="text-[11px] text-(--ui-text-dimmed)">Include notes created from Calendar</p>
+            </div>
+            <USwitch
+              v-model="showCalendarNotes"
+              aria-label="Show calendar notes"
+              @update:model-value="selectionChanged()"
+            />
           </div>
 
           <!-- Categorize by -->

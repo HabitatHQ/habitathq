@@ -17,18 +17,18 @@ test.describe('Matrix page', () => {
     expect(fatal).toHaveLength(0)
   })
 
-  test('shows "Month" heading on desktop viewport', async ({ page }) => {
+  test('shows the Habit Grid heading on desktop viewport', async ({ page }) => {
     // Default Playwright viewport is 1280×720 — above the 640px sm breakpoint
     await page.goto('/matrix')
     await page.waitForLoadState('networkidle')
-    await expect(page.getByRole('heading', { name: 'Month' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Habit Grid' })).toBeVisible()
   })
 
-  test('shows "Week" heading on mobile viewport', async ({ page }) => {
+  test('shows the Habit Grid heading on mobile viewport', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/matrix')
     await page.waitForLoadState('networkidle')
-    await expect(page.getByRole('heading', { name: 'Week' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Habit Grid' })).toBeVisible()
   })
 
   test('shows empty state and add-habits link when no habits exist', async ({ page }) => {
@@ -50,19 +50,17 @@ test.describe('Matrix page', () => {
     await expect(page.getByRole('heading', { name: 'Habits' })).toBeVisible()
   })
 
-  test('nav label is "Month" on desktop', async ({ page }) => {
+  test('is accessed from the profile menu on desktop', async ({ page }) => {
     await page.goto('/matrix')
     await page.waitForLoadState('networkidle')
     // Matrix is accessed via the avatar/profile dropdown, not the bottom nav.
-    // On desktop the page heading shows "Month".
-    await expect(page.getByRole('heading', { name: 'Month' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Habit Grid' })).toBeVisible()
   })
 
-  test('nav label is "Week" on mobile', async ({ page }) => {
+  test('keeps the Habit Grid heading on mobile', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/matrix')
     await page.waitForLoadState('networkidle')
-    // On mobile the page heading shows "Week".
-    await expect(page.getByRole('heading', { name: 'Week' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Habit Grid' })).toBeVisible()
   })
 })

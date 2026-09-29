@@ -29,7 +29,6 @@ g['useBoolModalQuery'] = () => ref(false)
 g['useModalQuery'] = () => ref(null)
 g['useAppSettings'] = () => ({
   settings: ref({
-    todoCalendarView: false,
     pomodoroWorkMinutes: 25,
     pomodoroShortBreakMinutes: 5,
     pomodoroLongBreakMinutes: 15,

@@ -1,13 +1,16 @@
 <script setup lang="ts">
 // New text jot — full page editor
+import { CALENDAR_NOTE_TAG } from '~/utils/jots-helpers'
+
 const store = useJotsStore()
 const route = useRoute()
 const saving = ref(false)
+const isCalendarNote = route.query['calendarNote'] === '1'
 
 const textForm = reactive({
   title: '',
   content: '',
-  tags: [] as string[],
+  tags: isCalendarNote ? [CALENDAR_NOTE_TAG] : [],
   annotations: {} as Record<string, string>,
   entry_date:
     typeof route.query['date'] === 'string'
