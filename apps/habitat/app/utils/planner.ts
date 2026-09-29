@@ -44,18 +44,28 @@ export function expandTodoOccurrences(todo: Todo, from: string, to: string): str
   const date = dateForKey(todo.due_date)
   const start = dateForKey(from)
   const end = dateForKey(to)
-  while (date < start) advanceOccurrence(date, todo.recurrence_rule ?? 'daily')
+  const rule = todo.recurrence_rule ?? 'daily'
+  const anchorDay = date.getDate()
+  while (date < start) advanceOccurrence(date, rule, anchorDay)
 
   const occurrences: string[] = []
   while (date <= end) {
     occurrences.push(plannerDateKey(date))
-    advanceOccurrence(date, todo.recurrence_rule ?? 'daily')
+    advanceOccurrence(date, rule, anchorDay)
   }
   return occurrences
 }
 
-function advanceOccurrence(date: Date, rule: NonNullable<Todo['recurrence_rule']>) {
+function advanceOccurrence(
+  date: Date,
+  rule: NonNullable<Todo['recurrence_rule']>,
+  anchorDay: number,
+) {
   if (rule === 'weekly') date.setDate(date.getDate() + 7)
-  else if (rule === 'monthly') date.setMonth(date.getMonth() + 1)
-  else date.setDate(date.getDate() + 1)
+  else if (rule === 'monthly') {
+    const year = date.getFullYear()
+    const month = date.getMonth() + 1
+    const lastDay = new Date(year, month + 1, 0).getDate()
+    date.setFullYear(year, month, Math.min(anchorDay, lastDay))
+  } else date.setDate(date.getDate() + 1)
 }

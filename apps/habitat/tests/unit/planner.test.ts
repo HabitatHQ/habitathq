@@ -30,6 +30,16 @@ describe('planner dates', () => {
       '2026-09-22', '2026-09-29',
     ])
   })
+
+  it('keeps a monthly task anchored to its original day when months are shorter', () => {
+    expect(
+      expandTodoOccurrences(
+        recurringTodo({ due_date: '2026-01-31', recurrence_rule: 'monthly' }),
+        '2026-01-01',
+        '2026-04-30',
+      ),
+    ).toEqual(['2026-01-31', '2026-02-28', '2026-03-31', '2026-04-30'])
+  })
 })
 
 describe('calendarNotePrompt', () => {
