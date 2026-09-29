@@ -5,7 +5,7 @@ import { toLocalDateKey } from '~/utils/format'
 import { sortByPriority } from '~/utils/todos-helpers'
 
 const db = useDatabase()
-const { settings, set: setAppSetting } = useAppSettings()
+const { settings } = useAppSettings()
 const { anyActive, matchesContext } = useContextFilter()
 const { impact, selectionChanged, notification } = useHaptics()
 const { loadTags, suggest: suggestTags } = useTagSuggestions('todo')
@@ -65,11 +65,6 @@ async function finishTimerAndDone(todo: Todo) {
   await toggleTodo(todo)
   void impact('medium')
 }
-
-const calendarView = computed({
-  get: () => settings.value.todoCalendarView,
-  set: (v: boolean) => setAppSetting('todoCalendarView', v),
-})
 
 const toast = useToast()
 
@@ -278,14 +273,6 @@ const done = computed(() =>
     .slice(0, 20),
 )
 
-const filteredTodosForCalendar = computed(() =>
-  processedTodos.value.filter((t) => {
-    if (filter.value === 'active') return !t.is_done
-    if (filter.value === 'done') return t.is_done
-    return true
-  }),
-)
-
 type Section = { label: string; items: Todo[]; key: string; collapsible?: boolean }
 
 const filteredSections = computed((): Section[] => {
@@ -337,12 +324,6 @@ const formDefaultDate = ref('')
 function openAdd() {
   editingTodo.value = null
   formDefaultDate.value = ''
-  showModal.value = true
-}
-
-function openAddWithDate(date: string) {
-  editingTodo.value = null
-  formDefaultDate.value = date
   showModal.value = true
 }
 
@@ -411,21 +392,11 @@ async function deleteAndClose(t: Todo) {
 </script>
 
 <template>
-  <div :class="calendarView ? 'space-y-4' : 'max-w-lg mx-auto space-y-5'">
+  <div class="max-w-lg mx-auto space-y-5">
     <!-- Header -->
     <div class="flex items-center justify-between">
       <h1 class="text-2xl font-bold">TODOs</h1>
       <div class="flex items-center gap-2">
-        <!-- List / Calendar toggle -->
-        <AppToggleSwitcher
-          :model-value="calendarView ? 'calendar' : 'list'"
-          :options="[
-            { value: 'list', icon: 'list-bullet', ariaLabel: 'List view' },
-            { value: 'calendar', icon: 'calendar-days', ariaLabel: 'Calendar view' }
-          ]"
-          group-label="View mode"
-          @update:model-value="v => calendarView = (v === 'calendar')"
-        />
         <UButton size="sm" class="min-h-[44px]" :icon="resolveIcon('plus')" @click="openAdd">Add</UButton>
       </div>
     </div>
@@ -560,16 +531,6 @@ async function deleteAndClose(t: Todo) {
       </div>
     </div>
 
-    <!-- Calendar view -->
-    <TodoCalendarView
-      v-if="calendarView"
-      :todos="filteredTodosForCalendar"
-      :today="today"
-      @create="openAddWithDate"
-      @edit="openEdit"
-      @toggle="toggleTodo"
-    />
-
     <!-- Loading -->
     <div v-if="loading" class="space-y-2 pt-2">
       <AppSkeleton variant="row" :count="4" />
@@ -588,7 +549,7 @@ async function deleteAndClose(t: Todo) {
     </EmptyState>
 
     <!-- Sections (list view) -->
-    <template v-if="!loading && !loadError && !calendarView">
+    <template v-if="!loading && !loadError">
     <template v-for="section in filteredSections" :key="section.key">
       <section class="space-y-2">
         <header class="flex items-center justify-between">

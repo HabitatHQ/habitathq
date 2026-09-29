@@ -82,7 +82,6 @@ app/
     JotsCaptureSheet.vue
     JotsRecordSheet.vue
     JotsRing.vue
-    TodoCalendarView.vue
   composables/
     useAppSettings.ts
     useContextFilter.ts
@@ -396,8 +395,6 @@ export interface AppSettings {
   pomodoroCyclesBeforeLong: number
   weekDays: number
   matrixReverseDays: boolean
-  todoCalendarView: boolean
-  todoCalendarGrain: 'month' | 'week'
   showTagsOnHabits: boolean
   showAnnotationsOnHabits: boolean
   showTagsOnToday: boolean

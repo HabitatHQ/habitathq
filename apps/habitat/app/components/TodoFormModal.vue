@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { RankedTag } from '~/composables/useTagSuggestions'
 import type { BoredCategory, Todo } from '~/types/database'
 import { buildTodoPayload, validateTodoForm } from '~/utils/todos-helpers'
 
@@ -7,7 +8,7 @@ const props = withDefaults(
     open: boolean
     editingTodo: Todo | null
     boredCategories: BoredCategory[]
-    suggestTags: (query: string) => string[]
+    suggestTags: (input: string, alreadySelected: string[]) => RankedTag[]
     defaultDate?: string
   }>(),
   { defaultDate: '' },
@@ -231,7 +232,7 @@ function jotKindIcon(kind: string | undefined): string {
 
       <div class="flex items-center justify-between">
         <span class="text-sm">Recurring</span>
-        <USwitch :model-value="form.is_recurring" @update:model-value="v => { form.is_recurring = v; impact('light') }" />
+        <USwitch :model-value="form.is_recurring" @update:model-value="(v: boolean) => { form.is_recurring = v; impact('light') }" />
       </div>
       <div v-if="form.is_recurring">
         <UFormField label="Recurrence">

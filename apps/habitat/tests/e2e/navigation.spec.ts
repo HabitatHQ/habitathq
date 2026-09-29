@@ -44,8 +44,7 @@ test.describe('Navigation smoke tests', () => {
   test('/matrix route renders month heading on desktop', async ({ page }) => {
     await page.goto('/matrix')
     await page.waitForLoadState('networkidle')
-    // Playwright default viewport (1280×720) is desktop → heading shows "Month"
-    await expect(page.getByRole('heading', { name: /Week|Month/ })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Habit Grid' })).toBeVisible()
   })
 
   test('/insights route renders insights heading', async ({ page }) => {
@@ -54,16 +53,17 @@ test.describe('Navigation smoke tests', () => {
     await expect(page.getByRole('heading', { name: /insights/i })).toBeVisible()
   })
 
-  test('/plan route renders planner heading', async ({ page }) => {
-    await page.goto('/plan')
-    await page.waitForLoadState('networkidle')
-    await expect(page.getByRole('heading', { name: 'Plan' })).toBeVisible()
-  })
-
-  test('/calendar route renders calendar heading', async ({ page }) => {
+  test('/calendar route renders the day planner by default', async ({ page }) => {
     await page.goto('/calendar')
     await page.waitForLoadState('networkidle')
     await expect(page.getByRole('heading', { name: 'Calendar' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Day' })).toHaveAttribute('aria-pressed', 'true')
+    await page.getByRole('button', { name: 'Week' }).click()
+    await expect(page.getByRole('button', { name: 'Week' })).toHaveAttribute('aria-pressed', 'true')
+    await page.getByRole('button', { name: 'Month' }).click()
+    await expect(page.getByRole('button', { name: 'Month' })).toHaveAttribute('aria-pressed', 'true')
+    await page.getByRole('button', { name: 'Day' }).click()
+    await expect(page.getByRole('button', { name: 'Day' })).toHaveAttribute('aria-pressed', 'true')
   })
 
   test('/time route renders time heading', async ({ page }) => {

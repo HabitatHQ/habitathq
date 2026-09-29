@@ -1,5 +1,7 @@
 <script setup lang="ts">
 // Edit existing text jot — full page editor
+import { calendarDateFromQuery } from '~/utils/planner'
+
 const route = useRoute()
 const store = useJotsStore()
 const saving = ref(false)
@@ -7,13 +9,16 @@ const loading = ref(true)
 const notFound = ref(false)
 
 const scribbleId = computed(() => (route.params['id'] as string) || '')
+const calendarDate = computed(() => calendarDateFromQuery(route.query['calendarDate'], ''))
+const returnPath = computed(() =>
+  calendarDate.value ? `/calendar?date=${calendarDate.value}` : '/jots',
+)
 
 const textForm = reactive({
   title: '',
   content: '',
   tags: [] as string[],
   annotations: {} as Record<string, string>,
-  entry_date: '',
 })
 const { loadTags, suggest: suggestJotTags } = useTagSuggestions('scribble')
 const annotExpanded = ref(false)
@@ -54,7 +59,6 @@ async function load() {
   textForm.content = found.content
   textForm.tags = [...found.tags]
   textForm.annotations = { ...found.annotations }
-  textForm.entry_date = found.entry_date
   annotExpanded.value = Object.keys(found.annotations).length > 0
   loading.value = false
 }
@@ -69,10 +73,9 @@ async function save() {
       content: textForm.content,
       tags: [...textForm.tags],
       annotations: { ...textForm.annotations },
-      entry_date: textForm.entry_date,
     })
     await store.refreshScribbles()
-    navigateTo('/jots')
+    navigateTo(returnPath.value)
   } finally {
     saving.value = false
   }
@@ -84,7 +87,7 @@ async function confirmDelete() {
   try {
     await store.db.deleteScribble(scribbleId.value)
     store.scribbles.value = store.scribbles.value.filter((s) => s.id !== scribbleId.value)
-    navigateTo('/jots')
+    navigateTo(returnPath.value)
   } finally {
     deleting.value = false
   }
@@ -98,7 +101,7 @@ onMounted(() => {
 
 <template>
   <div class="space-y-5">
-    <BackNav to="/jots" label="Jot" title>
+    <BackNav :to="returnPath" :label="calendarDate ? 'Calendar' : 'Jot'" title>
       <div class="flex items-center gap-2">
         <UButton
           :icon="resolveIcon('trash')"
@@ -136,9 +139,6 @@ onMounted(() => {
         class="w-full"
       />
 
-      <div class="border-t border-(--ui-border) pt-3">
-        <UFormField label="Calendar date"><AppTextField v-model="textForm.entry_date" type="date" class="w-full" /></UFormField>
-      </div>
       <div class="border-t border-(--ui-border) pt-3">
         <UFormField label="Tags">
           <TagInput v-model="textForm.tags" :suggest="suggestJotTags" />

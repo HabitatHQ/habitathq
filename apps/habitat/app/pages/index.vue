@@ -9,6 +9,7 @@ import type {
   Scribble,
   Todo,
 } from '~/types/database'
+import { hasCalendarNoteTag } from '~/utils/jots-helpers'
 
 const db = useDatabase()
 const { impact } = useHaptics()
@@ -230,9 +231,23 @@ async function markBoredDone() {
 const todayCheckins = ref<CheckinDaySummary[]>([])
 const todayScribbles = ref<Scribble[]>([])
 const todayVoiceCount = ref(0)
+const todayCalendarNotes = computed(() =>
+  todayScribbles.value.filter((note) => hasCalendarNoteTag(note.tags)),
+)
+const todayGenericScribbles = computed(() =>
+  todayScribbles.value.filter((note) => !hasCalendarNoteTag(note.tags)),
+)
+const latestTodayNote = computed(() => todayCalendarNotes.value[0] ?? null)
+const latestTodayNoteTitle = computed(() => {
+  const note = latestTodayNote.value
+  if (!note) return ''
+  return note.title || note.content || 'Untitled note'
+})
 const hasTodayActivity = computed(
   () =>
-    todayCheckins.value.length > 0 || todayScribbles.value.length > 0 || todayVoiceCount.value > 0,
+    todayCheckins.value.length > 0 ||
+    todayGenericScribbles.value.length > 0 ||
+    todayVoiceCount.value > 0,
 )
 
 async function loadVoiceCount() {
@@ -599,6 +614,30 @@ onMounted(async () => {
         <h2 class="text-2xl font-bold">{{ dayName }}</h2>
       </header>
 
+      <NuxtLink
+        v-if="latestTodayNote"
+        :to="`/calendar?date=${today}`"
+        class="group flex items-start gap-3 rounded-2xl border border-primary-500/25 bg-primary-500/10 p-4 transition-colors hover:bg-primary-500/15 active:opacity-80"
+        aria-label="Open today's notes in Calendar"
+      >
+        <div class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary-500/15 text-primary-400">
+          <AppIcon name="pencil-square" class="h-4 w-4" />
+        </div>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center justify-between gap-3">
+            <p class="text-xs font-semibold uppercase tracking-wide text-primary-400">Today’s note</p>
+            <span v-if="todayCalendarNotes.length > 1" class="text-xs text-(--ui-text-dimmed)">
+              {{ todayCalendarNotes.length }} notes
+            </span>
+          </div>
+          <p class="mt-1 truncate font-semibold text-(--ui-text)">{{ latestTodayNoteTitle }}</p>
+          <p v-if="latestTodayNote.title && latestTodayNote.content" class="mt-0.5 line-clamp-2 text-sm text-(--ui-text-dimmed)">
+            {{ latestTodayNote.content }}
+          </p>
+        </div>
+        <AppIcon name="chevron-right" class="mt-2 h-4 w-4 shrink-0 text-(--ui-text-dimmed) transition-transform group-hover:translate-x-0.5" />
+      </NuxtLink>
+
       <!-- Progress ring -->
       <div class="flex flex-col items-center gap-1.5 py-2">
         <div class="relative">
@@ -852,16 +891,15 @@ onMounted(async () => {
             <AppIcon name="chevron-right" class="w-4 h-4 text-(--ui-text-dimmed) flex-shrink-0" />
           </AppCard>
 
-          <!-- Scribbles updated today -->
           <AppCard
-            v-if="todayScribbles.length > 0"
+            v-if="todayGenericScribbles.length > 0"
             to="/jots"
           >
             <AppCardIcon icon="pencil" bg-class="bg-amber-500/10" icon-color="#fbbf24" />
             <div class="flex-1 min-w-0">
               <p class="text-sm font-medium text-(--ui-text)">Scribbles</p>
               <p class="text-xs text-(--ui-text-dimmed)">
-                {{ todayScribbles.length }} {{ todayScribbles.length === 1 ? 'note' : 'notes' }} updated today
+                {{ todayGenericScribbles.length }} {{ todayGenericScribbles.length === 1 ? 'note' : 'notes' }} updated today
               </p>
             </div>
             <AppIcon name="chevron-right" class="w-4 h-4 text-(--ui-text-dimmed) flex-shrink-0" />

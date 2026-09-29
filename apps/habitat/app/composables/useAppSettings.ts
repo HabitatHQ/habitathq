@@ -7,7 +7,6 @@ export interface AppSettings {
   enableJournalling: boolean
   enableHealth: boolean
   enableTodos: boolean
-  enablePlanner: boolean
   enableBored: boolean
   autoShowBored: boolean
   enableContextFilter: boolean
@@ -18,8 +17,6 @@ export interface AppSettings {
   pomodoroCyclesBeforeLong: number
   weekDays: number
   matrixReverseDays: boolean
-  todoCalendarView: boolean
-  todoCalendarGrain: 'month' | 'week'
   showTagsOnHabits: boolean
   showAnnotationsOnHabits: boolean
   showTagsOnToday: boolean
@@ -44,7 +41,6 @@ const DEFAULTS: AppSettings = {
   enableJournalling: true,
   enableHealth: false,
   enableTodos: true,
-  enablePlanner: true,
   enableBored: false,
   autoShowBored: true,
   enableContextFilter: false,
@@ -55,8 +51,6 @@ const DEFAULTS: AppSettings = {
   pomodoroCyclesBeforeLong: 4,
   weekDays: 3,
   matrixReverseDays: false,
-  todoCalendarView: false,
-  todoCalendarGrain: 'month',
   showTagsOnHabits: false,
   showAnnotationsOnHabits: false,
   showTagsOnToday: false,
@@ -99,7 +93,6 @@ export const PROFILE_SETTINGS: Record<AppProfile, Partial<AppSettings>> = {
     enableJournalling: false,
     enableHealth: false,
     enableTodos: true,
-    enablePlanner: true,
     enableContextFilter: true,
     enableTimer: true,
     enableBored: true,
@@ -108,7 +101,6 @@ export const PROFILE_SETTINGS: Record<AppProfile, Partial<AppSettings>> = {
     enableJournalling: true,
     enableHealth: false,
     enableTodos: true,
-    enablePlanner: true,
     enableContextFilter: true,
     enableTimer: true,
     enableBored: true,
@@ -127,23 +119,35 @@ export function formatTime(date: Date, use24h: boolean): string {
   }).format(date)
 }
 
+export function normalizeAppSettings(
+  parsed: Record<string, unknown>,
+  isExistingUser = false,
+): AppSettings {
+  const {
+    enablePlanner: _enablePlanner,
+    todoCalendarView: _todoCalendarView,
+    todoCalendarGrain: _todoCalendarGrain,
+    ...currentSettings
+  } = parsed
+  const stored = { ...DEFAULTS, ...currentSettings } as AppSettings
+
+  if (isExistingUser && typeof parsed['hasCompletedOnboarding'] === 'undefined') {
+    stored.hasCompletedOnboarding = true
+  }
+
+  if (!Number.isFinite(stored.weekDays) || stored.weekDays < 3 || stored.weekDays > 7)
+    stored.weekDays = 3
+  return stored
+}
+
 function readFromStorage(): AppSettings {
   try {
     const raw = localStorage.getItem(KEY)
 
     // Auto-migrate existing users who don't have the onboarding flag
     const isExistingUser = !!raw || localStorage.getItem('habitat-has-data') === '1'
-    const parsed = raw ? JSON.parse(raw) : {}
-
-    const stored = { ...DEFAULTS, ...parsed } as AppSettings
-
-    if (isExistingUser && typeof parsed.hasCompletedOnboarding === 'undefined') {
-      stored.hasCompletedOnboarding = true
-    }
-
-    if (!Number.isFinite(stored.weekDays) || stored.weekDays < 3 || stored.weekDays > 7)
-      stored.weekDays = 3
-    return stored
+    const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {}
+    return normalizeAppSettings(parsed, isExistingUser)
   } catch (err) {
     console.warn('[useAppSettings] Failed to parse stored settings, using defaults:', err)
     return { ...DEFAULTS }
