@@ -11,7 +11,7 @@
  */
 
 import * as Comlink from "comlink";
-import type { BusFacade, Role, WorkerFacade } from "./db-owner.js";
+import type { BusFacade, Role, WorkerDiagnostic, WorkerFacade } from "./db-owner.js";
 import type { DbApi } from "./protocol.js";
 
 /** A live connection to a worker running {@link import("./db-owner.js").startDbOwner}. */
@@ -24,6 +24,8 @@ export interface WorkerConnection<S extends object> {
   onRole(cb: (role: Role) => void): void;
   /** Fires if this tab's promotion fails to open the store. */
   onError(cb: (message: string) => void): void;
+  /** Fires privacy-safe leadership and request-recovery diagnostics. */
+  onDiagnostic(cb: (diagnostic: WorkerDiagnostic) => void): void;
 }
 
 /**
@@ -42,6 +44,7 @@ export function connect<S extends object>(worker: Worker): WorkerConnection<S> {
     onInvalidate: (cb) => void bus.onInvalidate(Comlink.proxy(cb)),
     onRole: (cb) => void bus.onRole(Comlink.proxy(cb)),
     onError: (cb) => void bus.onError(Comlink.proxy(cb)),
+    onDiagnostic: (cb) => void bus.onDiagnostic(Comlink.proxy(cb)),
   };
 }
 

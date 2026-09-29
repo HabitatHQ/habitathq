@@ -15,6 +15,7 @@ export type {
   OwnerContext,
   Role,
   ServiceMethods,
+  WorkerDiagnostic,
   WorkerFacade,
 } from "./db-owner.js";
 export type { DbApi } from "./protocol.js";

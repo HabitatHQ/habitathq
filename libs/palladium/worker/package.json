@@ -23,13 +23,15 @@
     "build": "tsc",
     "lint": "biome check src",
     "typecheck": "tsc --noEmit",
-    "verify": "pnpm lint && pnpm typecheck"
+    "test": "vitest run src",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test"
   },
   "dependencies": {
     "comlink": "^4.4.2"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.5"
   }
 }

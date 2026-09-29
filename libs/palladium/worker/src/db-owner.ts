@@ -26,13 +26,42 @@
 import * as Comlink from "comlink";
 import { makeBroadcastEndpoint } from "./broadcast-endpoint.js";
 import { whileLeader } from "./leadership.js";
-import { CONTROL, type ControlMsg, type Epoch, isControl, type PeerId } from "./protocol.js";
+import {
+  CONTROL,
+  type ControlMsg,
+  type Epoch,
+  isControl,
+  type LeaderMsg,
+  type PeerId,
+} from "./protocol.js";
 
 export type Role = "leader" | "follower";
 
 /** Any async method surface an app can expose over the bus. */
 // biome-ignore lint/suspicious/noExplicitAny: methods are heterogeneous; args are the app's own.
 export type ServiceMethods = Record<string, (...args: any[]) => Promise<unknown>>;
+
+export interface WorkerDiagnostic {
+  /** Lifecycle event name; never includes application data or request arguments. */
+  readonly event:
+    | "owner_started"
+    | "leader_discovered"
+    | "promotion_started"
+    | "promotion_ready"
+    | "promotion_failed"
+    | "lock_unavailable"
+    | "lock_request_failed"
+    | "leader_rpc_timeout"
+    | "leader_unavailable";
+  /** Ephemeral ID for this worker instance, generated with crypto.randomUUID(). */
+  readonly peerId: PeerId;
+  /** Milliseconds since this worker's owner bus started. */
+  readonly elapsedMs: number;
+  readonly epoch?: Epoch;
+  readonly leaderId?: PeerId;
+  readonly attempt?: number;
+  readonly error?: string;
+}
 
 /** Capabilities the bus hands to the leader's service. */
 export interface OwnerContext {
@@ -52,13 +81,15 @@ export interface DbOwnerConfig<S extends object> {
    */
   readonly methods: readonly (keyof S & string)[];
   /**
-   * Build the leader's service. Called once, only if this worker becomes
-   * leader. `open()` runs first (open + migrate the store); the other methods
-   * are served afterwards. `ctx.invalidate` broadcasts cache invalidations.
+   * Build the leader's service. Called only after this worker receives the
+   * exclusive lock. Failed promotions must release any partially opened store
+   * through the optional `close()` hook before another attempt is queued.
    */
-  create(ctx: OwnerContext): S & { open(): Promise<void> };
+  create(ctx: OwnerContext): S & { open(): Promise<void>; close?(): Promise<void> };
   /** Called with a user-visible message if `open()` fails on promotion. */
   onError?(message: string): void;
+  /** Receives privacy-safe lifecycle diagnostics from this worker. */
+  onDiagnostic?(diagnostic: WorkerDiagnostic): void;
 }
 
 /** The surface the bus adds on top of the app's service. */
@@ -69,6 +100,8 @@ export interface BusFacade {
   onRole(cb: (role: Role) => void): void;
   /** Register a callback fired if this tab's promotion fails to open the store. */
   onError(cb: (message: string) => void): void;
+  /** Register for privacy-safe leadership and request-recovery diagnostics. */
+  onDiagnostic(cb: (diagnostic: WorkerDiagnostic) => void): void;
 }
 
 /** What the main thread sees over Comlink: the app's methods plus bus controls. */
@@ -81,11 +114,37 @@ const RETRY_INTERVAL_MS = 200; // pause between rediscovery attempts
 
 class TimeoutError extends Error {}
 
+type LeaderProxyAttempt =
+  | { readonly kind: "absent" }
+  | { readonly kind: "result"; readonly value: unknown }
+  | { readonly kind: "timeout"; readonly error: TimeoutError };
+
 function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/**
+ * Decide whether a leader announcement needs a fresh follower RPC endpoint.
+ *
+ * A request timeout intentionally clears the existing proxy. The current
+ * leader then replies to discovery with its existing epoch; reconnecting in
+ * that state is required to send a new HELLO and rebuild the endpoint.
+ */
+export function leaderAnnouncementRequiresConnection(
+  currentEpoch: Epoch,
+  currentLeaderId: PeerId | null,
+  hasLeaderProxy: boolean,
+  announcement: LeaderMsg,
+): boolean {
+  return (
+    announcement.epoch !== currentEpoch ||
+    announcement.leader !== currentLeaderId ||
+    !hasLeaderProxy
+  );
+}
+
 export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
+  const startedAt = Date.now();
   const peerId: PeerId = crypto.randomUUID();
   const channel = new BroadcastChannel(`palladium:${config.dbName}`);
 
@@ -93,17 +152,40 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
   let epoch: Epoch = "";
 
   // Leader state: the running service, and followers we've opened an endpoint for.
-  let service: (S & { open(): Promise<void> }) | null = null;
+  let service: (S & { open(): Promise<void>; close?(): Promise<void> }) | null = null;
   const servedFollowers = new Set<PeerId>();
 
   // Follower state: a Comlink proxy to the current leader, rebuilt on failover.
+  let leaderId: PeerId | null = null;
   let leaderProxy: Comlink.Remote<S> | null = null;
 
   // Callbacks registered by this tab's main thread.
+  let diagnosticCb: ((diagnostic: WorkerDiagnostic) => void) | null = null;
+  const recentDiagnostics: WorkerDiagnostic[] = [];
   let invalidateCb: ((tables: readonly string[]) => void) | null = null;
   let roleCb: ((role: Role) => void) | null = null;
   let errorCb: ((message: string) => void) | null = null;
   let lastError: string | null = null;
+  let promotionAttempt = 0;
+
+  function report(
+    event: WorkerDiagnostic["event"],
+    detail: Pick<WorkerDiagnostic, "error" | "leaderId"> = {},
+  ): void {
+    const diagnostic: WorkerDiagnostic = {
+      event,
+      peerId,
+      elapsedMs: Date.now() - startedAt,
+      ...(epoch ? { epoch } : {}),
+      ...(leaderId ? { leaderId } : {}),
+      ...(promotionAttempt > 0 ? { attempt: promotionAttempt } : {}),
+      ...detail,
+    };
+    recentDiagnostics.push(diagnostic);
+    if (recentDiagnostics.length > 20) recentDiagnostics.shift();
+    diagnosticCb?.(diagnostic);
+    config.onDiagnostic?.(diagnostic);
+  }
 
   const post = (msg: ControlMsg): void => channel.postMessage(msg);
 
@@ -119,7 +201,9 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
   function connectToLeader(newLeaderId: PeerId, newEpoch: Epoch): void {
     if (role === "leader") return;
     epoch = newEpoch;
+    leaderId = newLeaderId;
     leaderProxy = Comlink.wrap<S>(makeBroadcastEndpoint(channel, peerId, newLeaderId));
+    report("leader_discovered", { leaderId: newLeaderId });
     // Ask the leader to open an endpoint addressed back to us.
     post({ type: CONTROL.HELLO, from: peerId, epoch: newEpoch });
   }
@@ -133,14 +217,23 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
 
   // ── Promotion ────────────────────────────────────────────────────────────
   async function promote(): Promise<"hold" | "release"> {
-    const svc = config.create(ctx);
+    promotionAttempt += 1;
+    report("promotion_started");
+    let svc: (S & { open(): Promise<void>; close?(): Promise<void> }) | null = null;
     try {
+      svc = config.create(ctx);
       await svc.open();
     } catch (err) {
-      // Could not open the store (e.g. corrupt DB). Surface it and step aside
-      // so a peer with a healthy path can take the lock instead of deadlocking.
+      // A failed startup may have opened the OPFS handle before migration
+      // failed. Release it before yielding the Web Lock and re-entering queue.
+      try {
+        await svc?.close?.();
+      } catch {
+        // The original open error is the actionable failure for this attempt.
+      }
       const message = errMsg(err);
       lastError = message;
+      report("promotion_failed", { error: message });
       errorCb?.(message);
       config.onError?.(message);
       return "release";
@@ -148,9 +241,12 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
     service = svc;
     role = "leader";
     epoch = crypto.randomUUID();
+    leaderId = null;
     leaderProxy = null;
     servedFollowers.clear();
+    lastError = null;
     roleCb?.(role);
+    report("promotion_ready");
     post({ type: CONTROL.LEADER, epoch, leader: peerId });
     return "hold";
   }
@@ -162,7 +258,9 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
     switch (data.type) {
       case CONTROL.LEADER:
         if (role === "leader") return;
-        if (data.epoch !== epoch) connectToLeader(data.leader, data.epoch);
+        if (leaderAnnouncementRequiresConnection(epoch, leaderId, leaderProxy !== null, data)) {
+          connectToLeader(data.leader, data.epoch);
+        }
         break;
       case CONTROL.WHO_IS_LEADER:
         if (role === "leader") post({ type: CONTROL.LEADER, epoch, leader: peerId });
@@ -178,13 +276,53 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
   });
 
   // Discover any incumbent leader, then queue for leadership.
+  report("owner_started");
   post({ type: CONTROL.WHO_IS_LEADER });
-  whileLeader(`palladium-leader:${config.dbName}`, promote);
+  if (typeof navigator.locks === "undefined") {
+    const message = "palladium/worker: Web Locks API is unavailable";
+    lastError = message;
+    report("lock_unavailable", { error: message });
+    config.onError?.(message);
+  } else {
+    whileLeader(`palladium-leader:${config.dbName}`, promote, {
+      onError(error) {
+        const message = `palladium/worker: Web Locks request failed: ${errMsg(error)}`;
+        report("lock_request_failed", { error: message });
+        if (!lastError) {
+          lastError = message;
+          errorCb?.(message);
+          config.onError?.(message);
+        }
+      },
+    });
+  }
 
   // ── Forward a call to whoever currently owns the DB, with failover ───────
   type AnyMethod = (...args: unknown[]) => Promise<unknown>;
   const invoke = (api: object, method: string, args: unknown[]): Promise<unknown> =>
     ((api as Record<string, AnyMethod>)[method] as AnyMethod)(...args);
+
+  async function invokeLeaderProxy(method: string, args: unknown[]): Promise<LeaderProxyAttempt> {
+    const proxy = leaderProxy;
+    if (!proxy) return { kind: "absent" };
+    try {
+      return {
+        kind: "result",
+        value: await withTimeout(invoke(proxy, method, args), CALL_TIMEOUT_MS),
+      };
+    } catch (err) {
+      // A timeout means the leader is unreachable → rediscover and retry.
+      // Any other rejection is an application error → propagate immediately.
+      if (!(err instanceof TimeoutError)) throw err;
+      report("leader_rpc_timeout", {
+        error: err.message,
+        ...(leaderId ? { leaderId } : {}),
+      });
+      leaderId = null;
+      leaderProxy = null;
+      return { kind: "timeout", error: err };
+    }
+  }
 
   async function withLeader(method: string, args: unknown[]): Promise<unknown> {
     const deadline = Date.now() + CALL_DEADLINE_MS;
@@ -194,21 +332,15 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
         // Local call: application errors propagate directly (never retried).
         return invoke(service, method, args);
       }
-      if (leaderProxy) {
-        try {
-          return await withTimeout(invoke(leaderProxy, method, args), CALL_TIMEOUT_MS);
-        } catch (err) {
-          // A timeout means the leader is unreachable → rediscover and retry.
-          // Any other rejection is an application error → propagate immediately.
-          if (!(err instanceof TimeoutError)) throw err;
-          lastErr = err;
-          leaderProxy = null;
-        }
-      }
+      const attempt = await invokeLeaderProxy(method, args);
+      if (attempt.kind === "result") return attempt.value;
+      if (attempt.kind === "timeout") lastErr = attempt.error;
       post({ type: CONTROL.WHO_IS_LEADER });
       await delay(RETRY_INTERVAL_MS);
     }
-    throw lastErr ?? new Error(`palladium/worker: no leader for "${config.dbName}"`);
+    const error = lastErr ?? new Error(`palladium/worker: no leader for "${config.dbName}"`);
+    report("leader_unavailable", { error: errMsg(error) });
+    throw error;
   }
 
   // ── Facade exposed to this tab's main thread ─────────────────────────────
@@ -223,6 +355,10 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
     onError: (cb: (message: string) => void) => {
       errorCb = cb;
       if (lastError) cb(lastError);
+    },
+    onDiagnostic: (cb: (diagnostic: WorkerDiagnostic) => void) => {
+      diagnosticCb = cb;
+      for (const diagnostic of recentDiagnostics) cb(diagnostic);
     },
   };
   for (const method of config.methods) {

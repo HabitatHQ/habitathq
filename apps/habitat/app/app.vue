@@ -83,20 +83,28 @@ onMounted(async () => {
   }
 
   // ── 3. Request persistent storage once (tracked in applied_defaults) ────
-  const persistKey = 'storage:persist_requested'
-  if (!(await db.isDefaultApplied(persistKey))) {
-    await navigator.storage.persist()
-    await db.markDefaultApplied(persistKey)
-  }
+  // The startup plugin may have yielded first paint while worker recovery is
+  // still pending. Keep auxiliary persistence/sentinel work from becoming an
+  // unhandled rejection; the routed page request remains the user-visible
+  // readiness signal and carries the detailed worker diagnostics.
+  try {
+    const persistKey = 'storage:persist_requested'
+    if (!(await db.isDefaultApplied(persistKey))) {
+      await navigator.storage.persist()
+      await db.markDefaultApplied(persistKey)
+    }
 
-  // ── 4. Sentinel: detect potential OPFS eviction ─────────────────────────
-  const hadData = localStorage.getItem('habitat-has-data') === '1'
-  const habits = await db.getHabits()
-  if (habits.length > 0) {
-    localStorage.setItem('habitat-has-data', '1')
-  } else if (hadData) {
-    evictionDetected.value = true
-    localStorage.removeItem('habitat-has-data')
+    // ── 4. Sentinel: detect potential OPFS eviction ───────────────────────
+    const hadData = localStorage.getItem('habitat-has-data') === '1'
+    const habits = await db.getHabits()
+    if (habits.length > 0) {
+      localStorage.setItem('habitat-has-data', '1')
+    } else if (hadData) {
+      evictionDetected.value = true
+      localStorage.removeItem('habitat-has-data')
+    }
+  } catch (error) {
+    logError('[app/database-startup]', error)
   }
 })
 
