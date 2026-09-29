@@ -19,7 +19,6 @@ const textForm = reactive({
   content: '',
   tags: [] as string[],
   annotations: {} as Record<string, string>,
-  entry_date: '',
 })
 const { loadTags, suggest: suggestJotTags } = useTagSuggestions('scribble')
 const annotExpanded = ref(false)
@@ -60,7 +59,6 @@ async function load() {
   textForm.content = found.content
   textForm.tags = [...found.tags]
   textForm.annotations = { ...found.annotations }
-  textForm.entry_date = found.entry_date
   annotExpanded.value = Object.keys(found.annotations).length > 0
   loading.value = false
 }
@@ -75,7 +73,6 @@ async function save() {
       content: textForm.content,
       tags: [...textForm.tags],
       annotations: { ...textForm.annotations },
-      entry_date: textForm.entry_date,
     })
     await store.refreshScribbles()
     navigateTo(returnPath.value)
@@ -142,9 +139,6 @@ onMounted(() => {
         class="w-full"
       />
 
-      <div class="border-t border-(--ui-border) pt-3">
-        <UFormField label="Calendar date"><AppTextField v-model="textForm.entry_date" type="date" class="w-full" /></UFormField>
-      </div>
       <div class="border-t border-(--ui-border) pt-3">
         <UFormField label="Tags">
           <TagInput v-model="textForm.tags" :suggest="suggestJotTags" />

@@ -1,21 +1,16 @@
 <script setup lang="ts">
 // New text jot — full page editor
-import { CALENDAR_NOTE_TAG } from '~/utils/jots-helpers'
+import { plannerDateKey } from '~/utils/planner'
 
 const store = useJotsStore()
-const route = useRoute()
 const saving = ref(false)
-const isCalendarNote = route.query['calendarNote'] === '1'
+const entryDate = plannerDateKey(new Date())
 
 const textForm = reactive({
   title: '',
   content: '',
-  tags: isCalendarNote ? [CALENDAR_NOTE_TAG] : [],
+  tags: [] as string[],
   annotations: {} as Record<string, string>,
-  entry_date:
-    typeof route.query['date'] === 'string'
-      ? route.query['date']
-      : new Date().toISOString().slice(0, 10),
 })
 const { loadTags, suggest: suggestJotTags } = useTagSuggestions('scribble')
 const annotExpanded = ref(false)
@@ -47,7 +42,7 @@ async function save() {
       content: textForm.content,
       tags: [...textForm.tags],
       annotations: { ...textForm.annotations },
-      entry_date: textForm.entry_date,
+      entry_date: entryDate,
     })
     await store.refreshScribbles()
     navigateTo('/jots')
@@ -84,9 +79,6 @@ onMounted(() => void loadTags())
         class="w-full"
       />
 
-      <div class="border-t border-(--ui-border) pt-3">
-        <UFormField label="Calendar date"><AppTextField v-model="textForm.entry_date" type="date" class="w-full" /></UFormField>
-      </div>
       <div class="border-t border-(--ui-border) pt-3">
         <UFormField label="Tags">
           <TagInput v-model="textForm.tags" :suggest="suggestJotTags" />

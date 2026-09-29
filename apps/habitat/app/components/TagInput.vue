@@ -8,10 +8,11 @@ const props = withDefaults(
     suggest?: (input: string, selected: string[]) => RankedTag[]
     placeholder?: string
     maxSuggestions?: number
+    lockedTags?: string[]
   }>(),
   // Render a generous list; the dropdown scrolls (overflow-y: auto + computed
   // maxHeight) so more tags are reachable without crowding the viewport.
-  { placeholder: 'Search or create tag…', maxSuggestions: 50 },
+  { placeholder: 'Search or create tag…', maxSuggestions: 50, lockedTags: () => [] },
 )
 
 const emit = defineEmits<{
@@ -132,10 +133,15 @@ function commitTag(raw?: string) {
 }
 
 function removeTag(tag: string) {
+  if (props.lockedTags.includes(tag)) return
   emit(
     'update:modelValue',
     props.modelValue.filter((t) => t !== tag),
   )
+}
+
+function isLockedTag(tag: string) {
+  return props.lockedTags.includes(tag)
 }
 
 function selectSuggestion(ranked: RankedTag) {
@@ -227,7 +233,16 @@ function focusInput() {
         >
           {{ tag }}
           <button
+            v-if="isLockedTag(tag)"
             type="button"
+            disabled
+            aria-label="Calendar note tag is managed by Calendar"
+            class="cursor-not-allowed opacity-60 leading-none"
+          ><AppIcon name="lock-closed" class="h-3 w-3" /></button>
+          <button
+            v-else
+            type="button"
+            :aria-label="`Remove ${tag} tag`"
             class="opacity-50 group-hover:opacity-100 hover:text-primary-300 transition-opacity leading-none"
             @click.stop="removeTag(tag)"
           >&times;</button>

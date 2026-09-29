@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+
+vi.mock('~/composables/useTagSuggestions', () => ({
+  useTagSuggestions: () => ({ loadTags: async () => {}, suggest: () => [] }),
+}))
+
 import CalendarNoteSheet from '~/components/CalendarNoteSheet.vue'
 import { CALENDAR_NOTE_TAG } from '~/utils/jots-helpers'
 
@@ -21,10 +26,24 @@ const stubs = {
   AppBottomSheet: AppBottomSheetStub,
   AppTextField: AppTextFieldStub,
   AppTextArea: AppTextAreaStub,
+  TagInput: {
+    props: ['modelValue', 'lockedTags'],
+    emits: ['update:modelValue'],
+    template: '<button data-testid="tag-input" :data-locked="lockedTags.join(\',\')" @click="$emit(\'update:modelValue\', [\'calendar-note\', \'personal\'])" />',
+  },
   UFormField: { template: '<div><slot /></div>' },
   UButton: { template: '<button @click="$emit(\'click\')"><slot /></button>' },
 }
-const global = { stubs, mocks: { resolveIcon: (name: string) => name } }
+const global = {
+  stubs,
+  mocks: {
+    resolveIcon: (name: string) => name,
+  },
+}
+
+function buttonByText(wrapper: ReturnType<typeof mount>, text: string) {
+  return wrapper.findAll('button').find((button) => button.text() === text)!
+}
 
 describe('CalendarNoteSheet', () => {
   it('creates a calendar-tagged note for the selected day', async () => {
@@ -35,7 +54,7 @@ describe('CalendarNoteSheet', () => {
 
     await wrapper.findAll('input')[0]!.setValue('Today')
     await wrapper.find('textarea').setValue('Finish the proposal')
-    await wrapper.findAll('button')[1]!.trigger('click')
+    await buttonByText(wrapper, 'Add note').trigger('click')
 
     expect(wrapper.emitted('save')![0]).toEqual([
       {
@@ -48,10 +67,10 @@ describe('CalendarNoteSheet', () => {
     ])
   })
 
-  it('preserves an existing note’s metadata and offers full editing in Jots', async () => {
+  it('edits ordinary tags while preserving the Calendar-managed tag and date', async () => {
     const note = {
       id: 'note-1', title: 'Review', content: 'Details', entry_date: '2026-09-27',
-      tags: ['work'], annotations: { source: 'calendar' },
+      tags: [CALENDAR_NOTE_TAG, 'work'], annotations: { source: 'calendar' },
       created_at: '2026-09-27T10:00:00Z', updated_at: '2026-09-27T10:00:00Z',
     }
     const wrapper = mount(CalendarNoteSheet, {
@@ -59,14 +78,15 @@ describe('CalendarNoteSheet', () => {
       global,
     })
 
-    await wrapper.findAll('button')[2]!.trigger('click')
+    const tagInput = wrapper.get('[data-testid="tag-input"]')
+    expect(tagInput.attributes('data-locked')).toBe(CALENDAR_NOTE_TAG)
+    await tagInput.trigger('click')
+
+    await buttonByText(wrapper, 'Save changes').trigger('click')
     expect(wrapper.emitted('save')![0]?.[0]).toMatchObject({
-      tags: ['work'],
+      tags: [CALENDAR_NOTE_TAG, 'personal'],
       annotations: { source: 'calendar' },
       entry_date: '2026-09-27',
     })
-
-    await wrapper.findAll('button')[0]!.trigger('click')
-    expect(wrapper.emitted('openInJots')![0]).toEqual([note])
   })
 })

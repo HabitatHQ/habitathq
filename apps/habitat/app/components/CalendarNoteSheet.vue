@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { useTagSuggestions } from '~/composables/useTagSuggestions'
 import type { Scribble } from '~/types/database'
-import { CALENDAR_NOTE_TAG } from '~/utils/jots-helpers'
+import { CALENDAR_NOTE_TAG, hasCalendarNoteTag } from '~/utils/jots-helpers'
 import { dateForKey } from '~/utils/planner'
 
 type CalendarNotePayload = Pick<
@@ -21,14 +22,15 @@ const props = withDefaults(
 const emit = defineEmits<{
   'update:open': [open: boolean]
   save: [payload: CalendarNotePayload]
-  openInJots: [note: Scribble]
 }>()
 
 const form = reactive({
   title: '',
   content: '',
   entryDate: '',
+  tags: [] as string[],
 })
+const { loadTags, suggest: suggestJotTags } = useTagSuggestions('scribble')
 
 const isEditing = computed(() => props.note !== null)
 const title = computed(() => (isEditing.value ? 'Edit note' : 'Add a note'))
@@ -42,11 +44,13 @@ const formattedDate = computed(() =>
     : '',
 )
 const canSave = computed(() => form.title.trim().length > 0 || form.content.trim().length > 0)
+const lockedTags = computed(() => (hasCalendarNoteTag(form.tags) ? [CALENDAR_NOTE_TAG] : []))
 
 function resetForm() {
   form.title = props.note?.title ?? ''
   form.content = props.note?.content ?? ''
   form.entryDate = props.note?.entry_date ?? props.entryDate
+  form.tags = [...(props.note?.tags ?? [CALENDAR_NOTE_TAG])]
 }
 
 function close(open: boolean) {
@@ -59,7 +63,7 @@ function save() {
     title: form.title.trim(),
     content: form.content.trim(),
     entry_date: form.entryDate,
-    tags: props.note?.tags ?? [CALENDAR_NOTE_TAG],
+    tags: [...form.tags],
     annotations: props.note?.annotations ?? {},
   })
 }
@@ -71,6 +75,10 @@ watch(
   },
   { immediate: true },
 )
+
+onMounted(() => {
+  void loadTags()
+})
 </script>
 
 <template>
@@ -100,19 +108,9 @@ watch(
           class="w-full"
         />
       </UFormField>
-      <UFormField label="Calendar date">
-        <AppTextField v-model="form.entryDate" type="date" class="w-full" />
+      <UFormField label="Tags">
+        <TagInput v-model="form.tags" :suggest="suggestJotTags" :locked-tags="lockedTags" />
       </UFormField>
-      <UButton
-        v-if="note"
-        variant="ghost"
-        color="neutral"
-        block
-        :icon="resolveIcon('arrow-top-right-on-square')"
-        @click="emit('openInJots', note)"
-      >
-        Open in Jots
-      </UButton>
     </div>
 
     <template #footer>
