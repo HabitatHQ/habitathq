@@ -26,7 +26,7 @@
  * ```
  */
 
-import type { StorageAdapter } from "./storage.js";
+import { isTransactable, type StorageAdapter } from "./storage.js";
 
 /** Function signature for executing SQL during migrations and seeds. */
 export type MigrationExec = <T = Record<string, unknown>>(
@@ -37,9 +37,13 @@ export type MigrationExec = <T = Record<string, unknown>>(
 /** A single migration step: raw SQL string or async callback for complex logic. */
 export type MigrationStep = string | ((exec: MigrationExec) => Promise<void>);
 
-/** A named, idempotent data initializer applied at most once. */
+/** A named data initializer applied at most once after it completes successfully. */
 export interface Seed {
   readonly key: string;
+  /**
+   * Apply the seed. This runs atomically with its tracking record when the
+   * adapter supports transactions; otherwise it must be safe to retry.
+   */
   readonly apply: (exec: MigrationExec) => Promise<void>;
 }
 
@@ -78,8 +82,8 @@ async function runSteps(
   }
 }
 
-/** Apply pending versioned migrations from currentVersion to targetVersion. */
-async function applyMigrations(
+/** Run pending versioned migrations in ascending order without stamping a version. */
+async function runPendingMigrations(
   adapter: StorageAdapter,
   exec: MigrationExec,
   migrations: Readonly<Record<number, readonly MigrationStep[]>>,
@@ -91,19 +95,11 @@ async function applyMigrations(
     .filter((v) => v > currentVersion && v <= targetVersion)
     .sort((a, b) => a - b);
 
-  let applied = currentVersion;
-  for (const v of versions) {
-    const steps = migrations[v];
+  for (const version of versions) {
+    const steps = migrations[version];
     if (steps) {
       await runSteps(adapter, exec, steps);
     }
-    await adapter.exec(`PRAGMA user_version = ${v}`);
-    applied = v;
-  }
-
-  // Stamp target version if migrations didn't reach it (version gaps)
-  if (applied < targetVersion) {
-    await adapter.exec(`PRAGMA user_version = ${targetVersion}`);
   }
 }
 
@@ -112,62 +108,99 @@ async function applyMigrations(
  *
  * On a fresh database (`user_version = 0`), the baseline DDL runs and the
  * version is stamped to `config.version` without applying migrations.
- * On an existing database, only migrations with version > current are applied
- * in ascending order. Seeds are always evaluated regardless of version.
+ * Existing databases are upgraded transactionally: pending migrations run
+ * before the current baseline, and `user_version` advances only after both
+ * succeed. Seeds are evaluated after the schema transaction commits.
  */
 export async function applySchema(adapter: StorageAdapter, config: SchemaConfig): Promise<void> {
-  const exec: MigrationExec = <T = Record<string, unknown>>(
-    s: string,
-    params?: readonly unknown[],
-  ): Promise<T[]> => adapter.exec<T>(s, params);
-
-  // 1. Baseline DDL (idempotent). Uses runMigrations for multi-statement support.
-  await adapter.runMigrations([config.schema]);
-
-  // 2. Read current schema version
+  // Read the persisted version before applying baseline DDL. Existing tables
+  // are not changed by `CREATE TABLE IF NOT EXISTS`, so a new baseline index can
+  // otherwise reference a column that its pending migration has not added yet.
   const rows = await adapter.exec<{ user_version: number }>("PRAGMA user_version");
   const currentVersion = rows[0]?.user_version ?? 0;
 
   if (currentVersion === 0) {
-    // Fresh install — stamp target version, skip migrations
-    await adapter.exec(`PRAGMA user_version = ${config.version}`);
-  } else if (config.migrations) {
-    await applyMigrations(adapter, exec, config.migrations, currentVersion, config.version);
+    const install = async (target: StorageAdapter): Promise<void> => {
+      await target.runMigrations([config.schema]);
+      await target.exec(`PRAGMA user_version = ${config.version}`);
+    };
+    if (isTransactable(adapter)) {
+      await adapter.transaction(install);
+    } else {
+      // Baseline DDL is required to be idempotent, so an interrupted
+      // non-transactional fresh install can safely replay before it is stamped.
+      await install(adapter);
+    }
   } else if (currentVersion < config.version) {
-    await adapter.exec(`PRAGMA user_version = ${config.version}`);
+    if (!isTransactable(adapter)) {
+      throw new Error(
+        `applySchema: upgrading from version ${currentVersion} to ${config.version} requires transaction support`,
+      );
+    }
+
+    await adapter.transaction(async (tx) => {
+      const exec: MigrationExec = <T = Record<string, unknown>>(
+        sql: string,
+        params?: readonly unknown[],
+      ): Promise<T[]> => tx.exec<T>(sql, params);
+
+      if (config.migrations) {
+        await runPendingMigrations(tx, exec, config.migrations, currentVersion, config.version);
+      }
+      await tx.runMigrations([config.schema]);
+      await tx.exec(`PRAGMA user_version = ${config.version}`);
+    });
+  } else {
+    // Replay idempotent baseline objects even when the version is current. This
+    // repairs an older applySchema call that stamped before baseline replay.
+    const replay = async (target: StorageAdapter): Promise<void> => {
+      await target.runMigrations([config.schema]);
+    };
+    if (isTransactable(adapter)) {
+      await adapter.transaction(replay);
+    } else {
+      await replay(adapter);
+    }
   }
 
-  // 3. Apply seeds
   if (config.seeds && config.seeds.length > 0) {
     await applySeeds(adapter, config.seeds);
   }
 }
 
+async function applySeed(adapter: StorageAdapter, seed: Seed): Promise<void> {
+  const existing = await adapter.exec<{ key: string }>(
+    "SELECT key FROM _palladium_seeds WHERE key = ?",
+    [seed.key],
+  );
+  if (existing.length > 0) return;
+
+  const exec: MigrationExec = <T = Record<string, unknown>>(
+    sql: string,
+    params?: readonly unknown[],
+  ): Promise<T[]> => adapter.exec<T>(sql, params);
+  await seed.apply(exec);
+  await adapter.exec("INSERT INTO _palladium_seeds (key, applied_at) VALUES (?, ?)", [
+    seed.key,
+    new Date().toISOString(),
+  ]);
+}
+
 /**
  * Apply named seeds, tracking each by key in `_palladium_seeds`.
- * Seeds are applied at most once regardless of how many times this is called.
+ * On transaction-capable adapters, each seed and its tracking record commit
+ * atomically. Seeds used with other adapters must be safe to retry.
  */
 export async function applySeeds(adapter: StorageAdapter, seeds: readonly Seed[]): Promise<void> {
   await adapter.exec(
     "CREATE TABLE IF NOT EXISTS _palladium_seeds (key TEXT PRIMARY KEY, applied_at TEXT NOT NULL)",
   );
 
-  const exec: MigrationExec = <T = Record<string, unknown>>(
-    s: string,
-    params?: readonly unknown[],
-  ): Promise<T[]> => adapter.exec<T>(s, params);
-
   for (const seed of seeds) {
-    const existing = await adapter.exec<{ key: string }>(
-      "SELECT key FROM _palladium_seeds WHERE key = ?",
-      [seed.key],
-    );
-    if (existing.length === 0) {
-      await seed.apply(exec);
-      await adapter.exec("INSERT INTO _palladium_seeds (key, applied_at) VALUES (?, ?)", [
-        seed.key,
-        new Date().toISOString(),
-      ]);
+    if (isTransactable(adapter)) {
+      await adapter.transaction((tx) => applySeed(tx, seed));
+    } else {
+      await applySeed(adapter, seed);
     }
   }
 }
