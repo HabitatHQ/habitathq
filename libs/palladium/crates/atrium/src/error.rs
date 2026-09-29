@@ -60,6 +60,7 @@ impl IntoResponse for AtriumError {
                     "invalid_cursor" => "invalid_cursor",
                     "invalid_hlc" => "invalid_hlc",
                     "unsupported_version" => "unsupported_version",
+                    value if value.ends_with("x-palladium-node header") => "bad_request",
                     _ => "invalid_request",
                 };
                 (StatusCode::BAD_REQUEST, code, message)

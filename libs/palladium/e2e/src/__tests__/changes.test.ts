@@ -7,6 +7,7 @@ import { generateUuidV7 } from "@palladium/core";
 import { beforeEach, describe, expect, it } from "vitest";
 import { PalladiumClient } from "../client.js";
 import { insertOp, makeChange, makeHlc } from "../helpers.js";
+import { e2eBaseUrl } from "../setup/context.js";
 
 const client = new PalladiumClient();
 
@@ -16,7 +17,7 @@ describe("POST /v1/changes", () => {
     expect(res.status).toBe(201);
   });
   it("returns 4xx for an invalid body", async () => {
-    const res = await fetch("http://localhost:13742/v1/changes", {
+    const res = await fetch(`${e2eBaseUrl()}/v1/changes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: '{"not":"a change"}',
@@ -25,7 +26,7 @@ describe("POST /v1/changes", () => {
     expect(res.status).toBeLessThan(500);
   });
   it("returns 400 for malformed JSON", async () => {
-    const res = await fetch("http://localhost:13742/v1/changes", {
+    const res = await fetch(`${e2eBaseUrl()}/v1/changes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "not json",
@@ -80,7 +81,7 @@ describe("GET /v1/changes", () => {
     expect(ids).not.toContain(pivot.id);
   });
   it("returns 400 for a malformed cursor", async () => {
-    const res = await fetch("http://localhost:13742/v1/changes?cursor=not-valid-cursor");
+    const res = await fetch(`${e2eBaseUrl()}/v1/changes?cursor=not-valid-cursor`);
     expect(res.status).toBe(400);
   });
   it("returns changes that were previously inserted", async () => {

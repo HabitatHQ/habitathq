@@ -289,14 +289,16 @@ impl ChangeRow {
 // ── Tests ─────────────────────────────────────────────────────────────────
 //
 // Integration tests that require a live Postgres instance are gated behind
-// `#[sqlx::test]`. They only run when `DATABASE_URL` is set in the
-// environment (e.g. in CI).
+// `#[sqlx::test]` and the `integration-tests` feature. When that feature is
+// enabled, `DATABASE_URL` is required rather than silently skipping coverage.
 
 #[cfg(test)]
 mod tests {
     use super::*;
     #[cfg(feature = "integration-tests")]
-    use palladium_core::{Change, ChangeStore, Hlc, InsertOutcome, NodeId, Scope};
+    use palladium_core::{Change, ChangeStore, Hlc, InsertOutcome, NodeId, Op, Scope};
+    #[cfg(feature = "integration-tests")]
+    use serde_json::json;
     #[cfg(feature = "integration-tests")]
     use std::sync::Arc;
     #[cfg(feature = "integration-tests")]
@@ -329,12 +331,23 @@ mod tests {
     #[tokio::test]
     async fn concurrent_identical_scoped_inserts_return_inserted_and_duplicate(
     ) -> std::result::Result<(), Box<dyn std::error::Error>> {
-        let Ok(url) = std::env::var("DATABASE_URL") else {
-            return Ok(());
-        };
+        let url = std::env::var("DATABASE_URL").map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "DATABASE_URL is required when integration-tests is enabled",
+            )
+        })?;
         let store = Arc::new(PostgresStore::connect(&url).await?);
         let scope = Scope::new(format!("concurrency-{}", Uuid::new_v4()));
-        let change = Change::new(Hlc::new(NodeId::from_uuid(Uuid::nil()), 1), vec![]);
+        let row_id = Uuid::now_v7();
+        let change = Change::new(
+            Hlc::new(NodeId::new(), 1),
+            vec![Op::Insert {
+                table: "todos".into(),
+                row_id,
+                data: json!({"id": row_id}),
+            }],
+        );
         let barrier = Arc::new(Barrier::new(2));
 
         let insert = |store: Arc<PostgresStore>| {

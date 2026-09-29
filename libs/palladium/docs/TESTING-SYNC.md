@@ -14,6 +14,7 @@ Run commands from the repository root unless a command changes directory explici
 | Remote poison isolation | `pnpm --filter @palladium/core exec vitest run src/__tests__/sync-poison.test.ts` | Verifies rejected remote changes are quarantined and do not permanently wedge later valid changes. |
 | Bounded TypeScript hostile corpus | `pnpm --filter @palladium/core exec vitest run src/__tests__/sync-fuzz-corpus.test.ts` | Uses the checked-in corpus only; materialized bodies are capped at 8 KiB and nested values at depth 32. |
 | Generated deterministic TypeScript hostile sequences | `pnpm --filter @palladium/core exec vitest run src/__tests__/sync-fuzz-generated.test.ts` | Runs the bounded generated decoder/lifecycle sequence corpus without adding a fuzz dependency. |
+| Seeded multi-replica simulation | `pnpm --filter @palladium/core exec vitest run src/__tests__/sync-replica-simulation.test.ts` | Runs real file-backed SQLite engines through deterministic duplicate, reorder, partition, restart, and tombstone schedules against an independent LWW oracle. Replay a failing schedule with `PALLADIUM_SIM_SEED=<seed> PALLADIUM_SIM_SEEDS=1`; set `PALLADIUM_SIM_SEEDS=64` for the extended campaign. |
 | Rust shared wire fixtures | `cargo test -p palladium-core shared_wire_fixtures_round_trip_and_classify_invalid_inputs` | Decodes the same valid page and invalid HLC/operation/cursor fixture files. |
 | Bounded Atrium route corpus | `cargo test -p atrium bounded_hostile_route_corpus -- --nocapture` | Sends each checked-in hostile route case and asserts a client error plus a live health route; includes the empty cursor regression. |
 | Generated deterministic Atrium hostile sequences | `cargo test -p atrium generated_hostile_route_sequences -- --nocapture` | Runs the bounded generated route sequence corpus and checks that the service remains responsive. |
@@ -25,15 +26,16 @@ The e2e fixture command is independent of a running server. Core Vitest commands
 
 ## End-to-end prerequisites (not part of the fixture gate)
 
-The live client/server suite requires a built core package and a Rust server binary:
+The live client/server suite requires built core and SQLite-node packages plus Rust server binaries:
 
 ```sh
 pnpm --filter @palladium/core build
+pnpm --filter @palladium/sqlite-node build
 pnpm --filter @palladium/e2e typecheck
 pnpm --filter @palladium/e2e test
 ```
 
-`@palladium/e2e` imports the built `@palladium/core` package; run the build first or the suite can exercise stale `dist` output. The e2e setup requires Cargo and SQLite-compatible local server execution. If Cargo artifacts are redirected, set `CARGO_TARGET_DIR` so the server launcher can locate the binary. These are external prerequisites for live integration, not reasons to weaken the static fixture checks.
+`@palladium/e2e` imports the built `@palladium/core` package; build it first so the suite cannot exercise stale `dist` output. The suite spawns isolated real Palladium and Atrium processes on ephemeral loopback ports, waits with bounded readiness checks, and cleans each process before deleting its SQLite state. It proves receipt loss after a real server commit, truncated downlink checkpoint safety, partition/reconnect, durable client reopen, crash/restart recovery, and two-device Atrium event delivery. Cargo and SQLite-compatible local server execution are required. If Cargo artifacts are redirected, set `CARGO_TARGET_DIR` so the launcher can locate the binaries.
 
 ## Manual wire spot-check (optional)
 

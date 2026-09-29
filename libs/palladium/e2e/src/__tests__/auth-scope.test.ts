@@ -9,12 +9,10 @@
  *   - a client with NO token is rejected (401) and syncs nothing.
  */
 
-import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
 import {
   createEngine,
   generateUuidV7,
@@ -25,10 +23,11 @@ import {
 import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-const ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "../../../../../");
-const BINARY = join(ROOT, "target", "debug", "palladium");
-const PORT = 13_755;
-const BASE_URL = `http://localhost:${PORT}`;
+import { buildRustPackage, type ManagedServer, rustBinary, startServer } from "../setup/process.js";
+
+let server: ManagedServer | undefined;
+let tmpDir: string | undefined;
+let baseUrl = "";
 const POLL_MS = 200;
 
 type TaskRow = { id: string; text: string; done: number };
@@ -39,43 +38,43 @@ const SCHEMA = {
     "CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, text TEXT NOT NULL, done INTEGER NOT NULL)",
 };
 
-let server: ChildProcess | undefined;
-let tmpDir: string | undefined;
-
-async function waitForReady(url: string, timeoutMs = 30_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      if ((await fetch(url)).ok) return;
-    } catch {
-      // not ready
-    }
-    await sleep(100);
-  }
-  throw new Error(`server at ${url} not ready within ${timeoutMs}ms`);
-}
-
 beforeAll(async () => {
-  execFileSync("cargo", ["build", "-p", "palladium-cli"], { cwd: ROOT, stdio: "inherit" });
+  buildRustPackage("palladium-cli");
   tmpDir = await mkdtemp(join(tmpdir(), "palladium-e2e-auth-"));
-  server = spawn(
-    BINARY,
-    ["--db", "sqlite:auth.db", "dev", "--port", String(PORT), "--auth", "bearer"],
-    { cwd: tmpDir, stdio: "pipe" },
-  );
-  server.stderr?.on("data", (c: Buffer) => process.stderr.write(`[palladium-auth] ${c}`));
-  await waitForReady(`${BASE_URL}/api-doc/openapi.json`);
+  try {
+    server = await startServer({
+      name: "palladium auth seam",
+      binary: rustBinary("palladium"),
+      args: (port) => ["--db", "sqlite:auth.db", "dev", "--port", String(port), "--auth", "bearer"],
+      cwd: tmpDir,
+      readinessPath: "/api-doc/openapi.json",
+    });
+    baseUrl = server.baseUrl;
+  } catch (error) {
+    if (server !== undefined) await server.stop();
+    if (tmpDir !== undefined) await rm(tmpDir, { recursive: true, force: true });
+    server = undefined;
+    tmpDir = undefined;
+    throw error;
+  }
 }, 60_000);
 
 afterAll(async () => {
-  server?.kill("SIGTERM");
-  if (tmpDir !== undefined) await rm(tmpDir, { recursive: true, force: true });
+  if (server !== undefined) {
+    await server.stop();
+    server = undefined;
+  }
+  if (tmpDir !== undefined) {
+    await rm(tmpDir, { recursive: true, force: true });
+    tmpDir = undefined;
+  }
+  baseUrl = "";
 });
 
 interface Client {
   engine: PalladiumEngine<TasksSchema>;
   transport: SyncTransport<TasksSchema>;
-  stop(): Promise<void>;
+  dispose(): Promise<void>;
 }
 
 /** A client whose transport authenticates with `token` (or none → 401). */
@@ -87,12 +86,19 @@ async function makeClient(token: string | null): Promise<Client> {
   // Omit `authHeaders` entirely when there's no token (exactOptionalPropertyTypes
   // forbids passing `undefined` for an optional property).
   const transport = new SyncTransport(engine, {
-    serverUrl: BASE_URL,
+    serverUrl: baseUrl,
     pollIntervalMs: POLL_MS,
     ...(token === null ? {} : { authHeaders: () => ({ Authorization: `Bearer ${token}` }) }),
   });
   await transport.start();
-  return { engine, transport, stop: () => transport.stop() };
+  return {
+    engine,
+    transport,
+    dispose: async () => {
+      await transport.dispose();
+      await engine.adapter.close();
+    },
+  };
 }
 
 async function tasksOf(c: Client): Promise<TaskRow[]> {
@@ -121,7 +127,7 @@ describe("auth-seam scoping", () => {
     return c;
   };
   afterEach(async () => {
-    await Promise.all(clients.splice(0).map((c) => c.stop()));
+    await Promise.all(clients.splice(0).map((c) => c.dispose()));
   });
 
   it("same token → same workspace: writes converge", async () => {
@@ -150,7 +156,7 @@ describe("auth-seam scoping", () => {
 
   it("no token → 401: the client syncs nothing", async () => {
     // A direct unauthenticated GET is rejected.
-    const res = await fetch(`${BASE_URL}/v1/changes`);
+    const res = await fetch(`${baseUrl}/v1/changes`);
     expect(res.status).toBe(401);
 
     // And a no-token client's write never lands server-side (its own local row

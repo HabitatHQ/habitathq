@@ -1082,8 +1082,10 @@ export class PalladiumEngine<S extends SchemaMap> {
     rowId: string,
     hlc: Hlc,
   ): Promise<void> {
+    const tombstone = await this.#getColMeta(adpt, table, rowId, DELETED_COL);
+    if (tombstone !== null && compareHlc(hlc, tombstone) <= 0) return;
     const maxCol = await this.#maxColMeta(adpt, table, rowId);
-    if (maxCol !== null && compareHlc(hlc, maxCol) < 0) return;
+    if (maxCol !== null && compareHlc(hlc, maxCol) <= 0) return;
     await this._removeRow(adpt, table, rowId);
     await this.#putColMeta(adpt, table, rowId, DELETED_COL, hlc);
   }

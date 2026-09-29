@@ -68,14 +68,16 @@ mod tests {
                 "valid"
             };
         }
-        if input.get("hlc").map_or(true, |hlc| {
-            serde_json::from_value::<Hlc>(hlc.clone()).is_err()
-        }) {
+        if input
+            .get("hlc")
+            .is_none_or(|hlc| serde_json::from_value::<Hlc>(hlc.clone()).is_err())
+        {
             return "invalid_hlc";
         }
-        if input.get("ops").map_or(true, |ops| {
-            serde_json::from_value::<Vec<Op>>(ops.clone()).is_err()
-        }) {
+        if input
+            .get("ops")
+            .is_none_or(|ops| serde_json::from_value::<Vec<Op>>(ops.clone()).is_err())
+        {
             return "invalid_op";
         }
         "valid"
@@ -121,6 +123,19 @@ mod tests {
             table: "todos".into(),
             row_id: Uuid::nil(),
             data: json!({"text": "buy milk"}),
+        }
+    }
+
+    fn valid_change(ops: Vec<Op>) -> Change {
+        Change::new(Hlc::new(NodeId::new(), 1_000), ops)
+    }
+
+    fn valid_insert() -> Op {
+        let row_id = Uuid::now_v7();
+        Op::Insert {
+            table: "todos".into(),
+            row_id,
+            data: json!({"id": row_id, "text": "buy milk"}),
         }
     }
 
@@ -171,5 +186,37 @@ mod tests {
         let early = Change::new(hlc_early, vec![]);
         let late = Change::new(hlc_late, vec![]);
         assert!(late.hlc > early.hlc);
+    }
+
+    #[test]
+    fn protocol_validation_requires_v1_identities_nonempty_and_canonical_operations() {
+        let now = 1_000;
+        let empty = valid_change(vec![]);
+        assert_eq!(
+            crate::validate_change(&empty, now, 0),
+            Err("change has no operations".to_owned())
+        );
+
+        let row_id = Uuid::now_v7();
+        let non_canonical = valid_change(vec![
+            Op::Insert {
+                table: "todos".into(),
+                row_id,
+                data: json!({"id": row_id, "text": "first"}),
+            },
+            Op::Update {
+                table: "todos".into(),
+                row_id,
+                col: "text".into(),
+                value: json!("second"),
+            },
+        ]);
+        assert_eq!(
+            crate::validate_change(&non_canonical, now, 0),
+            Err("change is not canonical".to_owned())
+        );
+
+        let valid = valid_change(vec![valid_insert()]);
+        assert!(crate::validate_change(&valid, now, 0).is_ok());
     }
 }

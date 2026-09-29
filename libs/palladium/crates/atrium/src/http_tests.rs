@@ -26,6 +26,16 @@ async fn app() -> Router {
     )
 }
 
+fn node_for(user: &str) -> &'static str {
+    match user {
+        "alice" => "00000000-0000-4000-8000-000000000001",
+        "bob" => "00000000-0000-4000-8000-000000000002",
+        "carol" => "00000000-0000-4000-8000-000000000003",
+        "dave" => "00000000-0000-4000-8000-000000000004",
+        _ => "00000000-0000-4000-8000-000000000005",
+    }
+}
+
 /// Fire one request; return the status and the parsed JSON body (Null if empty).
 async fn call(
     app: &Router,
@@ -41,6 +51,11 @@ async fn call(
     }
     if let Some(w) = workspace {
         builder = builder.header("x-workspace", w);
+    }
+    if uri.starts_with("/v1/changes") {
+        if let Some(user) = bearer {
+            builder = builder.header("x-palladium-node", node_for(user));
+        }
     }
     if body.is_some() {
         builder = builder.header(CONTENT_TYPE, "application/json");
@@ -65,7 +80,7 @@ async fn call(
 
 fn wrap(ops: &Value) -> Value {
     json!({
-        "id": Uuid::now_v7(),
+        "id": Uuid::new_v4(),
         "hlc": { "wallMs": 1_700_000_000_000_u64, "counter": 0, "nodeId": Uuid::new_v4() },
         "ops": ops.clone(),
     })
@@ -886,8 +901,8 @@ async fn append_cursor_returns_a_late_older_hlc_change() {
     let late = Uuid::now_v7();
     let change = |row: Uuid, wall_ms: u64| {
         json!({
-            "id": Uuid::now_v7(),
-            "hlc": { "wallMs": wall_ms, "counter": 0, "nodeId": row },
+            "id": Uuid::new_v4(),
+            "hlc": { "wallMs": wall_ms, "counter": 0, "nodeId": Uuid::new_v4() },
             "ops": [{ "op": "insert", "table": "habits", "row_id": row, "data": { "id": row } }],
         })
     };
@@ -915,10 +930,50 @@ async fn append_cursor_returns_a_late_older_hlc_change() {
 }
 
 #[tokio::test]
+async fn changes_reject_noncanonical_payload_before_persisting_any_record() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let row = Uuid::now_v7();
+    let change = wrap(&json!([
+        { "op": "insert", "table": "notes", "row_id": row, "data": { "id": row } },
+        { "op": "update", "table": "notes", "row_id": row, "col": "title", "value": "later" }
+    ]));
+
+    assert_eq!(
+        post_change(&app, "alice", &ws, change).await,
+        StatusCode::BAD_REQUEST
+    );
+    let page = get_env(&app, "alice", &ws).await;
+    assert_eq!(page["changes"], json!([]));
+}
+
+#[tokio::test]
+async fn conflicting_retry_cannot_mutate_an_accepted_change() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let (row, accepted) = root_insert("notes");
+    assert_eq!(
+        post_change(&app, "alice", &ws, accepted.clone()).await,
+        StatusCode::CREATED
+    );
+    let mut conflicting = accepted;
+    conflicting["ops"] = json!([
+        { "op": "update", "table": "notes", "row_id": row, "col": "title", "value": "mutated" }
+    ]);
+
+    assert_eq!(
+        post_change(&app, "alice", &ws, conflicting).await,
+        StatusCode::CONFLICT
+    );
+    let page = get_env(&app, "alice", &ws).await;
+    assert_eq!(page["changes"].as_array().map(Vec::len), Some(1));
+}
+
+#[tokio::test]
 async fn changes_rejects_empty_and_out_of_range_cursors_without_panicking() {
     let app = app().await;
     let ws = family(&app).await;
-    for cursor in ["", "01", "-1", "9223372036854775808"] {
+    for cursor in ["", "01", "-1", "101", "9223372036854775808"] {
         let (status, body) = call(
             &app,
             "GET",
@@ -941,8 +996,8 @@ async fn change_cannot_mix_aggregate_roots_or_spoof_a_member_node() {
     let bob_row = Uuid::now_v7();
     let change = |row: Uuid| {
         json!({
-            "id": Uuid::now_v7(),
-            "hlc": { "wallMs": 1_700_000_000_000_u64, "counter": 0, "nodeId": row },
+            "id": Uuid::new_v4(),
+            "hlc": { "wallMs": 1_700_000_000_000_u64, "counter": 0, "nodeId": Uuid::new_v4() },
             "ops": [{ "op": "insert", "table": "habits", "row_id": row, "data": { "id": row } }],
         })
     };
@@ -958,8 +1013,8 @@ async fn change_cannot_mix_aggregate_roots_or_spoof_a_member_node() {
 
     let other = Uuid::now_v7();
     let mixed = json!({
-        "id": Uuid::now_v7(),
-        "hlc": { "wallMs": 1_700_000_000_001_u64, "counter": 0, "nodeId": Uuid::now_v7() },
+        "id": Uuid::new_v4(),
+        "hlc": { "wallMs": 1_700_000_000_001_u64, "counter": 0, "nodeId": Uuid::new_v4() },
         "ops": [
             { "op": "insert", "table": "habits", "row_id": Uuid::now_v7(), "data": { "id": Uuid::now_v7() } },
             { "op": "insert", "table": "notes", "row_id": other, "data": { "id": other } },
@@ -986,7 +1041,7 @@ async fn changes_cursor_advances_when_acl_hides_raw_page() {
 }
 /// Bounded public-route corpus campaign. Keep this deterministic in normal CI;
 /// larger arbitrary-input and sanitizer campaigns require an external fuzz toolchain.
-/// Campaign: cargo test -p atrium bounded_hostile_route_corpus -- --nocapture
+/// Campaign: `cargo test -p atrium bounded_hostile_route_corpus -- --nocapture`
 #[tokio::test]
 async fn bounded_hostile_route_corpus() {
     let app = app().await;
@@ -1007,14 +1062,15 @@ async fn bounded_hostile_route_corpus() {
             }
             body = body.replace("__NESTED_JSON__", &nested);
         }
-        let bytes = if let Some(hex) = case["body_hex"].as_str() {
-            hex.as_bytes()
-                .chunks(2)
-                .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
-                .collect()
-        } else {
-            body.into_bytes()
-        };
+        let bytes = case["body_hex"].as_str().map_or_else(
+            || body.into_bytes(),
+            |hex| {
+                hex.as_bytes()
+                    .chunks(2)
+                    .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+                    .collect()
+            },
+        );
         let mut headers = vec![("x-workspace", ws.as_str())];
         if let Some(content_type) = case["content_type"].as_str() {
             headers.push(("content-type", content_type));
@@ -1032,7 +1088,7 @@ async fn bounded_hostile_route_corpus() {
 /// Deterministic generated hostile-route campaign.
 ///
 /// Seed: 0x37202608; 16 cases, at most 8 KiB bodies and 32 nesting levels.
-/// Campaign: cargo test -p atrium generated_hostile_route_sequences -- --nocapture
+/// Campaign: `cargo test -p atrium generated_hostile_route_sequences -- --nocapture`
 #[tokio::test]
 async fn generated_hostile_route_sequences() {
     let app = app().await;
@@ -1053,7 +1109,8 @@ async fn generated_hostile_route_sequences() {
         if uri.contains("cursor=") {
             uri = uri.replace("cursor=", &format!("cursor={cursor}"));
         } else {
-            uri.push_str(&format!("?cursor={cursor}"));
+            uri.push_str("?cursor=");
+            uri.push_str(&cursor);
         }
         let mut body = seed["body"].as_str().unwrap_or("").to_owned();
         let depth = (state as usize % 32) + 1;

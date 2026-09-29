@@ -12,13 +12,11 @@
  * revoke rejected, A7 blob ACL inherited from the note.
  */
 
-import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
 import {
   createEngine,
   generateUuidV7,
@@ -31,10 +29,11 @@ import {
 import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-const ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "../../../../../");
-const BINARY = join(process.env["CARGO_TARGET_DIR"] ?? join(ROOT, "target"), "debug", "atrium");
-const PORT = 13_760;
-const BASE_URL = `http://localhost:${PORT}`;
+import { buildRustPackage, type ManagedServer, rustBinary, startServer } from "../setup/process.js";
+
+let server: ManagedServer | undefined;
+let tmpDir: string | undefined;
+let BASE_URL = "";
 const POLL_MS = 150;
 
 // ── the burrow §7.1 surface (children carry `root_id`) ───────────────────────
@@ -71,39 +70,44 @@ const newId = (): string => generateUuidV7();
 
 // ── server lifecycle ─────────────────────────────────────────────────────────
 
-let server: ChildProcess | undefined;
-let tmpDir: string | undefined;
-
-async function waitForReady(url: string, timeoutMs = 30_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      if ((await fetch(url)).ok) return;
-    } catch {
-      // not ready
-    }
-    await sleep(100);
-  }
-  throw new Error(`server at ${url} not ready within ${timeoutMs}ms`);
-}
-
 beforeAll(async () => {
-  execFileSync("cargo", ["build", "-p", "atrium"], {
-    cwd: ROOT,
-    stdio: "inherit",
-  });
+  buildRustPackage("atrium");
   tmpDir = await mkdtemp(join(tmpdir(), "atrium-e2e-"));
-  server = spawn(BINARY, ["--atrium-db", "sqlite:atrium.db", "--port", String(PORT)], {
-    cwd: tmpDir,
-    stdio: "pipe",
-  });
-  server.stderr?.on("data", (c: Buffer) => process.stderr.write(`[atrium] ${c}`));
-  await waitForReady(`${BASE_URL}/v1/health`);
+  try {
+    server = await startServer({
+      name: "atrium",
+      binary: rustBinary("atrium"),
+      args: (port) => [
+        "--atrium-db",
+        "sqlite:atrium.db",
+        "--port",
+        String(port),
+        "--auth-mode",
+        "dev",
+      ],
+      cwd: tmpDir,
+      readinessPath: "/v1/health",
+    });
+    BASE_URL = server.baseUrl;
+  } catch (error) {
+    if (server !== undefined) await server.stop();
+    if (tmpDir !== undefined) await rm(tmpDir, { recursive: true, force: true });
+    server = undefined;
+    tmpDir = undefined;
+    throw error;
+  }
 }, 120_000);
 
 afterAll(async () => {
-  server?.kill("SIGTERM");
-  if (tmpDir !== undefined) await rm(tmpDir, { recursive: true, force: true });
+  if (server !== undefined) {
+    await server.stop();
+    server = undefined;
+  }
+  if (tmpDir !== undefined) {
+    await rm(tmpDir, { recursive: true, force: true });
+    tmpDir = undefined;
+  }
+  BASE_URL = "";
 });
 
 // ── REST control plane ───────────────────────────────────────────────────────
@@ -124,6 +128,19 @@ async function rest(
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
+}
+
+async function errorCode(response: Response): Promise<string | undefined> {
+  const body: unknown = await response.json();
+  const code =
+    typeof body === "object" &&
+    body !== null &&
+    !Array.isArray(body) &&
+    "code" in body &&
+    typeof body.code === "string"
+      ? body.code
+      : undefined;
+  return code;
 }
 
 async function createWorkspace(user: string): Promise<string> {
@@ -194,12 +211,21 @@ async function getBlob(user: string, blobId: string): Promise<{ status: number; 
   return { status: res.status, text: res.ok ? await res.text() : "" };
 }
 
-/** Poll the server (as `user`) until a change touching `rowId` is stored. */
-async function waitServerHas(user: string, ws: string, rowId: string): Promise<void> {
+/** Poll the server through a registered device until it stores `rowId`. */
+async function waitServerHas(
+  user: string,
+  ws: string,
+  nodeId: string,
+  rowId: string,
+): Promise<void> {
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
-    const res = await fetch(`${BASE_URL}/v1/changes`, {
-      headers: { Authorization: `Bearer ${user}`, "X-Workspace": ws },
+    const res = await fetch(`${BASE_URL}/v1/changes?limit=100`, {
+      headers: {
+        Authorization: `Bearer ${user}`,
+        "X-Workspace": ws,
+        "X-Palladium-Node": nodeId,
+      },
     });
     if (res.ok) {
       const env = (await res.json()) as { changes: WireChange[] };
@@ -213,13 +239,15 @@ async function waitServerHas(user: string, ws: string, rowId: string): Promise<v
 // ── Atrium-aware client (mirrors example-burrow/src/atrium.ts) ────────────────
 
 interface Client {
+  nodeId: string;
   engine: PalladiumEngine<BurrowSchema>;
   transport: SyncTransport<BurrowSchema>;
   dispose(): Promise<void>;
 }
 async function makeClient(user: string, ws: string): Promise<Client> {
+  const nodeId = randomUUID();
   const engine = createEngine<BurrowSchema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }), {
-    nodeId: randomUUID(),
+    nodeId,
   });
   await engine.init(SCHEMA);
   const transport = new SyncTransport<BurrowSchema>(engine, {
@@ -228,7 +256,7 @@ async function makeClient(user: string, ws: string): Promise<Client> {
     authHeaders: () => ({ Authorization: `Bearer ${user}`, "X-Workspace": ws }),
   });
   await transport.start();
-  return { engine, transport, dispose: () => transport.dispose() };
+  return { nodeId, engine, transport, dispose: () => transport.dispose() };
 }
 
 async function count(c: Client, table: keyof BurrowSchema, id: string): Promise<number> {
@@ -236,6 +264,14 @@ async function count(c: Client, table: keyof BurrowSchema, id: string): Promise<
   const rows = await c.engine.adapter.exec<{ n: number }>(
     `SELECT COUNT(*) AS n FROM ${table} WHERE id = ?`,
     [id],
+  );
+  return rows[0]?.n ?? 0;
+}
+
+async function acknowledgedEventCount(client: Client): Promise<number> {
+  const rows = await client.engine.adapter.exec<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM _sync_events WHERE acknowledged_at IS NOT NULL",
+    [],
   );
   return rows[0]?.n ?? 0;
 }
@@ -266,6 +302,7 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
     const ws = await family();
     const high = newId();
     const low = newId();
+    const nodeId = randomUUID();
 
     const highChange: WireChange = {
       id: randomUUID(),
@@ -284,7 +321,10 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
     ).toBe(201);
 
     const first = (await (
-      await rest("GET", "/v1/changes", "alice", undefined, { "X-Workspace": ws })
+      await rest("GET", "/v1/changes", "alice", undefined, {
+        "X-Workspace": ws,
+        "X-Palladium-Node": nodeId,
+      })
     ).json()) as { changes: WireChange[]; cursor: string };
     expect(first.changes.map((change) => change.id)).toContain(highChange.id);
 
@@ -306,12 +346,14 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
     const second = (await (
       await rest("GET", `/v1/changes?cursor=${first.cursor}&limit=100`, "alice", undefined, {
         "X-Workspace": ws,
+        "X-Palladium-Node": nodeId,
       })
     ).json()) as { changes: WireChange[]; cursor: string };
     expect(second.changes.map((change) => change.id)).toEqual([lowChange.id]);
     const third = (await (
       await rest("GET", `/v1/changes?cursor=${second.cursor}&limit=100`, "alice", undefined, {
         "X-Workspace": ws,
+        "X-Palladium-Node": nodeId,
       })
     ).json()) as { changes: WireChange[] };
     expect(third.changes).toEqual([]);
@@ -364,7 +406,7 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
       text: "Milk",
       done: 0,
     });
-    await waitServerHas("alice", ws, item);
+    await waitServerHas("alice", ws, alice.nodeId, item);
 
     await sleep(POLL_MS * 6);
     expect(await count(bob, "lists", list)).toBe(0); // private before sharing
@@ -392,7 +434,7 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
       text: "v0",
       done: 0,
     });
-    await waitServerHas("alice", ws, item);
+    await waitServerHas("alice", ws, alice.nodeId, item);
 
     expect((await setSharing("alice", ws, list, "household_rw")).status).toBe(200);
     await waitUntil(async () => (await count(bob, "list_items", item)) === 1);
@@ -433,13 +475,75 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
       body: "",
       created_at: Date.now(),
     });
-    await waitServerHas("alice", ws, note);
+    await waitServerHas("alice", ws, alice.nodeId, note);
 
     expect((await share("alice", ws, note, "bob", "read")).status).toBe(200);
     await waitUntil(async () => (await count(bob, "notes", note)) === 1);
 
     await sleep(POLL_MS * 6);
     expect(await count(carol, "notes", note)).toBe(0); // never granted
+  });
+
+  it("A4b: independent device grants and revokes survive each sibling acknowledgement", async () => {
+    const ws = await family();
+    const alice = track(await makeClient("alice", ws));
+    const bobOne = track(await makeClient("bob", ws));
+    const bobTwo = track(await makeClient("bob", ws));
+
+    const missingNode = await rest("GET", "/v1/changes?limit=100", "bob", undefined, {
+      "X-Workspace": ws,
+    });
+    expect(missingNode.status).toBe(400);
+    expect(await errorCode(missingNode)).toBe("bad_request");
+    const malformedNode = await rest(
+      "POST",
+      "/v1/changes/events/ack",
+      "bob",
+      { event_ids: [] },
+      {
+        "X-Workspace": ws,
+        "X-Palladium-Node": "not-a-uuid",
+      },
+    );
+    expect(malformedNode.status).toBe(400);
+    expect(await errorCode(malformedNode)).toBe("bad_request");
+    expect(
+      (
+        await rest("GET", "/v1/changes?limit=100", "alice", undefined, {
+          "X-Workspace": ws,
+          "X-Palladium-Node": bobOne.nodeId,
+        })
+      ).status,
+    ).toBe(403);
+
+    await bobTwo.transport.stop();
+    const note = newId();
+    await alice.engine.insert("notes", {
+      id: note,
+      title: "Two device grant",
+      body: "",
+      created_at: Date.now(),
+    });
+    await waitServerHas("alice", ws, alice.nodeId, note);
+    expect((await share("alice", ws, note, "bob", "read")).status).toBe(200);
+
+    await waitUntil(async () => (await count(bobOne, "notes", note)) === 1);
+    await waitUntil(async () => (await acknowledgedEventCount(bobOne)) === 1);
+    expect(await acknowledgedEventCount(bobTwo)).toBe(0);
+    expect(await count(bobTwo, "notes", note)).toBe(0);
+    await bobTwo.transport.start();
+    await waitUntil(async () => (await count(bobTwo, "notes", note)) === 1);
+    await waitUntil(async () => (await acknowledgedEventCount(bobTwo)) === 1);
+
+    await bobTwo.transport.stop();
+    expect((await unshare("alice", ws, note, "bob")).status).toBe(200);
+    await waitUntil(async () => (await count(bobOne, "notes", note)) === 0);
+    await waitUntil(async () => (await acknowledgedEventCount(bobOne)) === 2);
+    expect(await acknowledgedEventCount(bobTwo)).toBe(1);
+    expect(await count(bobTwo, "notes", note)).toBe(1);
+    await bobTwo.transport.start();
+    await waitUntil(async () => (await count(bobTwo, "notes", note)) === 0);
+    await waitUntil(async () => (await acknowledgedEventCount(bobTwo)) === 2);
   });
 
   it("A5: revoke purges the note from the ex-grantee", async () => {
@@ -454,7 +558,7 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
       body: "",
       created_at: Date.now(),
     });
-    await waitServerHas("alice", ws, note);
+    await waitServerHas("alice", ws, alice.nodeId, note);
     await share("alice", ws, note, "bob", "read");
     await waitUntil(async () => (await count(bob, "notes", note)) === 1);
 
@@ -479,7 +583,7 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
       body: "orig",
       created_at: Date.now(),
     });
-    await waitServerHas("alice", ws, note);
+    await waitServerHas("alice", ws, alice.nodeId, note);
     await share("alice", ws, note, "bob", "write");
     await waitUntil(async () => (await count(bob, "notes", note)) === 1);
 
@@ -510,7 +614,7 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
       body: "",
       created_at: Date.now(),
     });
-    await waitServerHas("alice", ws, note);
+    await waitServerHas("alice", ws, alice.nodeId, note);
 
     const blob = newId();
     expect(await putBlob("alice", ws, note, blob, "PNGDATA")).toBe(201);

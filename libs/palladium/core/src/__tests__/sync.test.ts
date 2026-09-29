@@ -916,6 +916,31 @@ describe("SyncTransport — durable outbox", () => {
     const rows = await outboxRows(db);
     expect(rows).toHaveLength(0);
   });
+
+  it("rolls back the local mutation when durable outbox checkpointing fails", async () => {
+    const db = await makeEngine(ALICE);
+    const { fetch } = makeFakeFetch(() => jsonResponse(page()));
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await transport.poll();
+    const adapter = db.adapter;
+    const exec = adapter.exec.bind(adapter);
+    adapter.exec = ((statement: string, params: readonly unknown[] = []) => {
+      if (statement.startsWith("INSERT INTO _sync_outbox")) throw new Error("outbox unavailable");
+      return exec(statement, params);
+    }) as typeof adapter.exec;
+
+    await expect(
+      db.insert("notes", {
+        id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+        title: "must roll back",
+        updated_at: 1,
+      }),
+    ).rejects.toThrow("outbox unavailable");
+
+    expect(await db.exec<Schema["notes"]>(sql`SELECT * FROM notes`)).toEqual([]);
+    expect(await outboxRows(db)).toEqual([]);
+    await transport.dispose();
+  });
   it("preserves Retry-After as structured retry scheduling data", async () => {
     const db = await makeEngine(ALICE);
     const { fetch } = makeFakeFetch((call) => {
@@ -959,7 +984,7 @@ describe("SyncTransport — durable outbox", () => {
     ],
     ["a receipt without a cursor", () => jsonResponse({ version: 1, outcome: "inserted" }, 201)],
   ] as const) {
-    it(`quarantines ${description}`, async () => {
+    it(`retains ${description} in the durable outbox`, async () => {
       const db = await makeEngine(ALICE);
       const { fetch } = makeFakeFetch((call) =>
         call.init?.method === "POST" ? response() : jsonResponse(page()),
@@ -974,7 +999,7 @@ describe("SyncTransport — durable outbox", () => {
       await transport.syncOnce();
       await transport.stop();
 
-      expect(await outboxRows(db)).toHaveLength(0);
+      expect(await outboxRows(db)).toHaveLength(1);
       expect(await transport.inspectQuarantine()).toEqual([
         expect.objectContaining({
           phase: "uplink",
@@ -982,6 +1007,7 @@ describe("SyncTransport — durable outbox", () => {
           permanent: true,
         }),
       ]);
+      await transport.dispose();
     });
   }
   it("aborts a stalled response body at requestTimeoutMs and cleans up timers", async () => {
@@ -1054,7 +1080,7 @@ describe("SyncTransport — durable outbox", () => {
     await transport.dispose();
   });
 
-  it("quarantines a terminal protocol failure until explicit recovery", async () => {
+  it("retains a terminal protocol failure across restart until explicit recovery", async () => {
     const db = await makeEngine(ALICE);
     let posts = 0;
     const { fetch } = makeFakeFetch((call) => {
@@ -1079,8 +1105,13 @@ describe("SyncTransport — durable outbox", () => {
       code: "invalid_receipt",
       retryable: false,
     });
-    expect(await outboxRows(db)).toHaveLength(0);
-    const quarantined = await transport.inspectQuarantine();
+    const beforeRetry = await outboxRows(db);
+    expect(beforeRetry).toHaveLength(1);
+    await transport.dispose();
+    const restarted = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await restarted.syncOnce();
+    expect(posts).toBe(1);
+    const quarantined = await restarted.inspectQuarantine();
     expect(quarantined).toEqual([
       expect.objectContaining({
         phase: "uplink",
@@ -1092,13 +1123,14 @@ describe("SyncTransport — durable outbox", () => {
     if (terminalChangeId === undefined)
       throw new Error("expected terminal outbox quarantine entry");
 
-    await transport.retryQuarantined(terminalChangeId);
-    await transport.syncOnce();
+    await restarted.retryQuarantined(terminalChangeId);
+    expect(await outboxRows(db)).toEqual(beforeRetry);
+    await restarted.syncOnce();
 
     expect(posts).toBe(2);
     expect(await outboxRows(db)).toHaveLength(0);
-    expect(await transport.inspectQuarantine()).toEqual([]);
-    await transport.dispose();
+    expect(await restarted.inspectQuarantine()).toEqual([]);
+    await restarted.dispose();
   });
 
   it("non-OK POST leaves the change in the outbox; engine status is 'error'", async () => {
@@ -1345,6 +1377,51 @@ describe("SyncTransport — auth decoration (§2b)", () => {
 
     expect(authSeen.length).toBeGreaterThan(0);
     expect(authSeen.every((a) => a === "Bearer tok")).toBe(true);
+  });
+
+  it("sends the durable node identity on upload, downlink, and event acknowledgement", async () => {
+    const db = await makeEngine(ALICE);
+    const seen: Array<{
+      readonly method: string;
+      readonly url: string;
+      readonly node: string | null;
+    }> = [];
+    const fetch: typeof globalThis.fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : (input as URL | Request).toString();
+      seen.push({
+        method: init?.method ?? "GET",
+        url,
+        node: new Headers(init?.headers).get("X-Palladium-Node"),
+      });
+      if (url.endsWith("/events/ack")) return new Response(null, { status: 204 });
+      if (init?.method === "POST") return jsonResponse(receipt(), 201);
+      return jsonResponse({
+        ...page(),
+        events: [{ id: 1, kind: "grant", root_id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab" }],
+      });
+    };
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+
+    await transport.start();
+    await db.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      title: "a",
+      updated_at: 1,
+    });
+    await Promise.resolve();
+    await transport.stop();
+
+    expect(seen.every((request) => request.node === ALICE)).toBe(true);
+    expect(seen.map((request) => `${request.method} ${request.url}`)).toContain(
+      `GET ${SERVER_URL}/v1/changes?limit=100`,
+    );
+    expect(seen.map((request) => `${request.method} ${request.url}`)).toContain(
+      `POST ${SERVER_URL}/v1/changes`,
+    );
+    expect(seen.map((request) => `${request.method} ${request.url}`)).toContain(
+      `POST ${SERVER_URL}/v1/changes/events/ack`,
+    );
+    await transport.dispose();
   });
 
   it("refreshes the token and retries once on 401", async () => {

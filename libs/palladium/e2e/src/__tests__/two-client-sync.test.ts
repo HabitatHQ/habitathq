@@ -20,7 +20,7 @@ import {
 } from "@palladium/core";
 import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { E2E_BASE_URL } from "../setup/server.js";
+import { e2eBaseUrl } from "../setup/context.js";
 
 // A `type` (not `interface`): object-literal type aliases get an implicit
 // index signature, so they satisfy SchemaMap's `Record<string, unknown>`
@@ -52,7 +52,7 @@ async function makeClient(nodeId: string): Promise<Client> {
   });
   await engine.init(SCHEMA);
   const transport = new SyncTransport(engine, {
-    serverUrl: E2E_BASE_URL,
+    serverUrl: e2eBaseUrl(),
     pollIntervalMs: POLL_MS,
     terminalPolicy: "degraded_skip",
   });

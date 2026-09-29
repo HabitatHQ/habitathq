@@ -4,69 +4,43 @@
  * the test run.
  */
 
-import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { buildRustPackage, type ManagedServer, rustBinary, startServer } from "./process.js";
 
-// Repo root = five levels up from libs/palladium/e2e/src/setup/. The Cargo
-// workspace manifest and its shared `target/` directory both live there.
-const ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "../../../../../");
-const TARGET_DIR = process.env["CARGO_TARGET_DIR"] ?? join(ROOT, "target");
-const BINARY = join(TARGET_DIR, "debug", "palladium");
+export const E2E_BASE_URL_CONTEXT_KEY = "palladiumE2eBaseUrl";
 
-export const E2E_PORT = 13_742;
-export const E2E_BASE_URL = `http://localhost:${E2E_PORT}`;
-
-let server: ChildProcess | undefined;
+let server: ManagedServer | undefined;
 let tmpDir: string | undefined;
 
-/** Poll `url` until it returns HTTP 200, or reject after `timeoutMs`. */
-async function waitForReady(url: string, timeoutMs = 30_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(url);
-      if (res.ok) return;
-    } catch {
-      // not ready yet
-    }
-    await new Promise<void>((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error(`Server at ${url} did not become ready within ${timeoutMs}ms`);
-}
-
-export async function setup(): Promise<void> {
-  // Build the binary first (no-op if already up to date).
-  execFileSync("cargo", ["build", "-p", "palladium-cli"], {
-    cwd: ROOT,
-    stdio: "inherit",
-  });
-
-  // Create isolated temp directory for this test run.
+export async function setup({
+  provide,
+}: {
+  readonly provide: (key: string, value: string) => void;
+}): Promise<void> {
+  buildRustPackage("palladium-cli");
   tmpDir = await mkdtemp(join(tmpdir(), "palladium-e2e-"));
-
-  // Use a relative DB path so SQLite resolves it inside tmpDir.
-  server = spawn(BINARY, ["--db", "sqlite:test.db", "dev", "--port", String(E2E_PORT)], {
-    cwd: tmpDir,
-    stdio: "pipe",
-  });
-
-  server.stderr?.on("data", (chunk: Buffer) => {
-    process.stderr.write(`[palladium] ${chunk.toString()}`);
-  });
-
-  server.on("error", (err) => {
-    throw new Error(`Failed to start palladium server: ${err.message}`);
-  });
-
-  await waitForReady(`${E2E_BASE_URL}/api-doc/openapi.json`);
+  try {
+    server = await startServer({
+      name: "palladium",
+      binary: rustBinary("palladium"),
+      args: (port) => ["--db", "sqlite:test.db", "dev", "--port", String(port)],
+      cwd: tmpDir,
+      readinessPath: "/api-doc/openapi.json",
+    });
+    provide(E2E_BASE_URL_CONTEXT_KEY, server.baseUrl);
+  } catch (error) {
+    await teardown();
+    throw error;
+  }
 }
 
 export async function teardown(): Promise<void> {
-  server?.kill("SIGTERM");
-  server = undefined;
+  if (server !== undefined) {
+    await server.stop();
+    server = undefined;
+  }
   if (tmpDir !== undefined) {
     await rm(tmpDir, { recursive: true, force: true });
     tmpDir = undefined;

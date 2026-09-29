@@ -1,5 +1,5 @@
 import type { Hlc } from "@palladium/core";
-import { E2E_BASE_URL } from "./setup/server.js";
+import { e2eBaseUrl } from "./setup/context.js";
 export type ServerOp =
   | {
       readonly op: "insert";
@@ -29,7 +29,7 @@ export interface OpenApiSpec {
 }
 export class PalladiumClient {
   private readonly base: string;
-  constructor(base = E2E_BASE_URL) {
+  constructor(base = e2eBaseUrl()) {
     this.base = base;
   }
   async postChange(change: ServerChange): Promise<Response> {

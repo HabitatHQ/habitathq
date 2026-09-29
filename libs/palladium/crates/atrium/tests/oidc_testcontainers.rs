@@ -8,7 +8,7 @@
 //!
 //! Requires a running Docker daemon. This test deliberately uses the pinned
 //! `mock-oauth2-server` image rather than booting Authentik's full 2026.8.1
-//! server, worker, PostgreSQL, Redis, and bootstrap topology. The fixture is a
+//! server, worker, `PostgreSQL`, `Redis`, and bootstrap topology. The fixture is a
 //! standards-compatible OIDC issuer: it publishes discovery and JWKS documents
 //! and issues its own RS256 access tokens. Atrium receives only its published
 //! discovery URL, exactly as it does for Authentik.
@@ -163,7 +163,7 @@ async fn oidc_discovery_and_jwks_enforce_token_claims() {
         .spawn()
         .expect("start Atrium OIDC server");
 
-    let result = async {
+    async {
         wait_for_ok(&format!("{atrium_base_url}/v1/health")).await;
         let client = reqwest::Client::new();
         let valid = issue_token(&client, &oidc_base_url, "atrium-valid").await;
@@ -193,5 +193,4 @@ async fn oidc_discovery_and_jwks_enforce_token_claims() {
     let _ = tokio::fs::remove_file(&db_path).await;
     let _ = tokio::fs::remove_file(PathBuf::from(format!("{}-wal", db_path.display()))).await;
     let _ = tokio::fs::remove_file(PathBuf::from(format!("{}-shm", db_path.display()))).await;
-    let _ = result;
 }

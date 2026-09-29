@@ -130,7 +130,7 @@ fn bench_change_serialize(c: &mut Criterion) {
         let change = Change::new(hlc, make_ops(op_count));
         g.throughput(Throughput::Elements(op_count.max(1) as u64));
         g.bench_with_input(BenchmarkId::new("ops", op_count), &change, |b, ch| {
-            b.iter(|| serde_json::to_string(black_box(ch)).unwrap())
+            b.iter(|| serde_json::to_string(black_box(ch)).unwrap());
         });
     }
 
@@ -147,7 +147,7 @@ fn bench_change_deserialize(c: &mut Criterion) {
         let json = serde_json::to_string(&Change::new(hlc, make_ops(op_count))).unwrap();
         g.throughput(Throughput::Elements(op_count.max(1) as u64));
         g.bench_with_input(BenchmarkId::new("ops", op_count), &json, |b, j| {
-            b.iter(|| serde_json::from_str::<Change>(black_box(j.as_str())).unwrap())
+            b.iter(|| serde_json::from_str::<Change>(black_box(j.as_str())).unwrap());
         });
     }
 
@@ -172,7 +172,7 @@ fn bench_mixed_ops_serialize(c: &mut Criterion) {
         let change = Change::new(hlc, ops);
         g.throughput(Throughput::Elements(n as u64));
         g.bench_with_input(BenchmarkId::new("ops", n), &change, |b, ch| {
-            b.iter(|| serde_json::to_string(black_box(ch)).unwrap())
+            b.iter(|| serde_json::to_string(black_box(ch)).unwrap());
         });
     }
 
