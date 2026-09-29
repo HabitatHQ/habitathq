@@ -129,7 +129,6 @@ export const SCHEMA_DDL = `
   );
 
   CREATE INDEX IF NOT EXISTS idx_scribbles_updated ON scribbles(updated_at);
-  CREATE INDEX IF NOT EXISTS idx_scribbles_entry_date ON scribbles(entry_date);
 
   CREATE TABLE IF NOT EXISTS reminders (
     id           TEXT PRIMARY KEY,
@@ -578,9 +577,39 @@ const SEEDS: Seed[] = [
 
 // ─── Schema config ────────────────────────────────────────────────────────────
 
+async function ensurePlannerStorage(exec: MigrationExec): Promise<void> {
+  const scribbleCols = await exec<{ name: string }>("PRAGMA table_info('scribbles')")
+  if (!scribbleCols.some((c) => c.name === 'entry_date')) {
+    await exec('ALTER TABLE scribbles ADD COLUMN entry_date TEXT')
+    await exec(
+      'UPDATE scribbles SET entry_date = substr(created_at, 1, 10) WHERE entry_date IS NULL',
+    )
+  }
+  await exec('CREATE INDEX IF NOT EXISTS idx_scribbles_entry_date ON scribbles(entry_date)')
+
+  const todoCols = await exec<{ name: string }>("PRAGMA table_info('todos')")
+  if (!todoCols.some((c) => c.name === 'scheduled_time')) {
+    await exec('ALTER TABLE todos ADD COLUMN scheduled_time TEXT')
+  }
+  await exec(`CREATE TABLE IF NOT EXISTS focus_sessions (
+    id TEXT PRIMARY KEY, todo_id TEXT NOT NULL REFERENCES todos(id) ON DELETE CASCADE,
+    started_at TEXT NOT NULL, completed_at TEXT NOT NULL, duration_seconds INTEGER NOT NULL
+  )`)
+  await exec(
+    'CREATE INDEX IF NOT EXISTS idx_focus_sessions_completed ON focus_sessions(completed_at)',
+  )
+}
+
+const PLANNER_INDEX_SEED: Seed = {
+  key: 'schema:planner-indexes',
+  apply: async (exec) => {
+    await exec('CREATE INDEX IF NOT EXISTS idx_scribbles_entry_date ON scribbles(entry_date)')
+  },
+}
+
 export const SCHEMA_CONFIG: SchemaConfig = {
   schema: SCHEMA_DDL,
-  version: 25,
+  version: 26,
   migrations: {
     11: [
       `CREATE TABLE IF NOT EXISTS bored_categories (
@@ -753,28 +782,11 @@ export const SCHEMA_CONFIG: SchemaConfig = {
         }
       },
     ],
-    25: [
-      async (exec: MigrationExec) => {
-        const scribbleCols = await exec<{ name: string }>("PRAGMA table_info('scribbles')")
-        if (!scribbleCols.some((c) => c.name === 'entry_date')) {
-          await exec('ALTER TABLE scribbles ADD COLUMN entry_date TEXT')
-          await exec(
-            'UPDATE scribbles SET entry_date = substr(created_at, 1, 10) WHERE entry_date IS NULL',
-          )
-        }
-        const todoCols = await exec<{ name: string }>("PRAGMA table_info('todos')")
-        if (!todoCols.some((c) => c.name === 'scheduled_time')) {
-          await exec('ALTER TABLE todos ADD COLUMN scheduled_time TEXT')
-        }
-        await exec(`CREATE TABLE IF NOT EXISTS focus_sessions (
-          id TEXT PRIMARY KEY, todo_id TEXT NOT NULL REFERENCES todos(id) ON DELETE CASCADE,
-          started_at TEXT NOT NULL, completed_at TEXT NOT NULL, duration_seconds INTEGER NOT NULL
-        )`)
-        await exec(
-          'CREATE INDEX IF NOT EXISTS idx_focus_sessions_completed ON focus_sessions(completed_at)',
-        )
-      },
-    ],
+    25: [ensurePlannerStorage],
+    // A v24 database cannot run migration 25 while the baseline DDL creates an
+    // index for entry_date. Keep this repair at a new version so any partially
+    // upgraded v25 store is also healed on its next launch.
+    26: [ensurePlannerStorage],
   },
-  seeds: SEEDS,
+  seeds: [...SEEDS, PLANNER_INDEX_SEED],
 }
