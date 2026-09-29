@@ -89,14 +89,17 @@ startDbOwner<S>({
 ```
 
 - The bus adds ownership/failover/transport and exposes the service to the main thread via Comlink, plus
-  `onRole` / `onInvalidate` / `onError`. `ctx.invalidate(tables)` drives cross-tab live queries (opt-in per app).
+  `onRole` / `onInvalidate` / `onError` / `onDiagnostic`. `ctx.invalidate(tables)` drives cross-tab live queries
+  (opt-in per app); diagnostics contain only ephemeral worker/leader IDs, elapsed time, lifecycle stage, and
+  platform-error summaries.
 - Main thread: `connect<S>(worker)` returns a typed proxy to the service (routed to the leader) plus the bus
   callbacks. `createClient` (query/mutate/`live`) is now a thin convenience built on `connect`, used by the example.
-- `leadership.ts`: `becomeLeaderWhenAvailable` → `whileLeader(lock, onAcquired)`. `onAcquired` resolves `"hold"`
-  (keep leadership for the worker's lifetime) or `"release"` (promotion failed to open the store → step aside so a
-  healthy peer can take the lock instead of deadlocking). Still no `steal`.
+- `leadership.ts`: `whileLeader(lock, onAcquired)` holds after `"hold"` and, after `"release"`, waits briefly before
+  re-entering the normal exclusive-lock queue. A failed promotion closes any partially opened service first. This
+  handles transient OPFS/WASM startup failures without `steal` or concurrent writers.
 - `withLeader` forwarding distinguishes **transport timeouts** (leader unreachable → rediscover + retry, up to a
   15s deadline that also covers slow first-open) from **application errors** (propagate immediately, never retried).
+  A same-epoch leader re-announcement rebuilds a proxy that was discarded after a timeout.
 
 ### Folded the duplicate SAHPool adapter
 
@@ -123,5 +126,6 @@ only consumers (`hephaestus`, `halcyon` workers) to `BrowserSqliteAdapter`, dele
 - `EXPORT_DB` on a follower serializes on the leader and structured-clones the `Uint8Array` back over two hops
   (main→follower→leader). Fine for a rare, user-initiated export.
 - The in-flight-write-on-failover caveat (above) still applies to habitat's non-idempotent dispatches.
-- A promotion whose `open()` fails releases the lock and does not re-queue that tab; if every tab's open fails
-  (genuinely corrupt DB), all surface the error — parity with the old `INIT_ERROR`.
+- Permanent corruption still surfaces the promotion error, but the worker closes any partial handle and keeps
+  retrying through the browser's normal lock queue with a bounded pause. This remains single-owner; it never uses
+  `steal` to bypass an incumbent lock.

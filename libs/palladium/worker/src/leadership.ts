@@ -1,37 +1,64 @@
 /**
  * Web Locks leader election.
  *
- * Every worker calls {@link whileLeader} with the same lock name. The Web Locks
- * API grants the exclusive lock to exactly one waiter at a time and queues the
- * rest. When this worker is granted the lock it runs `onAcquired`:
- *
- * - resolve `"hold"` to KEEP leadership — the lock is held for this worker's
- *   whole lifetime and only releases when the worker is terminated (tab closed
- *   / crashed), at which point the next queued waiter becomes leader;
- * - resolve `"release"` to STEP ASIDE — the lock is released immediately so the
- *   next waiter can try. Use this when promotion failed (e.g. the database
- *   could not be opened): this worker gives up its turn and does not re-queue.
- *
- * This is the single-owner invariant that makes OPFS SAHPool safe without
- * `steal`: one held lock ⇔ one open database connection.
+ * Every worker contends for the same exclusive lock. A successful promotion
+ * holds it for the worker lifetime; a failed promotion releases the lock and
+ * re-enters the queue after a bounded pause. The caller must close partially
+ * opened resources before returning `"release"`. Retrying is essential because
+ * OPFS/WASM startup can fail transiently after an iOS worker resumes, while
+ * `steal` would violate the single-writer invariant.
  */
 
 export type LeadershipDecision = "hold" | "release";
 
+/** Minimal Web Locks surface, kept injectable for deterministic regression tests. */
+export interface LockRequester {
+  request(name: string, options: LockOptions, callback: () => Promise<void>): Promise<void>;
+}
+
+export interface LeadershipOptions {
+  readonly locks?: LockRequester;
+  readonly retryDelayMs?: number;
+  readonly onError?: (error: unknown) => void;
+}
+
+const DEFAULT_RETRY_DELAY_MS = 1_000;
+
 /**
- * Contend for the named lock. `onAcquired` runs once this worker is granted it;
- * its resolution decides whether leadership is held or released (see above).
+ * Contend for the named lock until this worker holds it or is terminated.
  *
- * Fire-and-forget: the returned request lives for the worker's lifetime.
+ * A `"release"` decision deliberately yields to queued peers before retrying.
+ * This is not a lock steal: every retry re-enters the browser's normal
+ * exclusive-lock queue, so at most one worker can open the OPFS database.
  */
-export function whileLeader(lockName: string, onAcquired: () => Promise<LeadershipDecision>): void {
-  void navigator.locks.request(lockName, { mode: "exclusive" }, async () => {
-    const decision = await onAcquired();
-    if (decision === "hold") {
-      // Never resolve: hold the lock until this worker is terminated.
-      await new Promise<void>(() => {});
+export function whileLeader(
+  lockName: string,
+  onAcquired: () => Promise<LeadershipDecision>,
+  options: LeadershipOptions = {},
+): void {
+  const locks = options.locks ?? navigator.locks;
+  const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
+
+  void (async () => {
+    for (;;) {
+      try {
+        await locks.request(lockName, { mode: "exclusive" }, async () => {
+          const decision = await onAcquired();
+          if (decision === "hold") {
+            // Never resolve: hold the lock until this worker is terminated.
+            await new Promise<void>(() => {});
+          }
+        });
+      } catch (error) {
+        options.onError?.(error);
+      }
+      await delay(retryDelayMs);
     }
-    // "release" → returning resolves the grant, freeing the lock for the next
-    // waiter. This worker's request is now complete and will not re-queue.
-  });
+  })();
+}
+
+function delay(ms: number): Promise<void> {
+  // ES2022 is this package's public runtime baseline; Promise.withResolvers is
+  // unavailable there, so the executor form is required for compatibility.
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

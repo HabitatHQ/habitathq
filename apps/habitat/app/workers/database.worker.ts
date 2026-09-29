@@ -41,15 +41,21 @@ startDbOwner<HabitatService>({
 
     return {
       async open(): Promise<void> {
-        dbg('habitat-worker', 'init start')
+        const startedAt = Date.now()
+        dbg('habitat-worker', 'init start', { opfsDirectory: OPFS_DIR })
         await storage.open()
+        dbg('habitat-worker', 'storage open', { elapsedMs: Date.now() - startedAt })
         await applySchema(storage, SCHEMA_CONFIG)
         adapter = toDbAdapter(storage)
-        dbg('habitat-worker', 'init complete')
+        dbg('habitat-worker', 'init complete', { elapsedMs: Date.now() - startedAt })
       },
 
       async ping(): Promise<true> {
         return true
+      },
+
+      async close(): Promise<void> {
+        await storage.close()
       },
 
       async dispatch(req: WorkerRequestBody): Promise<unknown> {
@@ -75,5 +81,8 @@ startDbOwner<HabitatService>({
         }
       },
     }
+  },
+  onDiagnostic(diagnostic) {
+    dbg('habitat-worker-bus', diagnostic.event, { ...diagnostic })
   },
 })
