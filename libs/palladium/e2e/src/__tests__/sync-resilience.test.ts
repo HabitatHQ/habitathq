@@ -176,7 +176,14 @@ function startClientFixture(
   if (stdout === null) throw new Error("client fixture did not expose stdout");
   const lines = createInterface({ input: stdout });
   lines.on("line", (line) => {
-    const message: unknown = JSON.parse(line);
+    let message: unknown;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      messages.push({ event: "error", message: `non-JSON fixture output: ${line}` });
+      events.emit("message");
+      return;
+    }
     if (typeof message === "object" && message !== null && "event" in message) {
       messages.push(message as FixtureMessage);
       events.emit("message");
@@ -405,11 +412,11 @@ describe("SyncTransport resilience against the real Rust server", () => {
       await server.stop();
       server = undefined;
     }
-    if (clientFailure !== undefined) throw clientFailure;
     if (tmpDir !== undefined) {
       await rm(tmpDir, { recursive: true, force: true });
       tmpDir = undefined;
     }
+    if (clientFailure !== undefined) throw clientFailure;
   });
 
   it("retries a committed POST with its durable change id and one server append", async () => {

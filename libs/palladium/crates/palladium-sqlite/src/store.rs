@@ -211,9 +211,14 @@ impl LockFile {
             .open(lock_path)?;
         match file.try_lock_exclusive() {
             Ok(()) => Ok(Self { _file: file }),
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Err(Error::Core(
-                palladium_core::Error::InstanceAlreadyOpen(db_path.display().to_string()),
-            )),
+            Err(error)
+                if error.kind() == std::io::ErrorKind::WouldBlock
+                    || error.kind() == fs2::lock_contended_error().kind() =>
+            {
+                Err(Error::Core(palladium_core::Error::InstanceAlreadyOpen(
+                    db_path.display().to_string(),
+                )))
+            }
             Err(error) => Err(Error::Io(error)),
         }
     }

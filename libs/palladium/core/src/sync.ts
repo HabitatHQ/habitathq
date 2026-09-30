@@ -24,7 +24,7 @@
  */
 import type { PalladiumEngine, RemoteChange, SyncStatus } from "./engine.js";
 import type { Hlc } from "./hlc.js";
-import { isUuidV7, isValidHlc } from "./hlc.js";
+import { isUuidV4, isUuidV7, isValidHlc } from "./hlc.js";
 import type { StorageAdapter } from "./storage.js";
 import type { Op, SchemaMap } from "./tx.js";
 import { isJsonValue } from "./tx.js";
@@ -139,11 +139,6 @@ function isWireOp(value: unknown): value is WireOp {
  * deliberately independent of an HLC: HLCs resolve conflicts but cannot
  * order history entries appended by offline clients.
  */
-const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
-
-function isUuidV4(value: unknown): value is string {
-  return typeof value === "string" && UUID_V4_PATTERN.test(value);
-}
 
 // ── Options ────────────────────────────────────────────────────────────────
 
@@ -1417,7 +1412,9 @@ export class SyncTransport<S extends SchemaMap> {
         this.#engine.setStatus("degraded");
         return;
       }
-      if (!this.#hasUnresolvedFailure()) {
+      if (await this.#hasUnresolvedFailure()) {
+        this.#engine.setStatus("degraded");
+      } else {
         this.#lastError = null;
         this.#engine.setStatus(page.caughtUp ? "caught_up" : "syncing");
       }
@@ -1426,12 +1423,19 @@ export class SyncTransport<S extends SchemaMap> {
     }
   }
 
-  #hasUnresolvedFailure(): boolean {
-    return (
+  async #hasUnresolvedFailure(): Promise<boolean> {
+    if (
       this.#lastError?.phase === "uplink" ||
       this.#lastError?.code === "invalid_receipt" ||
       this.#lastError?.code.startsWith("quarantine_") === true
+    ) {
+      return true;
+    }
+    const terminalRows = await this.#engine.adapter.exec<{ change_id: string }>(
+      `SELECT change_id FROM ${OUTBOX_TABLE} WHERE terminal != 0 LIMIT 1`,
+      [],
     );
+    return terminalRows.length > 0;
   }
 
   /** Read persisted quarantine state for a change. */

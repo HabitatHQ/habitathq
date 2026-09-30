@@ -439,9 +439,15 @@ describe("PalladiumEngine HLC stamping", () => {
   });
 
   it("nodeId is preserved when provided", () => {
-    const nodeId = "00000000-0000-0000-0000-0000000000aa";
+    const nodeId = "00000000-0000-4000-8000-0000000000aa";
     const db = makeTestEngine(nodeId);
     expect(db.nodeId).toBe(nodeId);
+  });
+
+  it("rejects a nodeId that is not a canonical UUIDv4", () => {
+    expect(() => makeTestEngine("legacy-node")).toThrow(
+      "PalladiumEngine nodeId must be a canonical UUIDv4",
+    );
   });
 
   it("currentHlc starts as null until the first send/receive", () => {
@@ -450,7 +456,7 @@ describe("PalladiumEngine HLC stamping", () => {
   });
 
   it("nextSendHlc carries the engine's nodeId", () => {
-    const nodeId = "00000000-0000-0000-0000-0000000000bb";
+    const nodeId = "00000000-0000-4000-8000-0000000000bb";
     const db = makeTestEngine(nodeId);
     const hlc = db.nextSendHlc();
     expect(hlc.nodeId).toBe(nodeId);

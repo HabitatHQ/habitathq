@@ -18,12 +18,12 @@ import type { DbApi } from "./protocol.js";
 export interface WorkerConnection<S extends object> {
   /** Typed proxy to the app's service methods; calls are routed to the leader. */
   readonly service: Comlink.Remote<S>;
-  /** Fires whenever `tables` change in *any* tab. */
-  onInvalidate(cb: (tables: readonly string[]) => void): void;
-  /** Fires with the current role and again on every change. */
-  onRole(cb: (role: Role) => void): void;
-  /** Fires if this tab's promotion fails to open the store. */
-  onError(cb: (message: string) => void): void;
+  /** Subscribe to invalidations from any tab. Returns an unsubscribe function. */
+  onInvalidate(cb: (tables: readonly string[]) => void): () => void;
+  /** Subscribe to role changes. Returns an unsubscribe function. */
+  onRole(cb: (role: Role) => void): () => void;
+  /** Subscribe to promotion errors. Returns an unsubscribe function. */
+  onError(cb: (message: string) => void): () => void;
   /** Fires privacy-safe leadership and request-recovery diagnostics. */
   onDiagnostic(cb: (diagnostic: WorkerDiagnostic) => void): void;
 }
@@ -41,9 +41,21 @@ export function connect<S extends object>(worker: Worker): WorkerConnection<S> {
   return {
     // The bus methods live on the same proxy; expose only the app surface here.
     service: remote as unknown as Comlink.Remote<S>,
-    onInvalidate: (cb) => void bus.onInvalidate(Comlink.proxy(cb)),
-    onRole: (cb) => void bus.onRole(Comlink.proxy(cb)),
-    onError: (cb) => void bus.onError(Comlink.proxy(cb)),
+    onInvalidate: (cb) => {
+      const subscriptionId = crypto.randomUUID();
+      void bus.onInvalidate(subscriptionId, Comlink.proxy(cb));
+      return () => void bus.offInvalidate(subscriptionId);
+    },
+    onRole: (cb) => {
+      const subscriptionId = crypto.randomUUID();
+      void bus.onRole(subscriptionId, Comlink.proxy(cb));
+      return () => void bus.offRole(subscriptionId);
+    },
+    onError: (cb) => {
+      const subscriptionId = crypto.randomUUID();
+      void bus.onError(subscriptionId, Comlink.proxy(cb));
+      return () => void bus.offError(subscriptionId);
+    },
     onDiagnostic: (cb) => void bus.onDiagnostic(Comlink.proxy(cb)),
   };
 }
@@ -51,16 +63,16 @@ export function connect<S extends object>(worker: Worker): WorkerConnection<S> {
 export interface PalladiumClient {
   query<T = Record<string, unknown>>(sql: string, params?: readonly unknown[]): Promise<T[]>;
   mutate(sql: string, params?: readonly unknown[]): Promise<number>;
-  /** Fires whenever `tables` change in *any* tab. */
-  onInvalidate(cb: (tables: readonly string[]) => void): void;
-  /** Fires with the current role and again on every change. */
-  onRole(cb: (role: Role) => void): void;
+  /** Subscribe to invalidations from any tab. */
+  onInvalidate(cb: (tables: readonly string[]) => void): () => void;
+  /** Subscribe to role changes. */
+  onRole(cb: (role: Role) => void): () => void;
   /** Convenience: re-run `sql` now and again on every invalidation. */
   live<T = Record<string, unknown>>(
     sql: string,
     params: readonly unknown[],
     onRows: (rows: T[]) => void,
-  ): void;
+  ): () => void;
 }
 
 /** Convenience client for the query/mutate {@link DbApi} service shape. */
@@ -76,8 +88,9 @@ export function createClient(worker: Worker): PalladiumClient {
       const run = (): void => {
         void client.query(sql, params).then((rows) => onRows(rows as never));
       };
-      client.onInvalidate(() => run());
+      const unsubscribe = client.onInvalidate(() => run());
       run();
+      return unsubscribe;
     },
   };
   return client;

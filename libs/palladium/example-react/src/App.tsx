@@ -20,22 +20,25 @@ export function App({ connection }: AppProps): React.ReactElement {
   const [error, setError] = useState<string | null>(null);
   const writes = useRef({ pending: 0, revision: 0 });
   const refreshRevision = useRef(0);
+  const refreshNeeded = useRef(false);
 
   const refresh = useCallback(async (): Promise<void> => {
-    if (writes.current.pending > 0) return;
+    if (writes.current.pending > 0) {
+      refreshNeeded.current = true;
+      return;
+    }
+    refreshNeeded.current = false;
     const writeRevision = writes.current.revision;
     const requestRevision = ++refreshRevision.current;
     try {
       const next = await connection.service.snapshot();
       // A worker snapshot can describe an earlier keystroke. Never publish it
       // over newer edits, or let an older request replace a newer snapshot.
-      if (
-        writes.current.pending > 0 ||
-        writes.current.revision !== writeRevision ||
-        refreshRevision.current !== requestRevision
-      ) {
+      if (writes.current.pending > 0 || writes.current.revision !== writeRevision) {
+        refreshNeeded.current = true;
         return;
       }
+      if (refreshRevision.current !== requestRevision) return;
       setSnapshot(next);
       setError(null);
     } catch (err) {
@@ -44,12 +47,17 @@ export function App({ connection }: AppProps): React.ReactElement {
   }, [connection]);
 
   useEffect(() => {
-    connection.onInvalidate(() => void refresh());
-    connection.onRole(() => void refresh());
-    connection.onError(setError);
+    const unsubscribeInvalidate = connection.onInvalidate(() => void refresh());
+    const unsubscribeRole = connection.onRole(() => void refresh());
+    const unsubscribeError = connection.onError(setError);
     void connection.service.ping().then(refresh, (err: unknown) => {
       setError(err instanceof Error ? err.message : String(err));
     });
+    return () => {
+      unsubscribeInvalidate();
+      unsubscribeRole();
+      unsubscribeError();
+    };
   }, [connection, refresh]);
 
   const notes = useMemo(
@@ -74,14 +82,15 @@ export function App({ connection }: AppProps): React.ReactElement {
   ): Promise<void> {
     writes.current.pending += 1;
     writes.current.revision += 1;
+    refreshNeeded.current = true;
     try {
       await connection.service.updateNote(id, patch);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       writes.current.pending -= 1;
+      if (writes.current.pending === 0 && refreshNeeded.current) await refresh();
     }
-    await refresh();
   }
 
   async function deleteNote(id: string): Promise<void> {

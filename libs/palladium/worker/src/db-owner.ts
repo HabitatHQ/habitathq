@@ -95,11 +95,14 @@ export interface DbOwnerConfig<S extends object> {
 /** The surface the bus adds on top of the app's service. */
 export interface BusFacade {
   /** Register a callback fired (in this tab) whenever `tables` change anywhere. */
-  onInvalidate(cb: (tables: readonly string[]) => void): void;
+  onInvalidate(subscriptionId: string, cb: (tables: readonly string[]) => void): void;
+  offInvalidate(subscriptionId: string): void;
   /** Register a callback fired with the current role and again on every change. */
-  onRole(cb: (role: Role) => void): void;
+  onRole(subscriptionId: string, cb: (role: Role) => void): void;
+  offRole(subscriptionId: string): void;
   /** Register a callback fired if this tab's promotion fails to open the store. */
-  onError(cb: (message: string) => void): void;
+  onError(subscriptionId: string, cb: (message: string) => void): void;
+  offError(subscriptionId: string): void;
   /** Register for privacy-safe leadership and request-recovery diagnostics. */
   onDiagnostic(cb: (diagnostic: WorkerDiagnostic) => void): void;
 }
@@ -143,6 +146,11 @@ export function leaderAnnouncementRequiresConnection(
   );
 }
 
+interface Subscription<T> {
+  readonly id: string;
+  readonly callback: T;
+}
+
 export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
   const startedAt = Date.now();
   const peerId: PeerId = crypto.randomUUID();
@@ -162,9 +170,9 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
   // Callbacks registered by this tab's main thread.
   let diagnosticCb: ((diagnostic: WorkerDiagnostic) => void) | null = null;
   const recentDiagnostics: WorkerDiagnostic[] = [];
-  let invalidateCb: ((tables: readonly string[]) => void) | null = null;
-  let roleCb: ((role: Role) => void) | null = null;
-  let errorCb: ((message: string) => void) | null = null;
+  let invalidateSubscription: Subscription<(tables: readonly string[]) => void> | null = null;
+  let roleSubscription: Subscription<(role: Role) => void> | null = null;
+  let errorSubscription: Subscription<(message: string) => void> | null = null;
   let lastError: string | null = null;
   let promotionAttempt = 0;
 
@@ -192,7 +200,7 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
   const ctx: OwnerContext = {
     invalidate(tables) {
       // BroadcastChannel does not echo to the sender, so notify this tab too.
-      invalidateCb?.(tables);
+      invalidateSubscription?.callback(tables);
       post({ type: CONTROL.INVALIDATE, epoch, tables });
     },
   };
@@ -234,7 +242,7 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
       const message = errMsg(err);
       lastError = message;
       report("promotion_failed", { error: message });
-      errorCb?.(message);
+      errorSubscription?.callback(message);
       config.onError?.(message);
       return "release";
     }
@@ -245,7 +253,7 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
     leaderProxy = null;
     servedFollowers.clear();
     lastError = null;
-    roleCb?.(role);
+    roleSubscription?.callback(role);
     report("promotion_ready");
     post({ type: CONTROL.LEADER, epoch, leader: peerId });
     return "hold";
@@ -270,7 +278,7 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
         break;
       case CONTROL.INVALIDATE:
         // Fan-out to this tab (the leader already notified itself synchronously).
-        if (role !== "leader") invalidateCb?.(data.tables);
+        if (role !== "leader") invalidateSubscription?.callback(data.tables);
         break;
     }
   });
@@ -290,7 +298,7 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
         report("lock_request_failed", { error: message });
         if (!lastError) {
           lastError = message;
-          errorCb?.(message);
+          errorSubscription?.callback(message);
           config.onError?.(message);
         }
       },
@@ -345,16 +353,25 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
 
   // ── Facade exposed to this tab's main thread ─────────────────────────────
   const facade: Record<string, unknown> = {
-    onInvalidate: (cb: (tables: readonly string[]) => void) => {
-      invalidateCb = cb;
+    onInvalidate: (subscriptionId: string, cb: (tables: readonly string[]) => void) => {
+      invalidateSubscription = { id: subscriptionId, callback: cb };
     },
-    onRole: (cb: (role: Role) => void) => {
-      roleCb = cb;
+    offInvalidate: (subscriptionId: string) => {
+      if (invalidateSubscription?.id === subscriptionId) invalidateSubscription = null;
+    },
+    onRole: (subscriptionId: string, cb: (role: Role) => void) => {
+      roleSubscription = { id: subscriptionId, callback: cb };
       cb(role);
     },
-    onError: (cb: (message: string) => void) => {
-      errorCb = cb;
+    offRole: (subscriptionId: string) => {
+      if (roleSubscription?.id === subscriptionId) roleSubscription = null;
+    },
+    onError: (subscriptionId: string, cb: (message: string) => void) => {
+      errorSubscription = { id: subscriptionId, callback: cb };
       if (lastError) cb(lastError);
+    },
+    offError: (subscriptionId: string) => {
+      if (errorSubscription?.id === subscriptionId) errorSubscription = null;
     },
     onDiagnostic: (cb: (diagnostic: WorkerDiagnostic) => void) => {
       diagnosticCb = cb;

@@ -1111,6 +1111,7 @@ describe("SyncTransport — durable outbox", () => {
     const restarted = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
     await restarted.syncOnce();
     expect(posts).toBe(1);
+    expect(db.getSyncStatus()).toBe("degraded");
     const quarantined = await restarted.inspectQuarantine();
     expect(quarantined).toEqual([
       expect.objectContaining({

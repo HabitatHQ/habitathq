@@ -72,7 +72,7 @@ describe("durable sync state — nodeId + HLC across restart", () => {
     const engine2 = new PalladiumEngine<Schema>(
       new NodeSqliteAdapter({ vfs: { type: "file", filename: file } }),
       {
-        nodeId: "ffffffff-ffff-ffff-ffff-ffffffffffff",
+        nodeId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
       },
     );
     await engine2.init(SCHEMA);
@@ -88,6 +88,29 @@ describe("durable sync state — nodeId + HLC across restart", () => {
     const next = engine2.nextSendHlc();
     expect(compareHlc(next, hlc1)).toBe(1);
     await engine2.adapter.close();
+  });
+
+  it("replaces an invalid durable node identity and clears its HLC checkpoint", async () => {
+    const first = new PalladiumEngine<Schema>(
+      new NodeSqliteAdapter({ vfs: { type: "file", filename: file } }),
+      { nodeId: ALICE },
+    );
+    await first.init(SCHEMA);
+    await first.setSyncState("node_id", "legacy-node");
+    await first.setSyncState("hlc", "invalid");
+    await first.adapter.close();
+
+    const replacement = new PalladiumEngine<Schema>(
+      new NodeSqliteAdapter({ vfs: { type: "file", filename: file } }),
+      { nodeId: BOB },
+    );
+    await replacement.init(SCHEMA);
+
+    expect(replacement.nodeId).toBe(BOB);
+    expect(replacement.currentHlc).toBeNull();
+    expect(await replacement.getSyncState("node_id")).toBe(BOB);
+    expect(await replacement.getSyncState("hlc")).toBeNull();
+    await replacement.adapter.close();
   });
 });
 

@@ -1171,7 +1171,7 @@ impl AtriumDb {
              (workspace_id, user_id, node_id, source_event_id, root_id, kind)
              SELECT workspace_id, user_id, ?, id, root_id, kind
              FROM grant_events
-             WHERE workspace_id = ? AND user_id = ? AND node_id IS NULL",
+             WHERE workspace_id = ? AND user_id = ? AND node_id IS NULL AND delivered = 0",
         )
         .bind(node_id)
         .bind(workspace)
@@ -1783,6 +1783,36 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[tokio::test]
+    async fn delivered_legacy_events_are_not_copied_to_new_devices() {
+        let db = AtriumDb::in_memory().await.unwrap();
+        let workspace = db.create_workspace("alice").await.unwrap();
+        let token = db.create_invite(&workspace, "alice").await.unwrap();
+        db.accept_invite(&token, "bob").await.unwrap();
+        let node = Uuid::new_v4().to_string();
+        db.register_member_node(&workspace, "bob", &node)
+            .await
+            .unwrap();
+        db.enqueue_event(&workspace, "bob", &Uuid::now_v7().to_string(), "revoke")
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE grant_events SET delivered = 1
+             WHERE workspace_id = ? AND user_id = ? AND node_id IS NULL",
+        )
+        .bind(&workspace)
+        .bind("bob")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+
+        assert!(db
+            .pending_events(&workspace, "bob", &node)
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]

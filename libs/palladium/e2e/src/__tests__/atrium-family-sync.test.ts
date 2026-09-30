@@ -707,11 +707,12 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
     expect((await share("alice", ws, note, "bob", "read")).status).toBe(200);
 
     await bobOne.transport.start();
-    expect(await count(bobOne, "notes", note)).toBe(1);
+    await waitUntil(async () => (await count(bobOne, "notes", note)) === 1);
+    expect(rejectNextAck).toBe(false);
     expect(await acknowledgedEventCount(bobOne)).toBe(0);
     await bobTwo.transport.start();
+    await waitUntil(async () => (await acknowledgedEventCount(bobTwo)) === 1);
     expect(await count(bobTwo, "notes", note)).toBe(1);
-    expect(await acknowledgedEventCount(bobTwo)).toBe(1);
 
     await bobOne.transport.poll();
     expect(await acknowledgedEventCount(bobOne)).toBe(1);
