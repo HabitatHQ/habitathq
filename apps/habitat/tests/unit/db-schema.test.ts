@@ -476,4 +476,23 @@ describe('SCHEMA_DDL / migration parity', () => {
     expect(columns.some((column) => column.name === 'entry_date')).toBe(true)
     expect(indexes.some((index) => index.name === 'idx_scribbles_entry_date')).toBe(true)
   })
+
+  it('backfills NULL entry dates when retrying an incomplete v25 migration', async () => {
+    const { db } = freshDb()
+    const adapter = schemaAdapter(db)
+    await adapter.runMigrations([SCHEMA_DDL])
+    await adapter.exec('ALTER TABLE scribbles DROP COLUMN entry_date')
+    await adapter.exec('ALTER TABLE scribbles ADD COLUMN entry_date TEXT')
+    await adapter.exec(
+      "INSERT INTO scribbles (id,title,content,tags,annotations,created_at,updated_at) VALUES ('partial-note','', '', '[]', '{}', '2026-05-14T09:30:00.000Z', '2026-05-14T09:30:00.000Z')",
+    )
+    await adapter.exec('PRAGMA user_version = 25')
+
+    await applySchema(adapter, SCHEMA_CONFIG)
+
+    const note = await adapter.exec<{ entry_date: string }>(
+      "SELECT entry_date FROM scribbles WHERE id = 'partial-note'",
+    )
+    expect(note[0]?.entry_date).toBe('2026-05-14')
+  })
 })

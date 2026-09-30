@@ -581,10 +581,8 @@ async function ensurePlannerStorage(exec: MigrationExec): Promise<void> {
   const scribbleCols = await exec<{ name: string }>("PRAGMA table_info('scribbles')")
   if (!scribbleCols.some((c) => c.name === 'entry_date')) {
     await exec('ALTER TABLE scribbles ADD COLUMN entry_date TEXT')
-    await exec(
-      'UPDATE scribbles SET entry_date = substr(created_at, 1, 10) WHERE entry_date IS NULL',
-    )
   }
+  await exec('UPDATE scribbles SET entry_date = substr(created_at, 1, 10) WHERE entry_date IS NULL')
   await exec('CREATE INDEX IF NOT EXISTS idx_scribbles_entry_date ON scribbles(entry_date)')
 
   const todoCols = await exec<{ name: string }>("PRAGMA table_info('todos')")
