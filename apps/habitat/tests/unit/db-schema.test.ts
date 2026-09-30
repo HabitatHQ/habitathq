@@ -263,26 +263,44 @@ describe('SCHEMA_CONFIG seeds', () => {
     expect(titles).toContain('Weekly Review')
   })
 
+  it('replays template seeds without duplicating normalized titles', async () => {
+    const { adapter } = freshDb()
+    await applyDdl(adapter)
+    await runSeeds(adapter)
+    await adapter.exec('DELETE FROM _palladium_seeds')
+
+    await expect(runSeeds(adapter)).resolves.toBeUndefined()
+
+    const templates = await adapter.queryAll<{ title: string; title_key: string }>(
+      'SELECT title, title_key FROM checkin_templates ORDER BY title',
+    )
+    expect(templates).toEqual([
+      { title: 'Evening Reflection', title_key: 'evening reflection' },
+      { title: 'Morning Check-in', title_key: 'morning check-in' },
+      { title: 'Weekly Review', title_key: 'weekly review' },
+    ])
+  })
+
   it('enforces normalized unique habit names and check-in titles', async () => {
     const { adapter } = freshDb()
     await applyDdl(adapter)
     await runSeeds(adapter)
 
     await adapter.exec(
-      "INSERT INTO habits (id,name,created_at) VALUES ('habit-one','Run','2026-01-01')",
+      "INSERT INTO habits (id,name,name_key,created_at) VALUES ('habit-one','Run','run','2026-01-01')",
     )
     await expect(
       adapter.exec(
-        "INSERT INTO habits (id,name,created_at) VALUES ('habit-two','  run  ','2026-01-02')",
+        "INSERT INTO habits (id,name,name_key,created_at) VALUES ('habit-two','  run  ','run','2026-01-02')",
       ),
     ).rejects.toThrow()
 
     await adapter.exec(
-      "INSERT INTO checkin_templates (id,title) VALUES ('checkin-one','Morning')",
+      "INSERT INTO checkin_templates (id,title,title_key) VALUES ('checkin-one','Morning','morning')",
     )
     await expect(
       adapter.exec(
-        "INSERT INTO checkin_templates (id,title) VALUES ('checkin-two','morning')",
+        "INSERT INTO checkin_templates (id,title,title_key) VALUES ('checkin-two','morning','morning')",
       ),
     ).rejects.toThrow()
   })

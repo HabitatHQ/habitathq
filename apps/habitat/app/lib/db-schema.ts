@@ -386,10 +386,17 @@ async function insertTemplate(
     desired_answer?: number
   })[],
 ): Promise<void> {
+  const titleKey = normalizeNameKey(title)
+  const existing = await exec<{ id: string }>(
+    'SELECT id FROM checkin_templates WHERE title = ? OR title_key = ? LIMIT 1',
+    [title, titleKey],
+  )
+  if (existing.length > 0) return
+
   const tid = crypto.randomUUID()
   await exec(
-    'INSERT INTO checkin_templates (id,title,schedule_type,days_active) VALUES (?,?,?,?)',
-    [tid, title, schedule_type, days_active == null ? null : JSON.stringify(days_active)],
+    'INSERT INTO checkin_templates (id,title,title_key,schedule_type,days_active) VALUES (?,?,?,?,?)',
+    [tid, title, titleKey, schedule_type, days_active == null ? null : JSON.stringify(days_active)],
   )
   for (const q of qs) {
     await exec(
@@ -868,5 +875,5 @@ export const SCHEMA_CONFIG: SchemaConfig = {
     // upgraded v25 store is also healed on its next launch.
     26: [ensurePlannerStorage],
   },
-  seeds: [...SEEDS, PLANNER_INDEX_SEED, UNIQUE_NAMES_SEED, RECOVER_BOOLEAN_HISTORY_SEED],
+  seeds: [UNIQUE_NAMES_SEED, ...SEEDS, PLANNER_INDEX_SEED, RECOVER_BOOLEAN_HISTORY_SEED],
 }
