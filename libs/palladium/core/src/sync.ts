@@ -24,7 +24,7 @@
  */
 import type { PalladiumEngine, RemoteChange, SyncStatus } from "./engine.js";
 import type { Hlc } from "./hlc.js";
-import { isUuidV7, isValidHlc } from "./hlc.js";
+import { isUuidV4, isUuidV7, isValidHlc } from "./hlc.js";
 import type { StorageAdapter } from "./storage.js";
 import type { Op, SchemaMap } from "./tx.js";
 import { isJsonValue } from "./tx.js";
@@ -139,11 +139,6 @@ function isWireOp(value: unknown): value is WireOp {
  * deliberately independent of an HLC: HLCs resolve conflicts but cannot
  * order history entries appended by offline clients.
  */
-const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
-
-function isUuidV4(value: unknown): value is string {
-  return typeof value === "string" && UUID_V4_PATTERN.test(value);
-}
 
 // ── Options ────────────────────────────────────────────────────────────────
 
@@ -200,6 +195,7 @@ const OUTBOX_DDL = `CREATE TABLE IF NOT EXISTS ${OUTBOX_TABLE} (
   retry_attempts INTEGER NOT NULL DEFAULT 0,
   next_retry_at INTEGER,
   terminal INTEGER NOT NULL DEFAULT 0,
+  terminal_error TEXT,
   created_at INTEGER NOT NULL
 )`;
 
@@ -219,6 +215,10 @@ const OUTBOX_MIGRATIONS = [
   {
     column: "terminal",
     sql: `ALTER TABLE ${OUTBOX_TABLE} ADD COLUMN terminal INTEGER NOT NULL DEFAULT 0`,
+  },
+  {
+    column: "terminal_error",
+    sql: `ALTER TABLE ${OUTBOX_TABLE} ADD COLUMN terminal_error TEXT`,
   },
 ] as const;
 
@@ -333,6 +333,7 @@ interface OutboxRow {
   retry_attempts: number;
   next_retry_at: number | null;
   terminal: number;
+  terminal_error: string | null;
   created_at: number;
 }
 
@@ -373,6 +374,7 @@ const KNOWN_SERVER_ERROR_CODES: Record<string, true> = {
   unauthorized: true,
   forbidden: true,
   not_found: true,
+  bad_request: true,
   invalid_request: true,
   invalid_cursor: true,
   invalid_hlc: true,
@@ -620,17 +622,6 @@ export class SyncTransport<S extends SchemaMap> {
           if (!(err instanceof Error && /duplicate column name:/iu.test(err.message))) throw err;
         }
       }
-      await this.#engine.adapter.exec(
-        `INSERT INTO ${OUTBOX_QUARANTINE_TABLE}
-         (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint, error_code, quarantined_at)
-         SELECT change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint,
-                'terminal_failure', created_at
-           FROM ${OUTBOX_TABLE}
-          WHERE terminal != 0
-         ON CONFLICT(change_id) DO NOTHING`,
-        [],
-      );
-      await this.#engine.adapter.exec(`DELETE FROM ${OUTBOX_TABLE} WHERE terminal != 0`, []);
       await this.#engine.setSyncState("schema_identity_v1", this.#schemaFingerprint);
       const savedAppendCursor = await this.#engine.getSyncState(STATE_APPEND_CURSOR);
       await this.#engine.adapter.exec(EVENT_DDL, []);
@@ -689,8 +680,11 @@ export class SyncTransport<S extends SchemaMap> {
    * Fetch with the auth-decoration hook applied.
    */
   #fetchWithAuth(input: string, init?: RequestInit): Promise<Response> {
-    if (this.#authHeaders === undefined) return this.#fetch(input, init);
-    return this.#fetchDecorated(this.#authHeaders, input, init);
+    const headers = new Headers(init?.headers);
+    headers.set("X-Palladium-Node", this.#engine.nodeId);
+    const request = { ...init, headers };
+    if (this.#authHeaders === undefined) return this.#fetch(input, request);
+    return this.#fetchDecorated(this.#authHeaders, input, request);
   }
   async #fetchDecorated(
     authHeaders: NonNullable<SyncTransportOptions["authHeaders"]>,
@@ -706,6 +700,7 @@ export class SyncTransport<S extends SchemaMap> {
       }
       const headers = new Headers(init?.headers);
       for (const [k, v] of Object.entries(extra)) headers.set(k, v);
+      headers.set("X-Palladium-Node", this.#engine.nodeId);
       return this.#fetch(input, { ...init, headers });
     };
     const res = await send(false);
@@ -778,7 +773,7 @@ export class SyncTransport<S extends SchemaMap> {
   async #drainOutbox(): Promise<void> {
     const rows = await this.#engine.adapter.exec<OutboxRow>(
       `SELECT change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint,
-              retry_attempts, next_retry_at, terminal, created_at
+              retry_attempts, next_retry_at, terminal, terminal_error, created_at
          FROM ${OUTBOX_TABLE}
          ORDER BY hlc_wall_ms ASC, hlc_counter ASC, change_id ASC`,
       [],
@@ -826,16 +821,21 @@ export class SyncTransport<S extends SchemaMap> {
 
   async #recordOutboxFailure(row: OutboxRow, outcome: PostOutcome): Promise<void> {
     const error = this.#lastError;
-    const terminal = outcome === "rejected" && error?.code === "invalid_receipt";
+    const terminal =
+      outcome === "rejected" &&
+      (error?.code === "invalid_receipt" || error?.code === "bad_request");
     if (terminal) {
-      await this.#quarantineOutbox(row, error.code);
+      await this.#engine.adapter.exec(
+        `UPDATE ${OUTBOX_TABLE} SET terminal = 1, terminal_error = ? WHERE change_id = ?`,
+        [error.code, row.change_id],
+      );
       return;
     }
     const nextRetryAt =
       error?.nextRetryAt ?? (error?.retryable ? this.#backoffAt(row.retry_attempts + 1) : null);
     await this.#engine.adapter.exec(
       `UPDATE ${OUTBOX_TABLE}
-         SET retry_attempts = retry_attempts + 1, next_retry_at = ?, terminal = 0
+         SET retry_attempts = retry_attempts + 1, next_retry_at = ?, terminal = 0, terminal_error = NULL
        WHERE change_id = ?`,
       [nextRetryAt, row.change_id],
     );
@@ -946,6 +946,13 @@ export class SyncTransport<S extends SchemaMap> {
               NULL AS schemaIdentity, last_error AS code, updated_at AS updatedAt
          FROM ${QUARANTINE_TABLE}
        UNION ALL
+       SELECT 'uplink' AS phase, change_id AS changeId, retry_attempts AS attempts, 1 AS permanent,
+              ops AS payload, hlc_wall_ms AS hlcWallMs, hlc_counter AS hlcCounter,
+              hlc_node_id AS hlcNodeId, schema_fingerprint AS schemaIdentity,
+              COALESCE(terminal_error, 'terminal_failure') AS code, created_at AS updatedAt
+         FROM ${OUTBOX_TABLE}
+        WHERE terminal != 0
+       UNION ALL
        SELECT 'uplink' AS phase, change_id AS changeId, 0 AS attempts, 1 AS permanent,
               ops AS payload, hlc_wall_ms AS hlcWallMs, hlc_counter AS hlcCounter,
               hlc_node_id AS hlcNodeId, schema_fingerprint AS schemaIdentity, error_code AS code,
@@ -963,9 +970,20 @@ export class SyncTransport<S extends SchemaMap> {
 
   async retryQuarantined(changeId: string): Promise<void> {
     await this.#ensureInitialized();
+    const retained = await this.#engine.adapter.exec<{ change_id: string }>(
+      `SELECT change_id FROM ${OUTBOX_TABLE} WHERE change_id = ? AND terminal != 0`,
+      [changeId],
+    );
+    if (retained[0] !== undefined) {
+      await this.#engine.adapter.exec(
+        `UPDATE ${OUTBOX_TABLE} SET terminal = 0 WHERE change_id = ?`,
+        [changeId],
+      );
+      return;
+    }
     const uplink = await this.#engine.adapter.exec<OutboxRow>(
       `SELECT change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint,
-              0 AS retry_attempts, NULL AS next_retry_at, 0 AS terminal,
+              0 AS retry_attempts, NULL AS next_retry_at, 0 AS terminal, NULL AS terminal_error,
               quarantined_at AS created_at
          FROM ${OUTBOX_QUARANTINE_TABLE} WHERE change_id = ?`,
       [changeId],
@@ -1023,6 +1041,11 @@ export class SyncTransport<S extends SchemaMap> {
   }
   async discardQuarantined(changeId: string): Promise<void> {
     await this.#ensureInitialized();
+    const retained = await this.#engine.adapter.exec<{ change_id: string }>(
+      `SELECT change_id FROM ${OUTBOX_TABLE} WHERE change_id = ? AND terminal != 0`,
+      [changeId],
+    );
+    if (retained[0] !== undefined) return;
     const uplink = await this.#engine.adapter.exec<{ change_id: string }>(
       `SELECT change_id FROM ${OUTBOX_QUARANTINE_TABLE} WHERE change_id = ?`,
       [changeId],
@@ -1389,7 +1412,9 @@ export class SyncTransport<S extends SchemaMap> {
         this.#engine.setStatus("degraded");
         return;
       }
-      if (!this.#hasUnresolvedFailure()) {
+      if (await this.#hasUnresolvedFailure()) {
+        this.#engine.setStatus("degraded");
+      } else {
         this.#lastError = null;
         this.#engine.setStatus(page.caughtUp ? "caught_up" : "syncing");
       }
@@ -1398,12 +1423,19 @@ export class SyncTransport<S extends SchemaMap> {
     }
   }
 
-  #hasUnresolvedFailure(): boolean {
-    return (
+  async #hasUnresolvedFailure(): Promise<boolean> {
+    if (
       this.#lastError?.phase === "uplink" ||
       this.#lastError?.code === "invalid_receipt" ||
       this.#lastError?.code.startsWith("quarantine_") === true
+    ) {
+      return true;
+    }
+    const terminalRows = await this.#engine.adapter.exec<{ change_id: string }>(
+      `SELECT change_id FROM ${OUTBOX_TABLE} WHERE terminal != 0 LIMIT 1`,
+      [],
     );
+    return terminalRows.length > 0;
   }
 
   /** Read persisted quarantine state for a change. */

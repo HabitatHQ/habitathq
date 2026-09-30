@@ -22,6 +22,7 @@ harness = false
 
 [features]
 default = []
+crash-test-fixtures = []
 
 [dependencies]
 palladium-core = { path = "../palladium-core" }
@@ -33,3 +34,4 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 sha2 = { workspace = true }
 tracing = { workspace = true }
+fs2 = "0.4.3"

@@ -83,9 +83,7 @@ pub(super) async fn create_share(
         None | Some(PERM_READ) => PERM_READ,
         Some(other) => return Err(AtriumError::BadRequest(format!("invalid perm {other}"))),
     };
-    db.add_share(&workspace, &req.root_id, &req.grantee_user_id, perm)
-        .await?;
-    db.enqueue_event(&workspace, &req.grantee_user_id, &req.root_id, EVENT_GRANT)
+    db.grant_share(&workspace, &req.root_id, &req.grantee_user_id, perm)
         .await?;
     Ok(Json(json!({ "ok": true })))
 }
@@ -106,9 +104,7 @@ pub(super) async fn delete_share(
     let db = state.db();
     db.require_member(&workspace, user.as_str()).await?;
     owned_root(db, &workspace, user.as_str(), &req.root_id).await?;
-    db.remove_share(&workspace, &req.root_id, &req.grantee_user_id)
-        .await?;
-    db.enqueue_event(&workspace, &req.grantee_user_id, &req.root_id, EVENT_REVOKE)
+    db.revoke_share(&workspace, &req.root_id, &req.grantee_user_id)
         .await?;
     Ok(Json(json!({ "ok": true })))
 }
@@ -149,17 +145,12 @@ pub(super) async fn set_sharing(
             "table is not household-shareable".to_owned(),
         ));
     }
-    db.set_sharing(&workspace, &root_id, class).await?;
     let kind = if class == SHARING_PRIVATE {
         EVENT_REVOKE
     } else {
         EVENT_GRANT
     };
-    for member in db.member_ids(&workspace).await? {
-        if member != root.owner_user_id {
-            db.enqueue_event(&workspace, &member, &root_id, kind)
-                .await?;
-        }
-    }
+    db.set_sharing_and_enqueue(&workspace, &root_id, &root.owner_user_id, class, kind)
+        .await?;
     Ok(Json(json!({ "ok": true })))
 }

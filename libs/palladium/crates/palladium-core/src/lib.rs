@@ -13,6 +13,8 @@
 //! Higher-level crates (`palladium-axum`, `palladium-postgres`, …) build on
 //! these primitives to provide transport, storage, and framework integrations.
 
+use std::collections::HashMap;
+
 mod change;
 mod config;
 mod error;
@@ -49,8 +51,8 @@ pub const V1_MAX_FUTURE_HLC_MILLIS: u64 = 300_000;
 /// # Errors
 ///
 /// Returns `clock_skew` when the local clock cannot be read or the HLC exceeds
-/// the permitted future offset, or an error when any replicated row identifier
-/// is not `UUIDv7`.
+/// the permitted future offset. It also rejects non-v4 change and node IDs,
+/// empty changes, non-v7 row IDs, and non-canonical operation sequences.
 pub fn validate_v1_change(change: &Change) -> std::result::Result<(), String> {
     let now_millis = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -61,23 +63,56 @@ pub fn validate_v1_change(change: &Change) -> std::result::Result<(), String> {
     validate_change(change, now_millis, V1_MAX_FUTURE_HLC_MILLIS)
 }
 
-/// Validate a replicated change at a protocol boundary.
+/// Returns `clock_skew` when the HLC exceeds the permitted future offset. It
+/// also rejects non-v4 change and node IDs, empty changes, non-v7 row IDs, and
+/// non-canonical operation sequences.
 ///
 /// # Errors
 ///
-/// Returns `clock_skew` when the HLC exceeds the permitted future offset, or
-/// an error when any replicated row identifier is not `UUIDv7`.
+/// Returns a stable validation error code when any v1 identity, timestamp, row
+/// ID, or canonical-operation invariant is violated.
 pub fn validate_change(
     change: &Change,
     now_millis: u64,
     max_future_millis: u64,
 ) -> std::result::Result<(), String> {
+    if change.id.get_version() != Some(uuid::Version::Random) {
+        return Err(format!("change id {} is not UUIDv4", change.id));
+    }
+    if change.hlc.node_id().as_uuid().get_version() != Some(uuid::Version::Random) {
+        return Err(format!(
+            "HLC node id {} is not UUIDv4",
+            change.hlc.node_id()
+        ));
+    }
     if change.hlc.millis() > now_millis.saturating_add(max_future_millis) {
         return Err("clock_skew".to_owned());
     }
+    if change.ops.is_empty() {
+        return Err("change has no operations".to_owned());
+    }
+    let mut operation_states = HashMap::new();
     for op in &change.ops {
         if op.row_id().get_version() != Some(uuid::Version::SortRand) {
             return Err(format!("row id {} is not UUIDv7", op.row_id()));
+        }
+        let key = (op.table(), op.row_id());
+        match op {
+            Op::Insert { .. } | Op::Delete { .. } => {
+                if operation_states.insert(key, None).is_some() {
+                    return Err("change is not canonical".to_owned());
+                }
+            }
+            Op::Update { col, .. } => match operation_states.get_mut(&key) {
+                None => {
+                    operation_states.insert(key, Some(vec![col.as_str()]));
+                }
+                Some(None) => return Err("change is not canonical".to_owned()),
+                Some(Some(columns)) if columns.contains(&col.as_str()) => {
+                    return Err("change is not canonical".to_owned());
+                }
+                Some(Some(columns)) => columns.push(col),
+            },
         }
     }
     Ok(())

@@ -199,6 +199,34 @@ describe("column-level LWW", () => {
     expect(rows[0]?.title).toBe("reborn");
   });
 
+  it("retains the newest tombstone when delayed deletes and inserts interleave", async () => {
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    await db.insert("notes", { id, title: "live", body: "body", updated_at: 1 });
+    const base = db.currentHlc?.wallMs ?? 0;
+
+    await db.applyRemote({
+      hlc: hlc(base + 3_000),
+      ops: [{ type: "delete", table: "notes", id }],
+    });
+    await db.applyRemote({
+      hlc: hlc(base + 1_000),
+      ops: [{ type: "delete", table: "notes", id }],
+    });
+    await db.applyRemote({
+      hlc: hlc(base + 2_000),
+      ops: [
+        {
+          type: "insert",
+          table: "notes",
+          id,
+          data: { id, title: "stale resurrection", body: "body", updated_at: 2 },
+        },
+      ],
+    });
+
+    expect(await db.exec(sql`SELECT * FROM notes WHERE id = ${id}`)).toEqual([]);
+  });
+
   it("apply is idempotent — replaying the same remote change is a no-op", async () => {
     const h = hlc(1_700_000_000_000);
     const change = {

@@ -17,6 +17,7 @@ import {
   createHlc,
   hlcFromString,
   hlcToString,
+  isUuidV4,
   isUuidV7,
   isValidHlc,
   recvHlc,
@@ -150,9 +151,10 @@ export interface EngineEvents<S extends SchemaMap = SchemaMap> {
 export interface PalladiumEngineOptions {
   readonly blobAdapter?: BlobAdapter;
   /**
-   * Stable node identifier for HLC stamping. Defaults to a fresh `crypto.randomUUID()`.
+   * Stable UUIDv4 node identifier for HLC stamping. Defaults to a fresh
+   * `crypto.randomUUID()`.
    *
-   * Apps that need their HLCs to survive reloads should persist this string
+   * Apps that need their HLCs to survive reloads should persist this value
    * (localStorage, SQLite, etc.) and pass it on every engine construction.
    */
   readonly nodeId?: string;
@@ -300,7 +302,11 @@ export class PalladiumEngine<S extends SchemaMap> {
       options && "get" in options && typeof options.get === "function"
         ? { blobAdapter: options as BlobAdapter }
         : ((options as PalladiumEngineOptions | undefined) ?? {});
-    this.#nodeId = opts.nodeId ?? crypto.randomUUID();
+    const nodeId = opts.nodeId ?? crypto.randomUUID();
+    if (!isUuidV4(nodeId)) {
+      throw new TypeError("PalladiumEngine nodeId must be a canonical UUIDv4");
+    }
+    this.#nodeId = nodeId;
     this.blobs = new BlobHandle(opts.blobAdapter ?? new MemoryBlobAdapter(), this.#blobRegistry);
   }
 
@@ -375,11 +381,20 @@ export class PalladiumEngine<S extends SchemaMap> {
     const persistedNode = await this.getSyncState(STATE_NODE_ID);
     if (persistedNode === null) {
       await this.setSyncState(STATE_NODE_ID, this.#nodeId);
-    } else {
+    } else if (isUuidV4(persistedNode)) {
       this.#nodeId = persistedNode;
+    } else {
+      await this.setSyncState(STATE_NODE_ID, this.#nodeId);
+      await this.adapter.exec(`DELETE FROM ${SYNC_STATE} WHERE key = ?`, [STATE_HLC]);
     }
     const persistedHlc = await this.getSyncState(STATE_HLC);
-    if (persistedHlc !== null) this.#currentHlc = hlcFromString(persistedHlc);
+    if (persistedHlc === null) return;
+    const hlc = hlcFromString(persistedHlc);
+    if (!isUuidV4(hlc.nodeId) || hlc.nodeId !== this.#nodeId) {
+      await this.adapter.exec(`DELETE FROM ${SYNC_STATE} WHERE key = ?`, [STATE_HLC]);
+      return;
+    }
+    this.#currentHlc = hlc;
   }
 
   /** Suppresses `"changes:local"` while remote ops are being applied. */
@@ -532,7 +547,7 @@ export class PalladiumEngine<S extends SchemaMap> {
     return true;
   }
 
-  async #applyNewRemoteChange(
+  async #reconcileRemoteChange(
     adpt: StorageAdapter,
     ops: ReadonlyArray<Op<S>>,
     hlc: Hlc,
@@ -589,8 +604,11 @@ export class PalladiumEngine<S extends SchemaMap> {
     const scope = change.scope ?? "default";
     const payload = JSON.stringify({ hlc: change.hlc, ops: canonicalOps });
     const duplicate = await this.#isDuplicateRemoteChange(adpt, scope, change.id, payload);
+    // ACL purges clear row versions, not immutable change identities. Reconcile
+    // a matching replay so a later grant can restore history; LWW keeps ordinary
+    // duplicates idempotent and preserves newer local writes and tombstones.
+    await this.#reconcileRemoteChange(adpt, change.ops, change.hlc, touchedTables);
     if (!duplicate) {
-      await this.#applyNewRemoteChange(adpt, change.ops, change.hlc, touchedTables);
       await this.#recordRemoteChange(adpt, scope, change.id, payload);
     }
     await this.#checkpointRemoteState(adpt, cursor);
@@ -1082,8 +1100,10 @@ export class PalladiumEngine<S extends SchemaMap> {
     rowId: string,
     hlc: Hlc,
   ): Promise<void> {
+    const tombstone = await this.#getColMeta(adpt, table, rowId, DELETED_COL);
+    if (tombstone !== null && compareHlc(hlc, tombstone) <= 0) return;
     const maxCol = await this.#maxColMeta(adpt, table, rowId);
-    if (maxCol !== null && compareHlc(hlc, maxCol) < 0) return;
+    if (maxCol !== null && compareHlc(hlc, maxCol) <= 0) return;
     await this._removeRow(adpt, table, rowId);
     await this.#putColMeta(adpt, table, rowId, DELETED_COL, hlc);
   }

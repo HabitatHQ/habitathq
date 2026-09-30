@@ -1,8 +1,11 @@
 //! [`SqliteStore`] — `SQLite`-backed [`ChangeStore`] implementation.
 
+use fs2::FileExt;
 use palladium_core::{Change, ChangeStore, Hlc, InstanceLimits, Op, Scope};
 use sha2::Digest;
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
+#[cfg(feature = "crash-test-fixtures")]
+use std::io::Write;
 use std::{fs, path::PathBuf, str::FromStr};
 use uuid::Uuid;
 
@@ -19,6 +22,36 @@ CREATE TABLE IF NOT EXISTS palladium_changes (
     payload_hash TEXT NOT NULL,
     UNIQUE(scope, id)
 )";
+#[cfg(feature = "crash-test-fixtures")]
+fn crash_at_append_boundary(boundary: &str, change_id: Uuid) -> Result<()> {
+    let Ok(configured) = std::env::var("PALLADIUM_SQLITE_CRASH_APPEND") else {
+        return Ok(());
+    };
+    if configured != boundary {
+        return Ok(());
+    }
+    let Ok(target) = std::env::var("PALLADIUM_SQLITE_CRASH_CHANGE_ID") else {
+        return Ok(());
+    };
+    if target != change_id.to_string() {
+        return Ok(());
+    }
+    let Ok(marker) = std::env::var("PALLADIUM_SQLITE_CRASH_MARKER") else {
+        return Ok(());
+    };
+    let mut marker = match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(marker)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(()),
+        Err(error) => return Err(Error::Io(error)),
+    };
+    writeln!(marker, "{boundary}:{change_id}").map_err(Error::Io)?;
+    marker.sync_all().map_err(Error::Io)?;
+    std::process::abort();
+}
 
 #[derive(sqlx::FromRow)]
 struct LegacyChangeRow {
@@ -149,43 +182,45 @@ const GET_BY_ID: &str =
 
 // ── Lock file ─────────────────────────────────────────────────────────────
 
-/// Filesystem advisory lock file that prevents a second process from opening
-/// the same `SQLite` database.
+/// Filesystem advisory lock that prevents a second live process from opening
+/// the same `SQLite` database. The operating system releases it when a process
+/// terminates, including after a crash.
 #[derive(Debug)]
 struct LockFile {
-    path: PathBuf,
+    _file: fs::File,
 }
 
 impl LockFile {
-    /// Create a lock file alongside `db_path`.
+    /// Acquire an advisory lock alongside `db_path`.
     ///
     /// # Errors
-    /// Returns `Err(Error::Core(InstanceAlreadyOpen))` if the lock file
-    /// already exists; `Err(Error::Io)` for any other I/O error.
+    /// Returns `Err(Error::Core(InstanceAlreadyOpen))` when another live
+    /// process owns the lock, or `Err(Error::Io)` for filesystem failures.
     fn acquire(db_path: &std::path::Path) -> Result<Self> {
         let mut lock_path = db_path.to_path_buf();
         let ext = lock_path.extension().map_or_else(
             || "lock".to_owned(),
-            |e| format!("{}.lock", e.to_string_lossy()),
+            |extension| format!("{}.lock", extension.to_string_lossy()),
         );
         lock_path.set_extension(&ext);
-        match fs::OpenOptions::new()
+        let file = fs::OpenOptions::new()
+            .read(true)
             .write(true)
-            .create_new(true)
-            .open(&lock_path)
-        {
-            Ok(_) => Ok(Self { path: lock_path }),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(Error::Core(
-                palladium_core::Error::InstanceAlreadyOpen(db_path.display().to_string()),
-            )),
-            Err(e) => Err(Error::Io(e)),
+            .create(true)
+            .truncate(false)
+            .open(lock_path)?;
+        match file.try_lock_exclusive() {
+            Ok(()) => Ok(Self { _file: file }),
+            Err(error)
+                if error.kind() == std::io::ErrorKind::WouldBlock
+                    || error.kind() == fs2::lock_contended_error().kind() =>
+            {
+                Err(Error::Core(palladium_core::Error::InstanceAlreadyOpen(
+                    db_path.display().to_string(),
+                )))
+            }
+            Err(error) => Err(Error::Io(error)),
         }
-    }
-}
-
-impl Drop for LockFile {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
     }
 }
 
@@ -332,7 +367,15 @@ impl ChangeStore for SqliteStore {
             }
             (seq, false)
         };
+        #[cfg(feature = "crash-test-fixtures")]
+        if inserted {
+            crash_at_append_boundary("before-commit", change.id)?;
+        }
         tx.commit().await?;
+        #[cfg(feature = "crash-test-fixtures")]
+        if inserted {
+            crash_at_append_boundary("after-commit", change.id)?;
+        }
         let seq = u64::try_from(seq)
             .map_err(|_| Error::InvalidData("append sequence is negative".into()))?;
         let cursor = palladium_core::AppendCursor::new(seq);
@@ -426,42 +469,54 @@ impl ChangeRow {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+
+    fn make_change(millis: u64) -> Change {
+        let row_id = Uuid::now_v7();
+        Change::new(
+            Hlc::new(palladium_core::NodeId::new(), millis),
+            vec![Op::Insert {
+                table: "todos".into(),
+                row_id,
+                data: json!({"id": row_id}),
+            }],
+        )
+    }
+
     #[tokio::test]
-    async fn append_page_and_duplicate_scope() {
-        let store = SqliteStore::in_memory().await.unwrap();
+    async fn append_page_and_duplicate_scope() -> std::result::Result<(), Box<dyn std::error::Error>>
+    {
+        let store = SqliteStore::in_memory().await?;
         let scope = Scope::new("a");
-        let c = Change::new(
-            Hlc::new(palladium_core::NodeId::from_uuid(Uuid::nil()), 1),
-            vec![],
-        );
-        let first = store.insert(&scope, &c).await.unwrap();
-        let second = store.insert(&scope, &c).await.unwrap();
+        let c = make_change(1);
+        let first = store.insert(&scope, &c).await?;
+        let second = store.insert(&scope, &c).await?;
         assert!(matches!(first, palladium_core::InsertOutcome::Inserted(_)));
         assert!(matches!(
             second,
             palladium_core::InsertOutcome::Duplicate(_)
         ));
-        assert_eq!(store.page(&scope, None, 1).await.unwrap().changes.len(), 1);
+        assert_eq!(store.page(&scope, None, 1).await?.changes.len(), 1);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn concurrent_identical_inserts_return_inserted_and_duplicate() {
-        let store = SqliteStore::in_memory().await.unwrap();
+    async fn concurrent_identical_inserts_return_inserted_and_duplicate(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let store = SqliteStore::in_memory().await?;
         let scope = Scope::new("a");
-        let change = Change::new(
-            Hlc::new(palladium_core::NodeId::from_uuid(Uuid::nil()), 1),
-            vec![],
-        );
+        let change = make_change(1);
 
         let (first, second) =
             tokio::join!(store.insert(&scope, &change), store.insert(&scope, &change));
-        let outcomes = [first.unwrap(), second.unwrap()];
+        let outcomes = [first?, second?];
         assert!(outcomes
             .iter()
             .any(|outcome| matches!(outcome, palladium_core::InsertOutcome::Inserted(_))));
         assert!(outcomes
             .iter()
             .any(|outcome| matches!(outcome, palladium_core::InsertOutcome::Duplicate(_))));
+        Ok(())
     }
 
     #[tokio::test]
@@ -469,13 +524,7 @@ mod tests {
     ) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let store = SqliteStore::in_memory().await?;
         let scope = Scope::new("a");
-        let change = Change::new(
-            Hlc::new(
-                palladium_core::NodeId::from_uuid(Uuid::nil()),
-                i64::MAX as u64,
-            ),
-            vec![],
-        );
+        let change = make_change(i64::MAX as u64);
 
         let result = store.insert(&scope, &change).await;
         assert!(matches!(
@@ -486,20 +535,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn page_cursor_uses_actual_interleaved_append_position() {
-        let store = SqliteStore::in_memory().await.unwrap();
+    async fn page_cursor_uses_actual_interleaved_append_position(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let store = SqliteStore::in_memory().await?;
         let scope_a = Scope::new("a");
         let scope_b = Scope::new("b");
-        let node = palladium_core::NodeId::from_uuid(Uuid::nil());
-        let change = |millis| Change::new(Hlc::new(node.clone(), millis), vec![]);
+        let change = |millis| make_change(millis);
 
-        store.insert(&scope_a, &change(1)).await.unwrap();
+        store.insert(&scope_a, &change(1)).await?;
         for millis in 2..=6 {
-            store.insert(&scope_b, &change(millis)).await.unwrap();
+            store.insert(&scope_b, &change(millis)).await?;
         }
-        store.insert(&scope_a, &change(7)).await.unwrap();
+        store.insert(&scope_a, &change(7)).await?;
 
-        let first = store.page(&scope_a, None, 1).await.unwrap();
+        let first = store.page(&scope_a, None, 1).await?;
         assert_eq!(
             first
                 .cursor
@@ -509,10 +558,7 @@ mod tests {
         );
         assert!(!first.caught_up);
 
-        let second = store
-            .page(&scope_a, first.cursor.as_ref(), 1)
-            .await
-            .unwrap();
+        let second = store.page(&scope_a, first.cursor.as_ref(), 1).await?;
         assert_eq!(
             second
                 .cursor
@@ -521,6 +567,7 @@ mod tests {
             Some("7")
         );
         assert!(second.caught_up);
+        Ok(())
     }
 
     #[tokio::test]

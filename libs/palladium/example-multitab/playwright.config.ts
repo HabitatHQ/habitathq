@@ -15,7 +15,9 @@ export default defineConfig({
     trace: "on-first-retry",
     ...(process.env["PLAYWRIGHT_EXECUTABLE_PATH"]
       ? { launchOptions: { executablePath: process.env["PLAYWRIGHT_EXECUTABLE_PATH"] } }
-      : {}),
+      : process.env["PLAYWRIGHT_CHANNEL"]
+        ? { channel: process.env["PLAYWRIGHT_CHANNEL"] }
+        : {}),
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {

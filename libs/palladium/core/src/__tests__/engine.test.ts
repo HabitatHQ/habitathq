@@ -439,9 +439,15 @@ describe("PalladiumEngine HLC stamping", () => {
   });
 
   it("nodeId is preserved when provided", () => {
-    const nodeId = "00000000-0000-0000-0000-0000000000aa";
+    const nodeId = "00000000-0000-4000-8000-0000000000aa";
     const db = makeTestEngine(nodeId);
     expect(db.nodeId).toBe(nodeId);
+  });
+
+  it("rejects a nodeId that is not a canonical UUIDv4", () => {
+    expect(() => makeTestEngine("legacy-node")).toThrow(
+      "PalladiumEngine nodeId must be a canonical UUIDv4",
+    );
   });
 
   it("currentHlc starts as null until the first send/receive", () => {
@@ -450,7 +456,7 @@ describe("PalladiumEngine HLC stamping", () => {
   });
 
   it("nextSendHlc carries the engine's nodeId", () => {
-    const nodeId = "00000000-0000-0000-0000-0000000000bb";
+    const nodeId = "00000000-0000-4000-8000-0000000000bb";
     const db = makeTestEngine(nodeId);
     const hlc = db.nextSendHlc();
     expect(hlc.nodeId).toBe(nodeId);
@@ -713,5 +719,54 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
       sql`SELECT * FROM tasks WHERE id = '018f0f50-7b8d-7a1c-8e2f-1234567890ab'`,
     );
     expect(rows[0]?.name).toBe("new");
+  });
+
+  it("restores purged history on replay without accepting changed identities or losing newer writes", async () => {
+    const db = makeDb();
+    await db.init(SCHEMA);
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    const commentId = "018f0f50-7b8d-7a1c-8e2f-1234567890ac";
+    const insert: RemoteChange<Schema> = {
+      id: "00000000-0000-4000-8000-000000000011",
+      hlc: { wallMs: 1000, counter: 0, nodeId: "00000000-0000-4000-8000-00000000cafe" },
+      ops: [
+        { type: "insert", table: "tasks", id, data: { id, name: "original", done: 0 } },
+        {
+          type: "insert",
+          table: "comments",
+          id: commentId,
+          data: { id: commentId, body: "original" },
+        },
+      ],
+    };
+    const update: RemoteChange<Schema> = {
+      id: "00000000-0000-4000-8000-000000000012",
+      hlc: { ...insert.hlc, wallMs: 2000 },
+      ops: [{ type: "update", table: "tasks", id, patch: { name: "authoritative" } }],
+    };
+    try {
+      await db.applyRemote(insert);
+      await db.applyRemote(update);
+      await db.update("comments", commentId, { body: "newer local write" });
+      await db.applyRemotePage([], [{ table: "tasks", id }], async () => {});
+      expect(await db.exec(sql`SELECT * FROM tasks`)).toEqual([]);
+      await expect(
+        db.applyRemote({
+          ...insert,
+          ops: [{ type: "insert", table: "tasks", id, data: { id, name: "tampered", done: 0 } }],
+        }),
+      ).rejects.toThrow("Remote change id conflict");
+      await db.applyRemote(insert);
+      await db.applyRemote(update);
+      await db.applyRemote(insert);
+      expect(await db.exec(sql`SELECT * FROM tasks`)).toEqual([
+        { id, name: "authoritative", done: 0 },
+      ]);
+      expect(await db.exec(sql`SELECT * FROM comments`)).toEqual([
+        { id: commentId, body: "newer local write" },
+      ]);
+    } finally {
+      await db.adapter.close();
+    }
   });
 });

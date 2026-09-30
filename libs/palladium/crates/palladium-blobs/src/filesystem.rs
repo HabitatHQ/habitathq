@@ -93,7 +93,8 @@ impl BlobStore for FilesystemBlobStore {
     }
 
     async fn exists(&self, id: BlobId) -> Result<bool, BlobError> {
-        Ok(self.blob_path(id).exists() && !self.tombstone_path(id).exists())
+        Ok(fs::try_exists(self.blob_path(id)).await?
+            && !fs::try_exists(self.tombstone_path(id)).await?)
     }
 }
 

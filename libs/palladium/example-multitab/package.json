@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@palladium/core": "workspace:*",
     "@palladium/sqlite-browser": "workspace:*",
     "@palladium/worker": "workspace:*",
     "comlink": "^4.4.2"

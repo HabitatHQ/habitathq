@@ -14,14 +14,19 @@ export interface Hlc {
   readonly nodeId: string;
 }
 
+const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+/** Returns whether `value` is a canonical, lowercase RFC 9562 UUIDv4 string. */
+export function isUuidV4(value: unknown): value is string {
+  return typeof value === "string" && UUID_V4_PATTERN.test(value);
+}
+
 const UUID_V7_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 /** Returns whether `value` is a canonical, lowercase RFC 9562 UUIDv7 string. */
 export function isUuidV7(value: unknown): value is string {
   return typeof value === "string" && UUID_V7_PATTERN.test(value);
 }
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 /** Validate an untrusted HLC before it can affect ordering or persistence. */
 export function isValidHlc(
@@ -39,8 +44,7 @@ export function isValidHlc(
     Number.isSafeInteger(candidate["counter"]) &&
     (candidate["counter"] as number) >= 0 &&
     (candidate["counter"] as number) <= 0xffff_ffff &&
-    typeof candidate["nodeId"] === "string" &&
-    UUID_PATTERN.test(candidate["nodeId"])
+    isUuidV4(candidate["nodeId"])
   );
 }
 

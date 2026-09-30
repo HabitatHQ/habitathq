@@ -16,6 +16,7 @@ use crate::{
 };
 
 const WORKSPACE_HEADER: &str = "x-workspace";
+const NODE_HEADER: &str = "x-palladium-node";
 
 fn workspace_of(headers: &HeaderMap) -> Result<String, AtriumError> {
     headers
@@ -25,6 +26,21 @@ fn workspace_of(headers: &HeaderMap) -> Result<String, AtriumError> {
         .filter(|s| !s.is_empty())
         .map(str::to_owned)
         .ok_or_else(|| AtriumError::BadRequest(format!("missing {WORKSPACE_HEADER} header")))
+}
+
+fn node_of(headers: &HeaderMap) -> Result<String, AtriumError> {
+    let value = headers
+        .get(NODE_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| AtriumError::BadRequest(format!("missing {NODE_HEADER} header")))?;
+    let node = uuid::Uuid::parse_str(value)
+        .map_err(|_| AtriumError::BadRequest(format!("invalid {NODE_HEADER} header")))?;
+    if node.get_version() != Some(uuid::Version::Random) || value != node.to_string() {
+        return Err(AtriumError::BadRequest(format!(
+            "invalid {NODE_HEADER} header"
+        )));
+    }
+    Ok(node.to_string())
 }
 
 fn parse_append_cursor(value: &str) -> Result<i64, AtriumError> {
@@ -150,6 +166,7 @@ async fn append_grant_backfills(
     db: &AtriumDb,
     workspace: &str,
     user: &str,
+    node_id: &str,
     events: &[PendingEvent],
     changes: &mut Vec<Change>,
     limit: u32,
@@ -163,11 +180,15 @@ async fn append_grant_backfills(
             all_caught_up = false;
             break;
         }
-        let Some((root, offered, offered_upper, _offered_complete, backfill_cursor)) =
-            db.grant_offer_state(workspace, user, event.id).await?
+        let Some((root, offered, offered_upper, _offered_complete, backfill_cursor)) = db
+            .grant_offer_state(workspace, user, node_id, event.id)
+            .await?
         else {
             continue;
         };
+        if !db.can_read(workspace, user, &root).await? {
+            continue;
+        }
         let (candidates, complete) = if let Some(through) = offered {
             let entries = db
                 .list_changes_through(workspace, backfill_cursor, through, None)
@@ -226,6 +247,9 @@ async fn append_grant_backfills(
             {
                 continue;
             }
+            if !db.can_read(workspace, user, &root).await? {
+                break;
+            }
             if change_root(db, workspace, &entry.change).await?.as_deref() == Some(root.as_str()) {
                 changes.push(entry.change);
                 remaining -= 1;
@@ -242,9 +266,11 @@ pub(super) async fn get_changes(
     Query(params): Query<ListQuery>,
 ) -> Result<Json<ChangesResponse>, AtriumError> {
     let workspace = workspace_of(&headers)?;
+    let node_id = node_of(&headers)?;
     let db = state.db();
     db.require_member(&workspace, user.as_str()).await?;
-
+    db.register_member_node(&workspace, user.as_str(), &node_id)
+        .await?;
     let after = match params.cursor.as_deref() {
         None => 0,
         Some(value) => parse_append_cursor(value)?,
@@ -254,6 +280,9 @@ pub(super) async fn get_changes(
         return Err(AtriumError::BadRequest("invalid_request".to_owned()));
     }
     let upper_bound = db.workspace_append_bound(&workspace).await?;
+    if after > upper_bound {
+        return Err(AtriumError::BadRequest("invalid_cursor".to_owned()));
+    }
     let history = db
         .list_changes_through(&workspace, after, upper_bound, Some(limit))
         .await?;
@@ -269,19 +298,32 @@ pub(super) async fn get_changes(
             changes.push(change);
         }
     }
-    let events = db.pending_events(&workspace, user.as_str()).await?;
-    let backfills_caught_up =
-        append_grant_backfills(db, &workspace, user.as_str(), &events, &mut changes, limit).await?;
+    let events = db
+        .pending_events(&workspace, user.as_str(), &node_id)
+        .await?;
+    let backfills_caught_up = append_grant_backfills(
+        db,
+        &workspace,
+        user.as_str(),
+        &node_id,
+        &events,
+        &mut changes,
+        limit,
+    )
+    .await?;
     let mut purges = Vec::new();
     for event in events.iter().filter(|event| event.kind == EVENT_REVOKE) {
-        let record = db
-            .get_record(&workspace, &event.root_id)
-            .await?
-            .ok_or_else(|| AtriumError::NotFound(format!("purge root {}", event.root_id)))?;
-        purges.push(PagePurge {
+        let records = db.records_for_root(&workspace, &event.root_id).await?;
+        if records.is_empty() {
+            return Err(AtriumError::NotFound(format!(
+                "purge root {}",
+                event.root_id
+            )));
+        }
+        purges.extend(records.into_iter().map(|record| PagePurge {
             table: record.table_name,
-            row_id: event.root_id.clone(),
-        });
+            row_id: record.row_id,
+        }));
     }
     purges.sort_by(|a, b| a.table.cmp(&b.table).then(a.row_id.cmp(&b.row_id)));
     purges.dedup_by(|a, b| a.table == b.table && a.row_id == b.row_id);
@@ -307,10 +349,15 @@ pub(super) async fn acknowledge_events(
     Json(req): Json<AckRequest>,
 ) -> Result<StatusCode, AtriumError> {
     let workspace = workspace_of(&headers)?;
+    let node_id = node_of(&headers)?;
     state.db().require_member(&workspace, user.as_str()).await?;
     state
         .db()
-        .acknowledge_events(&workspace, user.as_str(), &req.event_ids)
+        .register_member_node(&workspace, user.as_str(), &node_id)
+        .await?;
+    state
+        .db()
+        .acknowledge_events(&workspace, user.as_str(), &node_id, &req.event_ids)
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }

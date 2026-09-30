@@ -23,7 +23,7 @@
 
 use std::time::{Duration, Instant};
 
-use palladium_core::{Change, ChangeStore, Hlc, NodeId, Op};
+use palladium_core::{AppendCursor, Change, ChangeStore, Hlc, NodeId, Op, Scope};
 use palladium_postgres::PostgresStore;
 use serde_json::json;
 use testcontainers::{runners::AsyncRunner, ContainerAsync, ImageExt};
@@ -32,19 +32,48 @@ use uuid::Uuid;
 
 // ── helpers ───────────────────────────────────────────────────────────────
 
-const fn node(n: u128) -> NodeId {
-    NodeId::from_uuid(Uuid::from_u128(n))
+const LOAD_SCOPE: &str = "load";
+
+fn node(_: u128) -> NodeId {
+    NodeId::new()
+}
+
+fn scope() -> Scope {
+    Scope::new(LOAD_SCOPE)
 }
 
 fn make_change(hlc: Hlc, op_count: usize) -> Change {
     let ops = (0..op_count)
         .map(|i| Op::Insert {
             table: "todos".into(),
-            row_id: Uuid::new_v4(),
+            row_id: Uuid::now_v7(),
             data: json!({"index": i, "text": "load test item"}),
         })
         .collect();
     Change::new(hlc, ops)
+}
+
+async fn insert(store: &PostgresStore, change: &Change) {
+    let scope = scope();
+    store.insert(&scope, change).await.expect("insert failed");
+}
+
+async fn read_all(store: &PostgresStore) -> Vec<Change> {
+    let scope = scope();
+    let mut cursor: Option<AppendCursor> = None;
+    let mut changes = Vec::new();
+    loop {
+        let page = store
+            .page(&scope, cursor.as_ref(), 100)
+            .await
+            .expect("page load history");
+        let caught_up = page.caught_up;
+        cursor = page.cursor;
+        changes.extend(page.changes);
+        if caught_up {
+            return changes;
+        }
+    }
 }
 
 async fn start_store() -> (ContainerAsync<Postgres>, PostgresStore) {
@@ -87,17 +116,14 @@ async fn load_average_sequential_inserts() {
     for i in 0..CHANGE_COUNT {
         hlc = hlc.send(1_000 + i as u64);
         let change = make_change(hlc, OPS_PER_CHANGE);
-        store.insert(&change).await.expect("insert failed");
+        insert(&store, &change).await;
     }
     let insert_elapsed = start.elapsed();
     print_metrics("load/insert", CHANGE_COUNT, insert_elapsed);
 
     // Verify: all changes are retrievable.
     let read_start = Instant::now();
-    let all = store
-        .list_after(None, None)
-        .await
-        .expect("list_after failed");
+    let all = read_all(&store).await;
     let read_elapsed = read_start.elapsed();
     print_metrics("load/read", all.len(), read_elapsed);
 
@@ -126,12 +152,11 @@ async fn load_interleaved_reads_and_writes() {
         // Write a batch.
         for i in 0..BATCH_SIZE {
             hlc = hlc.send(2_000 + (batch * BATCH_SIZE + i) as u64);
-            store.insert(&make_change(hlc, 1)).await.expect("insert");
+            insert(&store, &make_change(hlc, 1)).await;
         }
         inserted_total += BATCH_SIZE;
 
-        // Read all so far (simulates a sync client catching up).
-        let seen = store.list_after(None, None).await.expect("list_after");
+        let seen = read_all(&store).await;
         assert_eq!(
             seen.len(),
             inserted_total,
@@ -157,16 +182,13 @@ async fn stress_high_volume_large_payloads() {
     let start = Instant::now();
     for i in 0..CHANGE_COUNT {
         hlc = hlc.send(10_000 + i as u64);
-        store
-            .insert(&make_change(hlc, OPS_PER_CHANGE))
-            .await
-            .expect("stress insert failed");
+        insert(&store, &make_change(hlc, OPS_PER_CHANGE)).await;
     }
     let elapsed = start.elapsed();
     print_metrics("stress/insert", CHANGE_COUNT, elapsed);
 
     // Sanity-check: the count must be exact.
-    let all = store.list_after(None, None).await.expect("list_after");
+    let all = read_all(&store).await;
     assert_eq!(all.len(), CHANGE_COUNT);
 }
 
@@ -192,10 +214,7 @@ async fn stress_concurrent_writers() {
                 let mut hlc = Hlc::new(n, 1_000);
                 for i in 0..PER_WRITER {
                     hlc = hlc.send(1_000 + i as u64);
-                    store
-                        .insert(&make_change(hlc, 1))
-                        .await
-                        .expect("concurrent insert failed");
+                    insert(&store, &make_change(hlc, 1)).await;
                 }
             })
         })
@@ -209,7 +228,7 @@ async fn stress_concurrent_writers() {
     let total = WRITERS * PER_WRITER;
     print_metrics("stress/concurrent", total, elapsed);
 
-    let all = store.list_after(None, None).await.expect("list_after");
+    let all = read_all(&store).await;
     assert_eq!(all.len(), total, "expected {total} rows, got {}", all.len());
 
     // Verify uniqueness — no duplicate IDs.
@@ -219,8 +238,8 @@ async fn stress_concurrent_writers() {
     assert_eq!(ids.len(), total, "duplicate change IDs detected");
 }
 
-/// Cursor-based pagination under stress: insert N changes then paginate
-/// through them with `list_after`, verifying no gaps or duplicates.
+/// Cursor-based pagination under stress: insert N changes then paginate by
+/// server-issued append position, verifying no gaps or duplicates.
 #[tokio::test]
 async fn stress_cursor_pagination_correctness() {
     const TOTAL: usize = 2_000;
@@ -232,31 +251,29 @@ async fn stress_cursor_pagination_correctness() {
     for i in 0..TOTAL {
         hlc = hlc.send(5_000 + i as u64);
         let c = make_change(hlc, 1);
-        store.insert(&c).await.expect("insert");
+        insert(&store, &c).await;
     }
 
-    // Paginate: each page uses the HLC of the last seen change as cursor.
-    let mut cursor: Option<Hlc> = None;
+    // Paginate by the server-issued append cursor; late older-HLC inserts are
+    // included by append position rather than skipped by an HLC watermark.
+    let scope = scope();
+    let mut cursor: Option<AppendCursor> = None;
     let mut seen_ids: Vec<Uuid> = Vec::with_capacity(TOTAL);
 
     loop {
-        let page = store.list_after(cursor, None).await.expect("list_after");
-        if page.is_empty() {
-            break;
-        }
-        let last_hlc = page.last().expect("non-empty page").hlc;
-        for c in &page {
-            seen_ids.push(c.id);
-        }
-        let count = page.len();
-        cursor = Some(last_hlc);
-        if count < PAGE_SIZE {
+        let page = store
+            .page(&scope, cursor.as_ref(), PAGE_SIZE as u32)
+            .await
+            .expect("page history");
+        let caught_up = page.caught_up;
+        cursor = page.cursor;
+        seen_ids.extend(page.changes.into_iter().map(|change| change.id));
+        if caught_up {
             break;
         }
     }
 
     assert_eq!(seen_ids.len(), TOTAL, "pagination missed changes");
-
     seen_ids.sort_unstable();
     seen_ids.dedup();
     assert_eq!(seen_ids.len(), TOTAL, "pagination returned duplicates");
@@ -284,10 +301,7 @@ async fn spike_burst_then_recovery() {
     for _ in 0..WARMUP {
         wall += 1;
         hlc = hlc.send(wall);
-        store
-            .insert(&make_change(hlc, 1))
-            .await
-            .expect("warmup insert");
+        insert(&store, &make_change(hlc, 1)).await;
     }
     let warmup_elapsed = t0.elapsed();
     print_metrics("spike/warmup", WARMUP, warmup_elapsed);
@@ -297,10 +311,7 @@ async fn spike_burst_then_recovery() {
     for _ in 0..SPIKE {
         wall += 1;
         hlc = hlc.send(wall);
-        store
-            .insert(&make_change(hlc, 5))
-            .await
-            .expect("spike insert");
+        insert(&store, &make_change(hlc, 5)).await;
     }
     let spike_elapsed = t1.elapsed();
     print_metrics("spike/burst", SPIKE, spike_elapsed);
@@ -310,17 +321,14 @@ async fn spike_burst_then_recovery() {
     for _ in 0..COOLDOWN {
         wall += 1;
         hlc = hlc.send(wall);
-        store
-            .insert(&make_change(hlc, 1))
-            .await
-            .expect("cooldown insert");
+        insert(&store, &make_change(hlc, 1)).await;
     }
     let cooldown_elapsed = t2.elapsed();
     print_metrics("spike/cooldown", COOLDOWN, cooldown_elapsed);
 
     // Assert all changes made it through.
     let total = WARMUP + SPIKE + COOLDOWN;
-    let all = store.list_after(None, None).await.expect("list_after");
+    let all = read_all(&store).await;
     assert_eq!(
         all.len(),
         total,
@@ -351,10 +359,7 @@ async fn spike_concurrent_burst() {
                 let mut hlc = Hlc::new(n, 1_000);
                 for i in 0..PER_TASK {
                     hlc = hlc.send(1_000 + i as u64);
-                    store
-                        .insert(&make_change(hlc, 3))
-                        .await
-                        .expect("spike insert");
+                    insert(&store, &make_change(hlc, 3)).await;
                 }
             })
         })
@@ -368,6 +373,6 @@ async fn spike_concurrent_burst() {
     let total = CONCURRENT * PER_TASK;
     print_metrics("spike/concurrent_burst", total, elapsed);
 
-    let all = store.list_after(None, None).await.expect("list_after");
+    let all = read_all(&store).await;
     assert_eq!(all.len(), total);
 }

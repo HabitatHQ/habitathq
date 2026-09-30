@@ -19,7 +19,7 @@ use axum::{
     Router,
 };
 use palladium_axum::{create_router, AppState};
-use palladium_core::{Change, Hlc, NodeId};
+use palladium_core::{Change, Hlc, NodeId, Op};
 use palladium_sqlite::SqliteStore;
 use serde_json::json;
 use tower::ServiceExt;
@@ -30,10 +30,6 @@ fn page(body: &[u8]) -> serde_json::Value {
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────
-
-const fn node(n: u128) -> NodeId {
-    NodeId::from_uuid(Uuid::from_u128(n))
-}
 
 /// Build a Palladium router backed by a fresh in-memory `SQLite` store.
 async fn palladium() -> Router {
@@ -68,9 +64,16 @@ async fn post_json(app: Router, uri: &str, json: &str) -> StatusCode {
 }
 
 fn change_json(millis: u64) -> String {
-    let h = Hlc::new(node(1), millis);
-    let c = Change::new(h, vec![]);
-    serde_json::to_string(&c).unwrap()
+    let row_id = Uuid::now_v7();
+    let change = Change::new(
+        Hlc::new(NodeId::new(), millis),
+        vec![Op::Insert {
+            table: "todos".into(),
+            row_id,
+            data: json!({"id": row_id}),
+        }],
+    );
+    serde_json::to_string(&change).unwrap()
 }
 
 // ── merge: co-existence ───────────────────────────────────────────────────
@@ -173,14 +176,8 @@ async fn nest_post_then_get_round_trip() {
 async fn nest_cursor_pagination_works_at_subpath() {
     let app = Router::new().nest("/sync", palladium().await);
 
-    // Insert three changes with increasing timestamps.
-    let h1 = Hlc::new(node(1), 1_000);
-    let h2 = h1.send(2_000);
-    let h3 = h2.send(3_000);
-
-    for h in [h1, h2, h3] {
-        let body = serde_json::to_string(&Change::new(h, vec![])).unwrap();
-        let status = post_json(app.clone(), "/sync/v1/changes", &body).await;
+    for millis in [1_000, 2_000, 3_000] {
+        let status = post_json(app.clone(), "/sync/v1/changes", &change_json(millis)).await;
         assert_eq!(status, StatusCode::CREATED);
     }
 

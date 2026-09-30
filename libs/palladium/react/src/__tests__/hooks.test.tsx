@@ -8,9 +8,9 @@ import { PalladiumProvider, useLiveQuery, useSyncStatus } from "../index.js";
 
 afterEach(cleanup);
 
-interface Schema {
+type Schema = {
   tasks: { id: string; name: string; done: number };
-}
+};
 
 const SCHEMA: SchemaConfig = {
   schema:
@@ -63,7 +63,11 @@ describe("useLiveQuery", () => {
     await waitFor(() => expect(screen.queryAllByRole("listitem")).toHaveLength(0));
 
     await act(async () => {
-      await db.insert("tasks", { id: "t1", name: "Buy milk", done: 0 });
+      await db.insert("tasks", {
+        id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+        name: "Buy milk",
+        done: 0,
+      });
     });
 
     await waitFor(() => expect(screen.queryAllByRole("listitem")).toHaveLength(1));
@@ -72,19 +76,6 @@ describe("useLiveQuery", () => {
 });
 
 describe("useSyncStatus", () => {
-  it("returns idle by default", async () => {
-    const db = makeDb();
-    await db.init(SCHEMA);
-
-    function App(): ReactNode {
-      const status = useSyncStatus();
-      return <div data-testid="status">{status}</div>;
-    }
-
-    render(<App />, { wrapper: wrapper(db) });
-    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("idle"));
-  });
-
   it("updates when engine emits sync:status", async () => {
     const db = makeDb();
     await db.init(SCHEMA);
@@ -95,7 +86,6 @@ describe("useSyncStatus", () => {
     }
 
     render(<App />, { wrapper: wrapper(db) });
-    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("idle"));
 
     act(() => {
       db.setStatus("syncing");

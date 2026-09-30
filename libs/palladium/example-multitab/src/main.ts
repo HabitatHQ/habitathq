@@ -5,6 +5,7 @@
  * - close the leader tab and a follower takes over — no reload, data intact.
  */
 
+import { generateUuidV7 } from "@palladium/core";
 import { createClient } from "@palladium/worker";
 
 interface NoteRow {
@@ -46,7 +47,7 @@ async function addNote(body: string): Promise<void> {
   const trimmed = body.trim();
   if (!trimmed) return;
   await db.mutate("INSERT INTO notes (id, body, created_at) VALUES (?, ?, ?)", [
-    crypto.randomUUID(),
+    generateUuidV7(),
     trimmed,
     Date.now(),
   ]);

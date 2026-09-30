@@ -76,6 +76,8 @@ CREATE TABLE IF NOT EXISTS grant_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     workspace_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
+    node_id TEXT,
+    source_event_id INTEGER,
     root_id TEXT NOT NULL,
     kind TEXT NOT NULL,
     delivered INTEGER NOT NULL DEFAULT 0,
@@ -85,7 +87,10 @@ CREATE TABLE IF NOT EXISTS grant_events (
     offered_complete INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_grant_events_pending
-    ON grant_events (workspace_id, user_id, delivered, id);
+    ON grant_events (workspace_id, user_id, node_id, delivered, id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_grant_events_device_source
+    ON grant_events (workspace_id, user_id, node_id, source_event_id)
+    WHERE source_event_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS palladium_changes (
     id TEXT NOT NULL,
     scope TEXT NOT NULL,
@@ -203,6 +208,7 @@ impl AtriumDb {
         sqlx::query(MIGRATE).execute(&pool).await?;
         Self::upgrade_workspace_qualified_schema(&pool).await?;
         Self::upgrade_grant_backfill_schema(&pool).await?;
+        Self::upgrade_device_event_schema(&pool).await?;
         Self::upgrade_change_cursor_schema(&pool).await?;
         Self::upgrade_change_append_sequence(&pool).await?;
         Self::upgrade_change_append_payload(&pool).await?;
@@ -506,6 +512,37 @@ impl AtriumDb {
         Ok(())
     }
 
+    /// Add per-device event delivery state while retaining legacy user events
+    /// as templates until an authenticated device polls.
+    async fn upgrade_device_event_schema(pool: &SqlitePool) -> Result<(), AtriumError> {
+        for (column, definition) in [("node_id", "TEXT"), ("source_event_id", "INTEGER")] {
+            if !Self::table_has_column(pool, "grant_events", column).await? {
+                sqlx::query(&format!(
+                    "ALTER TABLE grant_events ADD COLUMN {column} {definition}"
+                ))
+                .execute(pool)
+                .await?;
+            }
+        }
+        sqlx::query("DROP INDEX IF EXISTS idx_grant_events_pending")
+            .execute(pool)
+            .await?;
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_grant_events_pending
+             ON grant_events (workspace_id, user_id, node_id, delivered, id)",
+        )
+        .execute(pool)
+        .await?;
+        sqlx::query(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_grant_events_device_source
+             ON grant_events (workspace_id, user_id, node_id, source_event_id)
+             WHERE source_event_id IS NOT NULL",
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
     /// Add a durable, server-assigned append cursor to legacy change history.
     async fn upgrade_change_append_sequence(pool: &SqlitePool) -> Result<(), AtriumError> {
         let has_append_seq =
@@ -749,28 +786,73 @@ impl AtriumDb {
         Ok(row.map(Self::record_from_row))
     }
 
-    pub async fn set_sharing(
+    /// Return the root and every child record that inherits its visibility.
+    pub async fn records_for_root(
         &self,
         workspace: &str,
         root_id: &str,
+    ) -> Result<Vec<AclRecord>, AtriumError> {
+        let rows: Vec<(String, String, String, Option<String>, String, String)> = sqlx::query_as(
+            "SELECT row_id, workspace_id, table_name, root_id, owner_user_id, sharing
+             FROM records
+             WHERE workspace_id = ? AND (row_id = ? OR root_id = ?)
+             ORDER BY table_name, row_id",
+        )
+        .bind(workspace)
+        .bind(root_id)
+        .bind(root_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(Self::record_from_row).collect())
+    }
+
+    /// Change household visibility and enqueue the matching event for every
+    /// non-owner member in the same write transaction.
+    pub async fn set_sharing_and_enqueue(
+        &self,
+        workspace: &str,
+        root_id: &str,
+        owner: &str,
         sharing: &str,
+        kind: &str,
     ) -> Result<(), AtriumError> {
-        sqlx::query("UPDATE records SET sharing = ? WHERE workspace_id = ? AND row_id = ? AND root_id IS NULL")
-            .bind(sharing)
-            .bind(workspace)
-            .bind(root_id)
-            .execute(&self.pool)
-            .await?;
+        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        sqlx::query(
+            "UPDATE records
+             SET sharing = ?
+             WHERE workspace_id = ? AND row_id = ? AND root_id IS NULL",
+        )
+        .bind(sharing)
+        .bind(workspace)
+        .bind(root_id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO grant_events (workspace_id, user_id, root_id, kind)
+             SELECT ?, user_id, ?, ?
+             FROM memberships
+             WHERE workspace_id = ? AND user_id != ?",
+        )
+        .bind(workspace)
+        .bind(root_id)
+        .bind(kind)
+        .bind(workspace)
+        .bind(owner)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
         Ok(())
     }
 
-    pub async fn add_share(
+    /// Grant one member access and enqueue its backfill event atomically.
+    pub async fn grant_share(
         &self,
         workspace: &str,
         root_id: &str,
         grantee: &str,
         perm: &str,
     ) -> Result<(), AtriumError> {
+        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
         sqlx::query(
             "INSERT OR REPLACE INTO shares (workspace_id, root_id, grantee_user_id, perm)
              VALUES (?, ?, ?, ?)",
@@ -779,28 +861,57 @@ impl AtriumDb {
         .bind(root_id)
         .bind(grantee)
         .bind(perm)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+        Self::enqueue_event_in_tx(&mut tx, workspace, grantee, root_id, EVENT_GRANT).await?;
+        tx.commit().await?;
         Ok(())
     }
 
-    pub async fn remove_share(
+    /// Revoke one member's access and enqueue its purge event atomically.
+    pub async fn revoke_share(
         &self,
         workspace: &str,
         root_id: &str,
         grantee: &str,
     ) -> Result<(), AtriumError> {
+        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
         sqlx::query(
-            "DELETE FROM shares WHERE workspace_id = ? AND root_id = ? AND grantee_user_id = ?",
+            "DELETE FROM shares
+             WHERE workspace_id = ? AND root_id = ? AND grantee_user_id = ?",
         )
         .bind(workspace)
         .bind(root_id)
         .bind(grantee)
-        .execute(&self.pool)
+        .execute(&mut *tx)
+        .await?;
+        Self::enqueue_event_in_tx(&mut tx, workspace, grantee, root_id, EVENT_REVOKE).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn enqueue_event_in_tx(
+        tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+        workspace: &str,
+        user: &str,
+        root_id: &str,
+        kind: &str,
+    ) -> Result<(), AtriumError> {
+        sqlx::query(
+            "INSERT INTO grant_events (workspace_id, user_id, root_id, kind)
+             VALUES (?, ?, ?, ?)",
+        )
+        .bind(workspace)
+        .bind(user)
+        .bind(root_id)
+        .bind(kind)
+        .execute(&mut **tx)
         .await?;
         Ok(())
     }
 
+    /// Insert an event directly for database-level event delivery tests.
+    #[cfg(test)]
     pub async fn enqueue_event(
         &self,
         workspace: &str,
@@ -808,15 +919,39 @@ impl AtriumDb {
         root_id: &str,
         kind: &str,
     ) -> Result<(), AtriumError> {
+        let mut tx = self.pool.begin().await?;
+        Self::enqueue_event_in_tx(&mut tx, workspace, user, root_id, kind).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Bind a sync node to the authenticated workspace member.
+    pub async fn register_member_node(
+        &self,
+        workspace: &str,
+        user: &str,
+        node_id: &str,
+    ) -> Result<(), AtriumError> {
         sqlx::query(
-            "INSERT INTO grant_events (workspace_id, user_id, root_id, kind) VALUES (?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO member_nodes (workspace_id, user_id, node_id) VALUES (?, ?, ?)",
         )
         .bind(workspace)
         .bind(user)
-        .bind(root_id)
-        .bind(kind)
+        .bind(node_id)
         .execute(&self.pool)
         .await?;
+        let owner = sqlx::query_scalar::<_, String>(
+            "SELECT user_id FROM member_nodes WHERE workspace_id = ? AND node_id = ?",
+        )
+        .bind(workspace)
+        .bind(node_id)
+        .fetch_one(&self.pool)
+        .await?;
+        if owner != user {
+            return Err(AtriumError::Forbidden(
+                "sync node is registered to another workspace member".to_owned(),
+            ));
+        }
         Ok(())
     }
 
@@ -845,15 +980,17 @@ impl AtriumDb {
         &self,
         workspace: &str,
         user: &str,
+        node_id: &str,
         event_id: i64,
     ) -> Result<Option<(String, Option<i64>, Option<i64>, Option<bool>, i64)>, AtriumError> {
         Ok(sqlx::query_as::<_, (String, Option<i64>, Option<i64>, Option<i64>, i64)>(
             "SELECT root_id, offered_through, offered_upper_bound, offered_complete, backfill_cursor
-             FROM grant_events WHERE id = ? AND workspace_id = ? AND user_id = ? AND delivered = 0",
+             FROM grant_events WHERE id = ? AND workspace_id = ? AND user_id = ? AND node_id = ? AND delivered = 0",
         )
         .bind(event_id)
         .bind(workspace)
         .bind(user)
+        .bind(node_id)
         .fetch_optional(&self.pool)
         .await?
         .map(|(root, through, upper, complete, cursor)| {
@@ -910,16 +1047,18 @@ impl AtriumDb {
         &self,
         workspace: &str,
         user: &str,
+        node_id: &str,
         event_id: i64,
     ) -> Result<bool, AtriumError> {
         let mut tx = self.pool.begin().await?;
         let state = sqlx::query_as::<_, (Option<i64>, Option<i64>, Option<i64>)>(
             "SELECT offered_through, offered_upper_bound, offered_complete
-             FROM grant_events WHERE id = ? AND workspace_id = ? AND user_id = ? AND delivered = 0",
+             FROM grant_events WHERE id = ? AND workspace_id = ? AND user_id = ? AND node_id = ? AND delivered = 0",
         )
         .bind(event_id)
         .bind(workspace)
         .bind(user)
+        .bind(node_id)
         .fetch_optional(&mut *tx)
         .await?;
         let Some((through, upper, complete)) = state else {
@@ -931,12 +1070,10 @@ impl AtriumDb {
         let complete = complete == Some(1) || upper.is_some_and(|bound| through >= bound);
         sqlx::query(
             "UPDATE grant_events
-             SET backfill_cursor = ?,
-                 offered_through = NULL,
+             SET backfill_cursor = ?, offered_through = NULL,
                  offered_upper_bound = CASE WHEN ? != 0 THEN NULL ELSE offered_upper_bound END,
-                 offered_complete = NULL,
-                 delivered = ?
-             WHERE id = ? AND workspace_id = ? AND user_id = ? AND delivered = 0",
+                 offered_complete = NULL, delivered = ?
+             WHERE id = ? AND workspace_id = ? AND user_id = ? AND node_id = ? AND delivered = 0",
         )
         .bind(through)
         .bind(i32::from(complete))
@@ -944,23 +1081,112 @@ impl AtriumDb {
         .bind(event_id)
         .bind(workspace)
         .bind(user)
+        .bind(node_id)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
         Ok(true)
     }
 
+    /// Mark a device event delivered when a newer ACL transition makes its
+    /// action obsolete. An old revoke must not purge a newly regranted device,
+    /// and an old grant must not backfill after a later revoke.
+    async fn discard_obsolete_events(
+        &self,
+        workspace: &str,
+        user: &str,
+        node_id: &str,
+    ) -> Result<(), AtriumError> {
+        sqlx::query(
+            "UPDATE grant_events
+             SET delivered = 1
+             WHERE workspace_id = ? AND user_id = ? AND node_id = ? AND delivered = 0
+             AND (
+                (
+                    kind = ?
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM records AS roots
+                        WHERE roots.workspace_id = grant_events.workspace_id
+                          AND roots.row_id = grant_events.root_id
+                          AND roots.root_id IS NULL
+                          AND (
+                              roots.owner_user_id = grant_events.user_id
+                              OR roots.sharing IN (?, ?)
+                              OR EXISTS (
+                                  SELECT 1
+                                  FROM shares
+                                  WHERE shares.workspace_id = grant_events.workspace_id
+                                    AND shares.root_id = grant_events.root_id
+                                    AND shares.grantee_user_id = grant_events.user_id
+                              )
+                          )
+                    )
+                )
+                OR (
+                    kind = ?
+                    AND EXISTS (
+                        SELECT 1
+                        FROM records AS roots
+                        WHERE roots.workspace_id = grant_events.workspace_id
+                          AND roots.row_id = grant_events.root_id
+                          AND roots.root_id IS NULL
+                          AND (
+                              roots.owner_user_id = grant_events.user_id
+                              OR roots.sharing IN (?, ?)
+                              OR EXISTS (
+                                  SELECT 1
+                                  FROM shares
+                                  WHERE shares.workspace_id = grant_events.workspace_id
+                                    AND shares.root_id = grant_events.root_id
+                                    AND shares.grantee_user_id = grant_events.user_id
+                              )
+                          )
+                    )
+                )
+             )",
+        )
+        .bind(workspace)
+        .bind(user)
+        .bind(node_id)
+        .bind(EVENT_GRANT)
+        .bind(SHARING_HOUSEHOLD_READ)
+        .bind(SHARING_HOUSEHOLD_RW)
+        .bind(EVENT_REVOKE)
+        .bind(SHARING_HOUSEHOLD_READ)
+        .bind(SHARING_HOUSEHOLD_RW)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn pending_events(
         &self,
         workspace: &str,
         user: &str,
+        node_id: &str,
     ) -> Result<Vec<PendingEvent>, AtriumError> {
+        sqlx::query(
+            "INSERT OR IGNORE INTO grant_events
+             (workspace_id, user_id, node_id, source_event_id, root_id, kind)
+             SELECT workspace_id, user_id, ?, id, root_id, kind
+             FROM grant_events
+             WHERE workspace_id = ? AND user_id = ? AND node_id IS NULL AND delivered = 0",
+        )
+        .bind(node_id)
+        .bind(workspace)
+        .bind(user)
+        .execute(&self.pool)
+        .await?;
+        self.discard_obsolete_events(workspace, user, node_id)
+            .await?;
         Ok(sqlx::query_as::<_, (i64, String, String)>(
             "SELECT id, kind, root_id FROM grant_events
-             WHERE workspace_id = ? AND user_id = ? AND delivered = 0 ORDER BY id",
+             WHERE workspace_id = ? AND user_id = ? AND node_id = ? AND delivered = 0 ORDER BY id",
         )
         .bind(workspace)
         .bind(user)
+        .bind(node_id)
         .fetch_all(&self.pool)
         .await?
         .into_iter()
@@ -968,11 +1194,12 @@ impl AtriumDb {
         .collect())
     }
 
-    /// Acknowledge events for this caller/workspace, advancing grant progress.
+    /// Acknowledge events for one authenticated device/workspace.
     pub async fn acknowledge_events(
         &self,
         workspace: &str,
         user: &str,
+        node_id: &str,
         event_ids: &[i64],
     ) -> Result<(), AtriumError> {
         let mut ids = event_ids.to_vec();
@@ -985,6 +1212,7 @@ impl AtriumDb {
             sqlx::QueryBuilder::new("SELECT id, kind FROM grant_events WHERE workspace_id = ");
         lookup.push_bind(workspace);
         lookup.push(" AND user_id = ").push_bind(user);
+        lookup.push(" AND node_id = ").push_bind(node_id);
         lookup.push(" AND id IN (");
         let mut separated = lookup.separated(", ");
         for id in &ids {
@@ -994,21 +1222,22 @@ impl AtriumDb {
         let owned: Vec<(i64, String)> = lookup.build_query_as().fetch_all(&self.pool).await?;
         if owned.len() != ids.len() {
             return Err(AtriumError::Forbidden(
-                "event acknowledgement includes an event outside this caller or workspace"
+                "event acknowledgement includes an event outside this device, caller, or workspace"
                     .to_owned(),
             ));
         }
         for (id, kind) in owned {
             if kind == EVENT_GRANT {
-                self.acknowledge_grant(workspace, user, id).await?;
+                self.acknowledge_grant(workspace, user, node_id, id).await?;
             } else {
                 sqlx::query(
                     "UPDATE grant_events SET delivered = 1
-                     WHERE id = ? AND workspace_id = ? AND user_id = ?",
+                     WHERE id = ? AND workspace_id = ? AND user_id = ? AND node_id = ?",
                 )
                 .bind(id)
                 .bind(workspace)
                 .bind(user)
+                .bind(node_id)
                 .execute(&self.pool)
                 .await?;
             }
@@ -1378,6 +1607,7 @@ impl AtriumDb {
             })
             .collect()
     }
+
     pub async fn put_blob(
         &self,
         blob_id: &str,
@@ -1454,7 +1684,7 @@ mod tests {
     fn root_change(id: Uuid, row_id: Uuid, millis: u64) -> Change {
         Change {
             id,
-            hlc: Hlc::new(NodeId::from_uuid(id), millis),
+            hlc: Hlc::new(NodeId::new(), millis),
             ops: vec![Op::Insert {
                 table: "lists".to_owned(),
                 row_id,
@@ -1467,8 +1697,8 @@ mod tests {
     async fn append_sequence_orders_late_old_hlc_and_duplicate_once() {
         let db = AtriumDb::in_memory().await.unwrap();
         let workspace = db.create_workspace("alice").await.unwrap();
-        let first = root_change(Uuid::now_v7(), Uuid::now_v7(), 2_000);
-        let late = root_change(Uuid::now_v7(), Uuid::now_v7(), 1_000);
+        let first = root_change(Uuid::new_v4(), Uuid::now_v7(), 2_000);
+        let late = root_change(Uuid::new_v4(), Uuid::now_v7(), 1_000);
         db.authorize_and_append_change(&workspace, "alice", &first)
             .await
             .unwrap();
@@ -1492,7 +1722,7 @@ mod tests {
         let db = AtriumDb::in_memory().await.unwrap();
         let first_scope = db.create_workspace("alice").await.unwrap();
         let second_scope = db.create_workspace("bob").await.unwrap();
-        let id = Uuid::now_v7();
+        let id = Uuid::new_v4();
         let first = root_change(id, Uuid::now_v7(), 2_000);
         db.authorize_and_append_change(&first_scope, "alice", &first)
             .await
@@ -1514,6 +1744,75 @@ mod tests {
             db.list_changes(&second_scope, 0, None).await.unwrap().len(),
             1
         );
+    }
+
+    #[tokio::test]
+    async fn events_are_delivered_and_acknowledged_per_registered_device() {
+        let db = AtriumDb::in_memory().await.unwrap();
+        let workspace = db.create_workspace("alice").await.unwrap();
+        let token = db.create_invite(&workspace, "alice").await.unwrap();
+        db.accept_invite(&token, "bob").await.unwrap();
+        let node_a = Uuid::new_v4().to_string();
+        let node_b = Uuid::new_v4().to_string();
+        db.register_member_node(&workspace, "bob", &node_a)
+            .await
+            .unwrap();
+        db.register_member_node(&workspace, "bob", &node_b)
+            .await
+            .unwrap();
+        db.enqueue_event(&workspace, "bob", &Uuid::now_v7().to_string(), "revoke")
+            .await
+            .unwrap();
+
+        let first = db.pending_events(&workspace, "bob", &node_a).await.unwrap();
+        let second = db.pending_events(&workspace, "bob", &node_b).await.unwrap();
+        assert_eq!(first.len(), 1);
+        assert_eq!(second.len(), 1);
+        db.acknowledge_events(&workspace, "bob", &node_a, &[first[0].id])
+            .await
+            .unwrap();
+        assert!(db
+            .pending_events(&workspace, "bob", &node_a)
+            .await
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            db.pending_events(&workspace, "bob", &node_b)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn delivered_legacy_events_are_not_copied_to_new_devices() {
+        let db = AtriumDb::in_memory().await.unwrap();
+        let workspace = db.create_workspace("alice").await.unwrap();
+        let token = db.create_invite(&workspace, "alice").await.unwrap();
+        db.accept_invite(&token, "bob").await.unwrap();
+        let node = Uuid::new_v4().to_string();
+        db.register_member_node(&workspace, "bob", &node)
+            .await
+            .unwrap();
+        db.enqueue_event(&workspace, "bob", &Uuid::now_v7().to_string(), "revoke")
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE grant_events SET delivered = 1
+             WHERE workspace_id = ? AND user_id = ? AND node_id IS NULL",
+        )
+        .bind(&workspace)
+        .bind("bob")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+
+        assert!(db
+            .pending_events(&workspace, "bob", &node)
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]

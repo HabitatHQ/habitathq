@@ -14,6 +14,7 @@ Run commands from the repository root unless a command changes directory explici
 | Remote poison isolation | `pnpm --filter @palladium/core exec vitest run src/__tests__/sync-poison.test.ts` | Verifies rejected remote changes are quarantined and do not permanently wedge later valid changes. |
 | Bounded TypeScript hostile corpus | `pnpm --filter @palladium/core exec vitest run src/__tests__/sync-fuzz-corpus.test.ts` | Uses the checked-in corpus only; materialized bodies are capped at 8 KiB and nested values at depth 32. |
 | Generated deterministic TypeScript hostile sequences | `pnpm --filter @palladium/core exec vitest run src/__tests__/sync-fuzz-generated.test.ts` | Runs the bounded generated decoder/lifecycle sequence corpus without adding a fuzz dependency. |
+| Seeded multi-replica simulation | `pnpm --filter @palladium/core exec vitest run src/__tests__/sync-replica-simulation.test.ts` | Runs real file-backed SQLite engines through deterministic duplicate, reorder, partition, restart, and tombstone schedules against an independent LWW oracle. Replay a failing schedule with `PALLADIUM_SIM_SEED=<seed> PALLADIUM_SIM_SEEDS=1`; set `PALLADIUM_SIM_SEEDS=64` for the extended campaign. |
 | Rust shared wire fixtures | `cargo test -p palladium-core shared_wire_fixtures_round_trip_and_classify_invalid_inputs` | Decodes the same valid page and invalid HLC/operation/cursor fixture files. |
 | Bounded Atrium route corpus | `cargo test -p atrium bounded_hostile_route_corpus -- --nocapture` | Sends each checked-in hostile route case and asserts a client error plus a live health route; includes the empty cursor regression. |
 | Generated deterministic Atrium hostile sequences | `cargo test -p atrium generated_hostile_route_sequences -- --nocapture` | Runs the bounded generated route sequence corpus and checks that the service remains responsive. |
@@ -25,15 +26,37 @@ The e2e fixture command is independent of a running server. Core Vitest commands
 
 ## End-to-end prerequisites (not part of the fixture gate)
 
-The live client/server suite requires a built core package and a Rust server binary:
+The live client/server suite requires built core and SQLite-node packages plus Rust server binaries:
 
 ```sh
 pnpm --filter @palladium/core build
+pnpm --filter @palladium/sqlite-node build
 pnpm --filter @palladium/e2e typecheck
 pnpm --filter @palladium/e2e test
 ```
 
-`@palladium/e2e` imports the built `@palladium/core` package; run the build first or the suite can exercise stale `dist` output. The e2e setup requires Cargo and SQLite-compatible local server execution. If Cargo artifacts are redirected, set `CARGO_TARGET_DIR` so the server launcher can locate the binary. These are external prerequisites for live integration, not reasons to weaken the static fixture checks.
+`@palladium/e2e` imports the built `@palladium/core` package; build it first so the suite cannot exercise stale `dist` output. The suite spawns isolated real Palladium and Atrium processes on ephemeral loopback ports, waits with bounded readiness checks, and cleans each process before deleting its SQLite state. It proves receipt loss after a real server commit, truncated downlink checkpoint safety, partition/reconnect, durable client reopen, crash/restart recovery, and two-device Atrium event delivery. Cargo and SQLite-compatible local server execution are required. If Cargo artifacts are redirected, set `CARGO_TARGET_DIR` so the launcher can locate the binaries.
+
+Crash-boundary checks build the CLI with the default-off `crash-test-fixtures` feature. A change-ID-scoped failpoint terminates the server immediately before or after the SQLite append commit. The tests also SIGKILL a server after an acknowledged write and a separate client process after its durable outbox handshake. Recovery assertions cover exact row contents, append identity/count, receipts, and persisted checkpoints. These are process-crash tests, not power-loss or filesystem-corruption tests.
+
+Atrium schedules cover partial grant backfill interrupted by revoke, revoke/regrant before device acknowledgement, lost device ACK responses, sibling-device isolation, and rejected offline writes followed by authoritative regrant. Assertions check intermediate authorization outcomes and root/child data, not only eventual convergence.
+
+## Browser OPFS recovery
+
+```sh
+pnpm --filter @palladium/sqlite-browser build
+pnpm --filter @palladium/worker build
+pnpm --filter @palladium/react build
+pnpm --filter @palladium/example-react build
+pnpm --filter @palladium/example-multitab build
+pnpm exec playwright install chromium
+pnpm --filter @palladium/example-react exec playwright test
+pnpm --filter @palladium/example-multitab exec playwright test
+```
+
+The React example runs the real engine and transport in a dedicated SQLite WASM/OPFS worker. Its suite retains create, title, rich-text, bidirectional edit, delete, and reload behavior checks, and adds tab/worker closure with a durable offline write followed by reopen/reconnect recovery. The multi-tab suite checks persisted state through leader loss and continued writes by the successor. CI runs both suites and uploads failure artifacts. Locally, `PLAYWRIGHT_CHANNEL=chrome` selects an already-installed Chrome instead of downloaded Chromium.
+
+The seeded engine simulation controls generated remote changes and their delivery schedules against an independent LWW oracle; it does not simulate local transactions through the complete transport/server stack. Browser quota exhaustion, mobile lifecycle, arbitrary scheduler exploration, storage power loss, and sustained-load qualification remain outside these gates.
 
 ## Manual wire spot-check (optional)
 
