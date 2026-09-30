@@ -21,6 +21,7 @@ import type {
   HabitatExport,
   HabitLog,
   HabitSchedule,
+  HabitUpdate,
   HabitWithSchedule,
   ImageNoteRow,
   Reminder,
@@ -37,7 +38,7 @@ export function useDatabase() {
     createHabit: (
       p: Omit<Habit, 'id' | 'created_at' | 'archived_at'>,
     ): Promise<HabitWithSchedule> => sendToWorker({ type: 'CREATE_HABIT', payload: p }),
-    updateHabit: (p: Partial<Habit> & { id: string }): Promise<HabitWithSchedule> =>
+    updateHabit: (p: HabitUpdate): Promise<HabitWithSchedule> =>
       sendToWorker({ type: 'UPDATE_HABIT', payload: p }),
     archiveHabit: (id: string): Promise<null> =>
       sendToWorker({ type: 'ARCHIVE_HABIT', payload: { id } }),

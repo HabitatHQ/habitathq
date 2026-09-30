@@ -216,6 +216,30 @@ describe('createHabit', () => {
     expect(insert.sql).toContain('why')
     expect(insert.bind).toContain('Stay fit')
   })
+
+  it('rejects a case-insensitive duplicate name before creating a habit', async () => {
+    const db = new MockDbAdapter()
+    db.setRows('LOWER(TRIM(name))', [{ id: 'archived-habit' }])
+
+    await expect(
+      shared.createHabit(db, {
+        name: '  Run  ',
+        description: '',
+        color: '#fff',
+        icon: 'i-x',
+        frequency: 'daily',
+        tags: [],
+        annotations: {},
+        type: 'BOOLEAN',
+        target_value: 1,
+        paused_until: null,
+        why: '',
+      }),
+    ).rejects.toThrow('A habit named "Run" already exists.')
+
+    expect(db.calls).toHaveLength(1)
+    expect(db.calls[0]!.sql).not.toContain('archived_at IS NULL')
+  })
 })
 
 describe('updateHabit', () => {
@@ -243,6 +267,25 @@ describe('updateHabit', () => {
     const execCalls = db.calls.filter(c => c.method === 'exec')
     expect(execCalls[0]!.sql).toContain('why = ?')
     expect(execCalls[0]!.bind).toContain('Because health matters')
+  })
+
+  it('rejects renaming a habit to an existing name', async () => {
+    const db = new MockDbAdapter()
+    db.setRows('LOWER(TRIM(name))', [{ id: 'h2' }])
+
+    await expect(shared.updateHabit(db, { id: 'h1', name: 'run' })).rejects.toThrow(
+      'A habit named "run" already exists.',
+    )
+    expect(db.calls).toHaveLength(1)
+  })
+
+  it('rejects tracking-type changes before any data is updated', async () => {
+    const db = new MockDbAdapter()
+
+    await expect(shared.updateHabit(db, { id: 'h1', type: 'NUMERIC' })).rejects.toThrow(
+      'Habit tracking type cannot be changed after creation.',
+    )
+    expect(db.calls).toHaveLength(0)
   })
 })
 
@@ -438,6 +481,29 @@ describe('createCheckinTemplate', () => {
     await shared.createCheckinTemplate(db, { title: 'Morning', schedule_type: 'DAILY', days_active: null, icon: 'pencil-square', color: '#22d3ee' })
     const insert = db.calls.find(c => c.method === 'exec')!
     expect(insert.sql).toContain('INSERT INTO checkin_templates')
+  })
+
+  it('adds a suffix when the initial title is already in use', async () => {
+    const db = new MockDbAdapter()
+    db.setRows('SELECT title FROM checkin_templates', [{ title: 'New check-in' }])
+    db.setRows('WHERE id = ?', [checkinTemplateRow()])
+
+    await shared.createCheckinTemplate(db, { title: 'New check-in', schedule_type: 'DAILY', days_active: null, icon: 'pencil-square', color: '#22d3ee' })
+
+    const insert = db.calls.find(c => c.method === 'exec' && c.sql.includes('INSERT INTO checkin_templates'))!
+    expect(insert.bind).toContain('New check-in (2)')
+  })
+})
+
+describe('updateCheckinTemplate', () => {
+  it('rejects renaming a template to an existing title', async () => {
+    const db = new MockDbAdapter()
+    db.setRows('LOWER(TRIM(title))', [{ id: 'ct2' }])
+
+    await expect(shared.updateCheckinTemplate(db, { id: 'ct1', title: 'morning' })).rejects.toThrow(
+      'A check-in named "morning" already exists.',
+    )
+    expect(db.calls).toHaveLength(1)
   })
 })
 
@@ -972,5 +1038,39 @@ describe('importJson — why column', () => {
     const habitInsert = db.calls.find(c => c.method === 'exec' && c.sql.includes('INSERT OR IGNORE INTO habits'))!
     expect(habitInsert.sql).toContain('why')
     expect(habitInsert.bind).toContain('Stay healthy')
+  })
+
+  it('renames imported habit and check-in conflicts without dropping their records', async () => {
+    const db = new MockDbAdapter()
+    db.setRows('SELECT id, name FROM habits', [{ id: 'existing-habit', name: 'Run' }])
+    db.setRows('SELECT id, title FROM checkin_templates', [
+      { id: 'existing-checkin', title: 'Morning' },
+    ])
+    const data = {
+      version: 1 as const,
+      exported_at: '2025-01-01T00:00:00Z',
+      habits: [
+        { id: 'h1', name: 'Run', description: '', why: '', color: '#fff', icon: 'star', frequency: 'daily', created_at: '2025-01-01T00:00:00Z', archived_at: null, tags: [], annotations: {}, type: 'BOOLEAN' as const, target_value: 1, paused_until: null },
+        { id: 'h2', name: 'run', description: '', why: '', color: '#fff', icon: 'star', frequency: 'daily', created_at: '2025-01-02T00:00:00Z', archived_at: null, tags: [], annotations: {}, type: 'BOOLEAN' as const, target_value: 1, paused_until: null },
+      ],
+      completions: [], habit_logs: [], habit_schedules: [], reminders: [],
+      checkin_templates: [
+        { id: 'ct1', title: 'Morning', schedule_type: 'DAILY' as const, days_active: null, icon: 'pencil-square', color: '#22d3ee', archived_at: null },
+        { id: 'ct2', title: 'morning', schedule_type: 'DAILY' as const, days_active: null, icon: 'pencil-square', color: '#22d3ee', archived_at: null },
+      ],
+      checkin_questions: [], checkin_responses: [], checkin_reminders: [], scribbles: [],
+      checkin_entries: [], bored_categories: [], bored_activities: [], todos: [],
+    }
+
+    await shared.importJson(db, data)
+
+    const habitNames = db.calls
+      .filter((call) => call.sql.includes('INSERT OR IGNORE INTO habits'))
+      .map((call) => call.bind?.[1])
+    const checkinTitles = db.calls
+      .filter((call) => call.sql.includes('INSERT OR IGNORE INTO checkin_templates'))
+      .map((call) => call.bind?.[1])
+    expect(habitNames).toEqual(['Run (2)', 'run (3)'])
+    expect(checkinTitles).toEqual(['Morning (2)', 'morning (3)'])
   })
 })

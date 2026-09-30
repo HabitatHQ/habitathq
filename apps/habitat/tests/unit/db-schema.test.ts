@@ -262,6 +262,77 @@ describe('SCHEMA_CONFIG seeds', () => {
     expect(titles).toContain('Weekly Review')
   })
 
+  it('enforces normalized unique habit names and check-in titles', async () => {
+    const { adapter } = freshDb()
+    await applyDdl(adapter)
+    await runSeeds(adapter)
+
+    await adapter.exec(
+      "INSERT INTO habits (id,name,created_at) VALUES ('habit-one','Run','2026-01-01')",
+    )
+    await expect(
+      adapter.exec(
+        "INSERT INTO habits (id,name,created_at) VALUES ('habit-two','  run  ','2026-01-02')",
+      ),
+    ).rejects.toThrow()
+
+    await adapter.exec(
+      "INSERT INTO checkin_templates (id,title) VALUES ('checkin-one','Morning')",
+    )
+    await expect(
+      adapter.exec(
+        "INSERT INTO checkin_templates (id,title) VALUES ('checkin-two','morning')",
+      ),
+    ).rejects.toThrow()
+  })
+
+  it('renames legacy duplicate habit names and check-in titles before enforcing uniqueness', async () => {
+    const { adapter } = freshDb()
+    await applyDdl(adapter)
+    await adapter.exec(
+      "INSERT INTO habits (id,name,created_at) VALUES ('habit-one','Run','2026-01-01')",
+    )
+    await adapter.exec(
+      "INSERT INTO habits (id,name,created_at) VALUES ('habit-two','run','2026-01-02')",
+    )
+    await adapter.exec(
+      "INSERT INTO checkin_templates (id,title) VALUES ('checkin-one','Morning')",
+    )
+    await adapter.exec(
+      "INSERT INTO checkin_templates (id,title) VALUES ('checkin-two','morning')",
+    )
+
+    await runSeeds(adapter)
+
+    const habits = await adapter.queryAll<{ name: string }>('SELECT name FROM habits ORDER BY created_at')
+    const templates = await adapter.queryAll<{ title: string }>(
+      'SELECT title FROM checkin_templates WHERE id LIKE \'checkin-%\' ORDER BY id',
+    )
+    expect(habits.map((habit) => habit.name)).toEqual(['Run', 'run (2)'])
+    expect(templates.map((template) => template.title)).toEqual(['Morning', 'morning (2)'])
+  })
+
+  it('restores positive legacy logs as completions for habits that are now Boolean', async () => {
+    const { adapter } = freshDb()
+    await applyDdl(adapter)
+    await adapter.exec(
+      "INSERT INTO habits (id,name,type,created_at) VALUES ('habit-one','Read','BOOLEAN','2026-01-01')",
+    )
+    await adapter.exec(
+      "INSERT INTO habit_logs (id,habit_id,date,logged_at,value) VALUES ('log-one','habit-one','2026-01-02','2026-01-02T08:00:00Z',10)",
+    )
+    await adapter.exec(
+      "INSERT INTO habit_logs (id,habit_id,date,logged_at,value) VALUES ('log-zero','habit-one','2026-01-03','2026-01-03T08:00:00Z',0)",
+    )
+
+    await runSeeds(adapter)
+
+    const completions = await adapter.queryAll<{ date: string; completed_at: string }>(
+      "SELECT date, completed_at FROM completions WHERE habit_id = 'habit-one'",
+    )
+    expect(completions).toEqual([{ date: '2026-01-02', completed_at: '2026-01-02T08:00:00Z' }])
+  })
+
   it('seeds bored categories with activities', async () => {
     const { adapter } = freshDb()
     await applyDdl(adapter)

@@ -1,4 +1,5 @@
 import type { MigrationExec, SchemaConfig, Seed } from '@palladium/core'
+import { nextAvailableName } from '~/lib/unique-names'
 import type { CheckinQuestion } from '~/types/database'
 
 export const SCHEMA_DDL = `
@@ -605,6 +606,67 @@ const PLANNER_INDEX_SEED: Seed = {
   },
 }
 
+async function normalizeHabitNames(exec: MigrationExec): Promise<void> {
+  const habits = await exec<{ id: string; name: string }>(
+    'SELECT id, name FROM habits ORDER BY created_at ASC, id ASC',
+  )
+  const usedNames = new Set<string>()
+  for (const habit of habits) {
+    const name = nextAvailableName(habit.name, usedNames)
+    if (name !== habit.name) await exec('UPDATE habits SET name = ? WHERE id = ?', [name, habit.id])
+  }
+}
+
+async function normalizeCheckinTitles(exec: MigrationExec): Promise<void> {
+  const templates = await exec<{ id: string; title: string }>(
+    'SELECT id, title FROM checkin_templates ORDER BY id ASC',
+  )
+  const usedTitles = new Set<string>()
+  for (const template of templates) {
+    const title = nextAvailableName(template.title, usedTitles)
+    if (title !== template.title) {
+      await exec('UPDATE checkin_templates SET title = ? WHERE id = ?', [title, template.id])
+    }
+  }
+}
+
+const UNIQUE_NAMES_SEED: Seed = {
+  key: 'schema:unique-habit-and-checkin-names',
+  apply: async (exec) => {
+    await normalizeHabitNames(exec)
+    await normalizeCheckinTitles(exec)
+    await exec(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_habits_name_normalized ON habits(LOWER(TRIM(name)))',
+    )
+    await exec(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_checkin_templates_title_normalized ON checkin_templates(LOWER(TRIM(title)))',
+    )
+  },
+}
+
+const RECOVER_BOOLEAN_HISTORY_SEED: Seed = {
+  key: 'schema:recover-boolean-history-from-logs',
+  apply: async (exec) => {
+    const legacyLogs = await exec<{ habit_id: string; date: string; completed_at: string }>(
+      `SELECT hl.habit_id, hl.date, MIN(hl.logged_at) AS completed_at
+       FROM habit_logs hl
+       JOIN habits h ON h.id = hl.habit_id
+       WHERE h.type = 'BOOLEAN'
+         AND hl.value > 0
+         AND NOT EXISTS (
+           SELECT 1 FROM completions c WHERE c.habit_id = hl.habit_id AND c.date = hl.date
+         )
+       GROUP BY hl.habit_id, hl.date`,
+    )
+    for (const log of legacyLogs) {
+      await exec(
+        'INSERT INTO completions (id,habit_id,date,completed_at,notes,tags,annotations) VALUES (?,?,?,?,?,?,?)',
+        [crypto.randomUUID(), log.habit_id, log.date, log.completed_at, '', '[]', '{}'],
+      )
+    }
+  },
+}
+
 export const SCHEMA_CONFIG: SchemaConfig = {
   schema: SCHEMA_DDL,
   version: 26,
@@ -786,5 +848,5 @@ export const SCHEMA_CONFIG: SchemaConfig = {
     // upgraded v25 store is also healed on its next launch.
     26: [ensurePlannerStorage],
   },
-  seeds: [...SEEDS, PLANNER_INDEX_SEED],
+  seeds: [...SEEDS, PLANNER_INDEX_SEED, UNIQUE_NAMES_SEED, RECOVER_BOOLEAN_HISTORY_SEED],
 }

@@ -45,4 +45,16 @@ describe('TypeSelector', () => {
     const emitted = wrapper.emitted('update:modelValue')!
     expect(emitted[0][0]).toBe('BOOLEAN')
   })
+
+  it('does not allow the selection to change when disabled', async () => {
+    const wrapper = mount(TypeSelector, {
+      props: { modelValue: 'BOOLEAN', options: OPTIONS, disabled: true },
+    })
+
+    const buttons = wrapper.findAll('button')
+    expect(buttons.every((button) => button.attributes('disabled') !== undefined)).toBe(true)
+
+    await buttons[2].trigger('click')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
 })

@@ -18,6 +18,9 @@ export interface Habit {
   paused_until: string | null
 }
 
+/** Editing a habit never changes how its historical progress is recorded. */
+export type HabitUpdate = Partial<Omit<Habit, 'type'>> & { id: string }
+
 export interface HabitSchedule {
   id: string
   habit_id: string
@@ -228,7 +231,7 @@ export type BoredOracleResult =
 export type WorkerRequest =
   | { id: string; type: 'GET_HABITS' }
   | { id: string; type: 'CREATE_HABIT'; payload: Omit<Habit, 'id' | 'created_at' | 'archived_at'> }
-  | { id: string; type: 'UPDATE_HABIT'; payload: Partial<Habit> & { id: string } }
+  | { id: string; type: 'UPDATE_HABIT'; payload: HabitUpdate }
   | { id: string; type: 'ARCHIVE_HABIT'; payload: { id: string } }
   | { id: string; type: 'DELETE_HABIT'; payload: { id: string } }
   | { id: string; type: 'GET_COMPLETIONS_FOR_DATE'; payload: { date: string } }

@@ -39,6 +39,7 @@ const annotationEntries = ref<{ key: string; value: string }[]>([])
 const showAnnotations = ref(false)
 const nameError = ref<string | null>(null)
 const scheduleError = ref<string | null>(null)
+const saveError = ref<string | null>(null)
 const saving = ref(false)
 
 const availableSchedules = computed(() => {
@@ -86,6 +87,7 @@ watch(
   () => form.name,
   () => {
     nameError.value = null
+    saveError.value = null
   },
 )
 
@@ -127,6 +129,7 @@ function reset() {
   }
   nameError.value = null
   scheduleError.value = null
+  saveError.value = null
 }
 
 watch(open, (isOpen) => {
@@ -140,6 +143,10 @@ function removeAnnotationEntry(i: number) {
   annotationEntries.value.splice(i, 1)
 }
 
+function formatSaveError(err: unknown): string {
+  return err instanceof Error ? err.message : 'Couldn’t save habit. Please try again.'
+}
+
 async function save() {
   if (saving.value) return
   if (!form.name.trim()) {
@@ -147,6 +154,7 @@ async function save() {
     return
   }
   nameError.value = null
+  saveError.value = null
   const err = validateSchedule()
   if (err) {
     scheduleError.value = err
@@ -171,7 +179,6 @@ async function save() {
         why: form.why.trim(),
         icon: form.icon,
         color: form.color,
-        type: form.type,
         target_value: form.target_value,
         tags: [...form.tags],
         annotations,
@@ -213,6 +220,8 @@ async function save() {
     }
     emit('saved', result)
     open.value = false
+  } catch (err) {
+    saveError.value = formatSaveError(err)
   } finally {
     saving.value = false
   }
@@ -262,7 +271,11 @@ onMounted(() => {
       <TypeSelector
         v-model="form.type"
         :options="[{value:'BOOLEAN',label:'Yes/No'},{value:'NUMERIC',label:'Target'},{value:'LIMIT',label:'Limit'}]"
+        :disabled="mode === 'edit'"
       />
+      <p v-if="mode === 'edit'" class="mt-1.5 text-xs text-(--ui-text-dimmed)">
+        Tracking type can’t be changed after creation, so your history stays intact.
+      </p>
     </UFormField>
 
     <!-- Target (NUMERIC / LIMIT only) -->
@@ -367,6 +380,10 @@ onMounted(() => {
     <p v-if="scheduleError" class="text-sm text-red-400 flex items-center gap-1.5">
       <AppIcon name="exclamation-circle" class="w-4 h-4 flex-shrink-0" />
       {{ scheduleError }}
+    </p>
+    <p v-if="saveError" class="text-sm text-red-400 flex items-center gap-1.5">
+      <AppIcon name="exclamation-circle" class="w-4 h-4 flex-shrink-0" />
+      {{ saveError }}
     </p>
 
     <template #footer>
