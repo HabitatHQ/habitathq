@@ -1,8 +1,15 @@
 // @vitest-environment node
-import { applySchema, type DbAdapter, type MigrationExec, type MigrationStep, type StorageAdapter } from '@palladium/core'
+import type {
+  DbAdapter,
+  MigrationExec,
+  MigrationStep,
+  StorageAdapter,
+  TransactableStorageAdapter,
+} from '@palladium/core'
+import { applySchema } from '@palladium/core'
+import { SCHEMA_CONFIG, SCHEMA_DDL } from '~/lib/db-schema'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
-import { SCHEMA_CONFIG, SCHEMA_DDL } from '~/lib/db-schema'
 
 function nodeAdapter(db: DatabaseSync): DbAdapter {
   return {
@@ -20,33 +27,53 @@ function nodeAdapter(db: DatabaseSync): DbAdapter {
   }
 }
 
-function freshDb(): { db: DatabaseSync; adapter: DbAdapter } {
-  const db = new DatabaseSync(':memory:')
-  const adapter = nodeAdapter(db)
-  return { db, adapter }
-}
-
-function schemaAdapter(db: DatabaseSync): StorageAdapter {
+function schemaStorage(db: DatabaseSync): TransactableStorageAdapter {
   return {
     open: async () => {},
+    close: async () => {},
     exec: async <T,>(sql: string, bind?: readonly unknown[]) => {
       const head = sql.trim().toUpperCase()
       if (head.startsWith('SELECT') || head.startsWith('PRAGMA')) {
         return db.prepare(sql).all(...((bind ?? []) as never[])) as T[]
       }
-      if (bind?.length) db.prepare(sql).run(...(bind as never[]))
-      else db.exec(sql)
-      return [] as T[]
+      if (bind?.length) {
+        db.prepare(sql).run(...(bind as never[]))
+      } else {
+        db.exec(sql)
+      }
+      return []
     },
-    put: async () => {},
-    patch: async () => {},
-    remove: async () => {},
+    put: async () => {
+      throw new Error('not used by schema tests')
+    },
+    patch: async () => {
+      throw new Error('not used by schema tests')
+    },
+    remove: async () => {
+      throw new Error('not used by schema tests')
+    },
     runMigrations: async (migrations) => {
       for (const migration of migrations) db.exec(migration)
     },
-    close: async () => {},
+    transaction: async <T,>(fn: (tx: StorageAdapter) => Promise<T>): Promise<T> => {
+      db.exec('BEGIN')
+      try {
+        const result = await fn(schemaStorage(db))
+        db.exec('COMMIT')
+        return result
+      } catch (error) {
+        db.exec('ROLLBACK')
+        throw error
+      }
+    },
   }
 }
+
+function freshDb(): { db: DatabaseSync; adapter: DbAdapter; storage: StorageAdapter } {
+  const db = new DatabaseSync(':memory:')
+  return { db, adapter: nodeAdapter(db), storage: schemaStorage(db) }
+}
+
 
 async function applyDdl(adapter: DbAdapter): Promise<void> {
   await adapter.exec(SCHEMA_DDL)
@@ -425,31 +452,25 @@ describe('SCHEMA_DDL / migration parity', () => {
     )
   })
 
-  it('backfills dated notes and adds planner storage for a v24 database', async () => {
-    // SQLite cannot add a NOT NULL column without a default to a populated table.
-    // The upgrade is therefore nullable at the storage layer, but every old note
-    // is backfilled and new writes always provide entry_date.
-    const { adapter } = freshDb()
+  it('upgrades a persisted v24 database through production schema application', async () => {
+    const { adapter, storage } = freshDb()
     await applyDdl(adapter)
     await adapter.exec('ALTER TABLE scribbles DROP COLUMN entry_date')
     await adapter.exec('ALTER TABLE todos DROP COLUMN scheduled_time')
     await adapter.exec('DROP TABLE focus_sessions')
     await adapter.exec(
-      "INSERT INTO scribbles (id,title,content,tags,annotations,created_at,updated_at) VALUES ('legacy-note','', '', '[]', '{}', '2026-05-14T09:30:00.000Z', '2026-05-14T09:30:00.000Z')",
+      "INSERT INTO scribbles (id,title,content,tags,annotations,created_at,updated_at) VALUES ('legacy-note','Legacy note', 'Keep me', '[]', '{}', '2026-05-14T09:30:00.000Z', '2026-05-14T09:30:00.000Z')",
     )
     await adapter.exec(
       "INSERT INTO todos (id,title,created_at,updated_at) VALUES ('legacy-todo','Legacy task','2026-05-14T09:30:00.000Z','2026-05-14T09:30:00.000Z')",
     )
+    await adapter.exec('PRAGMA user_version = 24')
 
-    const exec = plainExec(adapter)
-    const migration = SCHEMA_CONFIG.migrations?.[25] as MigrationStep[]
-    for (const step of migration) {
-      if (typeof step === 'function') await step(exec)
-      else await exec(step)
-    }
+    await applySchema(storage, SCHEMA_CONFIG)
+    await applySchema(storage, SCHEMA_CONFIG)
 
-    const note = await adapter.queryOne<{ entry_date: string }>(
-      "SELECT entry_date FROM scribbles WHERE id = 'legacy-note'",
+    const note = await adapter.queryOne<{ content: string; entry_date: string }>(
+      "SELECT content, entry_date FROM scribbles WHERE id = 'legacy-note'",
     )
     const todo = await adapter.queryOne<{ scheduled_time: string | null }>(
       "SELECT scheduled_time FROM todos WHERE id = 'legacy-todo'",
@@ -457,14 +478,42 @@ describe('SCHEMA_DDL / migration parity', () => {
     const sessions = await adapter.queryAll<{ name: string }>(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'focus_sessions'",
     )
-    expect(note?.entry_date).toBe('2026-05-14')
+    const indices = await adapter.queryAll<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_scribbles_entry_date'",
+    )
+    const version = await adapter.queryOne<{ user_version: number }>('PRAGMA user_version')
+
+    expect(note).toEqual({ content: 'Keep me', entry_date: '2026-05-14' })
     expect(todo?.scheduled_time).toBeNull()
     expect(sessions).toHaveLength(1)
+    expect(indices).toHaveLength(1)
+    expect(version?.user_version).toBe(26)
+  })
+
+  it('finishes a retried v25 upgrade after entry_date was added before interruption', async () => {
+    const { adapter, storage } = freshDb()
+    await applyDdl(adapter)
+    await adapter.exec('ALTER TABLE scribbles DROP COLUMN entry_date')
+    await adapter.exec('ALTER TABLE scribbles ADD COLUMN entry_date TEXT')
+    await adapter.exec(
+      "INSERT INTO scribbles (id,title,content,tags,annotations,created_at,updated_at) VALUES ('interrupted-note','Interrupted note', 'Preserve me', '[]', '{}', '2026-05-14T09:30:00.000Z', '2026-05-14T09:30:00.000Z')",
+    )
+    await adapter.exec('PRAGMA user_version = 25')
+
+    await applySchema(storage, SCHEMA_CONFIG)
+
+    const note = await adapter.queryOne<{ content: string; entry_date: string }>(
+      "SELECT content, entry_date FROM scribbles WHERE id = 'interrupted-note'",
+    )
+    const version = await adapter.queryOne<{ user_version: number }>('PRAGMA user_version')
+
+    expect(note).toEqual({ content: 'Preserve me', entry_date: '2026-05-14' })
+    expect(version?.user_version).toBe(26)
   })
 
   it('upgrades a v24 database before creating the entry-date index', async () => {
-    const { db } = freshDb()
-    const adapter = schemaAdapter(db)
+    const { storage } = freshDb()
+    const adapter = storage
     await adapter.runMigrations([SCHEMA_DDL])
     await adapter.exec('ALTER TABLE scribbles DROP COLUMN entry_date')
     await adapter.exec('PRAGMA user_version = 24')
@@ -478,8 +527,8 @@ describe('SCHEMA_DDL / migration parity', () => {
   })
 
   it('backfills NULL entry dates when retrying an incomplete v25 migration', async () => {
-    const { db } = freshDb()
-    const adapter = schemaAdapter(db)
+    const { storage } = freshDb()
+    const adapter = storage
     await adapter.runMigrations([SCHEMA_DDL])
     await adapter.exec('ALTER TABLE scribbles DROP COLUMN entry_date')
     await adapter.exec('ALTER TABLE scribbles ADD COLUMN entry_date TEXT')
