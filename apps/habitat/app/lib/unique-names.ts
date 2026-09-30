@@ -1,4 +1,5 @@
-function normalizedName(name: string): string {
+/** The canonical key used to compare habit and check-in names. */
+export function normalizeNameKey(name: string): string {
   return name.trim().toLowerCase()
 }
 
@@ -8,11 +9,11 @@ export function nextAvailableName(name: string, usedNames: Set<string>): string 
   let candidate = baseName
   let suffix = 2
 
-  while (usedNames.has(normalizedName(candidate))) {
+  while (usedNames.has(normalizeNameKey(candidate))) {
     candidate = `${baseName} (${suffix})`
     suffix += 1
   }
 
-  usedNames.add(normalizedName(candidate))
+  usedNames.add(normalizeNameKey(candidate))
   return candidate
 }

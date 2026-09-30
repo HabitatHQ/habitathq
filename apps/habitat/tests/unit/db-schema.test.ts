@@ -8,6 +8,7 @@ import type {
 } from '@palladium/core'
 import { applySchema } from '@palladium/core'
 import { SCHEMA_CONFIG, SCHEMA_DDL } from '~/lib/db-schema'
+import { normalizeNameKey } from '~/lib/unique-names'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 
@@ -286,9 +287,39 @@ describe('SCHEMA_CONFIG seeds', () => {
     ).rejects.toThrow()
   })
 
+  it('enforces Unicode case-insensitive unique habit names and check-in titles', async () => {
+    const { adapter } = freshDb()
+    await applyDdl(adapter)
+    await runSeeds(adapter)
+
+    await adapter.exec(
+      "INSERT INTO habits (id,name,name_key,created_at) VALUES ('habit-one','École',?,'2026-01-01')",
+      [normalizeNameKey('École')],
+    )
+    await expect(
+      adapter.exec(
+        "INSERT INTO habits (id,name,name_key,created_at) VALUES ('habit-two','école',?,'2026-01-02')",
+        [normalizeNameKey('école')],
+      ),
+    ).rejects.toThrow()
+
+    await adapter.exec(
+      "INSERT INTO checkin_templates (id,title,title_key) VALUES ('checkin-one','École',?)",
+      [normalizeNameKey('École')],
+    )
+    await expect(
+      adapter.exec(
+        "INSERT INTO checkin_templates (id,title,title_key) VALUES ('checkin-two','école',?)",
+        [normalizeNameKey('école')],
+      ),
+    ).rejects.toThrow()
+  })
+
   it('renames legacy duplicate habit names and check-in titles before enforcing uniqueness', async () => {
     const { adapter } = freshDb()
     await applyDdl(adapter)
+    await adapter.exec('ALTER TABLE habits DROP COLUMN name_key')
+    await adapter.exec('ALTER TABLE checkin_templates DROP COLUMN title_key')
     await adapter.exec(
       "INSERT INTO habits (id,name,created_at) VALUES ('habit-one','Run','2026-01-01')",
     )
@@ -304,12 +335,20 @@ describe('SCHEMA_CONFIG seeds', () => {
 
     await runSeeds(adapter)
 
-    const habits = await adapter.queryAll<{ name: string }>('SELECT name FROM habits ORDER BY created_at')
-    const templates = await adapter.queryAll<{ title: string }>(
-      'SELECT title FROM checkin_templates WHERE id LIKE \'checkin-%\' ORDER BY id',
+    const habits = await adapter.queryAll<{ name: string; name_key: string }>(
+      'SELECT name, name_key FROM habits ORDER BY created_at',
     )
-    expect(habits.map((habit) => habit.name)).toEqual(['Run', 'run (2)'])
-    expect(templates.map((template) => template.title)).toEqual(['Morning', 'morning (2)'])
+    const templates = await adapter.queryAll<{ title: string; title_key: string }>(
+      'SELECT title, title_key FROM checkin_templates WHERE id LIKE \'checkin-%\' ORDER BY id',
+    )
+    expect(habits).toEqual([
+      { name: 'Run', name_key: 'run' },
+      { name: 'run (2)', name_key: 'run (2)' },
+    ])
+    expect(templates).toEqual([
+      { title: 'Morning', title_key: 'morning' },
+      { title: 'morning (2)', title_key: 'morning (2)' },
+    ])
   })
 
   it('restores positive legacy logs as completions for habits that are now Boolean', async () => {
