@@ -1,8 +1,98 @@
 /// <reference lib="webworker" />
-import { cleanupOutdatedCaches, matchPrecache, precacheAndRoute } from 'workbox-precaching'
+import { cleanupOutdatedCaches, matchPrecache, precache } from 'workbox-precaching'
 
-declare const self: ServiceWorkerGlobalScope & {
-  __WB_MANIFEST: Array<{ url: string; revision: string | null }>
+declare const self: ServiceWorkerGlobalScope
+
+const registrationScope = new URL(self.registration.scope)
+
+const RUNTIME_CACHE_PREFIX = 'habitat-runtime-assets'
+const RUNTIME_CACHE_VERSION = 'v1'
+const scopeCacheKey = encodeURIComponent(registrationScope.href)
+const runtimeCacheScopePrefix = `${RUNTIME_CACHE_PREFIX}:${scopeCacheKey}:`
+const runtimeCacheName = `${runtimeCacheScopePrefix}${RUNTIME_CACHE_VERSION}`
+const navigationShellUrl = new URL('index.html', registrationScope)
+const publicAssetNames: Record<string, true> = {
+  'favicon.svg': true,
+  'manifest.webmanifest': true,
+  'licenses.json': true,
+}
+
+function isRuntimeAssetRequest(request: Request, url: URL): boolean {
+  if (
+    request.method !== 'GET' ||
+    url.origin !== registrationScope.origin ||
+    request.url.includes('?') ||
+    request.headers.has('range') ||
+    !url.pathname.startsWith(registrationScope.pathname)
+  ) {
+    return false
+  }
+
+  const path = url.pathname.slice(registrationScope.pathname.length)
+  return (
+    path.startsWith('_nuxt/') ||
+    path.startsWith('icons/') ||
+    path.startsWith('screenshots/') ||
+    publicAssetNames[path] === true
+  )
+}
+async function cacheResponse(
+  cache: Promise<Cache>,
+  request: Request,
+  response: Response,
+): Promise<void> {
+  if (
+    !response.ok ||
+    response.type === 'opaque' ||
+    response.redirected ||
+    response.status === 206
+  ) {
+    return
+  }
+  try {
+    await (await cache).put(request, response.clone())
+  } catch {
+    // Cache storage can fail under quota pressure without making the asset unavailable.
+  }
+}
+
+function staleWhileRevalidate(event: FetchEvent): Promise<Response> {
+  const { request } = event
+  return matchPrecache(request.url).then((precacheResponse) => {
+    if (precacheResponse) return precacheResponse
+
+    const cache = caches.open(runtimeCacheName)
+    const cachedResponse = cache
+      .then((runtimeCache) => runtimeCache.match(request))
+      .catch(() => undefined)
+    const networkResponse = fetch(request)
+
+    event.waitUntil(
+      cachedResponse.then((cached) => {
+        if (!cached) return undefined
+        return networkResponse
+          .then((response) => cacheResponse(cache, request, response))
+          .catch(() => undefined)
+      }),
+    )
+
+    return cachedResponse.then((cached) => {
+      if (cached) return cached
+      return networkResponse.then(async (response) => {
+        await cacheResponse(cache, request, response)
+        return response
+      })
+    })
+  })
+}
+
+async function cleanupRuntimeCaches(): Promise<void> {
+  const cacheNames = await caches.keys()
+  await Promise.all(
+    cacheNames
+      .filter((name) => name.startsWith(runtimeCacheScopePrefix) && name !== runtimeCacheName)
+      .map((name) => caches.delete(name)),
+  )
 }
 
 // ─── Background reminder notifications ────────────────────────────────────────
@@ -99,10 +189,12 @@ self.addEventListener('periodicsync', ((event: ExtendableEvent & { tag: string }
 
 // Take over immediately on install/update so new assets are served right away.
 self.skipWaiting()
-self.addEventListener('activate', (e: ExtendableEvent) => e.waitUntil(self.clients.claim()))
+self.addEventListener('activate', (event: ExtendableEvent) => {
+  event.waitUntil(Promise.all([self.clients.claim(), cleanupRuntimeCaches()]))
+})
 
 // Precache all vite-pwa injected assets (JS, CSS, HTML, images, WASM, …).
-precacheAndRoute(self.__WB_MANIFEST)
+precache(self.__WB_MANIFEST)
 cleanupOutdatedCaches()
 
 // Intercept navigation requests (HTML page loads) to inject COOP/COEP headers.
@@ -112,20 +204,29 @@ cleanupOutdatedCaches()
 // WASM needs for OPFS persistence.  This replaces the old coi-serviceworker.js
 // script — one SW handles both precaching and header injection.
 //
-// For SPA deep-links (e.g. /habitat/habits): GitHub Pages returns 404 for paths
-// that have no matching file, so we always serve the precached index.html shell
-// rather than fetching from the network.
+// For SPA deep-links (e.g. /habitat/habits), always serve the precached
+// index.html shell rather than fetching from the network.
+// Navigation requests receive the app shell and COOP/COEP headers. The custom
+// runtime handler checks Workbox's precache before its own cache, so each
+// request receives exactly one respondWith.
 self.addEventListener('fetch', (event: FetchEvent) => {
-  if (event.request.mode !== 'navigate') return
+  const url = new URL(event.request.url)
 
-  event.respondWith(
-    (async () => {
-      const shell = await matchPrecache('index.html')
-      if (shell) return withCOIHeaders(shell)
-      // Fallback: network (first load before SW is installed, or unusual env)
-      return fetch(event.request).then(withCOIHeaders)
-    })(),
-  )
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      (async () => {
+        const shell = await matchPrecache(navigationShellUrl.href)
+        if (shell) return withCOIHeaders(shell)
+        // Fallback: network (first load before SW is installed, or unusual env)
+        return fetch(event.request).then(withCOIHeaders)
+      })(),
+    )
+    return
+  }
+
+  if (isRuntimeAssetRequest(event.request, url)) {
+    event.respondWith(staleWhileRevalidate(event))
+  }
 })
 
 function withCOIHeaders(response: Response): Response {
