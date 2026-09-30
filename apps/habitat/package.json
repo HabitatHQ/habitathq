@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "pnpm --filter @palladium/worker build",
     "dev": "nuxt dev",
     "dev:pwa": "BUILD_TARGET=pwa nuxt dev",
     "build:pwa": "BUILD_TARGET=pwa nuxt generate",
@@ -20,6 +21,7 @@
     "cap:sync": "cap sync",
     "cap:copy": "cap copy",
     "gradle": "cd android && ./gradlew",
+    "pretypecheck": "pnpm --filter @palladium/worker build",
     "typecheck": "tsgo --noEmit",
     "typecheck:vue": "nuxt typecheck",
     "typecheck:all": "tsgo --noEmit && nuxt typecheck",
