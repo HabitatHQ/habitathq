@@ -1,5 +1,5 @@
 // @vitest-environment node
-import type { DbAdapter, MigrationExec, MigrationStep } from '@palladium/core'
+import { applySchema, type DbAdapter, type MigrationExec, type MigrationStep, type StorageAdapter } from '@palladium/core'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { SCHEMA_CONFIG, SCHEMA_DDL } from '~/lib/db-schema'
@@ -24,6 +24,28 @@ function freshDb(): { db: DatabaseSync; adapter: DbAdapter } {
   const db = new DatabaseSync(':memory:')
   const adapter = nodeAdapter(db)
   return { db, adapter }
+}
+
+function schemaAdapter(db: DatabaseSync): StorageAdapter {
+  return {
+    open: async () => {},
+    exec: async <T,>(sql: string, bind?: readonly unknown[]) => {
+      const head = sql.trim().toUpperCase()
+      if (head.startsWith('SELECT') || head.startsWith('PRAGMA')) {
+        return db.prepare(sql).all(...((bind ?? []) as never[])) as T[]
+      }
+      if (bind?.length) db.prepare(sql).run(...(bind as never[]))
+      else db.exec(sql)
+      return [] as T[]
+    },
+    put: async () => {},
+    patch: async () => {},
+    remove: async () => {},
+    runMigrations: async (migrations) => {
+      for (const migration of migrations) db.exec(migration)
+    },
+    close: async () => {},
+  }
 }
 
 async function applyDdl(adapter: DbAdapter): Promise<void> {
@@ -246,13 +268,13 @@ describe('SCHEMA_CONFIG seeds', () => {
 // ─── Schema config structure ─────────────────────────────────────────────────
 
 describe('SCHEMA_CONFIG', () => {
-  it('has version 25', () => {
-    expect(SCHEMA_CONFIG.version).toBe(25)
+  it('has version 26', () => {
+    expect(SCHEMA_CONFIG.version).toBe(26)
   })
 
-  it('defines migrations for versions 11-25', () => {
+  it('defines migrations for versions 11-26', () => {
     const keys = Object.keys(SCHEMA_CONFIG.migrations ?? {}).map(Number).sort((a, b) => a - b)
-    expect(keys).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25])
+    expect(keys).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26])
   })
 
   it('has seeds array', () => {
@@ -409,7 +431,6 @@ describe('SCHEMA_DDL / migration parity', () => {
     // is backfilled and new writes always provide entry_date.
     const { adapter } = freshDb()
     await applyDdl(adapter)
-    await adapter.exec('DROP INDEX idx_scribbles_entry_date')
     await adapter.exec('ALTER TABLE scribbles DROP COLUMN entry_date')
     await adapter.exec('ALTER TABLE todos DROP COLUMN scheduled_time')
     await adapter.exec('DROP TABLE focus_sessions')
@@ -439,5 +460,39 @@ describe('SCHEMA_DDL / migration parity', () => {
     expect(note?.entry_date).toBe('2026-05-14')
     expect(todo?.scheduled_time).toBeNull()
     expect(sessions).toHaveLength(1)
+  })
+
+  it('upgrades a v24 database before creating the entry-date index', async () => {
+    const { db } = freshDb()
+    const adapter = schemaAdapter(db)
+    await adapter.runMigrations([SCHEMA_DDL])
+    await adapter.exec('ALTER TABLE scribbles DROP COLUMN entry_date')
+    await adapter.exec('PRAGMA user_version = 24')
+
+    await applySchema(adapter, SCHEMA_CONFIG)
+
+    const columns = await adapter.exec<{ name: string }>("PRAGMA table_info('scribbles')")
+    const indexes = await adapter.exec<{ name: string }>("PRAGMA index_list('scribbles')")
+    expect(columns.some((column) => column.name === 'entry_date')).toBe(true)
+    expect(indexes.some((index) => index.name === 'idx_scribbles_entry_date')).toBe(true)
+  })
+
+  it('backfills NULL entry dates when retrying an incomplete v25 migration', async () => {
+    const { db } = freshDb()
+    const adapter = schemaAdapter(db)
+    await adapter.runMigrations([SCHEMA_DDL])
+    await adapter.exec('ALTER TABLE scribbles DROP COLUMN entry_date')
+    await adapter.exec('ALTER TABLE scribbles ADD COLUMN entry_date TEXT')
+    await adapter.exec(
+      "INSERT INTO scribbles (id,title,content,tags,annotations,created_at,updated_at) VALUES ('partial-note','', '', '[]', '{}', '2026-05-14T09:30:00.000Z', '2026-05-14T09:30:00.000Z')",
+    )
+    await adapter.exec('PRAGMA user_version = 25')
+
+    await applySchema(adapter, SCHEMA_CONFIG)
+
+    const note = await adapter.exec<{ entry_date: string }>(
+      "SELECT entry_date FROM scribbles WHERE id = 'partial-note'",
+    )
+    expect(note[0]?.entry_date).toBe('2026-05-14')
   })
 })

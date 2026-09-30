@@ -30,7 +30,7 @@ pnpm --filter habitat verify
 | `app/assets/css/typography.css` | Semantic classes: `type-timer`, `type-duration`, `type-code`, `type-numeric`. Use these instead of raw `font-mono`/`tabular-nums`. |
 | `app/assets/css/themes.css` | Forest / Ocean / Habitat themes + sprout logo animation. |
 
-## Schema (`user_version = 19`)
+## Schema (`user_version = 26`)
 
 habits, completions, habit_schedules, habit_logs, checkin_templates, checkin_questions, checkin_responses, checkin_reminders, checkin_completions, scribbles, reminders, bored_categories, bored_activities, todos, voice_notes, image_notes, applied_defaults, _palladium_seeds.
 
