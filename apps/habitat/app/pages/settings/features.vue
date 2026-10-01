@@ -290,8 +290,7 @@ async function confirmHealthSetup() {
     </section>
 
     <!-- Health setup modal -->
-    <UModal v-model:open="showHealthSetup">
-      <template #content>
+    <AppBottomSheet v-model="showHealthSetup" variant="centered" content-padding="none" :closeable="false">
         <div class="p-5 space-y-5">
           <div>
             <h3 class="text-lg font-semibold">Set up Health Tracking</h3>
@@ -408,7 +407,6 @@ async function confirmHealthSetup() {
             </UButton>
           </div>
         </div>
-      </template>
-    </UModal>
+    </AppBottomSheet>
   </div>
 </template>

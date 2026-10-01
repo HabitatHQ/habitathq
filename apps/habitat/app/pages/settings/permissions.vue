@@ -298,8 +298,7 @@ onMounted(async () => {
     </section>
 
     <!-- Install instructions modal -->
-    <UModal v-model:open="showInstallModal">
-      <template #content>
+    <AppBottomSheet v-model="showInstallModal" variant="centered" content-padding="none" :closeable="false">
         <div class="p-5 space-y-4">
           <div class="flex items-center justify-between">
             <h3 class="font-semibold text-(--ui-text)">Install Habitat</h3>
@@ -355,7 +354,6 @@ onMounted(async () => {
             <UButton variant="ghost" color="neutral" @click="showInstallModal = false">Close</UButton>
           </div>
         </div>
-      </template>
-    </UModal>
+    </AppBottomSheet>
   </div>
 </template>

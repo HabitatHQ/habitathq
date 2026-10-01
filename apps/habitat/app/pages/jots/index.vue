@@ -1007,7 +1007,7 @@ onUnmounted(() => {
     <Teleport to="body">
       <div
         v-if="lightboxUrl"
-        class="fixed inset-0 z-[70] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4"
+        class="modal-backdrop fixed inset-0 keyboard-aware-viewport z-[70] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4"
         role="dialog"
         aria-modal="true"
         aria-label="Image preview"

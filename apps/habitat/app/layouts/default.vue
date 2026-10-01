@@ -644,12 +644,15 @@ function toggleColorMode() {
     </header>
 
     <!-- Global search modal -->
-    <div
-      v-if="showSearch"
-      class="fixed inset-0 z-50 flex items-start justify-center pt-[10dvh]"
+    <AppBottomSheet
+      :model-value="showSearch"
+      variant="centered"
+      max-width="md"
+      content-padding="none"
+      :closeable="false"
+      @update:model-value="(open) => { if (!open) closeSearch() }"
     >
-      <div class="modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm" @click="closeSearch" />
-      <div class="relative w-full max-w-md mx-4 bg-(--ui-bg-muted) border border-(--ui-border) rounded-2xl overflow-hidden shadow-2xl">
+      <div class="overflow-hidden">
         <div class="flex items-center gap-2 px-3 py-2 border-b border-(--ui-border)">
           <AppIcon name="magnifying-glass" class="w-4 h-4 text-(--ui-text-dimmed) shrink-0" />
           <!-- eslint-disable-next-line vuejs-accessibility/no-autofocus -->
@@ -689,7 +692,7 @@ function toggleColorMode() {
           Type to search across all content
         </div>
       </div>
-    </div>
+    </AppBottomSheet>
 
     <UAlert
       v-if="opfsUnsupported"

@@ -8,8 +8,14 @@
  */
 export function getKeyboardInset(
   layoutViewportHeight: number,
-  visualViewport: Pick<VisualViewport, 'height' | 'scale'>,
+  visualViewport: Pick<VisualViewport, 'height' | 'scale'> &
+    Partial<Pick<VisualViewport, 'offsetTop'>>,
 ): number {
   const scale = visualViewport.scale > 0 ? visualViewport.scale : 1
-  return Math.max(0, layoutViewportHeight - visualViewport.height * scale)
+  // The visible viewport can be panned down while an input is focused. Its
+  // bottom edge, not its height alone, defines where a fixed sheet can end.
+  return Math.max(
+    0,
+    layoutViewportHeight - ((visualViewport.offsetTop ?? 0) + visualViewport.height * scale),
+  )
 }
