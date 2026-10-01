@@ -288,14 +288,14 @@ test.describe('Issue #13 — mobile scroll: keyboard-aware height, overscroll-co
     const dimensions = await card.evaluate((el) => {
       const s = getComputedStyle(el)
       return {
-        maxHeight: s.maxHeight,
         overscroll: s.overscrollBehavior,
+        height: el.getBoundingClientRect().height,
         bottom: el.getBoundingClientRect().bottom,
       }
     })
 
     const viewportHeight = page.viewportSize()?.height ?? 0
-    expect(parseFloat(dimensions.maxHeight), `${description}: modal card should be capped to the available overlay height`).toBeLessThanOrEqual(viewportHeight - 260)
+    expect(dimensions.height, `${description}: modal card should be capped to the available overlay height`).toBeLessThanOrEqual(viewportHeight - 260)
     expect(dimensions.bottom, `${description}: modal card should remain above the virtual keyboard`).toBeLessThanOrEqual(viewportHeight - 260)
     expect(dimensions.overscroll, `${description}: modal card should have overscroll-behavior: contain`).toMatch(/contain/)
   }

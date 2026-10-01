@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { shallowMount, flushPromises, config } from '@vue/test-utils'
-import { ref } from 'vue'
+import { nextTick, ref } from 'vue'
 
 vi.mock('@capacitor/core', () => ({
   Capacitor: { isNativePlatform: () => false, getPlatform: () => 'web' },
@@ -481,6 +481,22 @@ describe('settings/data.vue — nukeOpfs (issue 8)', () => {
     const state = ss(wrapper)
     await (state['nukeOpfs'] as (reload: boolean) => Promise<void>)(false)
     expect(mockToastAdd).not.toHaveBeenCalled()
+  })
+
+  it('moves focus to the close action after a wipe-only success', async () => {
+    const closeButton = document.createElement('button')
+    closeButton.id = 'nuke-wiped-close'
+    document.body.append(closeButton)
+    const focus = vi.spyOn(closeButton, 'focus')
+
+    const wrapper = shallowMount(SettingsDataPage)
+    await flushPromises()
+    const state = ss(wrapper)
+    await (state['nukeOpfs'] as (reload: boolean) => Promise<void>)(false)
+    await nextTick()
+
+    expect(focus).toHaveBeenCalled()
+    closeButton.remove()
   })
 })
 

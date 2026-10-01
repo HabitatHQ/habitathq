@@ -446,6 +446,12 @@ const showNukeModal = ref(false)
 const nuking = ref(false)
 const wiped = ref(false)
 
+watch(wiped, async (isWiped) => {
+  if (!isWiped) return
+  await nextTick()
+  document.getElementById('nuke-wiped-close')?.focus()
+})
+
 async function fullWipe(reload: boolean): Promise<void> {
   localStorage.removeItem('habitat-has-data')
   await db.nukeOpfs()
@@ -862,6 +868,11 @@ async function seedDevData() {
               <p class="font-semibold">All data wiped</p>
               <p class="text-sm text-(--ui-text-muted)">Storage has been cleared. You can safely close this tab.</p>
             </div>
+          </div>
+          <div class="flex justify-end pt-1">
+            <UButton id="nuke-wiped-close" variant="ghost" color="neutral" @click="showNukeModal = false">
+              Close
+            </UButton>
           </div>
         </div>
 
