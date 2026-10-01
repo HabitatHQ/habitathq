@@ -446,6 +446,12 @@ const showNukeModal = ref(false)
 const nuking = ref(false)
 const wiped = ref(false)
 
+watch(wiped, async (isWiped) => {
+  if (!isWiped) return
+  await nextTick()
+  document.getElementById('nuke-wiped-close')?.focus()
+})
+
 async function fullWipe(reload: boolean): Promise<void> {
   localStorage.removeItem('habitat-has-data')
   await db.nukeOpfs()
@@ -630,8 +636,7 @@ async function seedDevData() {
     </section>
 
     <!-- Export JSON modal -->
-    <UModal v-model:open="showExportModal">
-      <template #content>
+    <AppBottomSheet v-model="showExportModal" variant="centered" content-padding="none" :closeable="false">
         <div class="p-5 space-y-4">
           <div class="flex items-center justify-between">
             <h3 class="font-semibold text-(--ui-text)">Export data</h3>
@@ -689,12 +694,10 @@ async function seedDevData() {
             </UButton>
           </div>
         </div>
-      </template>
-    </UModal>
+    </AppBottomSheet>
 
     <!-- Jots export modal -->
-    <UModal v-model:open="showJotsExportModal">
-      <template #content>
+    <AppBottomSheet v-model="showJotsExportModal" variant="centered" content-padding="none" :closeable="false">
         <div class="p-5 space-y-4">
           <div class="flex items-center justify-between">
             <h3 class="font-semibold text-(--ui-text)">Export Jots</h3>
@@ -740,12 +743,10 @@ async function seedDevData() {
             <UButton variant="outline" color="neutral" @click="showJotsExportModal = false">Cancel</UButton>
           </div>
         </div>
-      </template>
-    </UModal>
+    </AppBottomSheet>
 
     <!-- Import JSON modal -->
-    <UModal v-model:open="showImportModal">
-      <template #content>
+    <AppBottomSheet v-model="showImportModal" variant="centered" content-padding="none" :closeable="false">
         <div v-if="importError" class="p-5 space-y-4">
           <div class="flex items-start gap-3">
             <div class="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0">
@@ -809,12 +810,10 @@ async function seedDevData() {
             <UButton :loading="importing" @click="confirmImport">Import</UButton>
           </div>
         </div>
-      </template>
-    </UModal>
+    </AppBottomSheet>
 
     <!-- Confirm clear app data -->
-    <UModal v-model:open="showClearModal">
-      <template #content>
+    <AppBottomSheet v-model="showClearModal" variant="centered" content-padding="none" :closeable="false">
         <div class="p-5 space-y-4">
           <div class="flex items-start gap-3">
             <div class="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0">
@@ -856,12 +855,10 @@ async function seedDevData() {
             </UButton>
           </div>
         </div>
-      </template>
-    </UModal>
+    </AppBottomSheet>
 
     <!-- Confirm nuke OPFS -->
-    <UModal v-model:open="showNukeModal">
-      <template #content>
+    <AppBottomSheet v-model="showNukeModal" variant="centered" content-padding="none" :closeable="false">
         <div v-if="wiped" class="p-5 space-y-4">
           <div class="flex items-start gap-3">
             <div class="w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center flex-shrink-0">
@@ -871,6 +868,11 @@ async function seedDevData() {
               <p class="font-semibold">All data wiped</p>
               <p class="text-sm text-(--ui-text-muted)">Storage has been cleared. You can safely close this tab.</p>
             </div>
+          </div>
+          <div class="flex justify-end pt-1">
+            <UButton id="nuke-wiped-close" variant="ghost" color="neutral" @click="showNukeModal = false">
+              Close
+            </UButton>
           </div>
         </div>
 
@@ -894,7 +896,6 @@ async function seedDevData() {
             <UButton color="error" :loading="nuking" @click="nukeOpfs(true)">Wipe &amp; reload</UButton>
           </div>
         </div>
-      </template>
-    </UModal>
+    </AppBottomSheet>
   </div>
 </template>

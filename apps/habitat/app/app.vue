@@ -131,8 +131,7 @@ function dismissPermissionModal() {
     </NuxtLayout>
 
     <!-- First-launch permission onboarding (native only) -->
-    <UModal v-model:open="showPermissionModal">
-      <template #content>
+    <AppBottomSheet v-model="showPermissionModal" variant="centered" content-padding="none" :closeable="false">
         <div class="p-6 space-y-5">
           <div class="space-y-1.5">
             <h3 class="text-lg font-bold">Set up permissions</h3>
@@ -174,7 +173,6 @@ function dismissPermissionModal() {
             </UButton>
           </div>
         </div>
-      </template>
-    </UModal>
+    </AppBottomSheet>
   </UApp>
 </template>

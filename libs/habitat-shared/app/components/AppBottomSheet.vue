@@ -1,15 +1,21 @@
+<script lang="ts">
+let scrollLockCount = 0
+</script>
+
 <script setup lang="ts">
 const props = withDefaults(
   defineProps<{
     title?: string
     variant?: 'sheet' | 'centered'
     maxWidth?: 'sm' | 'md' | 'lg'
+    contentPadding?: 'default' | 'none'
     closeable?: boolean
     persistent?: boolean
   }>(),
   {
     variant: 'sheet',
     maxWidth: 'md',
+    contentPadding: 'default',
     closeable: true,
     persistent: false,
   },
@@ -21,6 +27,7 @@ const { impact } = useHaptics()
 
 const sheetRef = ref<HTMLElement | null>(null)
 let triggerElement: HTMLElement | null = null
+let hasScrollLock = false
 
 const maxWidthClass = computed(() => {
   const map = { sm: 'sm:max-w-sm', md: 'sm:max-w-md', lg: 'sm:max-w-lg' }
@@ -64,8 +71,22 @@ function handleKeydown(e: KeyboardEvent) {
 // `overscroll-behavior: none` on the root stops the viewport rubber-band (the
 // slight sideways drag-and-bounce when scrolling a picker inside the sheet).
 function lockScroll(locked: boolean) {
-  document.body.style.overflow = locked ? 'hidden' : ''
-  document.documentElement.style.overscrollBehavior = locked ? 'none' : ''
+  if (locked && !hasScrollLock) {
+    hasScrollLock = true
+    scrollLockCount += 1
+    document.body.style.overflow = 'hidden'
+    document.documentElement.style.overscrollBehavior = 'none'
+    return
+  }
+
+  if (!locked && hasScrollLock) {
+    hasScrollLock = false
+    scrollLockCount -= 1
+    if (scrollLockCount === 0) {
+      document.body.style.overflow = ''
+      document.documentElement.style.overscrollBehavior = ''
+    }
+  }
 }
 
 watch(modelValue, async (open) => {
@@ -110,15 +131,16 @@ onUnmounted(() => {
       >
         <!-- Backdrop -->
         <div
-          class="absolute inset-0 bg-black/60 backdrop-blur-sm sheet-backdrop"
+          class="modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm sheet-backdrop"
           @click="handleBackdropClick"
         />
 
         <!-- Sheet panel -->
         <div
-          class="relative w-full bg-(--ui-bg-muted) border border-(--ui-border) flex flex-col max-h-[90dvh] overscroll-contain shadow-xl"
+          class="modal-panel relative w-full bg-(--ui-bg-muted) border border-(--ui-border) flex flex-col overscroll-contain shadow-xl"
           :class="[
             maxWidthClass,
+            variant === 'sheet' ? 'modal-panel-sheet' : 'modal-panel-centered',
             variant === 'sheet'
               ? 'rounded-t-3xl sm:rounded-2xl'
               : 'rounded-2xl mx-4',
@@ -146,7 +168,10 @@ onUnmounted(() => {
           </div>
 
           <!-- Scrollable content -->
-          <div class="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+          <div
+            class="overflow-y-auto flex-1 space-y-4"
+            :class="contentPadding === 'default' ? 'px-5 py-4' : 'p-0'"
+          >
             <slot />
           </div>
 
@@ -164,3 +189,22 @@ onUnmounted(() => {
     </Transition>
   </Teleport>
 </template>
+
+<style>
+/* The overlay's bottom is raised by the virtual keyboard. Size the panel from
+   that available area, rather than a static dvh value, so its own content
+   scrolls before any control can move beyond the visible viewport. */
+.modal-panel {
+  max-height: calc(100% - 2rem);
+}
+
+.modal-panel-sheet {
+  max-height: calc(100% - 0.75rem);
+}
+
+@media (min-width: 640px) {
+  .modal-panel-sheet {
+    max-height: calc(100% - 2rem);
+  }
+}
+</style>

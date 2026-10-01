@@ -240,12 +240,13 @@ test.describe('Issue #11 — bottom-sheet modals include safe-area spacer', () =
 
 // ─── Issue #13: Mobile native scroll improvements ─────────────────────────────
 
-test.describe('Issue #13 — mobile scroll: dvh max-height, overscroll-contain, body lock, jots spacers', () => {
+test.describe('Issue #13 — mobile scroll: keyboard-aware height, overscroll-contain, body lock, jots spacers', () => {
   /**
    * Opens a modal and checks:
    * 1. Backdrop has class `modal-backdrop` (enables CSS body scroll lock).
    * 2. Body overflow becomes `hidden` when the modal is open.
-   * 3. Scrollable cards use `max-h` with dvh units (not static vh).
+   * 3. The card stays inside the visual viewport when the virtual keyboard
+   *    raises the overlay's bottom edge.
    * 4. Scrollable cards have `overscroll-behavior: contain`.
    */
   async function openModalAndAuditScroll(
@@ -274,23 +275,32 @@ test.describe('Issue #13 — mobile scroll: dvh max-height, overscroll-contain, 
     const bodyOverflow = await page.evaluate(() => getComputedStyle(document.body).overflow)
     expect(bodyOverflow, `${description}: body overflow should be hidden when modal is open`).toBe('hidden')
 
-    // 3 & 4. Scrollable card uses dvh and overscroll-contain
-    const card = page.locator('.rounded-t-3xl').first()
+    // 3 & 4. The common surface is constrained by the available overlay height
+    // and retains contained scrolling.
+    const card = page.locator('.modal-panel').first()
     const cardVisible = await card.isVisible().catch(() => false)
     if (!cardVisible) return
 
-    const [maxHeight, overscroll] = await card.evaluate((el) => {
-      const s = getComputedStyle(el)
-      // getAttribute gives the Tailwind class string; computed maxHeight gives resolved px value
-      return [el.getAttribute('class') ?? '', s.overscrollBehavior]
+    await page.evaluate(() => {
+      document.documentElement.style.setProperty('--keyboard-inset-height', '260px')
     })
 
-    // max-h-[90dvh] class must be present (not max-h-[90vh])
-    expect(maxHeight, `${description}: modal card should use 90dvh not 90vh`).toMatch(/90dvh/)
-    expect(overscroll, `${description}: modal card should have overscroll-behavior: contain`).toMatch(/contain/)
+    const dimensions = await card.evaluate((el) => {
+      const s = getComputedStyle(el)
+      return {
+        overscroll: s.overscrollBehavior,
+        height: el.getBoundingClientRect().height,
+        bottom: el.getBoundingClientRect().bottom,
+      }
+    })
+
+    const viewportHeight = page.viewportSize()?.height ?? 0
+    expect(dimensions.height, `${description}: modal card should be capped to the available overlay height`).toBeLessThanOrEqual(viewportHeight - 260)
+    expect(dimensions.bottom, `${description}: modal card should remain above the virtual keyboard`).toBeLessThanOrEqual(viewportHeight - 260)
+    expect(dimensions.overscroll, `${description}: modal card should have overscroll-behavior: contain`).toMatch(/contain/)
   }
 
-  test('todos add modal: backdrop class, body lock, dvh, overscroll-contain', async ({ page }) => {
+  test('todos add modal: backdrop class, body lock, keyboard-aware height, overscroll-contain', async ({ page }) => {
     await openModalAndAuditScroll(page, '/todos', /^add$/i, 'Todos add modal')
   })
 
@@ -334,7 +344,7 @@ test.describe('Issue #13 — mobile scroll: dvh max-height, overscroll-contain, 
     expect(await spacer.count(), 'Jots picker modal: missing .safe-area-bottom spacer').toBeGreaterThan(0)
   })
 
-  test('checkin create modal: backdrop class + body scroll lock', async ({ page }) => {
+  test('checkin create opens the full editor instead of a modal', async ({ page }) => {
     await page.setViewportSize(MOBILE)
     await page.goto('/checkin')
     await page.waitForLoadState('networkidle')
@@ -345,12 +355,8 @@ test.describe('Issue #13 — mobile scroll: dvh max-height, overscroll-contain, 
     if (!visible) { test.skip(); return }
 
     await btn.click()
-    const backdrop = page.locator('.modal-backdrop').first()
-    await backdrop.waitFor({ state: 'visible', timeout: 3000 }).catch(() => {})
-    expect(await backdrop.isVisible().catch(() => false), 'Check-in modal: .modal-backdrop not found').toBe(true)
-
-    const bodyOverflow = await page.evaluate(() => getComputedStyle(document.body).overflow)
-    expect(bodyOverflow, 'Check-in modal: body overflow should be hidden').toBe('hidden')
+    await expect(page).toHaveURL(/\/checkin\/[^/]+/)
+    await expect(page.getByRole('heading', { name: 'Edit check-in' })).toBeVisible()
   })
 })
 

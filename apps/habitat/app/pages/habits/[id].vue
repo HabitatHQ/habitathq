@@ -830,8 +830,7 @@ onMounted(() => {
     <HabitFormModal v-model="isEditing" mode="edit" :habit="habit" @saved="onHabitEdited" />
 
     <!-- ── Pause modal ────────────────────────────────────────────────────────── -->
-    <UModal v-model:open="showPauseModal">
-      <template #content>
+    <AppBottomSheet v-model="showPauseModal" variant="centered" content-padding="none" :closeable="false">
         <div class="p-5 space-y-4">
           <div class="flex items-start gap-3">
             <div class="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center flex-shrink-0">
@@ -856,8 +855,7 @@ onMounted(() => {
             </UButton>
           </div>
         </div>
-      </template>
-    </UModal>
+    </AppBottomSheet>
 
     <!-- ── Archive confirm ─────────────────────────────────────────────────────── -->
     <ConfirmDialog

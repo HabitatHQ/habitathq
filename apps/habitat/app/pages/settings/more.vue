@@ -589,8 +589,7 @@ async function forceReload() {
     </section>
 
     <!-- Licenses modal -->
-    <UModal v-model:open="showLicensesModal">
-      <template #content>
+    <AppBottomSheet v-model="showLicensesModal" variant="centered" max-width="lg" content-padding="none" :closeable="false">
         <div class="p-5 space-y-4 flex flex-col max-h-[80vh]">
           <div class="flex items-center justify-between shrink-0">
             <h3 class="font-semibold text-(--ui-text)">Open source licenses</h3>
@@ -625,7 +624,6 @@ async function forceReload() {
             </li>
           </ul>
         </div>
-      </template>
-    </UModal>
+    </AppBottomSheet>
   </div>
 </template>

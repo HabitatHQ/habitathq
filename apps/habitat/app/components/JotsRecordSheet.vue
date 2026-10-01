@@ -264,10 +264,13 @@ onUnmounted(() => {
     </div>
 
     <!-- Transcript save modal (nested) -->
-    <Teleport to="body">
-      <div v-if="showTranscript" class="fixed inset-0 z-[60] flex items-end sm:items-center justify-center">
-        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="discardTranscript" />
-        <div class="relative w-full sm:max-w-md bg-(--ui-bg-muted) border border-(--ui-border) rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[70dvh] overflow-y-auto overscroll-contain">
+    <AppBottomSheet
+      :model-value="showTranscript"
+      max-width="md"
+      :closeable="false"
+      @update:model-value="(open) => { if (!open) discardTranscript() }"
+    >
+      <div class="space-y-4">
           <h3 class="text-base font-semibold">Save Transcript?</h3>
           <p class="text-xs text-(--ui-text-dimmed)">Voice note saved. Save the transcript as a text jot?</p>
           <AppTextArea v-model="transcriptText" autoresize :rows="4" class="w-full" />
@@ -275,9 +278,8 @@ onUnmounted(() => {
             <UButton variant="soft" color="neutral" class="flex-1" @click="discardTranscript">Skip</UButton>
             <UButton class="flex-1" :loading="savingTranscript" :disabled="!transcriptText.trim()" @click="saveTranscript">Save as Jot</UButton>
           </div>
-        </div>
       </div>
-    </Teleport>
+    </AppBottomSheet>
   </div>
 </template>
 

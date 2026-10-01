@@ -18,6 +18,10 @@ describe('getKeyboardInset', () => {
     expect(getKeyboardInset(844, { height: 255, scale: 2 })).toBe(334)
   })
 
+  it('accounts for a visual viewport shifted away from the layout viewport origin', () => {
+    expect(getKeyboardInset(844, { height: 510, scale: 1, offsetTop: 20 })).toBe(314)
+  })
+
   it('never returns a negative inset', () => {
     expect(getKeyboardInset(844, { height: 900, scale: 1 })).toBe(0)
   })
