@@ -745,17 +745,17 @@ onMounted(() => {
 
       <!-- Unified Log History -->
       <UCard
-        v-if="habit.type === 'BOOLEAN' ? recentLog.length : recentHabitLogs.length"
+        v-if="habit.type === 'BOOLEAN' ? recentLog.length > 0 : recentHabitLogs.length > 0 || recentLog.length > 0"
         :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }"
       >
         <div class="px-4 pt-3 pb-2 flex items-center justify-between">
           <p class="text-xs font-semibold text-(--ui-text-muted)">Log History</p>
           <button
-            v-if="!showAllLogs && (habit.type === 'BOOLEAN' ? completions.length > 5 : habitLogs.length > 10)"
+            v-if="!showAllLogs && (habit.type === 'BOOLEAN' ? completions.length > 5 : habitLogs.length > 10 || completions.length > 5)"
             class="text-xs text-primary-400 hover:text-primary-300 transition-colors"
             @click="showAllLogs = true"
           >
-            View all ({{ habit.type === 'BOOLEAN' ? completions.length : habitLogs.length }})
+            View all ({{ habit.type === 'BOOLEAN' ? completions.length : habitLogs.length + completions.length }})
           </button>
         </div>
 
@@ -802,6 +802,19 @@ onMounted(() => {
               </button>
             </div>
           </div>
+          <template v-if="recentLog.length">
+            <p class="px-4 pt-3 text-xs font-semibold text-(--ui-text-muted)">Legacy completed days</p>
+            <div
+              v-for="entry in recentLog"
+              :key="entry.id"
+              class="flex items-center justify-between px-4 py-3"
+            >
+              <div>
+                <p class="text-sm text-(--ui-text-toned)">{{ fmtLogDate(entry.completed_at) }}</p>
+                <p class="text-xs text-slate-600">Completed before this tracking type changed</p>
+              </div>
+            </div>
+          </template>
         </template>
       </UCard>
 

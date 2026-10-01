@@ -1,10 +1,16 @@
 import type { MigrationExec, SchemaConfig, Seed } from '@palladium/core'
+import {
+  type BooleanHistoryStore,
+  recoverBooleanHistoryFromLogs,
+} from '~/lib/boolean-history-recovery'
+import { nextAvailableName, normalizeNameKey } from '~/lib/unique-names'
 import type { CheckinQuestion } from '~/types/database'
 
 export const SCHEMA_DDL = `
   CREATE TABLE IF NOT EXISTS habits (
     id           TEXT PRIMARY KEY,
     name         TEXT NOT NULL,
+    name_key     TEXT NOT NULL DEFAULT '',
     description  TEXT NOT NULL DEFAULT '',
     color        TEXT NOT NULL DEFAULT '#6366f1',
     icon         TEXT NOT NULL DEFAULT 'star',
@@ -71,6 +77,7 @@ export const SCHEMA_DDL = `
   CREATE TABLE IF NOT EXISTS checkin_templates (
     id            TEXT PRIMARY KEY,
     title         TEXT NOT NULL,
+    title_key     TEXT NOT NULL DEFAULT '',
     schedule_type TEXT NOT NULL DEFAULT 'DAILY',
     days_active   TEXT,
     icon          TEXT,
@@ -379,10 +386,17 @@ async function insertTemplate(
     desired_answer?: number
   })[],
 ): Promise<void> {
+  const titleKey = normalizeNameKey(title)
+  const existing = await exec<{ id: string }>(
+    'SELECT id FROM checkin_templates WHERE title = ? OR title_key = ? LIMIT 1',
+    [title, titleKey],
+  )
+  if (existing.length > 0) return
+
   const tid = crypto.randomUUID()
   await exec(
-    'INSERT INTO checkin_templates (id,title,schedule_type,days_active) VALUES (?,?,?,?)',
-    [tid, title, schedule_type, days_active == null ? null : JSON.stringify(days_active)],
+    'INSERT INTO checkin_templates (id,title,title_key,schedule_type,days_active) VALUES (?,?,?,?,?)',
+    [tid, title, titleKey, schedule_type, days_active == null ? null : JSON.stringify(days_active)],
   )
   for (const q of qs) {
     await exec(
@@ -605,6 +619,81 @@ const PLANNER_INDEX_SEED: Seed = {
   },
 }
 
+async function ensureUniqueNameKeyColumns(exec: MigrationExec): Promise<void> {
+  const habitColumns = await exec<{ name: string }>("PRAGMA table_info('habits')")
+  if (!habitColumns.some((column) => column.name === 'name_key')) {
+    await exec("ALTER TABLE habits ADD COLUMN name_key TEXT NOT NULL DEFAULT ''")
+  }
+
+  const checkinColumns = await exec<{ name: string }>("PRAGMA table_info('checkin_templates')")
+  if (!checkinColumns.some((column) => column.name === 'title_key')) {
+    await exec("ALTER TABLE checkin_templates ADD COLUMN title_key TEXT NOT NULL DEFAULT ''")
+  }
+}
+
+async function normalizeHabitNames(exec: MigrationExec): Promise<void> {
+  const habits = await exec<{ id: string; name: string; name_key: string }>(
+    'SELECT id, name, name_key FROM habits ORDER BY created_at ASC, id ASC',
+  )
+  const usedNames = new Set<string>()
+  for (const habit of habits) {
+    const name = nextAvailableName(habit.name, usedNames)
+    const nameKey = normalizeNameKey(name)
+    if (name !== habit.name || nameKey !== habit.name_key) {
+      await exec('UPDATE habits SET name = ?, name_key = ? WHERE id = ?', [name, nameKey, habit.id])
+    }
+  }
+}
+
+async function normalizeCheckinTitles(exec: MigrationExec): Promise<void> {
+  const templates = await exec<{ id: string; title: string; title_key: string }>(
+    'SELECT id, title, title_key FROM checkin_templates ORDER BY id ASC',
+  )
+  const usedTitles = new Set<string>()
+  for (const template of templates) {
+    const title = nextAvailableName(template.title, usedTitles)
+    const titleKey = normalizeNameKey(title)
+    if (title !== template.title || titleKey !== template.title_key) {
+      await exec('UPDATE checkin_templates SET title = ?, title_key = ? WHERE id = ?', [
+        title,
+        titleKey,
+        template.id,
+      ])
+    }
+  }
+}
+
+const UNIQUE_NAMES_SEED: Seed = {
+  key: 'schema:unique-habit-and-checkin-name-keys',
+  apply: async (exec) => {
+    await ensureUniqueNameKeyColumns(exec)
+    await normalizeHabitNames(exec)
+    await normalizeCheckinTitles(exec)
+    await exec('DROP INDEX IF EXISTS idx_habits_name_normalized')
+    await exec('DROP INDEX IF EXISTS idx_checkin_templates_title_normalized')
+    await exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_habits_name_key ON habits(name_key)')
+    await exec(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_checkin_templates_title_key ON checkin_templates(title_key)',
+    )
+  },
+}
+
+function booleanHistoryStore(exec: MigrationExec): BooleanHistoryStore {
+  return {
+    queryAll: exec,
+    exec: async (sql, bind) => {
+      await exec(sql, bind)
+    },
+  }
+}
+
+const RECOVER_BOOLEAN_HISTORY_SEED: Seed = {
+  key: 'schema:recover-boolean-history-from-logs',
+  apply: async (exec) => {
+    await recoverBooleanHistoryFromLogs(booleanHistoryStore(exec))
+  },
+}
+
 export const SCHEMA_CONFIG: SchemaConfig = {
   schema: SCHEMA_DDL,
   version: 26,
@@ -786,5 +875,5 @@ export const SCHEMA_CONFIG: SchemaConfig = {
     // upgraded v25 store is also healed on its next launch.
     26: [ensurePlannerStorage],
   },
-  seeds: [...SEEDS, PLANNER_INDEX_SEED],
+  seeds: [UNIQUE_NAMES_SEED, ...SEEDS, PLANNER_INDEX_SEED, RECOVER_BOOLEAN_HISTORY_SEED],
 }

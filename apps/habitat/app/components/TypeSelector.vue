@@ -1,7 +1,8 @@
 <script setup lang="ts">
-defineProps<{
+const props = defineProps<{
   modelValue: string
   options: { value: string; label: string }[]
+  disabled?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -11,6 +12,7 @@ const emit = defineEmits<{
 const { selectionChanged } = useHaptics()
 
 function select(value: string) {
+  if (props.disabled) return
   emit('update:modelValue', value)
   void selectionChanged()
 }
@@ -27,6 +29,7 @@ function select(value: string) {
         ? 'bg-primary-600 text-white'
         : 'bg-(--ui-bg-elevated) text-(--ui-text-toned)'"
       :aria-pressed="modelValue === opt.value"
+      :disabled="disabled"
       @click="select(opt.value)"
     >
       {{ opt.label }}

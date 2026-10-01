@@ -8,6 +8,7 @@ import type {
 } from '@palladium/core'
 import { applySchema } from '@palladium/core'
 import { SCHEMA_CONFIG, SCHEMA_DDL } from '~/lib/db-schema'
+import { normalizeNameKey } from '~/lib/unique-names'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 
@@ -260,6 +261,133 @@ describe('SCHEMA_CONFIG seeds', () => {
     expect(titles).toContain('Morning Check-in')
     expect(titles).toContain('Evening Reflection')
     expect(titles).toContain('Weekly Review')
+  })
+
+  it('replays template seeds without duplicating normalized titles', async () => {
+    const { adapter } = freshDb()
+    await applyDdl(adapter)
+    await runSeeds(adapter)
+    await adapter.exec('DELETE FROM _palladium_seeds')
+
+    await expect(runSeeds(adapter)).resolves.toBeUndefined()
+
+    const templates = await adapter.queryAll<{ title: string; title_key: string }>(
+      'SELECT title, title_key FROM checkin_templates ORDER BY title',
+    )
+    expect(templates).toEqual([
+      { title: 'Evening Reflection', title_key: 'evening reflection' },
+      { title: 'Morning Check-in', title_key: 'morning check-in' },
+      { title: 'Weekly Review', title_key: 'weekly review' },
+    ])
+  })
+
+  it('enforces normalized unique habit names and check-in titles', async () => {
+    const { adapter } = freshDb()
+    await applyDdl(adapter)
+    await runSeeds(adapter)
+
+    await adapter.exec(
+      "INSERT INTO habits (id,name,name_key,created_at) VALUES ('habit-one','Run','run','2026-01-01')",
+    )
+    await expect(
+      adapter.exec(
+        "INSERT INTO habits (id,name,name_key,created_at) VALUES ('habit-two','  run  ','run','2026-01-02')",
+      ),
+    ).rejects.toThrow()
+
+    await adapter.exec(
+      "INSERT INTO checkin_templates (id,title,title_key) VALUES ('checkin-one','Morning','morning')",
+    )
+    await expect(
+      adapter.exec(
+        "INSERT INTO checkin_templates (id,title,title_key) VALUES ('checkin-two','morning','morning')",
+      ),
+    ).rejects.toThrow()
+  })
+
+  it('enforces Unicode case-insensitive unique habit names and check-in titles', async () => {
+    const { adapter } = freshDb()
+    await applyDdl(adapter)
+    await runSeeds(adapter)
+
+    await adapter.exec(
+      "INSERT INTO habits (id,name,name_key,created_at) VALUES ('habit-one','École',?,'2026-01-01')",
+      [normalizeNameKey('École')],
+    )
+    await expect(
+      adapter.exec(
+        "INSERT INTO habits (id,name,name_key,created_at) VALUES ('habit-two','école',?,'2026-01-02')",
+        [normalizeNameKey('école')],
+      ),
+    ).rejects.toThrow()
+
+    await adapter.exec(
+      "INSERT INTO checkin_templates (id,title,title_key) VALUES ('checkin-one','École',?)",
+      [normalizeNameKey('École')],
+    )
+    await expect(
+      adapter.exec(
+        "INSERT INTO checkin_templates (id,title,title_key) VALUES ('checkin-two','école',?)",
+        [normalizeNameKey('école')],
+      ),
+    ).rejects.toThrow()
+  })
+
+  it('renames legacy duplicate habit names and check-in titles before enforcing uniqueness', async () => {
+    const { adapter } = freshDb()
+    await applyDdl(adapter)
+    await adapter.exec('ALTER TABLE habits DROP COLUMN name_key')
+    await adapter.exec('ALTER TABLE checkin_templates DROP COLUMN title_key')
+    await adapter.exec(
+      "INSERT INTO habits (id,name,created_at) VALUES ('habit-one','Run','2026-01-01')",
+    )
+    await adapter.exec(
+      "INSERT INTO habits (id,name,created_at) VALUES ('habit-two','run','2026-01-02')",
+    )
+    await adapter.exec(
+      "INSERT INTO checkin_templates (id,title) VALUES ('checkin-one','Morning')",
+    )
+    await adapter.exec(
+      "INSERT INTO checkin_templates (id,title) VALUES ('checkin-two','morning')",
+    )
+
+    await runSeeds(adapter)
+
+    const habits = await adapter.queryAll<{ name: string; name_key: string }>(
+      'SELECT name, name_key FROM habits ORDER BY created_at',
+    )
+    const templates = await adapter.queryAll<{ title: string; title_key: string }>(
+      'SELECT title, title_key FROM checkin_templates WHERE id LIKE \'checkin-%\' ORDER BY id',
+    )
+    expect(habits).toEqual([
+      { name: 'Run', name_key: 'run' },
+      { name: 'run (2)', name_key: 'run (2)' },
+    ])
+    expect(templates).toEqual([
+      { title: 'Morning', title_key: 'morning' },
+      { title: 'morning (2)', title_key: 'morning (2)' },
+    ])
+  })
+
+  it('restores positive legacy logs as completions for habits that are now Boolean', async () => {
+    const { adapter } = freshDb()
+    await applyDdl(adapter)
+    await adapter.exec(
+      "INSERT INTO habits (id,name,type,created_at) VALUES ('habit-one','Read','BOOLEAN','2026-01-01')",
+    )
+    await adapter.exec(
+      "INSERT INTO habit_logs (id,habit_id,date,logged_at,value) VALUES ('log-one','habit-one','2026-01-02','2026-01-02T08:00:00Z',10)",
+    )
+    await adapter.exec(
+      "INSERT INTO habit_logs (id,habit_id,date,logged_at,value) VALUES ('log-zero','habit-one','2026-01-03','2026-01-03T08:00:00Z',0)",
+    )
+
+    await runSeeds(adapter)
+
+    const completions = await adapter.queryAll<{ date: string; completed_at: string }>(
+      "SELECT date, completed_at FROM completions WHERE habit_id = 'habit-one'",
+    )
+    expect(completions).toEqual([{ date: '2026-01-02', completed_at: '2026-01-02T08:00:00Z' }])
   })
 
   it('seeds bored categories with activities', async () => {

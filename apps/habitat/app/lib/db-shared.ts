@@ -6,6 +6,8 @@
  *
  * Row parsing is delegated to db-parsers.ts.
  */
+
+import { recoverBooleanHistoryFromLogs } from '~/lib/boolean-history-recovery'
 import {
   HABIT_WITH_SCHED_SQL,
   parseBoredActivity,
@@ -25,6 +27,7 @@ import {
   parseTodo,
 } from '~/lib/db-parsers'
 import { computeStreak, type StreakResult } from '~/lib/streak-engine'
+import { nextAvailableName, normalizeNameKey } from '~/lib/unique-names'
 import type {
   BoredActivity,
   BoredCategory,
@@ -109,6 +112,26 @@ async function execDynamicUpdate(
 
 // ─── Habit operations ─────────────────────────────────────────────────────────
 
+async function requireUniqueHabitName(
+  db: DbAdapter,
+  name: string,
+  excludeHabitId?: string,
+): Promise<string> {
+  const normalizedName = name.trim()
+  const nameKey = normalizeNameKey(normalizedName)
+  // Include archived habits: their history still belongs to this name.
+  const existing = await db.queryAll<Record<string, unknown>>(
+    excludeHabitId
+      ? 'SELECT id FROM habits WHERE name_key = ? AND id <> ? LIMIT 1'
+      : 'SELECT id FROM habits WHERE name_key = ? LIMIT 1',
+    excludeHabitId ? [nameKey, excludeHabitId] : [nameKey],
+  )
+  if (existing.length > 0) {
+    throw new Error(`A habit named "${normalizedName}" already exists.`)
+  }
+  return normalizedName
+}
+
 export async function getHabits(db: DbAdapter): Promise<HabitWithSchedule[]> {
   const rows = await db.queryAll<Record<string, unknown>>(
     `${HABIT_WITH_SCHED_SQL} WHERE h.archived_at IS NULL ORDER BY h.created_at ASC`,
@@ -120,17 +143,20 @@ export async function createHabit(
   db: DbAdapter,
   payload: Omit<Habit, 'id' | 'created_at' | 'archived_at'>,
 ): Promise<HabitWithSchedule> {
+  const name = await requireUniqueHabitName(db, payload.name)
+
   const id = crypto.randomUUID()
   const schedId = crypto.randomUUID()
   const created_at = new Date().toISOString()
   await db.exec(
     `INSERT INTO habits
-     (id, name, description, why, color, icon, frequency, created_at, tags, annotations,
+     (id, name, name_key, description, why, color, icon, frequency, created_at, tags, annotations,
       type, target_value, paused_until)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       id,
-      payload.name,
+      name,
+      normalizeNameKey(name),
       payload.description,
       payload.why ?? '',
       payload.color,
@@ -161,6 +187,12 @@ export async function updateHabit(
   payload: Partial<Habit> & { id: string },
 ): Promise<HabitWithSchedule> {
   const { id, ...fields } = payload
+  if (fields.type !== undefined) {
+    throw new Error('Habit tracking type cannot be changed after creation.')
+  }
+  if (fields.name !== undefined) {
+    fields.name = await requireUniqueHabitName(db, fields.name, id)
+  }
   const pairs = buildUpdatePairs(fields as Record<string, unknown>, [
     { kind: 'scalar', name: 'name' },
     { kind: 'scalar', name: 'description' },
@@ -168,12 +200,12 @@ export async function updateHabit(
     { kind: 'scalar', name: 'color' },
     { kind: 'scalar', name: 'icon' },
     { kind: 'scalar', name: 'frequency' },
-    { kind: 'scalar', name: 'type' },
     { kind: 'scalar', name: 'target_value' },
     { kind: 'nullable', name: 'paused_until' },
     { kind: 'json', name: 'tags', fallback: [] },
     { kind: 'json', name: 'annotations', fallback: {} },
   ])
+  if (fields.name !== undefined) pairs.push(['name_key', normalizeNameKey(fields.name)])
   await execDynamicUpdate(db, 'habits', id, pairs)
   const row = await db.queryOne<Record<string, unknown>>(`${HABIT_WITH_SCHED_SQL} WHERE h.id = ?`, [
     id,
@@ -516,6 +548,33 @@ export async function deleteAllCheckinEntries(db: DbAdapter): Promise<null> {
 
 // ─── Check-in templates ───────────────────────────────────────────────────────
 
+async function requireUniqueCheckinTitle(
+  db: DbAdapter,
+  title: string,
+  excludeTemplateId?: string,
+): Promise<string> {
+  const normalizedTitle = title.trim()
+  const titleKey = normalizeNameKey(normalizedTitle)
+  const existing = await db.queryAll<Record<string, unknown>>(
+    excludeTemplateId
+      ? 'SELECT id FROM checkin_templates WHERE title_key = ? AND id <> ? LIMIT 1'
+      : 'SELECT id FROM checkin_templates WHERE title_key = ? LIMIT 1',
+    excludeTemplateId ? [titleKey, excludeTemplateId] : [titleKey],
+  )
+  if (existing.length > 0) {
+    throw new Error(`A check-in named "${normalizedTitle}" already exists.`)
+  }
+  return normalizedTitle
+}
+
+async function nextAvailableCheckinTitle(db: DbAdapter, title: string): Promise<string> {
+  const rows = await db.queryAll<Record<string, unknown>>('SELECT title FROM checkin_templates')
+  return nextAvailableName(
+    title,
+    new Set(rows.map((row) => normalizeNameKey(String(row['title'] ?? '')))),
+  )
+}
+
 export async function getCheckinTemplates(db: DbAdapter): Promise<CheckinTemplate[]> {
   const rows = await db.queryAll<Record<string, unknown>>(
     `SELECT t.*,
@@ -546,12 +605,14 @@ export async function createCheckinTemplate(
   db: DbAdapter,
   payload: Omit<CheckinTemplate, 'id' | 'archived_at' | 'response_day_count' | 'question_count'>,
 ): Promise<CheckinTemplate> {
+  const title = await nextAvailableCheckinTitle(db, payload.title)
   const id = crypto.randomUUID()
   await db.exec(
-    'INSERT INTO checkin_templates (id, title, schedule_type, days_active, icon, color) VALUES (?,?,?,?,?,?)',
+    'INSERT INTO checkin_templates (id, title, title_key, schedule_type, days_active, icon, color) VALUES (?,?,?,?,?,?,?)',
     [
       id,
-      payload.title,
+      title,
+      normalizeNameKey(title),
       payload.schedule_type ?? 'DAILY',
       payload.days_active == null ? null : JSON.stringify(payload.days_active),
       payload.icon ?? 'pencil-square',
@@ -570,6 +631,9 @@ export async function updateCheckinTemplate(
   payload: Partial<CheckinTemplate> & { id: string },
 ): Promise<CheckinTemplate> {
   const { id, ...fields } = payload
+  if (fields.title !== undefined) {
+    fields.title = await requireUniqueCheckinTitle(db, fields.title, id)
+  }
   const pairs = buildUpdatePairs(fields as Record<string, unknown>, [
     { kind: 'scalar', name: 'title' },
     { kind: 'scalar', name: 'schedule_type' },
@@ -577,6 +641,7 @@ export async function updateCheckinTemplate(
     { kind: 'scalar', name: 'icon' },
     { kind: 'scalar', name: 'color' },
   ])
+  if (fields.title !== undefined) pairs.push(['title_key', normalizeNameKey(fields.title)])
   await execDynamicUpdate(db, 'checkin_templates', id, pairs)
   const row = await db.queryOne<Record<string, unknown>>(
     'SELECT * FROM checkin_templates WHERE id = ?',
@@ -1661,14 +1726,25 @@ export async function importJson(db: DbAdapter, data: HabitatExport): Promise<nu
     throw new Error(`Unsupported export version: ${String((data as { version: unknown }).version)}`)
   await db.exec('BEGIN')
   try {
+    const storedHabits = await db.queryAll<{ id: string; name: string; name_key: string }>(
+      'SELECT id, name, name_key FROM habits',
+    )
+    const importedHabitIds = new Set(storedHabits.map((habit) => habit.id))
+    const usedHabitNames = new Set(
+      storedHabits.map((habit) => habit.name_key || normalizeNameKey(habit.name)),
+    )
+
     for (const h of data.habits ?? []) {
+      if (importedHabitIds.has(h.id)) continue
+      const name = nextAvailableName(h.name, usedHabitNames)
       await db.exec(
         `INSERT OR IGNORE INTO habits
-         (id,name,description,why,color,icon,frequency,created_at,archived_at,tags,annotations,type,target_value,paused_until)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         (id,name,name_key,description,why,color,icon,frequency,created_at,archived_at,tags,annotations,type,target_value,paused_until)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           h.id,
-          h.name,
+          name,
+          normalizeNameKey(name),
           h.description,
           h.why ?? '',
           h.color,
@@ -1683,6 +1759,7 @@ export async function importJson(db: DbAdapter, data: HabitatExport): Promise<nu
           h.paused_until ?? null,
         ],
       )
+      importedHabitIds.add(h.id)
     }
     for (const c of data.completions ?? []) {
       await db.exec(
@@ -1704,6 +1781,7 @@ export async function importJson(db: DbAdapter, data: HabitatExport): Promise<nu
         [l.id, l.habit_id, l.date, l.logged_at, l.value, l.notes ?? ''],
       )
     }
+    await recoverBooleanHistoryFromLogs(db)
     for (const s of data.habit_schedules ?? []) {
       await db.exec(
         'INSERT OR IGNORE INTO habit_schedules (id,habit_id,schedule_type,frequency_count,days_of_week,due_time,start_date,end_date) VALUES (?,?,?,?,?,?,?,?)',
@@ -1730,18 +1808,36 @@ export async function importJson(db: DbAdapter, data: HabitatExport): Promise<nu
         ],
       )
     }
+    const storedCheckinTemplates = await db.queryAll<{
+      id: string
+      title: string
+      title_key: string
+    }>('SELECT id, title, title_key FROM checkin_templates')
+    const importedCheckinTemplateIds = new Set(
+      storedCheckinTemplates.map((template) => template.id),
+    )
+    const usedCheckinTitles = new Set(
+      storedCheckinTemplates.map(
+        (template) => template.title_key || normalizeNameKey(template.title),
+      ),
+    )
+
     for (const t of data.checkin_templates ?? []) {
+      if (importedCheckinTemplateIds.has(t.id)) continue
+      const title = nextAvailableName(t.title, usedCheckinTitles)
       await db.exec(
-        'INSERT OR IGNORE INTO checkin_templates (id,title,schedule_type,days_active,icon,color) VALUES (?,?,?,?,?,?)',
+        'INSERT OR IGNORE INTO checkin_templates (id,title,title_key,schedule_type,days_active,icon,color) VALUES (?,?,?,?,?,?,?)',
         [
           t.id,
-          t.title,
+          title,
+          normalizeNameKey(title),
           t.schedule_type ?? 'DAILY',
           t.days_active == null ? null : JSON.stringify(t.days_active),
           t.icon ?? null,
           t.color ?? null,
         ],
       )
+      importedCheckinTemplateIds.add(t.id)
     }
     for (const q of data.checkin_questions ?? []) {
       await db.exec(
