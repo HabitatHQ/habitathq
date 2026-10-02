@@ -66,6 +66,28 @@ function buildShorthandNotification(
   };
 }
 
+async function sendToChannel(
+  name: ChannelName,
+  channel: NotificationsChannel,
+  notification: Notification,
+): Promise<ChannelStatus> {
+  try {
+    const permission = channel.permissionStatus();
+    if (permission === "default" && (await channel.requestPermission()) !== "granted") {
+      return { status: "skipped", reason: `Permission not granted for channel "${name}"` };
+    }
+    if (permission === "denied") {
+      return { status: "skipped", reason: `Permission denied for channel "${name}"` };
+    }
+    return await channel.send(notification);
+  } catch (error) {
+    return {
+      status: "failed",
+      error: error instanceof Error ? error : new Error(String(error)),
+    };
+  }
+}
+
 async function sendToChannels(
   notification: Notification,
   channelNames: ReadonlyArray<ChannelName>,
@@ -91,27 +113,7 @@ async function sendToChannels(
       continue;
     }
 
-    const perm = channel.permissionStatus();
-    if (perm === "default") {
-      const granted = await channel.requestPermission();
-      if (granted !== "granted") {
-        skipped.push({ channel: name, reason: `Permission not granted for channel "${name}"` });
-        continue;
-      }
-    } else if (perm === "denied") {
-      skipped.push({ channel: name, reason: `Permission denied for channel "${name}"` });
-      continue;
-    }
-
-    let result: ChannelStatus;
-    try {
-      result = await channel.send(notification);
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      failed.push({ channel: name, error });
-      emitter.emit("error", { channel: name, error, notification });
-      continue;
-    }
+    const result = await sendToChannel(name, channel, notification);
 
     if (result.status === "delivered") {
       delivered.push(name);
