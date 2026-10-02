@@ -17,6 +17,7 @@ use crate::{
 
 const WORKSPACE_HEADER: &str = "x-workspace";
 const NODE_HEADER: &str = "x-palladium-node";
+const GRANT_SCAN_BATCH: u32 = 100;
 
 fn workspace_of(headers: &HeaderMap) -> Result<String, AtriumError> {
     headers
@@ -175,8 +176,9 @@ async fn append_grant_backfills(
     let mut remaining = usize::try_from(limit)
         .unwrap_or(100)
         .saturating_sub(changes.len());
+    let mut scan_remaining = GRANT_SCAN_BATCH;
     for event in events.iter().filter(|event| event.kind == EVENT_GRANT) {
-        if remaining == 0 {
+        if scan_remaining == 0 || remaining == 0 {
             all_caught_up = false;
             break;
         }
@@ -189,53 +191,42 @@ async fn append_grant_backfills(
         if !db.can_read(workspace, user, &root).await? {
             continue;
         }
-        let (candidates, complete) = if let Some(through) = offered {
-            let entries = db
-                .list_changes_through(workspace, backfill_cursor, through, None)
-                .await?;
-            let mut selected = Vec::new();
-            for entry in entries {
-                if change_root(db, workspace, &entry.change).await?.as_deref()
-                    == Some(root.as_str())
-                {
-                    selected.push(entry);
-                    if selected.len() >= remaining {
-                        break;
-                    }
-                }
-            }
-            let upper = offered_upper.unwrap_or(through);
-            let delivered_through = selected
-                .last()
-                .map_or(backfill_cursor, |entry| entry.append_seq);
-            let complete = delivered_through >= upper;
-            db.grant_offer(event.id, delivered_through, upper, complete)
-                .await?;
-            (selected, complete)
+        let (after, bound, scan_through) = if let Some(through) = offered {
+            (backfill_cursor, offered_upper.unwrap_or(through), through)
         } else {
             let bound = match offered_upper {
                 Some(bound) => bound,
                 None => db.workspace_append_bound(workspace).await?,
             };
-            let all = db
-                .list_changes_through(workspace, backfill_cursor, bound, None)
-                .await?;
-            let mut selected = Vec::new();
-            for entry in all {
-                if change_root(db, workspace, &entry.change).await?.as_deref()
-                    == Some(root.as_str())
-                {
-                    selected.push(entry);
-                    if selected.len() >= remaining {
-                        break;
-                    }
-                }
-            }
-            let through = selected.last().map_or(bound, |entry| entry.append_seq);
-            let complete = through >= bound;
-            db.grant_offer(event.id, through, bound, complete).await?;
-            (selected, complete)
+            (backfill_cursor, bound, bound)
         };
+        let entries = db
+            .list_change_batch_through(workspace, after, scan_through, scan_remaining)
+            .await?;
+        scan_remaining -= u32::try_from(entries.len()).unwrap_or(scan_remaining);
+        let scanned_through = entries
+            .last()
+            .map_or(scan_through, |entry| entry.append_seq);
+        let mut selected = Vec::new();
+        let mut selected_through = after;
+        for entry in entries {
+            let is_root =
+                change_root(db, workspace, &entry.change).await?.as_deref() == Some(root.as_str());
+            if is_root && selected.len() < remaining {
+                selected_through = entry.append_seq;
+                selected.push(entry);
+            }
+        }
+        // Do not skip matching rows scanned beyond the response capacity. They
+        // remain in the raw history and will be considered after this offer is ACKed.
+        let through = if selected.len() == remaining && remaining > 0 {
+            selected_through
+        } else {
+            scanned_through
+        };
+        let complete = through >= bound;
+        db.grant_offer(event.id, through, bound, complete).await?;
+        let candidates = selected;
         all_caught_up &= complete;
         for entry in candidates {
             if remaining == 0 {
@@ -284,7 +275,7 @@ pub(super) async fn get_changes(
         return Err(AtriumError::BadRequest("invalid_cursor".to_owned()));
     }
     let history = db
-        .list_changes_through(&workspace, after, upper_bound, Some(limit))
+        .list_change_batch_through(&workspace, after, upper_bound, limit)
         .await?;
     let raw_count = history.len();
     let cursor = history

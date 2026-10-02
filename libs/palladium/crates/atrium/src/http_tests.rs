@@ -18,12 +18,17 @@ use uuid::Uuid;
 
 use crate::{create_router, AtriumDb, AtriumState, DevBearerProvider};
 
-async fn app() -> Router {
+async fn app_with_db() -> (Router, AtriumDb) {
     let db = AtriumDb::in_memory().await.unwrap();
-    create_router(
-        AtriumState::new(db, DevBearerProvider),
+    let router = create_router(
+        AtriumState::new(db.clone(), DevBearerProvider),
         CorsLayer::permissive(),
-    )
+    );
+    (router, db)
+}
+
+async fn app() -> Router {
+    app_with_db().await.0
 }
 
 fn node_for(user: &str) -> &'static str {
@@ -861,6 +866,114 @@ async fn resumed_grant_offer_advances_only_through_delivered_backfill() {
             .any(|change| change["id"].as_str() == Some(historical_ids[1].as_str())),
         "the undelivered backfill tail must remain available after acknowledgement"
     );
+}
+
+async fn get_env_at(
+    app: &Router,
+    user: &str,
+    workspace: &str,
+    cursor: i64,
+    limit: u32,
+) -> (StatusCode, Value) {
+    call(
+        app,
+        "GET",
+        &format!("/v1/changes?cursor={cursor}&limit={limit}"),
+        Some(user),
+        Some(workspace),
+        None,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn grant_backfill_scans_bounded_batches_and_replays_until_acknowledged() {
+    let (app, db) = app_with_db().await;
+    let ws = family(&app).await;
+    let (root, initial) = root_insert("notes");
+    assert_eq!(
+        post_change(&app, "alice", &ws, initial.clone()).await,
+        StatusCode::CREATED
+    );
+    let (_, unrelated) = root_insert("habits");
+    assert_eq!(
+        post_change(&app, "alice", &ws, unrelated.clone()).await,
+        StatusCode::CREATED
+    );
+    let unrelated_root = Uuid::parse_str(unrelated["ops"][0]["row_id"].as_str().unwrap()).unwrap();
+    for _ in 0..249 {
+        assert_eq!(
+            post_change(&app, "alice", &ws, update("habits", unrelated_root)).await,
+            StatusCode::CREATED
+        );
+    }
+
+    let upper = db.workspace_append_bound(&ws).await.unwrap();
+    let (_, passed) = get_env_at(&app, "bob", &ws, upper, 1).await;
+    assert_eq!(passed["cursor"], upper.to_string());
+    assert_eq!(
+        share(&app, "alice", &ws, root, "bob", "read").await,
+        StatusCode::OK
+    );
+
+    let (status, first) = get_env_at(&app, "bob", &ws, upper, 1).await;
+    assert_eq!(status, StatusCode::OK, "{first:?}");
+    assert_eq!(first["changes"].as_array().unwrap().len(), 1);
+    assert_eq!(first["changes"][0]["id"], initial["id"]);
+    let event_id = first["events"][0]["id"].as_i64().unwrap();
+    let replay = get_env_at(&app, "bob", &ws, upper, 1).await.1;
+    assert_eq!(
+        replay, first,
+        "an unacknowledged offer must replay identically"
+    );
+    let state = db
+        .grant_offer_state(&ws, "bob", node_for("bob"), event_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(state.1.unwrap() <= 100);
+
+    let mut event = first;
+    let mut empty_irrelevant_batches = 0;
+    for _ in 0..8 {
+        let (ack_status, _) = call(
+            &app,
+            "POST",
+            "/v1/changes/events/ack",
+            Some("bob"),
+            Some(&ws),
+            Some(json!({ "event_ids": [event_id] })),
+        )
+        .await;
+        assert_eq!(ack_status, StatusCode::NO_CONTENT);
+        let (status, next) = get_env_at(&app, "bob", &ws, upper, 1).await;
+        assert_eq!(status, StatusCode::OK, "{next:?}");
+        if next["changes"].as_array().unwrap().is_empty() {
+            empty_irrelevant_batches += 1;
+        }
+        let state = db
+            .grant_offer_state(&ws, "bob", node_for("bob"), event_id)
+            .await
+            .unwrap();
+        if let Some(state) = &state {
+            let scan_start = state.4;
+            let scan_end = state.1.unwrap();
+            assert!(scan_end - scan_start <= 100);
+        }
+        if state.is_none() {
+            assert!(next["events"].as_array().unwrap().is_empty());
+            event = next;
+            break;
+        }
+        event = next;
+    }
+    assert!(empty_irrelevant_batches >= 2);
+    assert!(event["caughtUp"].as_bool().unwrap());
+    assert!(db
+        .pending_events(&ws, "bob", node_for("bob"))
+        .await
+        .unwrap()
+        .is_empty());
 }
 
 #[tokio::test]
