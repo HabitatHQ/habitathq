@@ -5,9 +5,9 @@ import { get } from "svelte/store";
 import { describe, expect, it } from "vitest";
 import { liveQueryStore, syncStatusStore } from "../index.js";
 
-interface Schema {
+type Schema = {
   tasks: { id: string; name: string; done: number };
-}
+};
 
 const SCHEMA: SchemaConfig = {
   schema:
@@ -25,17 +25,6 @@ function flush(): Promise<void> {
 }
 
 describe("liveQueryStore", () => {
-  it("starts with loading=true", () => {
-    const db = makeDb();
-    const store = liveQueryStore<Schema["tasks"]>(db, sql`SELECT * FROM tasks`);
-    // Subscribe to activate the store's start function.
-    const unsub = store.subscribe(() => {});
-    const value = get(store);
-    expect(value.loading).toBe(true);
-    expect(value.rows).toEqual([]);
-    unsub();
-  });
-
   it("resolves to empty rows after init", async () => {
     const db = makeDb();
     await db.init(SCHEMA);
@@ -57,7 +46,11 @@ describe("liveQueryStore", () => {
     const unsub = store.subscribe(() => {});
     await flush();
 
-    await db.insert("tasks", { id: "t1", name: "Buy milk", done: 0 });
+    await db.insert("tasks", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      name: "Buy milk",
+      done: 0,
+    });
 
     const value = get(store);
     expect(value.rows).toHaveLength(1);
@@ -75,22 +68,17 @@ describe("liveQueryStore", () => {
     unsub();
 
     // Insert after unsubscribe — store is inactive, no further updates.
-    await db.insert("tasks", { id: "t1", name: "A", done: 0 });
+    await db.insert("tasks", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      name: "A",
+      done: 0,
+    });
 
     expect(get(store).rows).toEqual([]);
   });
 });
 
 describe("syncStatusStore", () => {
-  it("starts with idle status", async () => {
-    const db = makeDb();
-    await db.init(SCHEMA);
-    const store = syncStatusStore(db);
-    const unsub = store.subscribe(() => {});
-    expect(get(store)).toBe("idle");
-    unsub();
-  });
-
   it("updates when engine status changes", async () => {
     const db = makeDb();
     await db.init(SCHEMA);

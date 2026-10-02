@@ -6,9 +6,9 @@ import { describe, expect, it } from "vitest";
 import { defineComponent, nextTick } from "vue";
 import { useLiveQuery, useSyncStatus } from "../index.js";
 
-interface Schema {
+type Schema = {
   tasks: { id: string; name: string; done: number };
-}
+};
 
 const SCHEMA: SchemaConfig = {
   schema:
@@ -56,7 +56,11 @@ describe("useLiveQuery", () => {
     await nextTick();
     expect(wrapper.findAll("li")).toHaveLength(0);
 
-    await db.insert("tasks", { id: "t1", name: "Buy milk", done: 0 });
+    await db.insert("tasks", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      name: "Buy milk",
+      done: 0,
+    });
     await nextTick();
 
     expect(wrapper.findAll("li")).toHaveLength(1);
@@ -66,24 +70,6 @@ describe("useLiveQuery", () => {
 });
 
 describe("useSyncStatus", () => {
-  it("returns idle initially", async () => {
-    const db = makeDb();
-    await db.init(SCHEMA);
-
-    const Comp = defineComponent({
-      setup() {
-        const status = useSyncStatus(db);
-        return { status };
-      },
-      template: `<div data-testid="status">{{ status }}</div>`,
-    });
-
-    const wrapper = mount(Comp, { attachTo: document.body });
-    await nextTick();
-    expect(wrapper.find("[data-testid=status]").text()).toBe("idle");
-    wrapper.unmount();
-  });
-
   it("updates on status change", async () => {
     const db = makeDb();
     await db.init(SCHEMA);

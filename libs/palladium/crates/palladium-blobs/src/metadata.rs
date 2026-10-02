@@ -317,7 +317,7 @@ mod tests {
         };
         insert(&pool, &meta).await.unwrap();
         let expired = list_expired(&pool).await.unwrap();
-        assert!(!expired.is_empty());
+        assert_eq!(expired.len(), 1);
         assert_eq!(expired[0].id, id);
     }
 }

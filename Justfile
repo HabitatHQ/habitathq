@@ -14,9 +14,19 @@ lint-ts:
 fmt-ts:
     pnpm exec biome format --write .
 
-# Run all TypeScript tests via Vitest workspace
-test-ts:
-    pnpm exec vitest run
+# Run maintained Palladium package suites using their own Vitest configuration.
+# Nuxt has no unit suite; it is still built, linted, and typechecked by CI.
+test-ts: build-palladium-ts
+    pnpm --filter '@palladium/*' --filter '!@palladium/e2e' --filter '!@palladium/example-*' --filter '!@palladium/nuxt' -r --if-present test
+
+# Build maintained Palladium packages in dependency order before consuming exports.
+build-palladium-ts:
+    pnpm --filter @palladium/core build
+    pnpm --filter '@palladium/*' --filter '!@palladium/core' --filter '!@palladium/e2e' --filter '!@palladium/example-*' -r --if-present build
+
+# Use the root Biome version that owns the shared configuration.
+lint-palladium-ts:
+    pnpm --filter '@palladium/*' --filter palladium-cli --filter '!@palladium/e2e' --filter '!@palladium/example-*' -r exec sh -c 'pnpm --workspace-root exec biome check "$PWD/src"'
 
 # Type-check all TypeScript packages
 typecheck-ts:
@@ -70,9 +80,9 @@ coverage-summary:
 mutants:
     cargo mutants --workspace
 
-# TypeScript: run tests with coverage report for all packages
+# Measure coverage with each maintained package's own Vitest configuration.
 coverage-ts:
-    pnpm exec vitest run --coverage
+    pnpm --filter '@palladium/*' --filter '!@palladium/e2e' --filter '!@palladium/example-*' --filter '!@palladium/nuxt' --filter '!@palladium/worker' -r --if-present test --coverage
     @echo "Coverage reports written to coverage/ in each package directory"
 
 # TypeScript: run Stryker mutation tests against @palladium/core

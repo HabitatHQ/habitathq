@@ -349,13 +349,22 @@ export class PalladiumEngine<S extends SchemaMap> {
     await this.#loadDurableState();
     if (schema) {
       const identity = schemaIdentity(schema);
+      const versionRows = await this.adapter.exec<{ user_version: number }>("PRAGMA user_version");
+      const persistedVersion = versionRows[0]?.user_version ?? 0;
       const persistedIdentity = await this.getSyncState(STATE_SCHEMA_IDENTITY);
-      if (persistedIdentity !== null && persistedIdentity !== identity) {
+      if (
+        persistedIdentity !== null &&
+        persistedIdentity !== identity &&
+        persistedVersion === schema.version
+      ) {
         throw new SchemaIdentityMismatchError(identity, persistedIdentity);
       }
+      await this.#serialize(async () => {
+        await applySchema(this.adapter, schema, async (transaction) => {
+          await this.setSyncState(STATE_SCHEMA_IDENTITY, identity, transaction);
+        });
+      });
       this.#knownTables = extractSchemaTables(schema.schema);
-      await applySchema(this.adapter, schema);
-      await this.setSyncState(STATE_SCHEMA_IDENTITY, identity);
       this.#schemaIdentity = identity;
     }
   }
@@ -419,6 +428,15 @@ export class PalladiumEngine<S extends SchemaMap> {
       () => undefined,
     );
     return run;
+  }
+  /**
+   * Run an adapter callback with exclusive engine storage ownership for its
+   * full asynchronous lifetime. This is coordination only, not a transaction.
+   * Do not call engine methods that enqueue storage work from inside callback;
+   * they wait for this callback and would deadlock.
+   */
+  withStorage<T>(callback: (adapter: StorageAdapter) => Promise<T>): Promise<T> {
+    return this.#serialize(() => callback(this.adapter));
   }
 
   /**
@@ -758,9 +776,9 @@ export class PalladiumEngine<S extends SchemaMap> {
     });
   }
 
-  /** Execute a raw SQL query. */
+  /** Execute raw SQL exclusively with respect to engine mutations. */
   async exec<T = Record<string, unknown>>(query: SqlQuery): Promise<T[]> {
-    return this.adapter.exec<T>(query.text, query.params);
+    return this.withStorage((adapter) => adapter.exec<T>(query.text, query.params));
   }
 
   /**
@@ -770,10 +788,15 @@ export class PalladiumEngine<S extends SchemaMap> {
    * message-bus subscription instead.
    */
   liveQuery<T = Record<string, unknown>>(query: SqlQuery): LiveQuery<T> {
-    const lq = new LiveQuery<T>(query, this.adapter, () => {
-      // Stryker disable next-line all -- removing delete is observably equivalent: cancelled lq returns early from notifyTables
-      this.#liveQueries.delete(lq as LiveQuery);
-    });
+    const lq = new LiveQuery<T>(
+      query,
+      this.adapter,
+      () => {
+        // Stryker disable next-line all -- removing delete is observably equivalent: cancelled lq returns early from notifyTables
+        this.#liveQueries.delete(lq as LiveQuery);
+      },
+      () => this.withStorage((adapter) => adapter.exec<T>(query.text, query.params)),
+    );
     this.#liveQueries.add(lq as LiveQuery);
     return lq;
   }

@@ -18,7 +18,9 @@ export class ToastChannel implements NotificationsChannel {
   private readonly _defaultDuration: number | undefined;
 
   constructor(opts?: ToastChannelOpts) {
-    this.headless = new HeadlessToastState({ maxVisible: opts?.maxVisible });
+    this.headless = new HeadlessToastState(
+      opts?.maxVisible === undefined ? {} : { maxVisible: opts.maxVisible },
+    );
     this._defaultDuration = opts?.defaultDuration;
   }
 

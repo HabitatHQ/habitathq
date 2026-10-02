@@ -49,16 +49,19 @@ export class BrowserNotificationChannel implements NotificationsChannel {
     try {
       const requireInteraction =
         notification.urgency === "urgent" || (this._opts.requireInteraction ?? false);
+      const icon = this._opts.icon ?? notification.icon;
+      const badge = this._opts.badge ?? notification.badge;
 
-      const n = new Notification(notification.title, {
-        body: notification.body,
-        icon: this._opts.icon ?? notification.icon,
-        badge: this._opts.badge ?? notification.badge,
-        image: notification.image,
+      const options: NotificationOptions & { image?: string } = {
+        ...(notification.body === undefined ? {} : { body: notification.body }),
+        ...(icon === undefined ? {} : { icon }),
+        ...(badge === undefined ? {} : { badge }),
+        ...(notification.image === undefined ? {} : { image: notification.image }),
         requireInteraction,
-        tag: notification.id,
-        data: notification.data,
-      });
+        ...(notification.id === undefined ? {} : { tag: notification.id }),
+        ...(notification.data === undefined ? {} : { data: notification.data }),
+      };
+      const n = new Notification(notification.title, options);
 
       if (this._opts.autoDismissMs !== undefined) {
         const ms = this._opts.autoDismissMs;

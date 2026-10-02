@@ -1008,26 +1008,26 @@ impl AtriumDb {
         .unwrap_or(0))
     }
 
-    pub async fn list_changes_through(
+    pub async fn list_change_batch_through(
         &self,
         workspace: &str,
         after: i64,
         through: i64,
-        limit: Option<u32>,
+        limit: u32,
     ) -> Result<Vec<SequencedChange>, AtriumError> {
-        let mut query = sqlx::QueryBuilder::new(
+        let rows: Vec<(String, i64, i64, String, String, i64)> = sqlx::query_as(
             "SELECT id, hlc_millis, hlc_counter, hlc_node_id, ops_json, append_seq
-             FROM palladium_changes WHERE scope = ",
-        );
-        query.push_bind(workspace);
-        query.push(" AND append_seq > ").push_bind(after);
-        query.push(" AND append_seq <= ").push_bind(through);
-        query.push(" ORDER BY append_seq");
-        if let Some(limit) = limit {
-            query.push(" LIMIT ").push_bind(i64::from(limit));
-        }
-        let rows: Vec<(String, i64, i64, String, String, i64)> =
-            query.build_query_as().fetch_all(&self.pool).await?;
+             FROM palladium_changes
+             WHERE scope = ? AND append_seq > ? AND append_seq <= ?
+             ORDER BY append_seq
+             LIMIT ?",
+        )
+        .bind(workspace)
+        .bind(after)
+        .bind(through)
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await?;
         rows.into_iter()
             .map(|(id, millis, counter, node_id, ops_json, append_seq)| {
                 let id = Uuid::parse_str(&id).map_err(AtriumError::internal)?;

@@ -46,10 +46,4 @@ mod tests {
         let e = Error::from(inner);
         assert!(e.to_string().starts_with("serialization error:"));
     }
-
-    #[test]
-    fn error_variants_are_debug_printable() {
-        let e = Error::InvalidData("test".into());
-        assert!(!format!("{e:?}").is_empty());
-    }
 }

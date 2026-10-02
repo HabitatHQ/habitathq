@@ -103,6 +103,42 @@ describe("createNotifications", () => {
     expect(result.delivered).toContain("toast");
   });
 
+  it("falls back and emits a channel error when permission request rejects", async () => {
+    const browser = new MockChannel("browser", { permissionState: "default" });
+    vi.spyOn(browser, "requestPermission").mockRejectedValue(new Error("permission unavailable"));
+    const toast = new MockChannel("toast");
+    const inst = createNotifications({ channels: { browser, toast }, fallback: ["toast"] });
+    const onError = vi.fn();
+    inst.on("error", onError);
+
+    const result = await inst.notify("Hello").via("browser").send();
+
+    expect(result.delivered).toEqual(["toast"]);
+    expect(result.failed).toEqual([
+      { channel: "browser", error: expect.objectContaining({ message: "permission unavailable" }) },
+    ]);
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: "browser", error: expect.any(Error) }),
+    );
+  });
+
+  it("falls back when reading channel permission status throws", async () => {
+    const browser = new MockChannel("browser");
+    vi.spyOn(browser, "permissionStatus").mockImplementation(() => {
+      throw new Error("permission status unavailable");
+    });
+    const toast = new MockChannel("toast");
+    const inst = createNotifications({ channels: { browser, toast }, fallback: ["toast"] });
+
+    const result = await inst.notify("Hello").via("browser").send();
+
+    expect(result.delivered).toEqual(["toast"]);
+    expect(result.failed[0]).toMatchObject({
+      channel: "browser",
+      error: expect.objectContaining({ message: "permission status unavailable" }),
+    });
+  });
+
   it("fallback: per-notification fallback overrides config fallback", async () => {
     const browser = new MockChannel("browser");
     browser.setBehavior("failed");

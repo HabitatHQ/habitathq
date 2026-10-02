@@ -42,3 +42,44 @@
 5. Run the integrated Rust, client, HTTP E2E, and browser gates before committing and updating PR #43.
 
 This extension does not claim full-system DST, mobile lifecycle coverage, storage power-loss simulation, Postgres failover, or sustained-load qualification.
+
+## Bounded Quint delivery pilot (2026-10-02)
+
+The pilot adds executable design checks without changing production semantics
+or replacing the existing replica simulation:
+
+1. Model durable local commits/outbox, immutable server history, reader-applied
+   Changes, and page checkpoints separately. Bound identity to three Changes,
+   keep the schema/authorization fixed, and assume one local writer.
+2. Specify receipt loss, duplicate retry, truncated pages, local rollback,
+   per-change rejection, final checkpoint failure, client reopen, and persisted
+   server restart. State transaction/retry assumptions explicitly.
+3. Use pinned Quint tooling for sampled exploration and TLC finite-state
+   verification. Do not shorten exploration or weaken invariants to obtain a
+   passing result.
+4. Generate recovery and seeded expectations from Quint ITF; replay them through
+   actual TypeScript clients, file-backed SQLite, and Atrium. Assert durable
+   intermediate state after every transition, not only final convergence.
+5. Keep model verification and real trace replay manual-only through `model:check`
+   and `test:model`. Exclude the replay from the CI E2E suite and do not provision
+   Java for this pilot in CI. Report the seed/trace/transition for reproducible failures.
+
+Commands, guarantees, and excluded domains are maintained in
+[`TESTING-SYNC.md`](../../libs/palladium/docs/TESTING-SYNC.md#bounded-quint-delivery-pilot).
+This pilot does not claim full-system verification, fairness/liveness, ACL/LWW
+coverage, or storage power-loss correctness.
+
+## Rust CI compatibility repair (2026-10-02)
+
+1. Update the locked `async-trait` patch release to remove its redundant
+   generated `must_use` attribute without changing the authentication API.
+2. Remove constructor-copy/default/debug-printability tests and incidental
+   fixture assertions rather than re-pinning implementation expectations.
+   Preserve meaningful protocol validation and serialization coverage.
+3. Run formatting, the all-feature/all-target Clippy gate, affected Rust tests,
+   and real client/server E2E before publishing the correction. Verify remote
+   CI and cancel only redundant or superseded runs.
+
+Local verification passed: all-feature/all-target Clippy, 201 Rust tests across
+19 suites, and a live Atrium HTTP smoke proving anonymous rejection, authenticated
+workspace creation, owner visibility, and isolation from another identity.

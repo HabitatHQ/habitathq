@@ -28,6 +28,7 @@ ios/
 coverage/
 playwright-report/
 test-results/
+libs/palladium/e2e/_apalache-out/
 
 # Environment
 .env

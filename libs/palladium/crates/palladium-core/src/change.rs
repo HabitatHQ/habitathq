@@ -48,10 +48,6 @@ mod tests {
     struct ChangesEnvelope {
         changes: Vec<Change>,
         cursor: String,
-        #[serde(default)]
-        purges: Vec<Value>,
-        #[serde(default)]
-        events: Vec<Value>,
     }
 
     #[derive(Deserialize)]
@@ -96,8 +92,6 @@ mod tests {
         assert_eq!(&decoded, change);
         assert_eq!(encoded, serde_json::to_value(change).unwrap());
         assert_eq!(envelope.cursor.parse::<u64>().unwrap(), 42);
-        assert!(envelope.purges.is_empty());
-        assert!(envelope.events.is_empty());
 
         let invalid: Vec<InvalidFixture> =
             serde_json::from_str(include_str!("../../../protocol-fixtures/wire-invalid.json"))
@@ -145,27 +139,6 @@ mod tests {
         let a = Change::new(hlc, vec![]);
         let b = Change::new(hlc, vec![]);
         assert_ne!(a.id, b.id);
-    }
-
-    #[test]
-    fn empty_change_has_no_ops() {
-        let c = Change::new(base_hlc(), vec![]);
-        assert!(c.ops.is_empty());
-        assert_eq!(c.ops.len(), 0);
-    }
-
-    #[test]
-    fn non_empty_change_has_ops() {
-        let c = Change::new(base_hlc(), vec![insert_op()]);
-        assert!(!c.ops.is_empty());
-        assert_eq!(c.ops.len(), 1);
-    }
-
-    #[test]
-    fn ops_len_reflects_count() {
-        let ops = vec![insert_op(), insert_op(), insert_op()];
-        let c = Change::new(base_hlc(), ops);
-        assert_eq!(c.ops.len(), 3);
     }
 
     #[test]

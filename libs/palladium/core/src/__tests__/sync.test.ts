@@ -401,6 +401,42 @@ describe("SyncTransport — downlink", () => {
     await transport.dispose();
   });
 
+  it("does not suppress a remote change when an unknown ID is discarded", async () => {
+    const db = await makeEngine(BOB);
+    const change: WireChange = {
+      id: "00000000-0000-4000-8000-00000000000c",
+      hlc: { wallMs: 1_700_000_000_002, counter: 0, nodeId: ALICE },
+      ops: [
+        {
+          op: "insert",
+          table: "notes",
+          row_id: "018f0f50-7b8d-7a1c-8e2f-1234567890ad",
+          data: {
+            id: "018f0f50-7b8d-7a1c-8e2f-1234567890ad",
+            title: "valid",
+            updated_at: 1,
+          },
+        },
+      ],
+    };
+    const { fetch } = makeFakeFetch(() => jsonResponse(page([change])));
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await transport.discardQuarantined(change.id);
+    await transport.poll();
+    expect(
+      await db.exec<Schema["notes"]>(
+        sql`SELECT * FROM notes WHERE id = ${"018f0f50-7b8d-7a1c-8e2f-1234567890ad"}`,
+      ),
+    ).toEqual([
+      {
+        id: "018f0f50-7b8d-7a1c-8e2f-1234567890ad",
+        title: "valid",
+        updated_at: 1,
+      },
+    ]);
+    await transport.dispose();
+  });
+
   it("ignores a legacy HLC cursor and starts from the new append cursor key", async () => {
     const db = await makeEngine(BOB);
     await db.setSyncState("cursor", "legacy-hlc-cursor");
@@ -1130,6 +1166,77 @@ describe("SyncTransport — durable outbox", () => {
 
     expect(posts).toBe(2);
     expect(await outboxRows(db)).toHaveLength(0);
+    expect(await restarted.inspectQuarantine()).toEqual([]);
+    await restarted.dispose();
+  });
+  it("permanently discards terminal uplink evidence, unblocks the next change, and retries the same id after restart", async () => {
+    const db = await makeEngine(ALICE);
+    const posted: WireChange[] = [];
+    const attempts = new Map<string, number>();
+    const { fetch } = makeFakeFetch((call) => {
+      if (call.init?.method === "POST") {
+        const change = JSON.parse(String(call.init.body)) as WireChange;
+        posted.push(change);
+        const count = (attempts.get(change.id) ?? 0) + 1;
+        attempts.set(change.id, count);
+        return change.id === posted[0]?.id && count === 1
+          ? jsonResponse({}, 201)
+          : jsonResponse(receipt(), 201);
+      }
+      return jsonResponse(page());
+    });
+    const firstTransport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await firstTransport.poll();
+    await db.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      title: "first",
+      updated_at: 1,
+    });
+    await firstTransport.syncOnce();
+    const blocked = await firstTransport.inspectQuarantine();
+    expect(blocked).toHaveLength(1);
+    const first = blocked[0];
+    if (first === undefined) throw new Error("expected terminal uplink evidence");
+
+    await db.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac",
+      title: "second",
+      updated_at: 2,
+    });
+    await firstTransport.syncOnce();
+    expect(posted.map((change) => change.id)).toEqual([first.changeId]);
+    await firstTransport.discardQuarantined(first.changeId);
+    const evidenceAfterDiscard = await firstTransport.inspectQuarantine();
+    await firstTransport.discardQuarantined(first.changeId);
+    expect(await firstTransport.inspectQuarantine()).toEqual(evidenceAfterDiscard);
+    await firstTransport.dispose();
+
+    const restarted = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    const discarded = await restarted.inspectQuarantine();
+    expect(discarded).toEqual([
+      expect.objectContaining({
+        phase: "uplink",
+        changeId: first.changeId,
+        attempts: 1,
+        permanent: true,
+        disposition: "discarded",
+        payload: first.payload,
+        code: "invalid_receipt",
+      }),
+    ]);
+    expect(await restarted.exportQuarantine()).toContain('"disposition":"discarded"');
+    await restarted.syncOnce();
+    expect(posted.map((change) => change.id)).toEqual([first.changeId, expect.any(String)]);
+    expect(db.getSyncStatus()).toBe("caught_up");
+
+    await restarted.retryQuarantined(first.changeId);
+    await restarted.syncOnce();
+    expect(posted.map((change) => change.id)).toEqual([
+      first.changeId,
+      expect.any(String),
+      first.changeId,
+    ]);
+    expect(posted[2]).toEqual(posted[0]);
     expect(await restarted.inspectQuarantine()).toEqual([]);
     await restarted.dispose();
   });

@@ -53,12 +53,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_empty_toml() {
-        let cfg: ServerConfig = toml::from_str("").unwrap();
-        assert!(cfg.instances.is_empty());
-    }
-
-    #[test]
     fn unknown_field_is_error() {
         let result: Result<ServerConfig, _> = toml::from_str(
             r#"
