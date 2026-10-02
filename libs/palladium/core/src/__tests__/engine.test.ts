@@ -422,6 +422,34 @@ describe("createEngine (SQLite)", () => {
     const checkpoints = await observedRows;
     expect(checkpoints).toHaveLength(1);
   });
+  it("serializes live-query refreshes behind storage transactions and never exposes rolled-back rows", async () => {
+    const db = makeDb();
+    await db.init(SCHEMA);
+    const live = db.liveQuery<Schema["tasks"]>(sql`SELECT * FROM tasks`);
+    const emissions: Schema["tasks"][][] = [];
+    live.on("change", (rows) => emissions.push(rows));
+    const queuedRefresh: { promise?: Promise<void> } = {};
+
+    await expect(
+      db.withStorage(async () =>
+        db.adapter.transaction(async (tx) => {
+          await tx.exec("INSERT INTO tasks (id, name, done) VALUES (?, ?, ?)", [
+            "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+            "rolled back",
+            0,
+          ]);
+          queuedRefresh.promise = live.refresh();
+          throw new Error("rollback transaction");
+        }),
+      ),
+    ).rejects.toThrow("rollback transaction");
+
+    const refresh = queuedRefresh.promise;
+    if (refresh === undefined) throw new Error("expected queued live-query refresh");
+    await refresh;
+    expect(emissions).toEqual([[]]);
+    live.cancel();
+  });
 });
 
 describe("PalladiumEngine HLC stamping", () => {

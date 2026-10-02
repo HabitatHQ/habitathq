@@ -111,25 +111,50 @@ async function runPendingMigrations(
  * Existing databases are upgraded transactionally: pending migrations run
  * before the current baseline, and `user_version` advances only after both
  * succeed. Seeds are evaluated after the schema transaction commits.
+ *
+ * `beforeCommit`, when supplied, runs after the schema/version writes on the
+ * same adapter inside the schema transaction where transactions are supported.
+ * Existing upgrades still require transaction support; fresh nontransactional
+ * installs retain their retry-safe baseline behavior.
  */
-export async function applySchema(adapter: StorageAdapter, config: SchemaConfig): Promise<void> {
-  // Read the persisted version before applying baseline DDL. Existing tables
-  // are not changed by `CREATE TABLE IF NOT EXISTS`, so a new baseline index can
-  // otherwise reference a column that its pending migration has not added yet.
+export async function applySchema(
+  adapter: StorageAdapter,
+  config: SchemaConfig,
+  beforeCommit?: (transaction: StorageAdapter) => Promise<void>,
+): Promise<void> {
   const rows = await adapter.exec<{ user_version: number }>("PRAGMA user_version");
   const currentVersion = rows[0]?.user_version ?? 0;
+  if (currentVersion > config.version) {
+    throw new Error(
+      `applySchema: cannot downgrade from version ${currentVersion} to ${config.version}`,
+    );
+  }
 
-  if (currentVersion === 0) {
-    const install = async (target: StorageAdapter): Promise<void> => {
+  const apply = async (target: StorageAdapter, fresh: boolean): Promise<void> => {
+    if (fresh) {
       await target.runMigrations([config.schema]);
       await target.exec(`PRAGMA user_version = ${config.version}`);
-    };
-    if (isTransactable(adapter)) {
-      await adapter.transaction(install);
+    } else if (currentVersion < config.version) {
+      const exec: MigrationExec = <T = Record<string, unknown>>(
+        sql: string,
+        params?: readonly unknown[],
+      ): Promise<T[]> => target.exec<T>(sql, params);
+      if (config.migrations) {
+        await runPendingMigrations(target, exec, config.migrations, currentVersion, config.version);
+      }
+      await target.runMigrations([config.schema]);
+      await target.exec(`PRAGMA user_version = ${config.version}`);
     } else {
-      // Baseline DDL is required to be idempotent, so an interrupted
-      // non-transactional fresh install can safely replay before it is stamped.
-      await install(adapter);
+      await target.runMigrations([config.schema]);
+    }
+    await beforeCommit?.(target);
+  };
+
+  if (currentVersion === 0) {
+    if (isTransactable(adapter)) {
+      await adapter.transaction((tx) => apply(tx, true));
+    } else {
+      await apply(adapter, true);
     }
   } else if (currentVersion < config.version) {
     if (!isTransactable(adapter)) {
@@ -137,30 +162,11 @@ export async function applySchema(adapter: StorageAdapter, config: SchemaConfig)
         `applySchema: upgrading from version ${currentVersion} to ${config.version} requires transaction support`,
       );
     }
-
-    await adapter.transaction(async (tx) => {
-      const exec: MigrationExec = <T = Record<string, unknown>>(
-        sql: string,
-        params?: readonly unknown[],
-      ): Promise<T[]> => tx.exec<T>(sql, params);
-
-      if (config.migrations) {
-        await runPendingMigrations(tx, exec, config.migrations, currentVersion, config.version);
-      }
-      await tx.runMigrations([config.schema]);
-      await tx.exec(`PRAGMA user_version = ${config.version}`);
-    });
+    await adapter.transaction((tx) => apply(tx, false));
+  } else if (isTransactable(adapter)) {
+    await adapter.transaction((tx) => apply(tx, false));
   } else {
-    // Replay idempotent baseline objects even when the version is current. This
-    // repairs an older applySchema call that stamped before baseline replay.
-    const replay = async (target: StorageAdapter): Promise<void> => {
-      await target.runMigrations([config.schema]);
-    };
-    if (isTransactable(adapter)) {
-      await adapter.transaction(replay);
-    } else {
-      await replay(adapter);
-    }
+    await apply(adapter, false);
   }
 
   if (config.seeds && config.seeds.length > 0) {

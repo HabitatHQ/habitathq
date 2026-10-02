@@ -329,4 +329,154 @@ describe("durable sync state — schema identity", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("migrates an initialized file-backed schema and identity atomically, then quarantines old outbox rows", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "palladium-schema-upgrade-"));
+    const file = join(dir, "db.sqlite");
+    const v2: SchemaConfig = {
+      version: 2,
+      schema: `${ALTERNATE_SCHEMA.schema};\nCREATE INDEX IF NOT EXISTS idx_notes_archived ON notes(archived)`,
+      migrations: { 2: ["ALTER TABLE notes ADD COLUMN archived INTEGER NOT NULL DEFAULT 0"] },
+    };
+    try {
+      const first = new PalladiumEngine<Schema>(
+        new NodeSqliteAdapter({ vfs: { type: "file", filename: file } }),
+        { nodeId: ALICE },
+      );
+      await first.init(SCHEMA);
+      const oldTransport = new SyncTransport(first, {
+        serverUrl: SERVER_URL,
+        fetch: async () =>
+          new Response(
+            JSON.stringify({
+              version: 1,
+              changes: [],
+              purges: [],
+              events: [],
+              cursor: null,
+              upperBound: "0",
+              caughtUp: true,
+              control: { mustRefetch: false },
+            }),
+            { status: 200 },
+          ),
+      });
+      await oldTransport.poll();
+      await oldTransport.dispose();
+      const oldIdentity = first.initializedSchemaIdentity;
+      await first.adapter.exec(
+        `INSERT INTO _sync_outbox
+         (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint, created_at)
+         VALUES (?, 1, 0, ?, '[]', ?, 1)`,
+        ["00000000-0000-4000-8000-00000000c101", ALICE, oldIdentity],
+      );
+      await first.adapter.close();
+
+      const upgraded = new PalladiumEngine<Schema>(
+        new NodeSqliteAdapter({ vfs: { type: "file", filename: file } }),
+        { nodeId: ALICE },
+      );
+      await upgraded.init(v2);
+      expect(upgraded.initializedSchemaIdentity).not.toBe(oldIdentity);
+      expect(await upgraded.getSyncState("schema_identity_v1")).toBe(
+        upgraded.initializedSchemaIdentity,
+      );
+      expect(await upgraded.adapter.exec<{ user_version: number }>("PRAGMA user_version")).toEqual([
+        { user_version: 2 },
+      ]);
+      const columns = await upgraded.adapter.exec<{ name: string }>("PRAGMA table_info(notes)");
+      expect(columns.map((column) => column.name)).toContain("archived");
+
+      const transport = new SyncTransport(upgraded, {
+        serverUrl: SERVER_URL,
+        fetch: async () => new Response("unexpected", { status: 500 }),
+      });
+      await transport.start();
+      const quarantined = await transport.inspectQuarantine();
+      expect(quarantined).toEqual([
+        expect.objectContaining({
+          changeId: "00000000-0000-4000-8000-00000000c101",
+          schemaIdentity: oldIdentity,
+          code: "schema_incompatible",
+          disposition: "blocking",
+        }),
+      ]);
+      await transport.dispose();
+      await upgraded.adapter.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rolls back schema and identity together when an upward migration fails", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "palladium-schema-rollback-"));
+    const file = join(dir, "db.sqlite");
+    try {
+      const first = new PalladiumEngine<Schema>(
+        new NodeSqliteAdapter({ vfs: { type: "file", filename: file } }),
+        { nodeId: ALICE },
+      );
+      await first.init(SCHEMA);
+      const originalIdentity = first.initializedSchemaIdentity;
+      await first.adapter.close();
+
+      const failed = new PalladiumEngine<Schema>(
+        new NodeSqliteAdapter({ vfs: { type: "file", filename: file } }),
+        { nodeId: ALICE },
+      );
+      await expect(
+        failed.init({
+          version: 2,
+          schema: SCHEMA.schema,
+          migrations: {
+            2: [
+              "ALTER TABLE notes ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
+              async () => {
+                throw new Error("injected migration failure");
+              },
+            ],
+          },
+        }),
+      ).rejects.toThrow("injected migration failure");
+      expect(await failed.getSyncState("schema_identity_v1")).toBe(originalIdentity);
+      expect(await failed.adapter.exec<{ user_version: number }>("PRAGMA user_version")).toEqual([
+        { user_version: 1 },
+      ]);
+      const columns = await failed.adapter.exec<{ name: string }>("PRAGMA table_info(notes)");
+      expect(columns.map((column) => column.name)).not.toContain("archived");
+      await failed.adapter.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a downgrade before changing schema identity or version", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "palladium-schema-downgrade-"));
+    const file = join(dir, "db.sqlite");
+    try {
+      const current = new PalladiumEngine<Schema>(
+        new NodeSqliteAdapter({ vfs: { type: "file", filename: file } }),
+        { nodeId: ALICE },
+      );
+      const v2: SchemaConfig = {
+        version: 2,
+        schema: `${SCHEMA.schema};\nCREATE TABLE IF NOT EXISTS archive (id TEXT PRIMARY KEY)`,
+      };
+      await current.init(v2);
+      const identity = current.initializedSchemaIdentity;
+      await current.adapter.close();
+      const reopened = new PalladiumEngine<Schema>(
+        new NodeSqliteAdapter({ vfs: { type: "file", filename: file } }),
+        { nodeId: ALICE },
+      );
+      await expect(reopened.init(SCHEMA)).rejects.toThrow("cannot downgrade");
+      expect(await reopened.getSyncState("schema_identity_v1")).toBe(identity);
+      expect(await reopened.adapter.exec<{ user_version: number }>("PRAGMA user_version")).toEqual([
+        { user_version: 2 },
+      ]);
+      await reopened.adapter.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

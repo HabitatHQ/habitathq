@@ -18,6 +18,7 @@ type ChangeListener<T> = (rows: T[]) => void;
 export class LiveQuery<T = Record<string, unknown>> {
   readonly #query: SqlQuery;
   readonly #adapter: StorageAdapter;
+  readonly #executeQuery: () => Promise<T[]>;
   readonly #listeners = new Set<ChangeListener<T>>();
   readonly #onCancel: (() => void) | null;
   readonly #watchedTables: ReadonlySet<string>;
@@ -27,18 +28,26 @@ export class LiveQuery<T = Record<string, unknown>> {
    * @param query - The SQL query to execute reactively.
    * @param adapter - Storage adapter to run queries against.
    * @param onCancel - Optional callback invoked when cancel() is called (used by the engine to deregister).
+   * @param executeQuery - Optional executor for coordinating engine-owned storage access.
    */
-  constructor(query: SqlQuery, adapter: StorageAdapter, onCancel?: () => void) {
+  constructor(
+    query: SqlQuery,
+    adapter: StorageAdapter,
+    onCancel?: () => void,
+    executeQuery?: () => Promise<T[]>,
+  ) {
     this.#query = query;
     this.#adapter = adapter;
     this.#onCancel = onCancel ?? null;
+    this.#executeQuery =
+      executeQuery ?? (() => this.#adapter.exec<T>(this.#query.text, this.#query.params));
     // Build a Set once for O(1) lookups; tables are already lowercased by extractTables.
     this.#watchedTables = new Set(query.tables);
   }
 
   /** Execute the query once and return the result rows. */
   async exec(): Promise<T[]> {
-    return this.#adapter.exec<T>(this.#query.text, this.#query.params);
+    return this.#executeQuery();
   }
 
   /**
@@ -78,7 +87,7 @@ export class LiveQuery<T = Record<string, unknown>> {
   }
 
   async #runAndNotify(): Promise<void> {
-    const rows = await this.#adapter.exec<T>(this.#query.text, this.#query.params);
+    const rows = await this.#executeQuery();
     const errors: unknown[] = [];
     for (const listener of this.#listeners) {
       try {
