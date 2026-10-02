@@ -88,6 +88,21 @@ Quint replay; `test:model` selects it through `vitest.model.config.ts`.
 
 Focused behavioral regressions include Kysely rollback/commit isolation and commit errors, atomic IndexedDB replacement/deletion, schema upgrade rollback and old-outbox quarantine, explicit discard/retry after restart, React query error recovery, notification permission fallback, and bounded Atrium backfill offer/ACK progression.
 
+## Rust CI compatibility
+
+Keep the locked `async-trait` resolution at 0.1.92 or newer: 0.1.89 adds a
+redundant `must_use` attribute to generated trait futures that newer Clippy
+rejects. Update the lockfile through Cargo rather than suppressing the lint or
+changing the authentication API. Do not retain constructor-copy, incidental
+default, or nonempty-debug-output tests just to satisfy assertion linting.
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --locked --workspace --all-features --all-targets -- -D warnings
+cargo test --locked --workspace
+```
+
+
 ## End-to-end prerequisites (not part of the fixture gate)
 
 The live client/server suite requires built core and SQLite-node packages plus Rust server binaries:
