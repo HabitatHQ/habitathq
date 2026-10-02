@@ -635,10 +635,7 @@ async fn events_remain_pending_until_workspace_ack() {
     )
     .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
-    assert!(get_env(&app, "bob", &ws).await["events"]
-        .as_array()
-        .unwrap()
-        .is_empty());
+    assert_eq!(get_env(&app, "bob", &ws).await["events"], json!([]));
 }
 
 #[tokio::test]
@@ -961,7 +958,7 @@ async fn grant_backfill_scans_bounded_batches_and_replays_until_acknowledged() {
             assert!(scan_end - scan_start <= 100);
         }
         if state.is_none() {
-            assert!(next["events"].as_array().unwrap().is_empty());
+            assert_eq!(next["events"], json!([]));
             event = next;
             break;
         }

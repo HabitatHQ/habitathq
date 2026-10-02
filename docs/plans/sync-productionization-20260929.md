@@ -68,3 +68,18 @@ Commands, guarantees, and excluded domains are maintained in
 [`TESTING-SYNC.md`](../../libs/palladium/docs/TESTING-SYNC.md#bounded-quint-delivery-pilot).
 This pilot does not claim full-system verification, fairness/liveness, ACL/LWW
 coverage, or storage power-loss correctness.
+
+## Rust CI compatibility repair (2026-10-02)
+
+1. Update the locked `async-trait` patch release to remove its redundant
+   generated `must_use` attribute without changing the authentication API.
+2. Remove constructor-copy/default/debug-printability tests and incidental
+   fixture assertions rather than re-pinning implementation expectations.
+   Preserve meaningful protocol validation and serialization coverage.
+3. Run formatting, the all-feature/all-target Clippy gate, affected Rust tests,
+   and real client/server E2E before publishing the correction. Verify remote
+   CI and cancel only redundant or superseded runs.
+
+Local verification passed: all-feature/all-target Clippy, 201 Rust tests across
+19 suites, and a live Atrium HTTP smoke proving anonymous rejection, authenticated
+workspace creation, owner visibility, and isolation from another identity.
