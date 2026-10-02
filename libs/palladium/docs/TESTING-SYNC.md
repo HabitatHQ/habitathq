@@ -99,9 +99,15 @@ default, or nonempty-debug-output tests just to satisfy assertion linting.
 ```sh
 cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-features --all-targets -- -D warnings
+# Local compatibility subset, without external Postgres or Docker fixtures.
 cargo test --locked --workspace
 ```
 
+The full CI Rust gate also exercises PostgreSQL and the Docker-backed OIDC fixture:
+
+```sh
+cargo test --locked --workspace --features palladium-postgres/integration-tests,atrium/oidc-testcontainers
+```
 
 ## End-to-end prerequisites (not part of the fixture gate)
 
