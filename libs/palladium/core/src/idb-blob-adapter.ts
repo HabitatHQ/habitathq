@@ -37,64 +37,38 @@ export class IDBBlobAdapter implements BlobAdapter {
   async put(id: string, bytes: Uint8Array, options?: BlobAdapterOptions): Promise<void> {
     options?.signal?.throwIfAborted();
     const db = await this.#open();
-    if (this.#chunkSizeBytes === 0) {
-      await idbPut(db, "blobs", id, bytes);
-    } else {
-      await this.#putChunked(db, id, bytes);
-    }
-  }
+    await runTransaction(db, ["blobs", "chunks"], "readwrite", (tx) => {
+      const blobs = tx.objectStore("blobs");
+      const chunks = tx.objectStore("chunks");
+      const chunkCount =
+        this.#chunkSizeBytes === 0 ? 0 : Math.ceil(bytes.length / this.#chunkSizeBytes);
+      deleteChunks(chunks, id, chunkCount);
+      if (this.#chunkSizeBytes === 0) {
+        blobs.put(bytes, id);
+        return;
+      }
 
-  async #putChunked(db: IDBDatabase, id: string, bytes: Uint8Array): Promise<void> {
-    const chunks = Math.ceil(bytes.length / this.#chunkSizeBytes);
-    const puts: Promise<void>[] = [];
-    for (let i = 0; i < chunks; i++) {
-      const chunk = bytes.slice(i * this.#chunkSizeBytes, (i + 1) * this.#chunkSizeBytes);
-      puts.push(idbPut(db, "chunks", `${id}:${i}`, chunk));
-    }
-    await Promise.all(puts);
-    // Store chunk count as metadata in the blobs store
-    await idbPut(db, "blobs", id, chunks);
+      for (let i = 0; i < chunkCount; i++) {
+        const chunk = bytes.slice(i * this.#chunkSizeBytes, (i + 1) * this.#chunkSizeBytes);
+        chunks.put(chunk, chunkKey(id, i));
+      }
+      blobs.put(chunkCount, id);
+    });
   }
 
   async get(id: string, options?: BlobAdapterOptions): Promise<Uint8Array | null> {
     options?.signal?.throwIfAborted();
     const db = await this.#open();
-    const meta = await idbGet<Uint8Array | number>(db, "blobs", id);
-    if (meta === undefined) return null;
-    if (typeof meta === "number") {
-      return this.#getChunked(db, id, meta);
-    }
-    return meta;
-  }
-
-  async #getChunked(db: IDBDatabase, id: string, chunkCount: number): Promise<Uint8Array> {
-    const parts = await Promise.all(
-      Array.from({ length: chunkCount }, (_, i) => idbGet<Uint8Array>(db, "chunks", `${id}:${i}`)),
-    );
-    const total = parts.reduce((s, p) => s + (p?.length ?? 0), 0);
-    const result = new Uint8Array(total);
-    let offset = 0;
-    for (const part of parts) {
-      if (part) {
-        result.set(part, offset);
-        offset += part.length;
-      }
-    }
-    return result;
+    return readBlob(db, id);
   }
 
   async delete(id: string, options?: BlobAdapterOptions): Promise<void> {
     options?.signal?.throwIfAborted();
     const db = await this.#open();
-    const meta = await idbGet<Uint8Array | number>(db, "blobs", id);
-    if (typeof meta === "number") {
-      const dels: Promise<void>[] = [];
-      for (let i = 0; i < meta; i++) {
-        dels.push(idbDelete(db, "chunks", `${id}:${i}`));
-      }
-      await Promise.all(dels);
-    }
-    await idbDelete(db, "blobs", id);
+    await runTransaction(db, ["blobs", "chunks"], "readwrite", (tx) => {
+      deleteChunks(tx.objectStore("chunks"), id, 0);
+      tx.objectStore("blobs").delete(id);
+    });
   }
 
   async has(id: string, options?: BlobAdapterOptions): Promise<boolean> {
@@ -107,41 +81,151 @@ export class IDBBlobAdapter implements BlobAdapter {
 
 // ── IDB helpers ──────────────────────────────────────────────────────────────
 
-function idbPut(db: IDBDatabase, store: string, key: string, value: unknown): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(store, "readwrite");
-    const req = tx.objectStore(store).put(value, key);
-    req.onsuccess = () => {
-      resolve();
-    };
-    req.onerror = () => {
-      reject(req.error);
-    };
-  });
+type BlobMetadata = Uint8Array | number;
+
+function chunkKey(id: string, index: number): string {
+  return `${id}:${index}`;
 }
 
-function idbGet<T>(db: IDBDatabase, store: string, key: string): Promise<T | undefined> {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(store, "readonly");
-    const req = tx.objectStore(store).get(key);
-    req.onsuccess = () => {
-      resolve(req.result as T | undefined);
-    };
-    req.onerror = () => {
-      reject(req.error);
-    };
-  });
+function deleteChunks(store: IDBObjectStore, id: string, preservedCount: number): void {
+  const prefix = `${id}:`;
+  const request = store.openCursor(IDBKeyRange.bound(prefix, `${prefix}\uffff`));
+  request.onsuccess = () => {
+    const cursor = request.result;
+    if (!cursor) return;
+    const key = cursor.key;
+    if (typeof key === "string" && key.startsWith(prefix)) {
+      const suffix = key.slice(prefix.length);
+      if (/^(0|[1-9]\d*)$/.test(suffix) && Number(suffix) >= preservedCount) {
+        cursor.delete();
+      }
+    }
+    cursor.continue();
+  };
 }
 
-function idbDelete(db: IDBDatabase, store: string, key: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(store, "readwrite");
-    const req = tx.objectStore(store).delete(key);
-    req.onsuccess = () => {
-      resolve();
-    };
-    req.onerror = () => {
-      reject(req.error);
-    };
+function runTransaction(
+  db: IDBDatabase,
+  stores: string[],
+  mode: IDBTransactionMode,
+  operation: (tx: IDBTransaction) => void,
+): Promise<void> {
+  const tx = db.transaction(stores, mode);
+  const { promise, resolve, reject } = deferred<void>();
+  let operationError: unknown;
+  tx.oncomplete = () => {
+    resolve();
+  };
+  tx.onabort = () => {
+    reject(
+      tx.error ?? operationError ?? new DOMException("IndexedDB transaction aborted", "AbortError"),
+    );
+  };
+
+  try {
+    operation(tx);
+  } catch (error) {
+    operationError = error;
+    try {
+      tx.abort();
+    } catch {
+      reject(error);
+    }
+  }
+  return promise;
+}
+
+function readBlob(db: IDBDatabase, id: string): Promise<Uint8Array | null> {
+  const tx = db.transaction(["blobs", "chunks"], "readonly");
+  const blobs = tx.objectStore("blobs");
+  const chunks = tx.objectStore("chunks");
+  let metadata: BlobMetadata | undefined;
+  let parts: Array<Uint8Array | undefined> | undefined;
+  let readError: Error | undefined;
+
+  const { promise, resolve, reject } = deferred<Uint8Array | null>();
+  tx.oncomplete = () => {
+    if (readError) {
+      reject(readError);
+      return;
+    }
+    if (metadata === undefined) {
+      resolve(null);
+      return;
+    }
+    if (typeof metadata !== "number") {
+      resolve(metadata);
+      return;
+    }
+
+    const completeParts = parts ?? [];
+    const total = completeParts.reduce((sum, part) => sum + (part?.length ?? 0), 0);
+    const result = new Uint8Array(total);
+    let offset = 0;
+    for (const part of completeParts) {
+      if (part) {
+        result.set(part, offset);
+        offset += part.length;
+      }
+    }
+    resolve(result);
+  };
+  tx.onabort = () => {
+    reject(tx.error ?? new DOMException("IndexedDB transaction aborted", "AbortError"));
+  };
+
+  const metadataRequest = blobs.get(id);
+  metadataRequest.onsuccess = () => {
+    metadata = metadataRequest.result as BlobMetadata | undefined;
+    if (typeof metadata !== "number") return;
+    if (!Number.isSafeInteger(metadata) || metadata < 0) {
+      readError = new Error(`Invalid IndexedDB chunk count for blob "${id}"`);
+      tx.abort();
+      return;
+    }
+
+    parts = new Array<Uint8Array | undefined>(metadata);
+    for (let i = 0; i < metadata; i++) {
+      const partRequest = chunks.get(chunkKey(id, i));
+      partRequest.onsuccess = () => {
+        const part = partRequest.result as Uint8Array | undefined;
+        if (part === undefined) {
+          readError = new Error(`Missing IndexedDB chunk ${i} for blob "${id}"`);
+          return;
+        }
+        if (parts) parts[i] = part;
+      };
+    }
+  };
+  return promise;
+}
+function idbGet<T>(db: IDBDatabase, store: string, key: IDBValidKey): Promise<T | undefined> {
+  const tx = db.transaction(store, "readonly");
+  const request = tx.objectStore(store).get(key);
+  const { promise, resolve, reject } = deferred<T | undefined>();
+  let result: T | undefined;
+
+  request.onsuccess = () => {
+    result = request.result as T | undefined;
+  };
+  tx.oncomplete = () => {
+    resolve(result);
+  };
+  tx.onabort = () => {
+    reject(tx.error ?? new DOMException("IndexedDB transaction aborted", "AbortError"));
+  };
+  return promise;
+}
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T | PromiseLike<T>) => void;
+  reject: (reason?: unknown) => void;
+} {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
   });
+  return { promise, resolve, reject };
 }
