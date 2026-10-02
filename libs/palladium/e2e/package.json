@@ -7,7 +7,11 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "model:simulate": "quint run models/delivery.qnt --backend=typescript --step=step --max-samples=1000 --max-steps=18 --seed=${PALLADIUM_QUINT_SEED:-0x5eedc0de} --invariant=safety",
+    "model:verify": "quint verify models/delivery.qnt --step=step --backend=tlc --invariant=safety --apalache-version=0.62.1",
+    "model:check": "pnpm run model:simulate && pnpm run model:verify",
+    "test:model": "vitest run src/__tests__/quint-delivery.test.ts"
   },
   "dependencies": {
     "@palladium/core": "workspace:*",
@@ -15,6 +19,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
+    "@informalsystems/quint": "0.33.0",
     "@types/node": "^24.0.0",
     "typescript": "^5.7.0",
     "vitest": "^2.1.0"

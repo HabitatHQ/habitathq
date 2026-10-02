@@ -42,3 +42,28 @@
 5. Run the integrated Rust, client, HTTP E2E, and browser gates before committing and updating PR #43.
 
 This extension does not claim full-system DST, mobile lifecycle coverage, storage power-loss simulation, Postgres failover, or sustained-load qualification.
+
+## Bounded Quint delivery pilot (2026-10-02)
+
+The pilot adds executable design checks without changing production semantics
+or replacing the existing replica simulation:
+
+1. Model durable local commits/outbox, immutable server history, reader-applied
+   Changes, and page checkpoints separately. Bound identity to three Changes,
+   keep the schema/authorization fixed, and assume one local writer.
+2. Specify receipt loss, duplicate retry, truncated pages, local rollback,
+   per-change rejection, final checkpoint failure, client reopen, and persisted
+   server restart. State transaction/retry assumptions explicitly.
+3. Use pinned Quint tooling for sampled exploration and TLC finite-state
+   verification. Do not shorten exploration or weaken invariants to obtain a
+   passing result.
+4. Generate recovery and seeded expectations from Quint ITF; replay them through
+   actual TypeScript clients, file-backed SQLite, and Atrium. Assert durable
+   intermediate state after every transition, not only final convergence.
+5. Require model verification and the full live E2E suite in the existing sync
+   CI job. Report the seed/trace/transition for reproducible failures.
+
+Commands, guarantees, and excluded domains are maintained in
+[`TESTING-SYNC.md`](../../libs/palladium/docs/TESTING-SYNC.md#bounded-quint-delivery-pilot).
+This pilot does not claim full-system verification, fairness/liveness, ACL/LWW
+coverage, or storage power-loss correctness.

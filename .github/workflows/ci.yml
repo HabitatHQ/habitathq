@@ -117,6 +117,10 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -138,6 +142,8 @@ jobs:
           pnpm --filter @palladium/core build
           pnpm --filter @palladium/sqlite-node build
           pnpm --filter @palladium/e2e typecheck
+      - name: Bounded Quint delivery model
+        run: pnpm --filter @palladium/e2e run model:check
       - name: Client contracts and deterministic simulation
         run: pnpm --filter @palladium/core test
       - name: Live Rust server end-to-end and network faults
