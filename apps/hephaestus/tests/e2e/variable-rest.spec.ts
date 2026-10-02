@@ -1,172 +1,78 @@
-import { expect, type Page, test } from '@playwright/test'
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+import { expect, type Locator, type Page, test } from '@playwright/test'
 
 async function startEmptyWorkout(page: Page) {
   await page.goto('/workout')
-  await page.waitForLoadState('networkidle')
+  await page.getByLabel('Session type').selectOption('gym')
   await page.getByRole('button', { name: /start empty session/i }).click()
-  await expect(page.getByText('Active Session')).toBeVisible({ timeout: 10_000 })
-}
-
-async function addExerciseToWorkout(page: Page) {
+  await expect(page.getByText('Active Session')).toBeVisible()
   await page.getByRole('button', { name: /add exercise/i }).click()
-  await expect(page.getByRole('list').locator('button').first()).toBeVisible({ timeout: 15_000 })
-  await page.getByRole('searchbox', { name: /search exercises/i }).fill('barbell squat')
-  await page.getByText('Barbell Squat').first().click()
-  await expect(page.getByRole('dialog', { name: /add exercise/i })).not.toBeVisible()
-  await expect(page.getByRole('region', { name: 'Barbell Squat' })).toBeVisible({ timeout: 5_000 })
+  const picker = page.getByRole('dialog', { name: /add exercise/i })
+  await expect(picker.getByRole('button', { name: /barbell squat/i })).toBeVisible({
+    timeout: 15_000,
+  })
+  await picker.getByRole('searchbox', { name: /search exercises/i }).fill('barbell squat')
+  await picker.getByRole('button', { name: /barbell squat/i }).click()
+  return page.getByRole('region', { name: 'Barbell Squat' })
 }
 
-async function logSet(page: Page, weight = '100', reps = '5') {
-  await page.getByRole('button', { name: /\+ set/i }).click()
-  await expect(page.getByRole('dialog', { name: /log set/i })).toBeVisible()
-  await page.getByLabel('Weight', { exact: true }).fill(weight)
-  await page.getByLabel('Reps', { exact: true }).fill(reps)
-  await page.getByRole('button', { name: /log set/i }).click()
-  await expect(page.getByRole('dialog', { name: /log set/i })).not.toBeVisible()
+async function logSet(page: Page, exercise: Locator, failure = false) {
+  await exercise.getByRole('button', { name: '+ Set' }).click()
+  const dialog = page.getByRole('dialog', { name: /log set/i })
+  await expect(dialog).toBeVisible()
+  if (failure) {
+    await dialog.getByRole('button', { name: 'Toggle failure set' }).click()
+    await dialog
+      .getByRole('group', { name: /failure type/i })
+      .getByRole('button', { name: 'Near failure' })
+      .click()
+  }
+  await dialog.getByLabel('Weight', { exact: true }).fill('100')
+  await dialog.getByLabel('Reps', { exact: true }).fill('5')
+  await dialog.getByRole('button', { name: /log set/i }).click()
+  await expect(dialog).not.toBeVisible()
 }
 
-// ---------------------------------------------------------------------------
-// Variable rest timer
-// ---------------------------------------------------------------------------
+test.describe('rest timer behavior', () => {
+  test('logging a working set starts rest and skip ends it', async ({ page }) => {
+    const exercise = await startEmptyWorkout(page)
+    await expect(page.getByRole('timer')).toHaveCount(0)
+    await logSet(page, exercise)
 
-test.describe('variable rest timer', () => {
-  test('rest timer does not appear before any set is logged', async ({ page }) => {
-    await startEmptyWorkout(page)
-    await addExerciseToWorkout(page)
-
-    // No Skip button visible before logging
-    await expect(page.getByRole('button', { name: /skip/i })).not.toBeVisible()
-    // No rest timer banner
-    await expect(page.getByText(/^rest/i)).not.toBeVisible()
+    const timer = page.getByRole('timer')
+    await expect(timer).toBeVisible()
+    await expect(timer.getByRole('button', { name: 'Skip' })).toBeVisible()
+    await expect(timer).toHaveAttribute('aria-label', /^Rest timer: \d+:\d{2} remaining$/)
+    await timer.getByRole('button', { name: 'Skip' }).click()
+    await expect(timer).toHaveCount(0)
   })
 
-  test('rest timer appears after logging a set', async ({ page }) => {
-    await startEmptyWorkout(page)
-    await addExerciseToWorkout(page)
-    await logSet(page)
+  test('logging another working set starts a new rest period', async ({ page }) => {
+    const exercise = await startEmptyWorkout(page)
+    await logSet(page, exercise)
+    const timer = page.getByRole('timer')
+    await expect(timer).toBeVisible()
+    await timer.getByRole('button', { name: 'Skip' }).click()
+    await expect(timer).toHaveCount(0)
 
-    // RestTimer (top banner) with aria-label matching "Rest timer: ..."
-    // The component renders: role="status" with aria-label="Rest timer: X:XX remaining"
-    await expect(page.getByRole('status')).toBeVisible({ timeout: 5_000 })
-    // Skip button should be present
-    await expect(page.getByRole('button', { name: /skip/i })).toBeVisible({ timeout: 5_000 })
+    await logSet(page, exercise)
+    await expect(timer).toBeVisible()
+    await expect(exercise.getByText(/2 working sets/i)).toBeVisible()
   })
 
-  test('rest timer shows remaining time', async ({ page }) => {
-    await startEmptyWorkout(page)
-    await addExerciseToWorkout(page)
-    await logSet(page)
+  test('failure rest prompt adds time to an active rest period', async ({ page }) => {
+    const exercise = await startEmptyWorkout(page)
+    await logSet(page, exercise, true)
+    const timer = page.getByRole('timer')
+    await expect(timer).toBeVisible()
+    const initial = await timer.getAttribute('aria-label')
 
-    // The timer shows a time label like "2:00" or "1:30"
-    const status = page.getByRole('status')
-    await expect(status).toBeVisible({ timeout: 5_000 })
-    const label = await status.getAttribute('aria-label')
-    expect(label).toMatch(/rest timer:/i)
-    expect(label).toMatch(/\d+:\d{2}/)
-  })
-
-  test('rest timer shows exercise name in banner', async ({ page }) => {
-    await startEmptyWorkout(page)
-    await addExerciseToWorkout(page)
-    await logSet(page)
-
-    const status = page.getByRole('status')
-    await expect(status).toBeVisible({ timeout: 5_000 })
-    // The RestTimer component renders "Rest · ExerciseName"
-    await expect(status.getByText(/rest/i)).toBeVisible()
-  })
-
-  test('rest timer shows skip button', async ({ page }) => {
-    await startEmptyWorkout(page)
-    await addExerciseToWorkout(page)
-    await logSet(page)
-
-    await expect(page.getByRole('button', { name: /skip/i })).toBeVisible({ timeout: 5_000 })
-  })
-
-  test('skip rest button dismisses the timer', async ({ page }) => {
-    await startEmptyWorkout(page)
-    await addExerciseToWorkout(page)
-    await logSet(page)
-
-    const skipBtn = page.getByRole('button', { name: /skip/i })
-    await expect(skipBtn).toBeVisible({ timeout: 5_000 })
-    await skipBtn.click()
-
-    // Timer should disappear
-    await expect(page.getByRole('status')).not.toBeVisible({ timeout: 3_000 })
-    await expect(skipBtn).not.toBeVisible({ timeout: 3_000 })
-  })
-
-  test('rest timer banner shows during active workout', async ({ page }) => {
-    await startEmptyWorkout(page)
-    await addExerciseToWorkout(page)
-    await logSet(page)
-
-    // The rest timer is a fixed top banner (role="status")
-    const banner = page.getByRole('status')
-    await expect(banner).toBeVisible({ timeout: 5_000 })
-
-    // Active workout header should still be visible below the banner
-    await expect(page.getByText('Active Session')).toBeVisible()
-  })
-
-  test('active workout header shifts down when rest timer is shown', async ({ page }) => {
-    await startEmptyWorkout(page)
-    await addExerciseToWorkout(page)
-    await logSet(page)
-
-    // Wait for rest timer
-    await expect(page.getByRole('status')).toBeVisible({ timeout: 5_000 })
-
-    // The workout header has mt-14 class added when timer is active
-    const header = page.locator('header').filter({ hasText: /active session/i })
-    await expect(header).toBeVisible()
-  })
-
-  test('rest timer disappears on its own when done (short rest)', async ({ page }) => {
-    // This test would require waiting for the full rest period, so we just
-    // verify the timer starts counting down after a set is logged.
-    await startEmptyWorkout(page)
-    await addExerciseToWorkout(page)
-    await logSet(page)
-
-    const status = page.getByRole('status')
-    await expect(status).toBeVisible({ timeout: 5_000 })
-
-    // Get initial label
-    const label1 = await status.getAttribute('aria-label')
-
-    // Wait ~2 seconds and check that time has decremented
-    await page.waitForTimeout(2_000)
-    const label2 = await status.getAttribute('aria-label')
-
-    // Both labels should be rest timer labels — if they differ, timer is counting
-    expect(label1).toMatch(/rest timer:/i)
-    expect(label2).toMatch(/rest timer:/i)
-    // At least verify the timer is still working (labels may differ)
-    // We don't assert strict equality because timer continues independently
-  })
-
-  test('logging second set restarts rest timer', async ({ page }) => {
-    await startEmptyWorkout(page)
-    await addExerciseToWorkout(page)
-
-    // Log first set
-    await logSet(page, '100', '5')
-    await expect(page.getByRole('status')).toBeVisible({ timeout: 5_000 })
-
-    // Skip rest timer
-    await page.getByRole('button', { name: /skip/i }).click()
-    await expect(page.getByRole('status')).not.toBeVisible({ timeout: 3_000 })
-
-    // Log second set — rest timer should appear again
-    await logSet(page, '100', '5')
-    await expect(page.getByRole('status')).toBeVisible({ timeout: 5_000 })
-    await expect(page.getByRole('button', { name: /skip/i })).toBeVisible({ timeout: 5_000 })
+    await page
+      .getByRole('alert')
+      .filter({ hasText: /failure logged/i })
+      .getByRole('button', { name: '+60s' })
+      .click()
+    await expect(page.getByRole('alert').filter({ hasText: /failure logged/i })).toHaveCount(0)
+    await expect(timer).toBeVisible()
+    await expect(timer).not.toHaveAttribute('aria-label', initial ?? '')
   })
 })

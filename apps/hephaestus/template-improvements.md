@@ -1,6 +1,6 @@
 # Template Feature Improvement Ideas
 
-> Generated 2026-03-11. Based on current implementation: full CRUD (no edit), superset/variable-rest/set-scheme behind feature flags, no program UI yet.
+> Historical idea inventory from 2026-03-11, not the current backlog. Template edit/clone/archive, folders/tags, preview scaling/exclusions, programs, interval templates, portable import/export, variable rest, set schemes, and equipment-aware suggestions are now implemented where exposed by the app. Remaining proposals are not commitments; use [`../../docs/plans/hephaestus-completion-20261002.md`](../../docs/plans/hephaestus-completion-20261002.md) for current scope and deferred decisions.
 
 ---
 

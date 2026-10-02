@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import type { ExercisePreview } from '~/composables/useTemplates'
+import type { RestorePreview } from '~/lib/data-transfer'
+import type { ExportPayload } from '~/lib/template-export'
 import { filterTemplates, sortTemplates } from '~/lib/template-sort'
 import type { TemplateSortOrder } from '~/types/database'
 
@@ -24,10 +26,12 @@ const sortOrder = ref<TemplateSortOrder>('pinned_first')
 const showArchived = ref(false)
 const showSearch = ref(false)
 const undoTemplate = ref<{ id: string; name: string } | null>(null)
-let undoTimer: ReturnType<typeof setTimeout> | null = null
+let undoTimer: number | null = null
 
 // Import sheet
 const showImport = ref(false)
+const importError = ref('')
+const importStatus = ref('')
 
 async function loadData() {
   await load({ includeArchived: showArchived.value })
@@ -75,15 +79,19 @@ function relativeDate(iso: string): string {
 async function handleArchive(id: string, name: string) {
   await archiveTemplate(id)
   undoTemplate.value = { id, name }
-  if (undoTimer) clearTimeout(undoTimer)
-  undoTimer = setTimeout(() => {
+  if (undoTimer !== null) window.clearTimeout(undoTimer)
+  undoTimer = window.setTimeout(() => {
     undoTemplate.value = null
+    undoTimer = null
   }, 5000)
 }
 
 async function handleUndo() {
   if (!undoTemplate.value) return
-  if (undoTimer) clearTimeout(undoTimer)
+  if (undoTimer !== null) {
+    window.clearTimeout(undoTimer)
+    undoTimer = null
+  }
   const { unarchiveTemplate } = useTemplates()
   await unarchiveTemplate(undoTemplate.value.id)
   await loadData()
@@ -97,6 +105,29 @@ async function handleClone(id: string) {
 async function handlePin(id: string, pinned: boolean) {
   if (pinned) await unpinTemplate(id)
   else await pinTemplate(id)
+}
+async function handleTemplateImport(payload: ExportPayload) {
+  importError.value = ''
+  importStatus.value = ''
+  try {
+    const preview = await db.transfer<RestorePreview>('TRANSFER_PREVIEW_TEMPLATE_IMPORT', {
+      content: payload,
+    })
+    if (!preview.valid) throw new Error(preview.error ?? 'Template export could not be validated.')
+    if (
+      !window.confirm(
+        `Import "${payload.template.name}" with ${payload.exercises.length} exercises? Existing templates will not be overwritten.`,
+      )
+    ) {
+      return
+    }
+    await db.transfer('TRANSFER_IMPORT_TEMPLATE', { content: payload })
+    showImport.value = false
+    importStatus.value = `Imported template "${payload.template.name}".`
+    await loadData()
+  } catch (error) {
+    importError.value = error instanceof Error ? error.message : String(error)
+  }
 }
 
 const sortOptions: Array<{ value: TemplateSortOrder; label: string }> = [
@@ -118,21 +149,23 @@ const sortOptions: Array<{ value: TemplateSortOrder; label: string }> = [
           :aria-label="showSearch ? 'Close search' : 'Search templates'"
           @click="showSearch = !showSearch; if (!showSearch) searchQuery = ''"
         >
-          <UIcon :name="showSearch ? 'i-heroicons-x-mark' : 'i-heroicons-magnifying-glass'" class="w-5 h-5" aria-hidden="true" />
+          <UIcon :name="showSearch ? 'i-ph-x' : 'i-ph-magnifying-glass'" class="w-5 h-5" aria-hidden="true" />
         </button>
         <button
           class="w-8 h-8 flex items-center justify-center rounded-lg text-(--ui-text-muted) hover:text-(--ui-text)"
           aria-label="Import template"
           @click="showImport = true"
         >
-          <UIcon name="i-heroicons-arrow-down-tray" class="w-5 h-5" aria-hidden="true" />
+          <UIcon name="i-ph-download-simple" class="w-5 h-5" aria-hidden="true" />
         </button>
         <UButton size="sm" color="primary" to="/templates/new">
-          <UIcon name="i-heroicons-plus" class="w-4 h-4" aria-hidden="true" />
+          <UIcon name="i-ph-plus" class="w-4 h-4" aria-hidden="true" />
           New
         </UButton>
       </div>
     </header>
+    <p v-if="importError" role="alert" class="text-sm text-red-400">{{ importError }}</p>
+    <p v-if="importStatus" role="status" aria-live="polite" class="text-sm text-green-400">{{ importStatus }}</p>
 
     <!-- Search bar -->
     <div v-if="showSearch">
@@ -186,6 +219,12 @@ const sortOptions: Array<{ value: TemplateSortOrder; label: string }> = [
       >
         Intervals
       </NuxtLink>
+      <NuxtLink
+        to="/equipment"
+        class="text-xs bg-(--color-surface) text-(--ui-text-muted) px-2.5 py-1.5 rounded-lg shrink-0 hover:text-(--ui-text)"
+      >
+        Equipment
+      </NuxtLink>
     </div>
 
     <!-- Undo toast -->
@@ -210,7 +249,7 @@ const sortOptions: Array<{ value: TemplateSortOrder; label: string }> = [
       v-else-if="filteredTemplates.length === 0"
       class="rounded-xl bg-(--color-surface) p-10 text-center space-y-3"
     >
-      <UIcon name="i-heroicons-clipboard-document-list" class="w-10 h-10 text-(--ui-text-muted) mx-auto" aria-hidden="true" />
+      <UIcon name="i-ph-clipboard-text" class="w-10 h-10 text-(--ui-text-muted) mx-auto" aria-hidden="true" />
       <div>
         <p class="font-medium text-sm">{{ searchQuery ? `No results for "${searchQuery}"` : 'No templates yet' }}</p>
         <p class="text-xs text-(--ui-text-muted) mt-1">
@@ -245,7 +284,7 @@ const sortOptions: Array<{ value: TemplateSortOrder; label: string }> = [
                 />
               </div>
               <div v-else class="w-7 h-7 rounded-full bg-(--color-surface-2) flex items-center justify-center" aria-hidden="true">
-                <UIcon name="i-heroicons-clipboard-document-list" class="w-3.5 h-3.5 text-(--ui-text-muted)" />
+                <UIcon name="i-ph-clipboard-text" class="w-3.5 h-3.5 text-(--ui-text-muted)" />
               </div>
             </div>
 
@@ -253,7 +292,7 @@ const sortOptions: Array<{ value: TemplateSortOrder; label: string }> = [
               <div class="flex items-center gap-1.5">
                 <p class="font-semibold text-sm leading-snug truncate">{{ t.name }}</p>
                 <span v-if="t.pinned_at" class="text-amber-400 shrink-0" aria-label="Pinned">
-                  <UIcon name="i-heroicons-star-solid" class="w-3 h-3" />
+                  <UIcon name="i-ph-star-fill" class="w-3 h-3" />
                 </span>
                 <span
                   v-if="t.archived_at"
@@ -272,7 +311,7 @@ const sortOptions: Array<{ value: TemplateSortOrder; label: string }> = [
 
             <div class="flex items-center gap-1.5 shrink-0">
               <span class="text-[10px] text-(--ui-text-muted)">{{ relativeDate(t.created_at) }}</span>
-              <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-(--ui-text-muted)" aria-hidden="true" />
+              <UIcon name="i-ph-caret-right" class="w-4 h-4 text-(--ui-text-muted)" aria-hidden="true" />
             </div>
           </NuxtLink>
 
@@ -283,7 +322,7 @@ const sortOptions: Array<{ value: TemplateSortOrder; label: string }> = [
               :aria-label="t.pinned_at ? `Unpin ${t.name}` : `Pin ${t.name}`"
               @click.prevent="handlePin(t.id, !!t.pinned_at)"
             >
-              <UIcon :name="t.pinned_at ? 'i-heroicons-star-solid' : 'i-heroicons-star'" class="w-3 h-3" aria-hidden="true" />
+              <UIcon :name="t.pinned_at ? 'i-ph-star-fill' : 'i-ph-star'" class="w-3 h-3" aria-hidden="true" />
               {{ t.pinned_at ? 'Pinned' : 'Pin' }}
             </button>
             <span class="text-(--ui-text-muted)" aria-hidden="true">·</span>
@@ -312,7 +351,7 @@ const sortOptions: Array<{ value: TemplateSortOrder; label: string }> = [
   <WorkoutTemplateImportSheet
     :open="showImport"
     @close="showImport = false"
-    @import="showImport = false"
+    @import="handleTemplateImport"
   />
 </template>
 

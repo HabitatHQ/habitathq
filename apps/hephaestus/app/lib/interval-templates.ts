@@ -1,4 +1,4 @@
-export type IntervalType = 'tabata' | 'emom' | 'amrap' | 'custom'
+export type IntervalType = 'tabata' | 'emom' | 'amrap' | 'custom' | 'mobility'
 
 export interface IntervalTemplate {
   type: IntervalType
@@ -47,4 +47,26 @@ export function calculateIntervalTotalTime(template: IntervalTemplate): number {
     return template.time_cap_sec ?? 0
   }
   return template.rounds * (template.work_sec + template.rest_sec)
+}
+export interface IntervalProgressState {
+  phase: 'work' | 'rest' | 'complete'
+  round: number
+  remainingSeconds: number
+}
+
+/** Advance one completed timer phase and keep round boundaries deterministic. */
+export function advanceIntervalPhase(
+  state: IntervalProgressState,
+  template: IntervalTemplate,
+): IntervalProgressState {
+  if (state.phase === 'complete') return state
+  if (template.type === 'amrap')
+    return { phase: 'complete', round: state.round, remainingSeconds: 0 }
+  if (state.phase === 'work' && template.rest_sec > 0) {
+    return { phase: 'rest', round: state.round, remainingSeconds: template.rest_sec }
+  }
+  const nextRound = state.round + 1
+  if (nextRound > template.rounds)
+    return { phase: 'complete', round: state.round, remainingSeconds: 0 }
+  return { phase: 'work', round: nextRound, remainingSeconds: template.work_sec }
 }

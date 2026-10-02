@@ -1,28 +1,42 @@
-import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching'
+/// <reference lib="webworker" />
+import { cleanupOutdatedCaches, matchPrecache, precache } from 'workbox-precaching'
 
-declare let self: ServiceWorkerGlobalScope
+declare const self: ServiceWorkerGlobalScope
 
-// Inject the precache manifest from vite-pwa
-precacheAndRoute(self.__WB_MANIFEST)
+const scope = new URL(self.registration.scope)
+// Nuxt's precache manifest identifies the index shell by the scope root URL.
+const shellUrl = scope.href
+
+// One fetch handler owns routing. Workbox still owns revisioned cache keys.
+precache(self.__WB_MANIFEST)
 cleanupOutdatedCaches()
 
-// ── COOP/COEP headers on navigation responses ─────────────────────────────────
-// Required for SharedArrayBuffer (SQLite WASM). Mirrors Habitat's SW pattern.
+async function navigationResponse(request: Request): Promise<Response> {
+  const response = (await matchPrecache(shellUrl)) ?? (await fetch(request))
+  const headers = new Headers(response.headers)
+  headers.set('Cross-Origin-Opener-Policy', 'same-origin')
+  headers.set('Cross-Origin-Embedder-Policy', 'require-corp')
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
+}
+
 self.addEventListener('fetch', (event) => {
   const { request } = event
+  const url = new URL(request.url)
+  if (
+    request.method !== 'GET' ||
+    url.origin !== scope.origin ||
+    !url.pathname.startsWith(scope.pathname)
+  )
+    return
+
   if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request).then((response) => {
-        const headers = new Headers(response.headers)
-        headers.set('Cross-Origin-Opener-Policy', 'same-origin')
-        headers.set('Cross-Origin-Embedder-Policy', 'require-corp')
-        return new Response(response.body, {
-          status: response.status,
-          statusText: response.statusText,
-          headers,
-        })
-      }),
-    )
+    event.respondWith(navigationResponse(request))
+  } else {
+    event.respondWith(matchPrecache(request.url).then((cached) => cached ?? fetch(request)))
   }
 })
 

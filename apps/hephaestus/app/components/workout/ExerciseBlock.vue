@@ -51,7 +51,7 @@ const workingCount = computed(
         aria-label="+ Set"
         @click="emit('addSet', workoutExercise.id)"
       >
-        <UIcon name="i-heroicons-plus" class="w-4 h-4" aria-hidden="true" />
+        <UIcon name="i-ph-plus" class="w-4 h-4" aria-hidden="true" />
         Set
       </UButton>
     </header>
@@ -63,6 +63,7 @@ const workingCount = computed(
         :key="set.id"
         :set="set"
         :unit="unit"
+        :logging-mode="exercise.logging_mode"
         @tap="emit('tapSet', $event)"
       />
     </ul>

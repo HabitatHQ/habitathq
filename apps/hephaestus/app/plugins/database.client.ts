@@ -1,29 +1,60 @@
 import { Capacitor } from '@capacitor/core'
 import { createDatabasePlugin } from '@palladium/nuxt'
-import { dispatchNative, initNativeDb } from '~/lib/db-native'
 
-const { sendToWorker: _send, initialize } = createDatabasePlugin({
+const { sendToWorker: dispatchToWorker, initialize } = createDatabasePlugin({
   appName: 'Hephaestus',
   createWorker: () =>
     new Worker(new URL('../workers/database.worker.ts', import.meta.url), { type: 'module' }),
-  native: {
-    init: initNativeDb,
-    dispatch: dispatchNative as (req: unknown) => Promise<unknown>,
-  },
 })
 
+let initializationError: string | null = null
+let nativeUnavailable = false
+
 export function sendToWorker<T>(req: Record<string, unknown>): Promise<T> {
-  return _send<T>(req)
+  if (nativeUnavailable) {
+    return Promise.reject(
+      new Error('Native database operations are unavailable; Hephaestus is PWA-only.'),
+    )
+  }
+  if (initializationError) return Promise.reject(new Error(initializationError))
+  return dispatchToWorker<T>(req)
 }
 
-export default defineNuxtPlugin(async () => {
-  const dbError = useState<string | null>('db-error', () => null)
+export default defineNuxtPlugin({
+  name: 'hephaestus-database',
+  dependsOn: ['pwa-isolation'],
+  async setup() {
+    const dbError = useState<string | null>('db-error', () => null)
+    const dbStatus = useState<'initializing' | 'ready' | 'lock_unavailable' | 'error'>(
+      'db-status',
+      () => 'initializing',
+    )
+    if (dbError.value) {
+      initializationError = dbError.value
+      dbStatus.value = dbError.value.includes('already open in another tab')
+        ? 'lock_unavailable'
+        : 'error'
+      return { provide: { dbError: readonly(dbError), dbStatus: readonly(dbStatus) } }
+    }
 
-  await initialize(Capacitor.isNativePlatform(), (msg) => {
-    dbError.value = msg
-  })
+    if (Capacitor.isNativePlatform()) {
+      nativeUnavailable = true
+      initializationError = 'Native database operations are unavailable; Hephaestus is PWA-only.'
+      dbError.value = initializationError
+      dbStatus.value = 'error'
+    } else {
+      await initialize(false, (message) => {
+        initializationError = message
+        dbError.value = message
+        dbStatus.value = message.includes('already open in another tab')
+          ? 'lock_unavailable'
+          : 'error'
+      })
+      if (!dbError.value) dbStatus.value = 'ready'
+    }
 
-  return {
-    provide: { dbError: readonly(dbError) },
-  }
+    return {
+      provide: { dbError: readonly(dbError), dbStatus: readonly(dbStatus) },
+    }
+  },
 })

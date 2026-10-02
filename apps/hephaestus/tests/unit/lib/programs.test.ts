@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { BUILTIN_PROGRAMS, calculateProgramWeek, getTodaysProgramDays } from '~/lib/programs'
+import {
+  BUILTIN_PROGRAMS,
+  boundedProgramWeek,
+  calculateProgramWeek,
+  getTodaysProgramDays,
+} from '~/lib/programs'
 
 describe('calculateProgramWeek', () => {
   it('returns week 1 on day 0', () => {
@@ -38,6 +43,24 @@ describe('getTodaysProgramDays', () => {
     const today = new Date('2026-03-10') // Tuesday
     const days = [{ id: 'd1', week_id: 'w1', day_num: 1, template_id: null, label: null }]
     expect(getTodaysProgramDays(days, today)).toHaveLength(0)
+  })
+})
+describe('boundedProgramWeek', () => {
+  it('stops advancing at the declared final week', () => {
+    expect(boundedProgramWeek(3, 4)).toBe(4)
+    expect(boundedProgramWeek(4, 4)).toBe(4)
+    expect(boundedProgramWeek(2, 4, 20)).toBe(4)
+  })
+})
+
+describe('getTodaysProgramDays weekday contract', () => {
+  it('matches Sunday to persisted day 7', () => {
+    const sunday = new Date(2026, 2, 15)
+    const days = [
+      { id: 'mon', week_id: 'w', day_num: 1, template_id: null, label: null },
+      { id: 'sun', week_id: 'w', day_num: 7, template_id: null, label: null },
+    ]
+    expect(getTodaysProgramDays(days, sunday).map((day) => day.id)).toEqual(['sun'])
   })
 })
 

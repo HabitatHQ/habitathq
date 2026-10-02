@@ -39,7 +39,7 @@ async function handleSeedBuiltins() {
   <article class="p-4 pb-24 space-y-5">
     <header class="flex items-center gap-3 pt-2">
       <NuxtLink to="/templates/programs" class="text-(--ui-text-muted)" aria-label="Back">
-        <UIcon name="i-heroicons-arrow-left" class="w-6 h-6" aria-hidden="true" />
+        <UIcon name="i-ph-arrow-left" class="w-6 h-6" aria-hidden="true" />
       </NuxtLink>
       <h1 class="text-xl font-bold flex-1">New Program</h1>
       <UButton size="sm" color="primary" :disabled="!canSave || saving" :loading="saving" @click="handleSave">

@@ -7,6 +7,7 @@ const props = defineProps<{
   exerciseName: string
   currentScheme?: string | null
 }>()
+const modalFocus = useModalFocus(() => props.open)
 
 const emit = defineEmits<{
   close: []
@@ -194,26 +195,9 @@ function clamp(value: number, min: number, max: number): number {
 </script>
 
 <template>
-  <div>
-    <!-- Backdrop -->
-    <Transition name="fade">
-      <div
-        v-if="open"
-        class="fixed inset-0 bg-black/50 z-[100]"
-        role="presentation"
-        @click="emit('close')"
-      />
-    </Transition>
-
-    <!-- Sheet -->
-    <Transition name="slide-up">
-      <div
-        v-if="open"
-        class="fixed bottom-0 left-0 right-0 z-[100] rounded-t-2xl bg-(--color-surface) safe-area-bottom"
-        role="dialog"
-        :aria-label="`Set Scheme · ${exerciseName}`"
-        aria-modal="true"
-      >
+  <UModal :open="open" :content="modalFocus" :title="`Set Scheme · ${exerciseName}`" description="Configure editable planned sets." @update:open="value => { if (!value) emit('close') }">
+    <template #content>
+      <div class="max-h-[85dvh] overflow-y-auto safe-area-bottom">
         <!-- Header -->
         <header class="flex items-center justify-between px-6 pt-5 pb-4 border-b border-(--ui-border)/50">
           <div class="flex items-center gap-2">
@@ -223,7 +207,7 @@ function clamp(value: number, min: number, max: number): number {
               aria-label="Back to scheme selection"
               @click="step = 'choose'"
             >
-              <UIcon name="i-heroicons-arrow-left" class="w-5 h-5" aria-hidden="true" />
+              <UIcon name="i-ph-arrow-left" class="w-5 h-5" aria-hidden="true" />
             </button>
             <h2 class="font-semibold text-sm">
               Set Scheme
@@ -235,7 +219,7 @@ function clamp(value: number, min: number, max: number): number {
             aria-label="Close"
             @click="emit('close')"
           >
-            <UIcon name="i-heroicons-x-mark" class="w-5 h-5" aria-hidden="true" />
+            <UIcon name="i-ph-x" class="w-5 h-5" aria-hidden="true" />
           </button>
         </header>
 
@@ -253,7 +237,7 @@ function clamp(value: number, min: number, max: number): number {
             @click="selectScheme('straight')"
           >
             <span class="w-10 h-10 rounded-xl bg-(--color-surface) border border-(--ui-border) flex items-center justify-center shrink-0">
-              <UIcon name="i-heroicons-bars-3" class="w-5 h-5 text-(--ui-text-muted)" aria-hidden="true" />
+              <UIcon name="i-ph-list" class="w-5 h-5 text-(--ui-text-muted)" aria-hidden="true" />
             </span>
             <div class="min-w-0">
               <p class="font-semibold text-sm">Straight sets</p>
@@ -644,7 +628,7 @@ function clamp(value: number, min: number, max: number): number {
             class="w-full mt-2"
             @click="handleConfirm"
           >
-            <UIcon name="i-heroicons-check" class="w-5 h-5" aria-hidden="true" />
+            <UIcon name="i-ph-check" class="w-5 h-5" aria-hidden="true" />
             Confirm Scheme
           </UButton>
 
@@ -657,8 +641,8 @@ function clamp(value: number, min: number, max: number): number {
           </button>
         </div>
       </div>
-    </Transition>
-  </div>
+    </template>
+  </UModal>
 </template>
 
 <style scoped>

@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import type { IntervalTemplate } from '~/lib/interval-templates'
+import type { IntervalType } from '~/lib/interval-templates'
 import { calculateIntervalTotalTime } from '~/lib/interval-templates'
 import type { IntervalTemplateRow } from '~/types/database'
 
 const db = useDatabase()
-
 const templates = ref<IntervalTemplateRow[]>([])
 const loading = ref(true)
 
@@ -16,8 +15,8 @@ async function loadTemplates() {
 
 watch(
   db.status,
-  async (s) => {
-    if (s !== 'ready') return
+  async (status) => {
+    if (status !== 'ready') return
     loading.value = true
     await loadTemplates()
     loading.value = false
@@ -27,27 +26,33 @@ watch(
 
 async function handleDelete(id: string) {
   await db.exec('DELETE FROM interval_templates WHERE id = ?', [id])
-  templates.value = templates.value.filter((t) => t.id !== id)
+  templates.value = templates.value.filter((template) => template.id !== id)
 }
 
 function formatDuration(secs: number): string {
-  const m = Math.floor(secs / 60)
-  const s = secs % 60
-  if (m === 0) return `${s}s`
-  if (s === 0) return `${m}min`
-  return `${m}m ${s}s`
+  const minutes = Math.floor(secs / 60)
+  const seconds = secs % 60
+  if (minutes === 0) return `${seconds}s`
+  if (seconds === 0) return `${minutes}min`
+  return `${minutes}m ${seconds}s`
 }
 
-function totalTime(t: IntervalTemplateRow): string {
-  const it: IntervalTemplate = {
-    type: (t.type as any) ?? 'custom',
-    name: t.name,
-    rounds: t.rounds ?? 0,
-    work_sec: t.work_sec ?? 0,
-    rest_sec: t.rest_sec ?? 0,
-    time_cap_sec: null,
+function intervalType(value: string): IntervalType {
+  if (value === 'tabata' || value === 'emom' || value === 'amrap' || value === 'mobility')
+    return value
+  return 'custom'
+}
+
+function totalTime(row: IntervalTemplateRow): string {
+  const template = {
+    type: intervalType(row.type),
+    name: row.name,
+    rounds: row.rounds ?? 0,
+    work_sec: row.work_sec ?? 0,
+    rest_sec: row.rest_sec ?? 0,
+    time_cap_sec: row.type === 'amrap' ? row.work_sec : null,
   }
-  const total = calculateIntervalTotalTime(it)
+  const total = calculateIntervalTotalTime(template)
   return total > 0 ? formatDuration(total) : '—'
 }
 
@@ -56,20 +61,22 @@ const typeColors: Record<string, string> = {
   emom: 'text-blue-400',
   amrap: 'text-green-400',
   custom: 'text-zinc-400',
+  mobility: 'text-purple-400',
 }
 </script>
+
 
 <template>
   <article class="p-4 space-y-4">
     <header class="flex items-center justify-between pt-2">
       <div class="flex items-center gap-3">
         <NuxtLink to="/templates" class="text-(--ui-text-muted)" aria-label="Back">
-          <UIcon name="i-heroicons-arrow-left" class="w-6 h-6" aria-hidden="true" />
+          <UIcon name="i-ph-arrow-left" class="w-6 h-6" aria-hidden="true" />
         </NuxtLink>
         <h1 class="text-2xl font-bold">Intervals</h1>
       </div>
       <UButton size="sm" color="primary" to="/templates/intervals/new">
-        <UIcon name="i-heroicons-plus" class="w-4 h-4" aria-hidden="true" />
+        <UIcon name="i-ph-plus" class="w-4 h-4" aria-hidden="true" />
         New
       </UButton>
     </header>
@@ -95,19 +102,20 @@ const typeColors: Record<string, string> = {
               · {{ totalTime(t) }} total
             </p>
           </div>
+          <UButton size="xs" :to="`/templates/intervals/${t.id}`">Start</UButton>
           <button
             class="text-(--ui-text-muted) hover:text-red-400"
             :aria-label="`Delete ${t.name}`"
             @click="handleDelete(t.id)"
           >
-            <UIcon name="i-heroicons-trash" class="w-4 h-4" aria-hidden="true" />
+            <UIcon name="i-ph-trash" class="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
       </li>
     </ul>
 
     <div v-else class="rounded-xl bg-(--color-surface) p-10 text-center space-y-3">
-      <UIcon name="i-heroicons-clock" class="w-10 h-10 text-(--ui-text-muted) mx-auto" />
+      <UIcon name="i-ph-clock" class="w-10 h-10 text-(--ui-text-muted) mx-auto" aria-hidden="true" />
       <p class="text-sm text-(--ui-text-muted)">No interval templates yet.</p>
       <UButton to="/templates/intervals/new" color="primary" size="sm">Create Interval</UButton>
     </div>

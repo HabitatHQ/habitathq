@@ -1,5 +1,5 @@
-import { BUILTIN_PROGRAMS } from '~/lib/programs'
-import type { ProgramDayRow, ProgramRow } from '~/types/database'
+import { BUILTIN_PROGRAMS, boundedProgramWeek, getTodaysProgramDays } from '~/lib/programs'
+import type { ProgramDayRow, ProgramRow, ProgramWeekRow } from '~/types/database'
 
 export interface ProgramProgress {
   programId: string
@@ -7,6 +7,10 @@ export interface ProgramProgress {
   currentWeek: number
   totalWeeks: number
   percentComplete: number
+  complete: boolean
+  intensityModifier: number
+  volumeModifier: number
+  isDeload: boolean
   todaysDays: ProgramDayRow[]
 }
 
@@ -18,11 +22,13 @@ export function usePrograms() {
   }
 
   async function create(name: string, weeks: number, description?: string): Promise<string> {
+    if (!name.trim() || !Number.isInteger(weeks) || weeks < 1)
+      throw new Error('Program name and positive week count are required')
     const id = crypto.randomUUID()
     const now = new Date().toISOString()
     await db.exec(
       'INSERT INTO programs (id, name, description, weeks, created_at) VALUES (?, ?, ?, ?, ?)',
-      [id, name, description ?? null, weeks, now],
+      [id, name.trim(), description ?? null, weeks, now],
     )
     return id
   }
@@ -46,8 +52,8 @@ export function usePrograms() {
         programId,
         weekNum,
         opts.isDeload ? 1 : 0,
-        opts.intensityModifier ?? 1.0,
-        opts.volumeModifier ?? 1.0,
+        opts.intensityModifier ?? 1,
+        opts.volumeModifier ?? 1,
         opts.phase ?? null,
       ],
     )
@@ -60,6 +66,8 @@ export function usePrograms() {
     templateId: string | null,
     label?: string,
   ): Promise<string> {
+    if (!Number.isInteger(dayNum) || dayNum < 1 || dayNum > 7)
+      throw new Error('Program day must be Monday=1 through Sunday=7')
     const id = crypto.randomUUID()
     await db.exec(
       'INSERT INTO program_days (id, week_id, day_num, template_id, label) VALUES (?, ?, ?, ?, ?)',
@@ -69,72 +77,113 @@ export function usePrograms() {
   }
 
   async function setActive(programId: string): Promise<void> {
-    await db.exec('UPDATE programs SET active = 0')
-    const now = new Date().toISOString()
-    await db.exec(
-      'UPDATE programs SET active = 1, started_at = COALESCE(started_at, ?), current_week = COALESCE(current_week, 1) WHERE id = ?',
-      [now, programId],
+    const rows = await db.query<ProgramRow>(
+      'SELECT id, weeks, current_week FROM programs WHERE id = ?',
+      [programId],
     )
+    const target = rows[0]
+    if (!target) throw new Error(`Program ${programId} not found`)
+    const currentWeek = Math.min(target.weeks, Math.max(1, target.current_week || 1))
+    const now = new Date().toISOString()
+    await db.batch([
+      { sql: 'UPDATE programs SET active = 0 WHERE active = 1' },
+      {
+        sql: 'UPDATE programs SET active = 1, started_at = COALESCE(started_at, ?), current_week = ? WHERE id = ?',
+        bind: [now, currentWeek, programId],
+      },
+    ])
   }
 
   async function advanceWeek(programId: string): Promise<void> {
-    await db.exec('UPDATE programs SET current_week = current_week + 1 WHERE id = ?', [programId])
+    const rows = await db.query<ProgramRow>(
+      'SELECT id, weeks, current_week FROM programs WHERE id = ?',
+      [programId],
+    )
+    const program = rows[0]
+    if (!program) throw new Error(`Program ${programId} not found`)
+    const currentWeek = boundedProgramWeek(
+      Math.min(program.current_week, program.weeks),
+      program.weeks,
+    )
+    await db.exec('UPDATE programs SET current_week = ?, active = ? WHERE id = ?', [
+      currentWeek,
+      currentWeek < program.weeks ? 1 : 0,
+      programId,
+    ])
   }
 
-  async function getProgress(programId: string): Promise<ProgramProgress | null> {
+  async function getProgress(
+    programId: string,
+    today = new Date(),
+  ): Promise<ProgramProgress | null> {
     const programs = await db.query<ProgramRow>('SELECT * FROM programs WHERE id = ?', [programId])
     const program = programs[0]
     if (!program) return null
-
-    const today = new Date()
-    const days = await db.query<ProgramDayRow>(
-      `SELECT pd.* FROM program_days pd
-       JOIN program_weeks pw ON pw.id = pd.week_id
-       WHERE pw.program_id = ? AND pw.week_num = ?`,
-      [programId, program.current_week],
-    )
-    const todayNum = today.getDay()
-    const todaysDays = days.filter((d) => d.day_num === todayNum)
-
+    const currentWeek = Math.min(program.weeks, Math.max(1, program.current_week || 1))
+    const [days, weekRows] = await Promise.all([
+      db.query<ProgramDayRow>(
+        `SELECT pd.* FROM program_days pd JOIN program_weeks pw ON pw.id = pd.week_id
+         WHERE pw.program_id = ? AND pw.week_num = ? ORDER BY pd.day_num`,
+        [programId, currentWeek],
+      ),
+      db.query<ProgramWeekRow>(
+        'SELECT * FROM program_weeks WHERE program_id = ? AND week_num = ?',
+        [programId, currentWeek],
+      ),
+    ])
+    const week = weekRows[0]
+    const complete =
+      program.started_at !== null && currentWeek >= program.weeks && program.active === 0
     return {
       programId: program.id,
       programName: program.name,
-      currentWeek: program.current_week,
+      currentWeek,
       totalWeeks: program.weeks,
-      percentComplete: Math.round(((program.current_week - 1) / program.weeks) * 100),
-      todaysDays,
+      percentComplete: complete ? 100 : Math.round(((currentWeek - 1) / program.weeks) * 100),
+      complete,
+      intensityModifier: week?.intensity_modifier ?? 1,
+      volumeModifier: week?.volume_modifier ?? 1,
+      isDeload: week?.is_deload === 1,
+      todaysDays: getTodaysProgramDays(days, today),
     }
   }
 
   async function seedBuiltinPrograms(): Promise<void> {
-    const applied = await db.query<{ key: string }>(
-      "SELECT key FROM applied_defaults WHERE key = 'builtin-programs'",
-    )
-    if (applied.length > 0) return
-
-    for (const bp of BUILTIN_PROGRAMS) {
-      const programId = await create(bp.name, bp.weeks, bp.description)
-      await db.exec('UPDATE programs SET is_builtin = 1 WHERE id = ?', [programId])
-      for (const week of bp.structure) {
-        await addWeek(programId, week.weekNum, {
-          isDeload: week.isDeload,
-          intensityModifier: week.intensityModifier,
-          volumeModifier: week.volumeModifier,
-          ...(week.phase === undefined ? {} : { phase: week.phase }),
+    if (await db.isDefaultApplied('builtin-programs')) return
+    const statements = []
+    for (const builtin of BUILTIN_PROGRAMS) {
+      const programId = crypto.randomUUID()
+      statements.push({
+        sql: 'INSERT INTO programs (id, name, description, weeks, created_at, is_builtin) VALUES (?, ?, ?, ?, ?, 1)',
+        bind: [
+          programId,
+          builtin.name,
+          builtin.description,
+          builtin.weeks,
+          new Date().toISOString(),
+        ],
+      })
+      for (const week of builtin.structure) {
+        statements.push({
+          sql: `INSERT INTO program_weeks (id, program_id, week_num, is_deload, intensity_modifier, volume_modifier, phase)
+                VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          bind: [
+            crypto.randomUUID(),
+            programId,
+            week.weekNum,
+            week.isDeload ? 1 : 0,
+            week.intensityModifier,
+            week.volumeModifier,
+            week.phase ?? null,
+          ],
         })
       }
     }
-    await db.exec("INSERT OR IGNORE INTO applied_defaults (key) VALUES ('builtin-programs')")
+    statements.push({
+      sql: "INSERT OR IGNORE INTO applied_defaults (key) VALUES ('builtin-programs')",
+    })
+    await db.batch(statements)
   }
 
-  return {
-    load,
-    create,
-    addWeek,
-    addDay,
-    setActive,
-    advanceWeek,
-    getProgress,
-    seedBuiltinPrograms,
-  }
+  return { load, create, addWeek, addDay, setActive, advanceWeek, getProgress, seedBuiltinPrograms }
 }

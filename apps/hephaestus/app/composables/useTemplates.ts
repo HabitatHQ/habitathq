@@ -1,6 +1,10 @@
 import type {
+  CircuitRestMode,
+  DbStatement,
+  GroupType,
   MovementPattern,
   TemplateExerciseRow,
+  TemplateGroupRow,
   TemplateRow,
   TemplateUpdatePayload,
 } from '~/types/database'
@@ -15,8 +19,21 @@ const loadingTemplates = ref(false)
 
 export interface TemplateExerciseWithName extends TemplateExerciseRow {
   exercise_name: string
-  exercise_movement: string
+  exercise_movement: MovementPattern
   exercise_icon: string | null
+}
+export interface TemplateGroupInput {
+  label: string
+  name?: string | null
+  groupType: GroupType
+  transitionRestSec?: number
+  restAfterRoundSec?: number
+  circuitRestMode?: CircuitRestMode
+  sortOrder?: number
+  displayName?: string | null
+  rounds?: number
+  amrap?: boolean
+  timeCapSec?: number | null
 }
 
 export interface LoadOptions {
@@ -53,25 +70,24 @@ export function useTemplates() {
       setRestSeconds?: string
       setScheme?: string
     }>,
+    groups: TemplateGroupInput[] = [],
   ): Promise<string> {
     const id = crypto.randomUUID()
     const now = new Date().toISOString()
-    await db.exec('INSERT INTO templates (id, name, description, created_at) VALUES (?, ?, ?, ?)', [
-      id,
-      name,
-      description,
-      now,
-    ])
+    const statements: DbStatement[] = [
+      {
+        sql: 'INSERT INTO templates (id, name, description, created_at) VALUES (?, ?, ?, ?)',
+        bind: [id, name, description, now],
+      },
+    ]
     for (const ex of exercises) {
-      const teId = crypto.randomUUID()
-      await db.exec(
-        `INSERT INTO template_exercises
-           (id, template_id, exercise_id, order_num, superset_group,
-            sets_planned, reps_planned, rpe_target, increment_kg, rest_seconds,
-            set_rest_seconds, set_scheme)
-         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 2.5, ?, ?, ?)`,
-        [
-          teId,
+      statements.push({
+        sql: `INSERT INTO template_exercises
+          (id, template_id, exercise_id, order_num, superset_group, sets_planned, reps_planned,
+           rpe_target, increment_kg, rest_seconds, set_rest_seconds, set_scheme)
+          VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 2.5, ?, ?, ?)`,
+        bind: [
+          crypto.randomUUID(),
           id,
           ex.exerciseId,
           ex.orderNum,
@@ -82,8 +98,32 @@ export function useTemplates() {
           ex.setRestSeconds ?? null,
           ex.setScheme ?? null,
         ],
-      )
+      })
     }
+    for (const group of groups) {
+      statements.push({
+        sql: `INSERT INTO template_groups
+          (id, template_id, label, name, group_type, transition_rest_sec, rest_after_round_sec,
+           circuit_rest_mode, sort_order, display_name, rounds, amrap, time_cap_sec)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        bind: [
+          crypto.randomUUID(),
+          id,
+          group.label,
+          group.name ?? null,
+          group.groupType,
+          group.transitionRestSec ?? 0,
+          group.restAfterRoundSec ?? 120,
+          group.circuitRestMode ?? 'after_round',
+          group.sortOrder ?? 0,
+          group.displayName ?? null,
+          group.rounds ?? 1,
+          group.amrap ? 1 : 0,
+          group.timeCapSec ?? null,
+        ],
+      })
+    }
+    await db.batch(statements)
     await load()
     return id
   }
@@ -105,25 +145,31 @@ export function useTemplates() {
   async function cloneTemplate(id: string, newName?: string): Promise<string> {
     const src = await getById(id)
     if (!src) throw new Error(`Template ${id} not found`)
-    const srcExercises = await getExercises(id)
+    const [srcExercises, srcGroups] = await Promise.all([
+      getExercises(id),
+      db.query<TemplateGroupRow>(
+        'SELECT * FROM template_groups WHERE template_id = ? ORDER BY sort_order',
+        [id],
+      ),
+    ])
 
     const cloneId = crypto.randomUUID()
     const now = new Date().toISOString()
     const name = newName ?? `Copy of ${src.name}`
-    await db.exec(
-      'INSERT INTO templates (id, name, description, cover_emoji, created_at) VALUES (?, ?, ?, ?, ?)',
-      [cloneId, name, src.description, src.cover_emoji, now],
-    )
+    const statements: DbStatement[] = [
+      {
+        sql: 'INSERT INTO templates (id, name, description, cover_emoji, created_at) VALUES (?, ?, ?, ?, ?)',
+        bind: [cloneId, name, src.description, src.cover_emoji, now],
+      },
+    ]
     for (const ex of srcExercises) {
-      const teId = crypto.randomUUID()
-      await db.exec(
-        `INSERT INTO template_exercises
-           (id, template_id, exercise_id, order_num, superset_group,
-            sets_planned, reps_planned, rpe_target, increment_kg, rest_seconds,
-            set_rest_seconds, set_scheme)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          teId,
+      statements.push({
+        sql: `INSERT INTO template_exercises
+          (id, template_id, exercise_id, order_num, superset_group, sets_planned, reps_planned,
+           rpe_target, increment_kg, rest_seconds, set_rest_seconds, set_scheme)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        bind: [
+          crypto.randomUUID(),
           cloneId,
           ex.exercise_id,
           ex.order_num,
@@ -136,8 +182,32 @@ export function useTemplates() {
           ex.set_rest_seconds,
           ex.set_scheme,
         ],
-      )
+      })
     }
+    for (const group of srcGroups) {
+      statements.push({
+        sql: `INSERT INTO template_groups
+          (id, template_id, label, name, group_type, transition_rest_sec, rest_after_round_sec,
+           circuit_rest_mode, sort_order, display_name, rounds, amrap, time_cap_sec)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        bind: [
+          crypto.randomUUID(),
+          cloneId,
+          group.label,
+          group.name,
+          group.group_type,
+          group.transition_rest_sec,
+          group.rest_after_round_sec,
+          group.circuit_rest_mode,
+          group.sort_order,
+          group.display_name,
+          group.rounds,
+          group.amrap,
+          group.time_cap_sec,
+        ],
+      })
+    }
+    await db.batch(statements)
     await load()
     return cloneId
   }

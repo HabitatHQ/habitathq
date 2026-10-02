@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  advanceIntervalPhase,
   buildAmrap,
   buildEmom,
   buildTabata,
@@ -47,5 +48,34 @@ describe('calculateIntervalTotalTime', () => {
   it('returns time_cap_sec for AMRAP', () => {
     const amrap = buildAmrap(300)
     expect(calculateIntervalTotalTime(amrap)).toBe(300)
+  })
+})
+describe('advanceIntervalPhase', () => {
+  it('moves through work, rest, rounds, and completion without exceeding planned rounds', () => {
+    const tabata = buildTabata()
+    expect(advanceIntervalPhase({ phase: 'work', round: 1, remainingSeconds: 0 }, tabata)).toEqual({
+      phase: 'rest',
+      round: 1,
+      remainingSeconds: 10,
+    })
+    expect(advanceIntervalPhase({ phase: 'rest', round: 1, remainingSeconds: 0 }, tabata)).toEqual({
+      phase: 'work',
+      round: 2,
+      remainingSeconds: 20,
+    })
+    expect(advanceIntervalPhase({ phase: 'rest', round: 8, remainingSeconds: 0 }, tabata)).toEqual({
+      phase: 'complete',
+      round: 8,
+      remainingSeconds: 0,
+    })
+  })
+
+  it('completes an AMRAP at its time cap without creating resistance-set progression', () => {
+    const amrap = buildAmrap(300)
+    expect(advanceIntervalPhase({ phase: 'work', round: 1, remainingSeconds: 0 }, amrap)).toEqual({
+      phase: 'complete',
+      round: 1,
+      remainingSeconds: 0,
+    })
   })
 })

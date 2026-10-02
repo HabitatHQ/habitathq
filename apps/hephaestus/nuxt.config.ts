@@ -35,6 +35,27 @@ export default defineNuxtConfig({
     colorMode: true,
   },
 
+  icon: {
+    clientBundle: {
+      scan: true,
+      // These names come from exercise seed data rather than component markup.
+      icons: [
+        'ph:activity',
+        'ph:arrow-fat-down',
+        'ph:arrow-fat-up',
+        'ph:barbell',
+        'ph:minus',
+        'ph:person',
+        'ph:person-simple-bike',
+        'ph:person-simple-ski',
+        'ph:person-simple-walk',
+        'ph:waves',
+      ],
+    },
+    serverBundle: { collections: ['ph'] },
+    fallbackToApi: false,
+  },
+
   ...(isPWA && {
     pwa: {
       strategies: 'injectManifest',
@@ -83,13 +104,13 @@ export default defineNuxtConfig({
           },
           {
             name: 'Log Run',
-            url: `${appBaseURL}history`,
+            url: `${appBaseURL}workout`,
             description: 'Log a new run',
           },
         ],
       },
       injectManifest: {
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2,wasm}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2,wasm,webmanifest}'],
       },
       devOptions: {
         enabled: false,

@@ -5,7 +5,8 @@ interface Props {
   open: boolean
 }
 
-defineProps<Props>()
+const props = defineProps<Props>()
+const modalFocus = useModalFocus(() => props.open)
 const emit = defineEmits<{
   close: []
   import: [payload: ExportPayload]
@@ -26,12 +27,12 @@ function handleParse() {
 
   // Try JSON first
   try {
-    const obj = JSON.parse(text)
+    const obj: unknown = JSON.parse(text)
     if (!validateImportPayload(obj)) {
       error.value = 'Invalid template format.'
       return
     }
-    parsed.value = obj as ExportPayload
+    parsed.value = obj
     return
   } catch {
     // Not JSON — try QR base64
@@ -71,18 +72,13 @@ async function handleFileInput(e: Event) {
 </script>
 
 <template>
-  <Transition name="slide-up">
-    <div
-      v-if="open"
-      class="fixed inset-x-0 bottom-0 z-50 bg-(--ui-bg) rounded-t-2xl shadow-2xl max-h-[80vh] flex flex-col"
-      role="dialog"
-      aria-label="Import Template"
-      aria-modal="true"
-    >
+  <UModal :open="open" :content="modalFocus" title="Import Template" description="Validate portable training data before importing." @update:open="value => { if (!value) handleClose() }">
+    <template #content>
+    <div class="max-h-[85dvh] flex flex-col">
       <div class="flex-none p-4 border-b border-(--ui-border) flex items-center justify-between">
         <h2 class="font-bold">Import Template</h2>
         <button class="text-(--ui-text-muted)" aria-label="Close" @click="handleClose">
-          <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
+          <UIcon name="i-ph-x" class="w-5 h-5" aria-hidden="true" />
         </button>
       </div>
 
@@ -154,16 +150,7 @@ async function handleFileInput(e: Event) {
         </UButton>
       </div>
     </div>
-  </Transition>
+    </template>
+  </UModal>
 </template>
 
-<style scoped>
-.slide-up-enter-active,
-.slide-up-leave-active {
-  transition: transform 0.25s ease;
-}
-.slide-up-enter-from,
-.slide-up-leave-to {
-  transform: translateY(100%);
-}
-</style>

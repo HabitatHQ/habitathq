@@ -14,6 +14,7 @@ const today = new Date().toLocaleDateString('en-US', {
 })
 
 const recentWorkouts = ref<WorkoutRow[]>([])
+const unfinishedWorkout = ref<WorkoutRow | null>(null)
 const thisWeekVolume = ref(0)
 const lastWeekVolume = ref(0)
 const streak = ref(0)
@@ -30,6 +31,10 @@ watch(
 )
 
 async function loadData() {
+  const unfinished = await db.query<WorkoutRow>(
+    'SELECT * FROM workouts WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1',
+  )
+  unfinishedWorkout.value = unfinished[0] ?? null
   const rows = await db.query<WorkoutRow>(
     'SELECT * FROM workouts WHERE ended_at IS NOT NULL ORDER BY date DESC LIMIT 5',
   )
@@ -86,7 +91,14 @@ function sessionLabel(w: WorkoutRow): string {
         Math.round((new Date(w.ended_at).getTime() - new Date(w.started_at).getTime()) / 1000),
       )
     : '—'
-  return `Gym · ${elapsed}`
+  const label = {
+    gym: 'Strength',
+    run: 'Run',
+    conditioning: 'Conditioning',
+    mobility: 'Mobility',
+    other: 'Other',
+  }[w.session_type]
+  return `${label} · ${elapsed}`
 }
 </script>
 
@@ -108,17 +120,17 @@ function sessionLabel(w: WorkoutRow): string {
       <!-- Readiness -->
       <div v-if="readiness" class="bg-(--color-surface) rounded-xl p-4">
         <p class="text-xs text-(--ui-text-muted) mb-1">Readiness</p>
-        <p class="text-2xl font-bold">{{ readiness.score }}<span class="text-xs text-(--ui-text-muted) ml-1">/ 100</span></p>
+        <p v-if="readiness.score !== null" class="text-2xl font-bold">{{ readiness.score }}<span class="text-xs text-(--ui-text-muted) ml-1">/ 100</span></p>
         <p class="text-xs" :class="{
           'text-green-400': readiness.label === 'High',
           'text-yellow-400': readiness.label === 'Moderate',
           'text-red-400': readiness.label === 'Low',
-          'text-zinc-400': readiness.label === 'Detraining',
         }">{{ readiness.label }}</p>
       </div>
       <div v-else class="bg-(--color-surface) rounded-xl p-4 flex items-center justify-center">
         <p class="text-xs text-(--ui-text-muted)">No data yet</p>
       </div>
+      <p class="col-span-2 text-xs text-(--ui-text-muted)">Readiness is an estimate from your recent training, not medical advice or a recovery prescription.</p>
     </section>
 
     <!-- Weekly volume -->
@@ -134,9 +146,14 @@ function sessionLabel(w: WorkoutRow): string {
     <!-- Quick start -->
     <section aria-label="Quick start">
       <UButton size="xl" color="primary" class="w-full" to="/workout">
-        <UIcon name="i-heroicons-bolt" class="w-5 h-5" aria-hidden="true" />
-        Start Workout
+        <UIcon name="i-ph-lightning" class="w-5 h-5" aria-hidden="true" />
+        {{ unfinishedWorkout ? 'Resume Workout' : 'Start Workout' }}
       </UButton>
+    </section>
+    <section aria-label="Training tools" class="flex flex-wrap gap-2">
+      <UButton to="/templates" variant="soft">Templates &amp; programs</UButton>
+      <UButton to="/progress" variant="soft">Progress</UButton>
+      <UButton to="/templates/intervals" variant="soft">Interval timer</UButton>
     </section>
 
     <!-- Recent activity -->
@@ -157,10 +174,10 @@ function sessionLabel(w: WorkoutRow): string {
             <div>
               <p class="text-sm font-medium">{{ sessionLabel(w) }}</p>
               <p class="text-xs text-(--ui-text-muted)">
-                {{ new Date(w.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) }}
+                {{ new Date(`${w.date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) }}
               </p>
             </div>
-            <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-(--ui-text-muted)" aria-hidden="true" />
+            <UIcon name="i-ph-caret-right" class="w-4 h-4 text-(--ui-text-muted)" aria-hidden="true" />
           </NuxtLink>
         </li>
       </ul>

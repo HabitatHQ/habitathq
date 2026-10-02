@@ -1,8 +1,25 @@
 import { describe, expect, it } from 'vitest'
-import { aggregateMuscleFrequency, buildExerciseHistory, buildWeekGrid } from '~/lib/analytics'
+import {
+  addCalendarDays,
+  aggregateMuscleFrequency,
+  buildExerciseHistory,
+  buildWeekGrid,
+  localDateKey,
+} from '~/lib/analytics'
 import type { ExerciseRow, SetRow, WorkoutExerciseRow } from '~/types/database'
 
 const REF_DATE = '2026-03-10'
+
+describe('local calendar boundaries', () => {
+  it('adds days by local calendar rather than UTC milliseconds', () => {
+    expect(addCalendarDays('2026-03-08', 1)).toBe('2026-03-09')
+    expect(addCalendarDays('2026-01-01', -1)).toBe('2025-12-31')
+  })
+
+  it('formats a Date using its local calendar fields', () => {
+    expect(localDateKey(new Date(2026, 2, 8, 23, 30))).toBe('2026-03-08')
+  })
+})
 
 describe('buildWeekGrid', () => {
   it('returns correct number of weeks', () => {
@@ -89,6 +106,33 @@ describe('aggregateMuscleFrequency', () => {
     ]
     const result = aggregateMuscleFrequency(oldWEs, exercises, oldWorkouts, 7, REF_DATE)
     expect(result).toHaveLength(0)
+  })
+
+  it('excludes unfinished, future, and cardio exercises from lifting frequency', () => {
+    const exercise = exercises[0]
+    const workoutExercise = workoutExercises[0]
+    if (!exercise || !workoutExercise) throw new Error('Missing strength fixtures')
+    const mixedExercises = [
+      ...exercises,
+      { ...exercise, id: 'cardio', logging_mode: 'cardio' as const },
+    ]
+    const mixedWorkouts = [
+      ...workouts.map((workout) => ({ ...workout, ended_at: '2026-03-10T12:00:00Z' })),
+      { id: 'unfinished', date: REF_DATE, ended_at: null },
+      { id: 'future', date: '2026-03-11', ended_at: '2026-03-11T12:00:00Z' },
+    ]
+    const mixedRows = [
+      ...workoutExercises,
+      { ...workoutExercise, id: 'incomplete-we', workout_id: 'unfinished' },
+      { ...workoutExercise, id: 'future-we', workout_id: 'future' },
+      { ...workoutExercise, id: 'cardio-we', exercise_id: 'cardio' },
+    ]
+    expect(aggregateMuscleFrequency(mixedRows, mixedExercises, mixedWorkouts, 7, REF_DATE)).toEqual(
+      [
+        { muscle: 'quads', count: 1, lastTrained: REF_DATE },
+        { muscle: 'glutes', count: 1, lastTrained: REF_DATE },
+      ],
+    )
   })
 })
 

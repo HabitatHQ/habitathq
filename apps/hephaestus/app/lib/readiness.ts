@@ -1,32 +1,24 @@
-/**
- * Readiness score calculator.
- * Combines ACWR, days since last workout, and recent mood to produce a 0-100 score.
- */
+/** Readiness is a rough estimate and is never medical advice. */
 
 export interface ReadinessResult {
-  score: number
-  label: 'High' | 'Moderate' | 'Low' | 'Detraining'
+  score: number | null
+  label: 'High' | 'Moderate' | 'Low' | 'Unavailable'
   description: string
+  isEstimate: true
 }
 
-/**
- * Calculate a readiness score 0-100.
- * @param acwr - Acute:Chronic Workload Ratio (0 = no data)
- * @param daysSinceLastWorkout - Days since last session (0 = today)
- * @param recentMoodAvg - Average mood 1-5 over recent sessions, or null if no data
- */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: readiness scoring has many threshold branches by design
+/** These are heuristic estimates, not medical or authoritative training advice. */
 export function calculateReadiness(
   acwr: number,
   daysSinceLastWorkout: number,
   recentMoodAvg: number | null,
 ): ReadinessResult {
-  // No data case
-  if (acwr === 0 && daysSinceLastWorkout === 0) {
+  if (acwr === 0) {
     return {
-      score: 0,
-      label: 'Moderate',
-      description: 'No training history yet — start your first workout!',
+      score: null,
+      label: 'Unavailable',
+      description: 'Not enough completed lifting-load history for an estimate yet.',
+      isEstimate: true,
     }
   }
 
@@ -34,10 +26,8 @@ export function calculateReadiness(
   let score = 70
 
   // ACWR contribution (optimal 0.8-1.3 → bonus, extremes → penalty)
-  if (acwr === 0) {
-    // No data — neutral
-  } else if (acwr < 0.6) {
-    score -= 20 // Severely undertrained / detraining
+  if (acwr < 0.6) {
+    score -= 20
   } else if (acwr < 0.8) {
     score -= 5 // Slightly undertrained
   } else if (acwr <= 1.3) {
@@ -71,22 +61,20 @@ export function calculateReadiness(
   let label: ReadinessResult['label']
   let description: string
 
-  if (daysSinceLastWorkout > 7 || (acwr > 0 && acwr < 0.5)) {
-    label = 'Detraining'
-    description = 'Extended rest detected — ease back in with lighter loads.'
-  } else if (acwr > 1.5) {
+  if (acwr > 1.5) {
     label = 'Low'
-    description = 'High training load — consider a deload or extra recovery.'
+    description = 'Estimated recent load is elevated; use your own recovery judgment.'
   } else if (score >= 75) {
     label = 'High'
-    description = 'Training load is optimal. Good time to push hard.'
+    description =
+      'Estimated load and recent check-in suggest a lighter relative load; this is not a prescription.'
   } else if (score >= 45) {
     label = 'Moderate'
-    description = 'Moderate readiness — train as planned but listen to your body.'
+    description = 'Heuristic estimate only; consider your own recovery and how you feel.'
   } else {
     label = 'Low'
-    description = 'Signs of fatigue or high load — consider a lighter session.'
+    description = 'Heuristic estimate only; consider your own recovery and how you feel.'
   }
 
-  return { score, label, description }
+  return { score, label, description, isEstimate: true }
 }

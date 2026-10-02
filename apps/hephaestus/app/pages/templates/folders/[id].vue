@@ -2,7 +2,7 @@
 import type { TemplateFolderRow, TemplateRow } from '~/types/database'
 
 const route = useRoute()
-const folderId = computed(() => route.params.id as string)
+const folderId = computed(() => String(route.params['id'] ?? ''))
 const { load: loadFolders, getTemplates, removeTemplate } = useTemplateFolders()
 const db = useDatabase()
 

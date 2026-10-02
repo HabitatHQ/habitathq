@@ -1,6 +1,15 @@
 <script setup lang="ts">
-import { formatDuration } from '~/lib/format'
-import type { ExerciseRow, SetRow, TemplateGroupRow, WorkoutExerciseRow } from '~/types/database'
+import type { EquipmentProfile } from '~/lib/equipment'
+import { formatDuration, formatWeight } from '~/lib/format'
+import { historicalWeightSuggestion } from '~/lib/progression'
+import type { WorkoutSummary } from '~/lib/workout-storage'
+import type {
+  ExerciseRow,
+  SessionType,
+  SetRow,
+  TemplateGroupRow,
+  WorkoutExerciseRow,
+} from '~/types/database'
 
 const { settings } = useAppSettings()
 const workout = useWorkout()
@@ -17,18 +26,38 @@ const showFinishSheet = ref(false)
 const moodRating = ref<number | null>(null)
 const energyRating = ref<number | null>(null)
 const workoutNotes = ref('')
-const summary = ref<Awaited<ReturnType<typeof workout.finishWorkout>> | null>(null)
+const summary = ref<WorkoutSummary | null>(null)
 const showExercisePicker = ref(false)
 const exerciseSearch = ref('')
 const showFailureRestPrompt = ref(false)
 const showWarmupSuggestions = ref(false)
 const activeWorkingWeight = ref<number | null>(null)
+const editingSet = ref<SetRow | null>(null)
+const sessionType = ref<SessionType>('gym')
+const runDistanceKm = ref<number | null>(null)
+const runDurationSec = ref<number | null>(null)
+const requestError = ref('')
+const equipmentProfiles = useEquipmentProfiles()
+const currentEquipmentProfile = ref<EquipmentProfile | null>(null)
+const suggestedWeightKg = ref<number | null>(null)
+const suggestionReason = ref<string | null>(null)
+let profileLoad = 0
 
-// app.vue loads exercises after seeding; call here as fallback for direct navigation.
-// rpc() now waits for DB ready internally, so this is always safe.
-onMounted(() => {
-  loadExercises()
-  loadTemplates()
+function syncRunFields() {
+  runDistanceKm.value =
+    workout.runData.value?.distance_m == null ? null : workout.runData.value.distance_m / 1000
+  runDurationSec.value = workout.runData.value?.duration_sec ?? null
+}
+// Load the shared exercise/template data and explicitly offer recovery for any unfinished session.
+onMounted(async () => {
+  await Promise.all([loadExercises(), loadTemplates()])
+  try {
+    await workout.hydrateActiveWorkout()
+  } catch (error) {
+    requestError.value =
+      error instanceof Error ? error.message : 'Workout database is unavailable in this tab.'
+  }
+  syncRunFields()
 })
 
 // Computed exercise name for the AddSet sheet
@@ -38,6 +67,32 @@ const activeExercise = computed(() => {
   if (!we) return null
   return exerciseLibrary.value.find((e) => e.id === we.exercise_id) ?? null
 })
+watch(
+  [activeExercise, workout.sessionIntensityModifier],
+  async ([exercise, intensityModifier]) => {
+    const currentLoad = ++profileLoad
+    if (!exercise) {
+      currentEquipmentProfile.value = null
+      suggestedWeightKg.value = null
+      suggestionReason.value = null
+      return
+    }
+    const [profile, history] = await Promise.all([
+      equipmentProfiles.get(exercise.id),
+      workout.loadProgressionHistory(exercise.id),
+    ])
+    if (currentLoad !== profileLoad) return
+    currentEquipmentProfile.value = profile
+    const suggestion = historicalWeightSuggestion({
+      ...history,
+      intensityModifier,
+      equipmentProfile: profile,
+    })
+    suggestedWeightKg.value = suggestion.weightKg
+    suggestionReason.value = suggestion.reason
+  },
+  { immediate: true },
+)
 
 const filteredExercises = computed(() => {
   const q = exerciseSearch.value.trim()
@@ -51,6 +106,10 @@ const addSetExtraProps = computed(() => ({
     ? {}
     : { exerciseMovement: activeExercise.value.movement }),
   ...(activeExercise.value?.icon == null ? {} : { exerciseIcon: activeExercise.value.icon }),
+  loggingMode: activeExercise.value?.logging_mode ?? 'strength',
+  equipmentProfile: currentEquipmentProfile.value,
+  suggestedWeightKg: suggestedWeightKg.value,
+  ...(suggestionReason.value == null ? {} : { suggestionReason: suggestionReason.value }),
 }))
 
 // Group workout exercises into solo blocks and superset group blocks
@@ -87,26 +146,43 @@ function groupExercises(label: string) {
       sets: [...(workout.sets.value.get(we.id) ?? [])],
     }))
 }
+function openEditSet(set: SetRow) {
+  const exerciseId = set.workout_exercise_id
+  editingSet.value = set
+  activeWeId.value = exerciseId
+  lastSetForWe.value = set
+  nextSetNum.value = set.set_num
+  showAddSet.value = true
+}
 
 function openAddSet(weId: string) {
-  const sets = workout.sets.value.get(weId) ?? []
-  const lastCompleted = [...sets].reverse().find((s) => s.completed === 1) ?? null
-  lastSetForWe.value = lastCompleted
-  nextSetNum.value = sets.filter((s) => s.completed === 1).length + 1
+  const currentSets = workout.sets.value.get(weId) ?? []
+  editingSet.value = null
+  lastSetForWe.value = [...currentSets].reverse().find((set) => set.completed === 1) ?? null
+  nextSetNum.value = currentSets.filter((set) => set.completed === 1).length + 1
   activeWeId.value = weId
   showAddSet.value = true
 }
 
 async function handleSetConfirm(partial: Partial<SetRow>) {
   if (!activeWeId.value) return
-  showAddSet.value = false
-  await workout.logSet(activeWeId.value, partial)
-  if (partial.failure_flag === 1 && !partial.is_warmup && settings.value.showFailurePrompt) {
-    showFailureRestPrompt.value = true
-  }
-  // Track working weight for warmup suggestions
-  if (!partial.is_warmup && partial.weight_kg != null) {
-    activeWorkingWeight.value = partial.weight_kg
+  try {
+    if (partial.id) await workout.updateSet(partial.id, partial)
+    else await workout.logSet(activeWeId.value, partial)
+    showAddSet.value = false
+    editingSet.value = null
+    if (
+      !partial.id &&
+      partial.failure_flag === 1 &&
+      !partial.is_warmup &&
+      settings.value.showFailurePrompt
+    )
+      showFailureRestPrompt.value = true
+    if (!partial.is_warmup && partial.weight_kg != null)
+      activeWorkingWeight.value = partial.weight_kg
+    requestError.value = ''
+  } catch (error) {
+    requestError.value = error instanceof Error ? error.message : 'Could not save this set.'
   }
 }
 
@@ -127,20 +203,73 @@ async function handleLogWarmup(weightKg: number) {
 }
 
 async function handleStartEmpty() {
-  await workout.startWorkout()
+  requestError.value = ''
+  try {
+    await workout.startWorkout(undefined, { sessionType: sessionType.value })
+    syncRunFields()
+  } catch (error) {
+    requestError.value = error instanceof Error ? error.message : 'Could not start this session.'
+  }
 }
 
 async function handleStartFromTemplate(templateId: string) {
-  await workout.startWorkout(templateId)
+  requestError.value = ''
+  try {
+    await workout.startWorkout(templateId, { sessionType: sessionType.value })
+    syncRunFields()
+  } catch (error) {
+    requestError.value = error instanceof Error ? error.message : 'Could not start this session.'
+  }
+}
+
+async function handleResume() {
+  try {
+    await workout.resumeWorkout()
+    requestError.value = ''
+  } catch (error) {
+    requestError.value = error instanceof Error ? error.message : 'Could not resume this session.'
+  }
+}
+
+async function handleDiscard() {
+  try {
+    await workout.discardWorkout()
+    syncRunFields()
+    requestError.value = ''
+  } catch (error) {
+    requestError.value = error instanceof Error ? error.message : 'Could not discard this session.'
+  }
+}
+
+async function saveRunData(): Promise<boolean> {
+  try {
+    await workout.saveRunData({
+      distance_m: runDistanceKm.value == null ? null : runDistanceKm.value * 1000,
+      duration_sec: runDurationSec.value,
+    })
+    requestError.value = ''
+    return true
+  } catch (error) {
+    requestError.value = error instanceof Error ? error.message : 'Could not save run details.'
+    return false
+  }
 }
 
 async function handleFinish() {
-  showFinishSheet.value = false
-  summary.value = await workout.finishWorkout({
-    ...(moodRating.value == null ? {} : { moodRating: moodRating.value }),
-    ...(energyRating.value == null ? {} : { energyRating: energyRating.value }),
-    ...(workoutNotes.value ? { notes: workoutNotes.value } : {}),
-  })
+  try {
+    if (workout.activeWorkout.value?.session_type === 'run' && !(await saveRunData())) return
+    showFinishSheet.value = false
+    summary.value = await workout.finishWorkout({
+      ...(moodRating.value == null ? {} : { moodRating: moodRating.value }),
+      ...(energyRating.value == null ? {} : { energyRating: energyRating.value }),
+      ...(workoutNotes.value ? { notes: workoutNotes.value } : {}),
+    })
+    syncRunFields()
+    requestError.value = ''
+  } catch (error) {
+    requestError.value =
+      error instanceof Error ? error.message : 'Could not finish this session; it is still active.'
+  }
 }
 
 async function addExercise(exerciseId: string) {
@@ -156,7 +285,19 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
   <div class="min-h-screen">
     <!-- ── No Active Workout ───────────────────────────────────────────── -->
     <!-- summary is a top-level ref — auto-unwrapped in templates, so use !summary not !summary.value -->
-    <article v-if="!workout.activeWorkout.value && !summary" class="p-4 space-y-6">
+    <article v-if="workout.recoverySession.value && workout.hasActiveWorkout.value" class="p-4 space-y-5">
+      <h1 class="text-2xl font-bold mt-2">Unfinished session</h1>
+      <p class="text-sm text-(--ui-text-muted)">
+        {{ workout.activeWorkout.value?.session_type }} · started {{ workout.activeWorkout.value?.started_at }}
+      </p>
+      <p class="text-sm">Your exercises, sets, and elapsed time are saved. Resume this session or discard it before starting another.</p>
+      <div class="grid grid-cols-2 gap-3">
+        <UButton color="primary" @click="handleResume">Resume</UButton>
+        <UButton variant="outline" color="neutral" @click="handleDiscard">Discard</UButton>
+      </div>
+      <p v-if="requestError" role="alert" class="text-sm text-red-400">{{ requestError }}</p>
+    </article>
+    <article v-else-if="!workout.hasActiveWorkout.value && !summary" class="p-4 space-y-6">
       <h1 class="text-2xl font-bold mt-2">Workout</h1>
 
       <!-- Templates -->
@@ -197,7 +338,7 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
                 </p>
               </div>
               <UIcon
-                name="i-heroicons-play"
+                name="i-ph-play"
                 class="w-5 h-5 text-(--color-accent) shrink-0"
                 aria-hidden="true"
               />
@@ -208,8 +349,22 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
 
       <!-- Empty session -->
       <section aria-label="Start empty workout">
+        <label for="session-type" class="sr-only">Session type</label>
+        <select id="session-type" v-model="sessionType" class="mb-3 w-full rounded-xl bg-(--color-surface-2) px-3 py-3">
+          <option value="gym">Strength / hypertrophy</option>
+          <option value="run">Run / cardio</option>
+          <option value="conditioning">Conditioning / intervals</option>
+          <option value="mobility">Mobility / recovery</option>
+        </select>
+        <p v-if="requestError" role="alert" class="mb-3 text-sm text-red-400">{{ requestError }}</p>
+        <p v-if="workout.writerUnavailable.value" class="mb-3 text-sm text-amber-300">
+          Another tab owns the local database. Close it or use its active workout before continuing.
+        </p>
+        <UButton v-if="workout.writerUnavailable.value" variant="outline" class="mb-3 w-full" @click="workout.hydrateActiveWorkout()">
+          Check for an active session
+        </UButton>
         <UButton variant="outline" color="neutral" size="lg" class="w-full" @click="handleStartEmpty">
-          <UIcon name="i-heroicons-plus" class="w-5 h-5" aria-hidden="true" />
+          <UIcon name="i-ph-plus" class="w-5 h-5" aria-hidden="true" />
           Start Empty Session
         </UButton>
       </section>
@@ -218,14 +373,15 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
     <!-- ── Post-workout Summary ───────────────────────────────────────── -->
     <article v-else-if="summary" class="p-4 space-y-6">
       <header>
-        <h1 class="text-2xl font-bold">Session Complete 🏋️</h1>
+        <h1 class="text-2xl font-bold">Session Complete — {{ summary.sessionType === 'gym' ? 'Strength' : summary.sessionType === 'other' ? 'Other' : summary.sessionType }}</h1>
       </header>
       <section aria-labelledby="summary-heading" class="grid grid-cols-2 gap-3">
         <h2 id="summary-heading" class="sr-only">Workout summary</h2>
-        <CommonStatCard label="Duration" :value="formatDuration(summary.durationSec)" />
-        <CommonStatCard label="Working Sets" :value="String(summary.totalSets)" />
-        <CommonStatCard label="Volume" :value="`${Math.round(summary.totalVolume)} kg`" />
+        <CommonStatCard v-if="summary.sessionType === 'run'" label="Distance" :value="`${(summary.distanceM / 1000).toFixed(2)} km`" />
+        <CommonStatCard v-else :label="summary.sessionType === 'gym' ? 'Working Sets' : 'Logged Sets'" :value="String(summary.totalSets)" />
+        <CommonStatCard v-if="summary.sessionType === 'gym'" label="Volume" :value="`${Math.round(summary.totalVolume)} kg`" />
         <CommonStatCard
+          v-if="summary.sessionType === 'gym'"
           label="PRs"
           :value="String(summary.newPRs.length)"
           :accent="summary.newPRs.length > 0"
@@ -234,9 +390,9 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
 
       <ul v-if="summary.newPRs.length > 0" role="list" class="space-y-2">
         <li v-for="pr in summary.newPRs" :key="pr.id" class="flex items-center gap-2 text-sm">
-          <UIcon name="i-heroicons-trophy" class="w-4 h-4 text-yellow-400" aria-hidden="true" />
+          <UIcon name="i-ph-trophy" class="w-4 h-4 text-yellow-400" aria-hidden="true" />
           <span class="font-medium">New {{ pr.record_type.toUpperCase() }} PR</span>
-          <span class="text-(--ui-text-muted)">{{ Math.round(pr.value * 10) / 10 }} kg</span>
+          <span class="text-(--ui-text-muted)">{{ pr.record_type === 'reps' ? `${pr.value} reps` : `${formatWeight(pr.value, settings.weightUnit)} ${settings.weightUnit}` }}</span>
         </li>
       </ul>
 
@@ -246,7 +402,7 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
     </article>
 
     <!-- ── Active Workout ─────────────────────────────────────────────── -->
-    <article v-else class="pb-24">
+    <article v-else-if="workout.hasActiveWorkout.value" class="pb-24">
       <!-- Rest timer -->
       <WorkoutRestTimer
         v-if="workout.restTimer.value.active"
@@ -273,6 +429,15 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
           Finish
         </UButton>
       </header>
+      <p v-if="requestError" role="alert" class="mx-4 mt-3 text-sm text-red-400">{{ requestError }}</p>
+      <section v-if="workout.activeWorkout.value?.session_type === 'run'" class="mx-4 mt-4 rounded-xl bg-(--color-surface) p-4 space-y-3" aria-labelledby="run-entry-heading">
+        <h2 id="run-entry-heading" class="font-semibold">Manual run details</h2>
+        <label class="block text-sm" for="run-distance">Distance (km)</label>
+        <input id="run-distance" v-model.number="runDistanceKm" type="number" min="0" step="0.01" class="w-full rounded-lg bg-(--color-surface-2) p-3" />
+        <label class="block text-sm" for="run-duration">Duration (seconds)</label>
+        <input id="run-duration" v-model.number="runDurationSec" type="number" min="0" step="1" class="w-full rounded-lg bg-(--color-surface-2) p-3" />
+        <UButton variant="outline" class="w-full" @click="async () => { await saveRunData() }">Save run details</UButton>
+      </section>
 
       <!-- Exercise blocks -->
       <div class="p-4 space-y-4">
@@ -287,7 +452,7 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
             :sets="[...(workout.sets.value.get(block.we.id) ?? [])]"
             :unit="settings.weightUnit"
             @add-set="openAddSet"
-            @tap-set="() => openAddSet(block.we.id)"
+            @tap-set="openEditSet"
           />
           <WorkoutSupersetCard
             v-else
@@ -299,6 +464,7 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
             :exercises="groupExercises(block.label)"
             :unit="settings.weightUnit"
             @add-set="openAddSet"
+            @tap-set="openEditSet"
           />
         </template>
 
@@ -309,7 +475,7 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
           class="w-full border-2 border-dashed border-(--ui-border) rounded-xl h-12"
           @click="showExercisePicker = true"
         >
-          <UIcon name="i-heroicons-plus" class="w-5 h-5" aria-hidden="true" />
+          <UIcon name="i-ph-plus" class="w-5 h-5" aria-hidden="true" />
           Add Exercise
         </UButton>
       </div>
@@ -322,6 +488,7 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
       v-bind="addSetExtraProps"
       :set-num="nextSetNum"
       :last-set="lastSetForWe"
+      :editing-set="editingSet"
       :unit="settings.weightUnit"
       :show-warmup-suggestions="settings.showWarmupSuggestions"
       @close="showAddSet = false"
@@ -347,7 +514,7 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
         role="alert"
         aria-live="polite"
       >
-        <UIcon name="i-heroicons-fire" class="w-5 h-5 text-red-400 shrink-0" aria-hidden="true" />
+        <UIcon name="i-ph-fire" class="w-5 h-5 text-red-400 shrink-0" aria-hidden="true" />
         <p class="flex-1 text-sm font-medium">Failure logged — take extra rest?</p>
         <UButton
           size="xs"
@@ -361,7 +528,7 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
           aria-label="Dismiss"
           @click="showFailureRestPrompt = false"
         >
-          <UIcon name="i-heroicons-x-mark" class="w-4 h-4" aria-hidden="true" />
+          <UIcon name="i-ph-x" class="w-4 h-4" aria-hidden="true" />
         </button>
       </div>
     </Transition>
@@ -381,7 +548,7 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
             aria-label="Close exercise picker"
             @click="showExercisePicker = false; exerciseSearch = ''"
           >
-            <UIcon name="i-heroicons-x-mark" class="w-6 h-6" aria-hidden="true" />
+            <UIcon name="i-ph-x" class="w-6 h-6" aria-hidden="true" />
           </button>
           <input
             v-model="exerciseSearch"

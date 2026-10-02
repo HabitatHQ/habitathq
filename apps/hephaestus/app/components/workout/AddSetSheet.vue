@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import type { FailureType, MovementPattern, SetRow } from '~/types/database'
+import type { EquipmentProfile } from '~/lib/equipment'
+import { fromKilograms, roundToAvailableLoad, toKilograms } from '~/lib/equipment'
+import type { FailureType, LoggingMode, MovementPattern, SetRow } from '~/types/database'
 
 const props = defineProps<{
   open: boolean
@@ -8,9 +10,15 @@ const props = defineProps<{
   exerciseIcon?: string | null
   setNum: number
   lastSet: SetRow | null
+  editingSet?: SetRow | null
   unit?: 'kg' | 'lbs'
+  equipmentProfile?: EquipmentProfile | null
+  suggestedWeightKg?: number | null
+  suggestionReason?: string
+  loggingMode?: LoggingMode
   showWarmupSuggestions?: boolean
 }>()
+const modalFocus = useModalFocus(() => props.open)
 
 const emit = defineEmits<{
   close: []
@@ -19,16 +27,18 @@ const emit = defineEmits<{
 }>()
 
 const unit = computed(() => props.unit ?? 'kg')
-
-const weight = ref<number | null>(props.lastSet?.weight_kg ?? null)
-const reps = ref<number | null>(props.lastSet?.reps ?? null)
-const rpe = ref<number | null>(props.lastSet?.rpe ?? null)
+const weight = ref<number | null>(null)
+const reps = ref<number | null>(null)
+const rpe = ref<number | null>(null)
 const rir = ref<number | null>(null)
 const isWarmup = ref(false)
 const notes = ref('')
 const isFailure = ref(false)
 const failureType = ref<FailureType | null>(null)
 const partialReps = ref<number | null>(null)
+const distanceM = ref<number | null>(null)
+const durationSec = ref<number | null>(null)
+const loggingMode = computed(() => props.loggingMode ?? 'strength')
 
 const failureOptions: { value: FailureType; label: string }[] = [
   { value: 'muscular', label: 'Muscular' },
@@ -36,32 +46,48 @@ const failureOptions: { value: FailureType; label: string }[] = [
   { value: 'near_failure', label: 'Near failure' },
 ]
 
+const displayedWeight = computed({
+  get: () => (weight.value == null ? null : fromKilograms(weight.value, unit.value)),
+  set: (value: number | null) => {
+    weight.value = value == null ? null : toKilograms(value, unit.value)
+  },
+})
+
+const loadSuggestion = computed(() => {
+  if (props.suggestedWeightKg == null) return null
+  if (!props.equipmentProfile) return props.suggestedWeightKg
+  return roundToAvailableLoad(props.suggestedWeightKg, props.equipmentProfile)
+})
+
 // Auto-set RIR to 0 on failure
 watch(isFailure, (val) => {
   if (val) rir.value = 0
 })
 
-// Reset when sheet opens
 watch(
   () => props.open,
   (open) => {
-    if (open) {
-      weight.value = props.lastSet?.weight_kg ?? null
-      reps.value = props.lastSet?.reps ?? null
-      rpe.value = null
-      rir.value = null
-      isWarmup.value = false
-      notes.value = ''
-      isFailure.value = false
-      failureType.value = null
-      partialReps.value = null
-    }
+    if (!open) return
+    const source = props.editingSet ?? props.lastSet
+    weight.value = source?.weight_kg ?? loadSuggestion.value
+    reps.value = source?.reps ?? null
+    rpe.value = source?.rpe ?? null
+    rir.value = source?.rir ?? null
+    distanceM.value = source?.distance_m ?? null
+    durationSec.value = source?.duration_sec ?? null
+    isWarmup.value = source?.is_warmup === 1
+    notes.value = source?.notes ?? ''
+    isFailure.value = source?.failure_flag === 1
+    failureType.value = source?.failure_type ?? null
+    partialReps.value = source?.partial_reps ?? null
   },
 )
 
 function nudge(field: 'weight' | 'reps' | 'rpe', delta: number) {
-  if (field === 'weight') weight.value = Math.max(0, (weight.value ?? 0) + delta)
-  else if (field === 'reps') reps.value = Math.max(1, (reps.value ?? 0) + delta)
+  if (field === 'weight') {
+    const displayValue = displayedWeight.value ?? 0
+    displayedWeight.value = Math.max(0, displayValue + delta)
+  } else if (field === 'reps') reps.value = Math.max(1, (reps.value ?? 0) + delta)
   else if (field === 'rpe') {
     const next = Math.round(((rpe.value ?? 6) + delta) * 2) / 2
     rpe.value = Math.min(10, Math.max(6, next))
@@ -70,41 +96,37 @@ function nudge(field: 'weight' | 'reps' | 'rpe', delta: number) {
 
 function handleConfirm() {
   emit('confirm', {
-    weight_kg: weight.value,
-    reps: reps.value,
-    rpe: rpe.value,
-    rir: rir.value,
-    is_warmup: isWarmup.value ? 1 : 0,
+    ...(props.editingSet ? { id: props.editingSet.id } : {}),
+    ...(loggingMode.value === 'strength'
+      ? {
+          weight_kg: weight.value,
+          reps: reps.value,
+          rpe: rpe.value,
+          rir: rir.value,
+          is_warmup: isWarmup.value ? 1 : 0,
+          failure_flag: isFailure.value ? 1 : 0,
+          failure_type: isFailure.value ? failureType.value : null,
+          partial_reps: isFailure.value ? partialReps.value || null : null,
+        }
+      : {
+          distance_m: distanceM.value,
+          duration_sec: durationSec.value,
+        }),
     notes: notes.value || null,
-    failure_flag: isFailure.value ? 1 : 0,
-    failure_type: isFailure.value ? failureType.value : null,
-    partial_reps: isFailure.value ? partialReps.value || null : null,
   })
 }
 </script>
 
 <template>
-  <!-- Single root prevents Vue fragment-anchor issues with transitions -->
-  <div>
-  <!-- Backdrop -->
-  <Transition name="fade">
-    <div
-      v-if="open"
-      class="fixed inset-0 bg-black/50 z-[100]"
-      role="presentation"
-      @click="emit('close')"
-    />
-  </Transition>
-
-  <!-- Sheet -->
-  <Transition name="slide-up">
-    <div
-      v-if="open"
-      class="fixed bottom-0 left-0 right-0 z-[100] rounded-t-2xl bg-(--color-surface) safe-area-bottom p-6 space-y-5"
-      role="dialog"
-      :aria-label="`Log Set ${setNum} · ${exerciseName}`"
-      aria-modal="true"
-    >
+  <UModal
+    :open="open"
+    :content="modalFocus"
+    :title="`${props.editingSet ? 'Edit' : 'Log'} Set ${setNum} · ${exerciseName}`"
+    description="Enter this set's resistance, distance, or duration."
+    @update:open="value => { if (!value) emit('close') }"
+  >
+    <template #content>
+      <div class="safe-area-bottom p-6 space-y-5 max-h-[85dvh] overflow-y-auto">
       <header class="flex items-center justify-between">
         <div class="flex items-center gap-2.5 min-w-0">
           <ExerciseAvatar
@@ -113,7 +135,7 @@ function handleConfirm() {
             :movement="exerciseMovement"
           />
           <h2 class="font-semibold">
-            Set {{ setNum }} · <span class="text-(--ui-text-muted)">{{ exerciseName }}</span>
+            {{ props.editingSet ? 'Edit' : 'Set' }} {{ setNum }} · <span class="text-(--ui-text-muted)">{{ exerciseName }}</span>
           </h2>
         </div>
         <button
@@ -121,12 +143,12 @@ function handleConfirm() {
           aria-label="Close"
           @click="emit('close')"
         >
-          <UIcon name="i-heroicons-x-mark" class="w-5 h-5" aria-hidden="true" />
+          <UIcon name="i-ph-x" class="w-5 h-5" aria-hidden="true" />
         </button>
       </header>
 
       <!-- Set type: Warmup | Working -->
-      <div class="flex rounded-xl bg-(--color-surface-2) p-0.5" role="group" aria-label="Set type">
+      <div v-if="loggingMode === 'strength'" class="flex rounded-xl bg-(--color-surface-2) p-0.5" role="group" aria-label="Set type">
         <button
           class="flex-1 py-1.5 text-sm font-medium rounded-[10px] transition-colors"
           :class="isWarmup
@@ -151,24 +173,31 @@ function handleConfirm() {
 
       <!-- Suggest warm-ups (warmup mode, not first set) -->
       <UButton
-        v-if="isWarmup && setNum > 1 && props.showWarmupSuggestions !== false"
+        v-if="loggingMode === 'strength' && isWarmup && setNum > 1 && props.showWarmupSuggestions !== false"
         size="xs"
         variant="ghost"
         color="neutral"
         class="w-full"
         @click="emit('suggestWarmups')"
       >
-        <UIcon name="i-heroicons-fire" class="w-4 h-4" aria-hidden="true" />
+        <UIcon name="i-ph-fire" class="w-4 h-4" aria-hidden="true" />
         Suggest warm-ups
       </UButton>
 
       <!-- Weight + Reps -->
-      <div class="grid grid-cols-2 gap-4">
+      <div v-if="loggingMode === 'strength'" class="grid grid-cols-2 gap-4">
         <!-- Weight -->
         <div class="space-y-2">
           <label class="text-xs font-medium text-(--ui-text-muted) uppercase tracking-wider">
             Weight ({{ unit }})
           </label>
+          <p v-if="loadSuggestion != null" class="text-xs text-(--ui-text-muted)">
+            Suggested {{ fromKilograms(loadSuggestion, unit).toFixed(1) }} {{ unit }}
+            <span v-if="props.suggestionReason">· {{ props.suggestionReason }}</span>
+            <button class="underline ml-1" type="button" @click="displayedWeight = fromKilograms(loadSuggestion, unit)">
+              Use suggestion
+            </button>
+          </p>
           <div class="flex items-center gap-2">
             <button
               class="w-9 h-9 rounded-full bg-(--color-surface-2) text-lg font-bold flex items-center justify-center"
@@ -178,9 +207,9 @@ function handleConfirm() {
               −
             </button>
             <input
-              v-model.number="weight"
+              v-model.number="displayedWeight"
               type="number"
-              step="2.5"
+              step="any"
               min="0"
               class="flex-1 text-center text-xl font-bold bg-transparent border-b border-(--ui-border) py-1"
               aria-label="Weight"
@@ -226,9 +255,19 @@ function handleConfirm() {
           </div>
         </div>
       </div>
+      <div v-if="loggingMode !== 'strength'" class="grid grid-cols-2 gap-4">
+        <label class="text-xs font-medium text-(--ui-text-muted)" for="set-distance">
+          Distance (m)
+          <input id="set-distance" v-model.number="distanceM" type="number" min="0" step="any" class="mt-1 w-full text-center text-lg bg-transparent border-b border-(--ui-border) py-1" />
+        </label>
+        <label class="text-xs font-medium text-(--ui-text-muted)" for="set-duration">
+          Duration (seconds)
+          <input id="set-duration" v-model.number="durationSec" type="number" min="0" step="1" class="mt-1 w-full text-center text-lg bg-transparent border-b border-(--ui-border) py-1" />
+        </label>
+      </div>
 
       <!-- RPE (optional) -->
-      <div class="grid grid-cols-2 gap-4">
+      <div v-if="loggingMode === 'strength'" class="grid grid-cols-2 gap-4">
         <div class="space-y-2">
           <label class="text-xs font-medium text-(--ui-text-muted) uppercase tracking-wider">
             RPE (optional)
@@ -287,7 +326,7 @@ function handleConfirm() {
       />
 
       <!-- Failure section — working sets only -->
-      <div v-if="!isWarmup" class="space-y-3">
+      <div v-if="loggingMode === 'strength' && !isWarmup" class="space-y-3">
         <button
           class="flex items-center gap-2 text-sm font-medium"
           :class="isFailure ? 'text-red-400' : 'text-(--ui-text-muted)'"
@@ -296,7 +335,7 @@ function handleConfirm() {
           @click="isFailure = !isFailure"
         >
           <UIcon
-            :name="isFailure ? 'i-heroicons-x-circle' : 'i-heroicons-x-circle'"
+            :name="isFailure ? 'i-ph-x-circle' : 'i-ph-x-circle'"
             class="w-4 h-4"
             aria-hidden="true"
           />
@@ -343,33 +382,13 @@ function handleConfirm() {
         color="primary"
         size="lg"
         class="w-full"
-        :disabled="weight === null || reps === null"
+        :disabled="loggingMode === 'strength' ? weight === null || reps === null : distanceM === null && durationSec === null"
         @click="handleConfirm"
       >
-        <UIcon name="i-heroicons-check" class="w-5 h-5" aria-hidden="true" />
-        Log Set
+        <UIcon name="i-ph-check" class="w-5 h-5" aria-hidden="true" />
+        {{ props.editingSet ? 'Save Changes' : 'Log Set' }}
       </UButton>
-    </div>
-  </Transition>
-  </div>
+      </div>
+    </template>
+  </UModal>
 </template>
-
-<style scoped>
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
-
-.slide-up-enter-active,
-.slide-up-leave-active {
-  transition: transform 0.25s ease;
-}
-.slide-up-enter-from,
-.slide-up-leave-to {
-  transform: translateY(100%);
-}
-</style>

@@ -3,7 +3,7 @@ import { buildEmom, buildTabata } from '~/lib/interval-templates'
 
 const db = useDatabase()
 
-type Mode = 'tabata' | 'emom' | 'amrap' | 'custom'
+type Mode = 'tabata' | 'emom' | 'amrap' | 'custom' | 'mobility'
 
 const mode = ref<Mode>('custom')
 const name = ref('')
@@ -28,6 +28,11 @@ watch(mode, (m) => {
     restSec.value = 0
   } else if (m === 'amrap') {
     name.value = name.value || 'AMRAP 5min'
+  } else if (m === 'mobility') {
+    name.value = name.value || 'Mobility and recovery'
+    rounds.value = 5
+    workSec.value = 60
+    restSec.value = 30
   }
 })
 
@@ -74,7 +79,7 @@ async function handleSave() {
   <article class="p-4 pb-24 space-y-5">
     <header class="flex items-center gap-3 pt-2">
       <NuxtLink to="/templates/intervals" class="text-(--ui-text-muted)" aria-label="Back">
-        <UIcon name="i-heroicons-arrow-left" class="w-6 h-6" aria-hidden="true" />
+        <UIcon name="i-ph-arrow-left" class="w-6 h-6" aria-hidden="true" />
       </NuxtLink>
       <h1 class="text-xl font-bold flex-1">New Interval</h1>
       <UButton size="sm" color="primary" :disabled="!canSave || saving" :loading="saving" @click="handleSave">
@@ -83,15 +88,15 @@ async function handleSave() {
     </header>
 
     <!-- Mode selector -->
-    <div class="grid grid-cols-4 gap-1.5 p-1 bg-(--color-surface) rounded-xl">
+    <div class="grid grid-cols-5 gap-1.5 p-1 bg-(--color-surface) rounded-xl">
       <button
-        v-for="m in (['custom', 'tabata', 'emom', 'amrap'] as const)"
+        v-for="m in (['custom', 'tabata', 'emom', 'amrap', 'mobility'] as const)"
         :key="m"
         class="py-1.5 text-xs font-semibold rounded-lg transition-colors capitalize"
-        :class="mode === m ? 'bg-(--color-accent) text-white' : 'text-(--ui-text-muted)'"
+        :class="mode === m ? 'bg-(--color-accent) text-(--color-on-accent)' : 'text-(--ui-text-muted)'"
         @click="mode = m"
       >
-        {{ m }}
+        {{ m === 'mobility' ? 'Mobility' : m }}
       </button>
     </div>
 

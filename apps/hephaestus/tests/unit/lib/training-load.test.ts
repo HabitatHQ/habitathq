@@ -64,9 +64,8 @@ describe('calculateAcuteLoad', () => {
     expect(calculateAcuteLoad([1000])).toBe(1000)
   })
 
-  it('returns the most recent week volume (acute = 7-day)', () => {
-    // Acute load is the last week's volume (normalized rolling)
-    expect(calculateAcuteLoad([800, 900, 1000])).toBeCloseTo(900, 0)
+  it('uses only the latest completed week as acute load', () => {
+    expect(calculateAcuteLoad([800, 900, 1000])).toBe(1000)
   })
 
   it('returns 0 for empty array', () => {
@@ -75,16 +74,9 @@ describe('calculateAcuteLoad', () => {
 })
 
 describe('calculateChronicLoad', () => {
-  it('returns average of last 4 weeks', () => {
-    const weeks = [800, 900, 1000, 1100]
-    // average = 950
-    expect(calculateChronicLoad(weeks)).toBeCloseTo(950, 0)
-  })
-
-  it('uses only last 4 weeks if more data provided', () => {
-    const weeks = [500, 600, 800, 900, 1000, 1100]
-    // last 4: 800, 900, 1000, 1100 → avg 950
-    expect(calculateChronicLoad(weeks)).toBeCloseTo(950, 0)
+  it('compares the current week against up to four preceding weeks', () => {
+    expect(calculateChronicLoad([800, 900, 1000, 1100])).toBe(900)
+    expect(calculateChronicLoad([500, 600, 800, 900, 1000, 1100])).toBe(825)
   })
 
   it('returns 0 for empty array', () => {
@@ -155,22 +147,5 @@ describe('calculateAcuteLoad (additional)', () => {
 
   it('handles single large value', () => {
     expect(calculateAcuteLoad([5000])).toBe(5000)
-  })
-})
-
-describe('calculateChronicLoad (additional)', () => {
-  it('averages only available data when fewer than 4 weeks', () => {
-    // 1 week → avg of 1 = that week's value
-    expect(calculateChronicLoad([1200])).toBe(1200)
-  })
-
-  it('averages 2 weeks when only 2 provided', () => {
-    // [800, 1000] → slice(-4) = [800, 1000] → avg = 900
-    expect(calculateChronicLoad([800, 1000])).toBe(900)
-  })
-
-  it('averages 3 weeks correctly', () => {
-    // [600, 900, 1200] → avg = 900
-    expect(calculateChronicLoad([600, 900, 1200])).toBe(900)
   })
 })

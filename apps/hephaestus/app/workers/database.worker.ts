@@ -1,115 +1,123 @@
-import { toDbAdapter } from '@habitathq/db'
 import { BrowserSqliteAdapter } from '@palladium/sqlite-browser'
-import * as schema from '~/lib/db-schema'
-import type { WorkerResponse } from '~/types/database'
+import { dispatchTransfer } from '~/lib/data-transfer'
+import { createSerialQueue, executeBatch } from '~/lib/database-operations'
+import { resetAppDatabase } from '~/lib/database-reset'
+import { initializeSchema } from '~/lib/db-schema'
+import { toAppDbAdapter } from '~/lib/palladium-database'
+import { dispatchWorkout } from '~/lib/workout-storage'
+import type { DbAdapter, WorkerRequest, WorkerResponse } from '~/types/database'
 
 await (async () => {
-  // ─── Exclusive lock ───────────────────────────────────────────────────────────
   async function tryAcquireDbLock(): Promise<boolean> {
     for (let attempt = 0; attempt < 3; attempt++) {
-      if (attempt > 0) await new Promise((r) => setTimeout(r, 1000))
-      const got = await new Promise<boolean>((resolve) => {
-        void navigator.locks.request('hephaestus-db', { ifAvailable: true }, (lock) => {
-          if (!lock) {
-            resolve(false)
-            return Promise.resolve()
-          }
-          resolve(true)
-          return new Promise(() => {}) // hold until worker terminates
-        })
+      if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 1000))
+      const { promise, resolve } = Promise.withResolvers<boolean>()
+      void navigator.locks.request('hephaestus-db', { ifAvailable: true }, (lock) => {
+        if (!lock) {
+          resolve(false)
+          return Promise.resolve()
+        }
+        resolve(true)
+        return new Promise(() => {})
       })
-      if (got) return true
+      if (await promise) return true
     }
     return false
   }
 
-  const hasLock = await tryAcquireDbLock()
-
-  if (!hasLock) {
-    self.postMessage({ type: 'LOCK_UNAVAILABLE' } satisfies WorkerResponse as WorkerResponse)
+  if (!(await tryAcquireDbLock())) {
+    self.postMessage({ type: 'LOCK_UNAVAILABLE' } satisfies WorkerResponse)
     return
   }
 
-  try {
-    const storage = new BrowserSqliteAdapter({
+  let storage: BrowserSqliteAdapter | null = null
+  let db: DbAdapter | null = null
+
+  async function openDatabase(): Promise<void> {
+    const opened = new BrowserSqliteAdapter({
       vfs: { type: 'opfs-sah-pool', directory: '/hephaestus', filename: '/hephaestus.db' },
     })
-    await storage.open()
+    try {
+      await opened.open()
+      const adapter = toAppDbAdapter(opened)
+      await initializeSchema(opened, adapter)
+      storage = opened
+      db = adapter
+    } catch (error) {
+      await opened.close()
+      throw error
+    }
+  }
 
-    const adapter = toDbAdapter(storage)
+  const enqueue = createSerialQueue()
 
-    await adapter.exec(schema.SCHEMA_DDL)
-    await schema.runMigrations(adapter)
-
-    // ─── Message loop ─────────────────────────────────────────────────────────────
-
-    self.addEventListener('message', async (e: MessageEvent) => {
-      const req = e.data as { id: string; type: string; payload?: unknown }
-      let result: unknown
-      try {
-        switch (req.type) {
-          case 'EXPORT_DB':
-            result = storage.serialize()
-            break
-          case 'NUKE_OPFS': {
-            // TODO(sync/opfs): DATA-LOSS bug — this iterates the origin OPFS
-            // root and deletes EVERY app's data. All suite apps share one
-            // origin (/habitat, /hearth, /halcyon, /hephaestus), so Hephaestus'
-            // "reset data" also wipes the siblings. Scope the delete to
-            // '/hephaestus' only, mirroring habitat's fix (commit 24811e7, PR #33).
-            // See libs/palladium/docs/plans/habitat-sync-integration.md follow-ups.
-            const root = await navigator.storage.getDirectory()
-            // biome-ignore lint/suspicious/noTsIgnore: tsgo and vue-tsc disagree on FileSystemDirectoryHandle iterability
-            // @ts-ignore — async-iterable at runtime but not in all lib.dom typings
-            for await (const [name] of root) {
-              await root.removeEntry(name, { recursive: true }).catch(() => {})
-            }
-            result = null
-            break
-          }
-          case 'QUERY': {
-            const { sql, bind } = req.payload as { sql: string; bind?: unknown[] }
-            result = await adapter.queryAll(sql, bind)
-            break
-          }
-          case 'EXEC': {
-            const { sql, bind } = req.payload as { sql: string; bind?: unknown[] }
-            await adapter.exec(sql, bind)
-            result = null
-            break
-          }
-          case 'IS_DEFAULT_APPLIED': {
-            const { key } = req.payload as { key: string }
-            const row = await adapter.queryOne('SELECT key FROM applied_defaults WHERE key = ?', [
-              key,
-            ])
-            result = row !== null
-            break
-          }
-          case 'MARK_DEFAULT_APPLIED': {
-            const { key } = req.payload as { key: string }
-            await adapter.exec('INSERT OR IGNORE INTO applied_defaults (key) VALUES (?)', [key])
-            result = null
-            break
-          }
-          default:
-            throw new Error(`Unknown message type: ${req.type}`)
+  try {
+    await openDatabase()
+    self.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
+      const request = event.data
+      void enqueue(async () => {
+        try {
+          const result = await dispatch(request.type, request.payload)
+          self.postMessage({ id: request.id, ok: true, data: result } satisfies WorkerResponse)
+        } catch (error) {
+          self.postMessage({
+            id: request.id,
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          } satisfies WorkerResponse)
         }
-        self.postMessage({ id: req.id, ok: true, data: result } satisfies WorkerResponse)
-      } catch (err) {
-        self.postMessage({
-          id: req.id,
-          ok: false,
-          error: err instanceof Error ? err.message : String(err),
-        } satisfies WorkerResponse)
-      }
+      })
     })
-
-    self.postMessage({ type: 'READY' } satisfies WorkerResponse as WorkerResponse)
-  } catch (err) {
+    self.postMessage({ type: 'READY' } satisfies WorkerResponse)
+  } catch (error) {
     self.postMessage({
       type: 'INIT_ERROR',
-      message: err instanceof Error ? err.message : String(err),
-    } as WorkerResponse)
+      message: error instanceof Error ? error.message : String(error),
+    } satisfies WorkerResponse)
+  }
+
+  async function dispatch(type: string, payload: unknown): Promise<unknown> {
+    if (type === 'RESET_LOCAL_DATA') {
+      const adapter = db
+      if (!adapter) throw new Error('Database is not initialized')
+      await resetAppDatabase(adapter)
+      return null
+    }
+    if (type === 'EXPORT_DB') {
+      if (!storage) throw new Error('Database is not initialized')
+      return storage.serialize()
+    }
+    const adapter = db
+    if (!adapter) throw new Error('Database is not initialized')
+    if (type === 'QUERY') {
+      const { sql, bind } = payload as { sql: string; bind?: unknown[] }
+      return adapter.queryAll(sql, bind)
+    }
+    if (type === 'EXEC') {
+      const { sql, bind } = payload as { sql: string; bind?: unknown[] }
+      await adapter.exec(sql, bind)
+      return null
+    }
+    if (type === 'BATCH') {
+      const { statements } = payload as { statements: Array<{ sql: string; bind?: unknown[] }> }
+      await executeBatch(adapter, statements)
+      return null
+    }
+    if (type === 'IS_DEFAULT_APPLIED') {
+      const { key } = payload as { key: string }
+      return (
+        (await adapter.queryOne('SELECT key FROM applied_defaults WHERE key = ?', [key])) !== null
+      )
+    }
+    if (type === 'MARK_DEFAULT_APPLIED') {
+      const { key } = payload as { key: string }
+      await adapter.exec('INSERT OR IGNORE INTO applied_defaults (key) VALUES (?)', [key])
+      return null
+    }
+    if (type.startsWith('WORKOUT_')) {
+      return adapter.transaction((tx) => dispatchWorkout(tx, type, payload))
+    }
+    if (type.startsWith('TRANSFER_')) return dispatchTransfer(adapter, type, payload)
+    throw new Error(`Unknown message type: ${type}`)
   }
 })()

@@ -1,3 +1,5 @@
+import type { DbAdapter as PalladiumDbAdapter } from '@palladium/core'
+
 // ─── Set scheme types ─────────────────────────────────────────────────────────
 
 export type FailureType = 'muscular' | 'technical' | 'near_failure'
@@ -216,6 +218,7 @@ export interface ProgramRow {
   current_week: number
   started_at: string | null
   active: 0 | 1
+  completed_at: string | null
 }
 
 export type ProgramPhase = 'accumulation' | 'intensification' | 'deload' | 'peak'
@@ -253,7 +256,7 @@ export interface TrainingBlockRow {
 
 // ─── Workout Sessions ─────────────────────────────────────────────────────────
 
-export type SessionType = 'gym' | 'run' | 'other'
+export type SessionType = 'gym' | 'run' | 'conditioning' | 'mobility' | 'other'
 
 export interface WorkoutRow {
   id: string
@@ -431,11 +434,11 @@ export interface WeeklyTrainingLoadRow {
 
 // ─── DbAdapter interface ─────────────────────────────────────────────────────
 
-export interface DbAdapter {
-  queryAll<T>(sql: string, bind?: unknown[]): Promise<T[]>
-  queryOne<T>(sql: string, bind?: unknown[]): Promise<T | null>
-  exec(sql: string, bind?: unknown[]): Promise<void>
+export interface DbAdapter extends PalladiumDbAdapter {
+  transaction<T>(fn: (tx: DbAdapter) => Promise<T>): Promise<T>
 }
+
+export type DbStatement = { sql: string; bind?: unknown[] }
 
 // ─── Worker message types ─────────────────────────────────────────────────────
 

@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { serialiseSetRests } from '~/lib/set-rest'
 import { parseSetScheme, serialiseSetScheme } from '~/lib/set-schemes'
-import type { ExerciseRow, GroupType, SetSchemeConfig } from '~/types/database'
+import type { ExerciseRow, GroupType, MovementPattern, SetSchemeConfig } from '~/types/database'
 
 const { exercises, load: loadExercises } = useExercises()
 const { create } = useTemplates()
-const db = useDatabase()
 const { settings } = useAppSettings()
 
 onMounted(loadExercises)
@@ -16,7 +15,7 @@ interface ExerciseItem {
   id: string // local ID for keying
   exerciseId: string
   name: string
-  movement: string
+  movement: MovementPattern
   setsPlanned: number
   repsPlanned: string
   restSeconds: number
@@ -209,27 +208,18 @@ async function handleSave() {
         ...(item.setRests === null ? {} : { setRestSeconds: serialiseSetRests(item.setRests) }),
         ...(item.setScheme === null ? {} : { setScheme: item.setScheme }),
       })),
+      groups.value.map((group, sortOrder) => ({
+        label: group.label,
+        name: group.name || null,
+        groupType: group.groupType,
+        transitionRestSec: group.transitionRestSec,
+        restAfterRoundSec: group.restAfterRoundSec,
+        circuitRestMode: 'after_round',
+        sortOrder,
+        rounds: 1,
+        amrap: false,
+      })),
     )
-
-    // Persist superset groups
-    for (const g of groups.value) {
-      const id = crypto.randomUUID()
-      await db.exec(
-        `INSERT INTO template_groups (id, template_id, label, name, group_type, transition_rest_sec, rest_after_round_sec, circuit_rest_mode)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          id,
-          templateId,
-          g.label,
-          g.name || null,
-          g.groupType,
-          g.transitionRestSec,
-          g.restAfterRoundSec,
-          'after_round',
-        ],
-      )
-    }
-
     await navigateTo(`/templates/${templateId}`)
   } finally {
     saving.value = false
@@ -276,7 +266,7 @@ function onGroupTypeChange(g: GroupConfig) {
     <article class="p-4 pb-24 space-y-5">
       <header class="flex items-center gap-3 pt-2">
         <NuxtLink to="/templates" aria-label="Back to templates">
-          <UIcon name="i-heroicons-arrow-left" class="w-6 h-6 text-(--ui-text-muted)" aria-hidden="true" />
+          <UIcon name="i-ph-arrow-left" class="w-6 h-6 text-(--ui-text-muted)" aria-hidden="true" />
         </NuxtLink>
         <h1 class="text-xl font-bold flex-1">New Template</h1>
         <UButton
@@ -365,7 +355,7 @@ function onGroupTypeChange(g: GroupConfig) {
                   :aria-label="`Move ${item.name} up`"
                   @click="moveUp(i)"
                 >
-                  <UIcon name="i-heroicons-chevron-up" class="w-4 h-4" aria-hidden="true" />
+                  <UIcon name="i-ph-caret-up" class="w-4 h-4" aria-hidden="true" />
                 </button>
                 <button
                   class="w-7 h-7 flex items-center justify-center rounded-lg text-(--ui-text-muted)
@@ -374,7 +364,7 @@ function onGroupTypeChange(g: GroupConfig) {
                   :aria-label="`Move ${item.name} down`"
                   @click="moveDown(i)"
                 >
-                  <UIcon name="i-heroicons-chevron-down" class="w-4 h-4" aria-hidden="true" />
+                  <UIcon name="i-ph-caret-down" class="w-4 h-4" aria-hidden="true" />
                 </button>
 
                 <!-- Context menu trigger -->
@@ -386,7 +376,7 @@ function onGroupTypeChange(g: GroupConfig) {
                     aria-haspopup="menu"
                     @click.stop="menuOpenFor = menuOpenFor === item.id ? null : item.id"
                   >
-                    <UIcon name="i-heroicons-ellipsis-vertical" class="w-4 h-4" aria-hidden="true" />
+                    <UIcon name="i-ph-dots-three-vertical" class="w-4 h-4" aria-hidden="true" />
                   </button>
 
                   <!-- Context menu -->
@@ -411,14 +401,14 @@ function onGroupTypeChange(g: GroupConfig) {
                           class="w-5 h-5 rounded-full bg-(--color-accent)/20 text-(--color-accent) text-xs font-bold flex items-center justify-center shrink-0"
                         >{{ g.label }}</span>
                         Group {{ g.label }}
-                        <UIcon v-if="item.supersetGroup === g.label" name="i-heroicons-check" class="w-3 h-3 ml-auto" aria-hidden="true" />
+                        <UIcon v-if="item.supersetGroup === g.label" name="i-ph-check" class="w-3 h-3 ml-auto" aria-hidden="true" />
                       </button>
                       <button
                         role="menuitem"
                         class="w-full text-left px-3 py-2 text-sm hover:bg-(--color-surface) text-(--color-accent)"
                         @click="assignToGroup(item, nextGroupLabel)"
                       >
-                        <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5 inline mr-1" aria-hidden="true" />
+                        <UIcon name="i-ph-plus" class="w-3.5 h-3.5 inline mr-1" aria-hidden="true" />
                         New group {{ nextGroupLabel }}
                       </button>
                       <div class="border-t border-(--ui-border) my-1" role="separator" />
@@ -431,7 +421,7 @@ function onGroupTypeChange(g: GroupConfig) {
                         class="w-full text-left px-3 py-2 text-sm hover:bg-(--color-surface) flex items-center gap-2"
                         @click="showSchemeWizardFor = item.id; menuOpenFor = null"
                       >
-                        <UIcon name="i-heroicons-adjustments-horizontal" class="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                        <UIcon name="i-ph-sliders-horizontal" class="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                         Set Scheme…
                       </button>
                       <div class="border-t border-(--ui-border) my-1" role="separator" />
@@ -443,7 +433,7 @@ function onGroupTypeChange(g: GroupConfig) {
                       class="w-full text-left px-3 py-2 text-sm hover:bg-(--color-surface) text-red-400"
                       @click="removeItem(i); menuOpenFor = null"
                     >
-                      <UIcon name="i-heroicons-trash" class="w-3.5 h-3.5 inline mr-1" aria-hidden="true" />
+                      <UIcon name="i-ph-trash" class="w-3.5 h-3.5 inline mr-1" aria-hidden="true" />
                       Remove
                     </button>
                   </div>
@@ -504,7 +494,7 @@ function onGroupTypeChange(g: GroupConfig) {
                 </span>
               </span>
               <UIcon
-                :name="item.showAdvanced ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'"
+                :name="item.showAdvanced ? 'i-ph-caret-up' : 'i-ph-caret-down'"
                 class="w-3.5 h-3.5"
                 aria-hidden="true"
               />
@@ -569,7 +559,7 @@ function onGroupTypeChange(g: GroupConfig) {
           aria-label="Add exercise to template"
           @click="showPicker = true"
         >
-          <UIcon name="i-heroicons-plus" class="w-5 h-5" aria-hidden="true" />
+          <UIcon name="i-ph-plus" class="w-5 h-5" aria-hidden="true" />
           Add Exercise
         </UButton>
       </section>
@@ -600,7 +590,7 @@ function onGroupTypeChange(g: GroupConfig) {
               :aria-label="`Remove group ${g.label}`"
               @click="removeGroup(g.label)"
             >
-              <UIcon name="i-heroicons-x-mark" class="w-4 h-4" aria-hidden="true" />
+              <UIcon name="i-ph-x" class="w-4 h-4" aria-hidden="true" />
             </button>
           </div>
 
@@ -675,7 +665,7 @@ function onGroupTypeChange(g: GroupConfig) {
             aria-label="Close exercise picker"
             @click="showPicker = false; pickerSearch = ''"
           >
-            <UIcon name="i-heroicons-x-mark" class="w-6 h-6" aria-hidden="true" />
+            <UIcon name="i-ph-x" class="w-6 h-6" aria-hidden="true" />
           </button>
           <input
             v-model="pickerSearch"
@@ -700,7 +690,7 @@ function onGroupTypeChange(g: GroupConfig) {
               class="w-full text-left px-4 py-3 hover:bg-(--color-surface) transition-colors flex items-center gap-3"
               @click="addExercise(ex)"
             >
-              <ExerciseAvatar :icon="ex.icon ?? null" :movement="ex.movement as any" />
+              <ExerciseAvatar :icon="ex.icon ?? null" :movement="ex.movement" />
               <div class="min-w-0">
                 <p class="font-medium text-sm truncate">{{ ex.name }}</p>
                 <p class="text-xs text-(--ui-text-muted) capitalize">

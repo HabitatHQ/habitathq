@@ -61,6 +61,24 @@ jobs:
       - name: Unit tests
         run: pnpm --filter ${{ matrix.app }} test:unit
 
+      - name: Install Hephaestus browser runtime
+        if: matrix.app == 'hephaestus'
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Hephaestus local PWA release gate
+        if: matrix.app == 'hephaestus'
+        run: pnpm --filter hephaestus test:e2e
+
+      - name: Retain Hephaestus browser evidence
+        if: failure() && matrix.app == 'hephaestus'
+        uses: actions/upload-artifact@v4
+        with:
+          name: hephaestus-browser-results
+          path: |
+            apps/hephaestus/test-results/
+            apps/hephaestus/playwright-report/
+          if-no-files-found: ignore
+
   sync:
     name: Palladium sync and resilience
     runs-on: ubuntu-latest

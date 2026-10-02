@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { suggestProgression } from '~/lib/progression'
+import {
+  applyProgramIntensity,
+  applyProgramVolume,
+  explainProgression,
+  historicalWeightSuggestion,
+  suggestProgression,
+} from '~/lib/progression'
 import type { SetRow } from '~/types/database'
 
 function makeSet(rpe: number, isWarmup: 0 | 1 = 0): SetRow {
@@ -100,5 +106,69 @@ describe('suggestProgression', () => {
     // warmup with RPE 5.0 should not count; no working sets with RPE → null
     const warmup = makeSet(5.0, 1)
     expect(suggestProgression([warmup], 8.0, 80, 2.5)).toBeNull()
+  })
+})
+describe('explainable and editable progression', () => {
+  it('explains a suggestion and applies week intensity and volume modifiers', () => {
+    const suggestion = explainProgression([makeSet(6), makeSet(6.5)], 8, 80, 2.5)
+    expect(suggestion).toEqual({
+      weightKg: 82.5,
+      reason: 'Average working-set RPE 6.3 was below target 8.0 by more than 1.',
+      editable: true,
+    })
+    expect(applyProgramIntensity(suggestion?.weightKg ?? 0, 0.8)).toBe(66)
+    expect(applyProgramVolume(5, 0.6)).toBe(3)
+  })
+})
+
+describe('historicalWeightSuggestion', () => {
+  it('uses completed history, applies program intensity once, and rounds to configured loads', () => {
+    const result = historicalWeightSuggestion({
+      completedSessions: [[makeSet(6), makeSet(6.5)]],
+      lastWeightKg: 80,
+      targetRpe: 8,
+      incrementKg: 2.5,
+      intensityModifier: 0.8,
+      equipmentProfile: {
+        minimum_kg: 20,
+        increment_kg: 10,
+        maximum_kg: 80,
+        additional_loads_kg: [35],
+      },
+    })
+    expect(result).toMatchObject({
+      weightKg: 70,
+      enabled: true,
+      editable: true,
+    })
+    expect(result.reason).toContain('0.80×')
+  })
+
+  it('returns a disabled suggestion when completed-session effort does not support progression', () => {
+    const result = historicalWeightSuggestion({
+      completedSessions: [[makeSet(8.5)]],
+      lastWeightKg: 80,
+      targetRpe: 8,
+      incrementKg: 2.5,
+      intensityModifier: 1,
+    })
+    expect(result).toEqual({
+      weightKg: null,
+      reason: 'Recent working-set effort does not support increasing the load yet.',
+      editable: false,
+      enabled: false,
+    })
+  })
+
+  it('does not suggest a load when completed workout history is absent', () => {
+    const result = historicalWeightSuggestion({
+      completedSessions: [],
+      lastWeightKg: null,
+      targetRpe: 8,
+      incrementKg: 2.5,
+      intensityModifier: 1,
+    })
+    expect(result.enabled).toBe(false)
+    expect(result.weightKg).toBeNull()
   })
 })

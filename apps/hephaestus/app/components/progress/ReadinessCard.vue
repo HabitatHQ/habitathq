@@ -13,10 +13,8 @@ const labelColor = computed(() => {
       return 'text-yellow-400'
     case 'Low':
       return 'text-red-400'
-    case 'Detraining':
-      return 'text-zinc-400'
     default:
-      return 'text-zinc-400'
+      return 'text-(--ui-text-muted)'
   }
 })
 
@@ -28,8 +26,6 @@ const barColor = computed(() => {
       return 'bg-yellow-500'
     case 'Low':
       return 'bg-red-500'
-    case 'Detraining':
-      return 'bg-zinc-500'
     default:
       return 'bg-zinc-500'
   }
@@ -37,24 +33,23 @@ const barColor = computed(() => {
 </script>
 
 <template>
-  <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+  <div class="bg-(--color-surface) border border-(--ui-border) rounded-xl p-4">
     <div class="flex items-center justify-between mb-3">
       <div>
-        <p class="text-xs text-zinc-500 uppercase tracking-wide">Readiness</p>
-        <p class="text-2xl font-bold text-white">
-          {{ readiness.score }}<span class="text-sm text-zinc-500 ml-1">/ 100</span>
+        <p class="text-xs text-(--ui-text-muted) uppercase tracking-wide">Readiness</p>
+        <p class="text-2xl font-bold text-(--ui-text)">
+          {{ readiness.score ?? '—' }}<span v-if="readiness.score !== null" class="text-sm text-(--ui-text-muted) ml-1">/ 100</span>
         </p>
       </div>
       <span class="text-lg font-semibold" :class="labelColor">{{ readiness.label }}</span>
     </div>
-    <!-- Score bar -->
-    <div class="h-2 bg-zinc-800 rounded-full overflow-hidden mb-3">
-      <div
-        class="h-full rounded-full transition-all"
+    <p v-if="readiness.score !== null" class="h-2 bg-(--color-surface-2) rounded-full overflow-hidden mb-3">
+      <span
+        class="block h-full rounded-full transition-all"
         :class="barColor"
         :style="{ width: `${readiness.score}%` }"
       />
-    </div>
-    <p class="text-xs text-zinc-400">{{ readiness.description }}</p>
+    </p>
+    <p class="text-xs text-(--ui-text-muted)">{{ readiness.description }}</p>
   </div>
 </template>

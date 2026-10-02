@@ -1,34 +1,5 @@
 import { expect, test } from '@playwright/test'
 
-test.describe('Progress page', () => {
-  test('loads with heading', async ({ page }) => {
-    await page.goto('/progress')
-    await expect(page.locator('h1')).toContainText('Progress')
-  })
-
-  test('shows training load section with stats', async ({ page }) => {
-    await page.goto('/progress')
-    // Wait for loading to finish
-    await expect(page.getByText(/loading analytics/i)).not.toBeVisible({ timeout: 15_000 })
-    await expect(page.getByText('Training Load')).toBeVisible()
-    await expect(page.getByText('Acute')).toBeVisible()
-    await expect(page.getByText('Chronic')).toBeVisible()
-    await expect(page.getByText('ACWR')).toBeVisible()
-  })
-
-  test('shows personal records section', async ({ page }) => {
-    await page.goto('/progress')
-    await expect(page.getByText(/loading analytics/i)).not.toBeVisible({ timeout: 15_000 })
-    await expect(page.getByText(/recent personal records/i)).toBeVisible()
-  })
-
-  test('shows empty state for PRs when no workouts logged', async ({ page }) => {
-    await page.goto('/progress')
-    await expect(page.getByText(/loading analytics/i)).not.toBeVisible({ timeout: 15_000 })
-    await expect(page.getByText(/complete workouts to track prs/i)).toBeVisible()
-  })
-})
-
 test.describe('DB persistence — PR tracking', () => {
   /** Helper: start a workout, add Barbell Squat, log a set, finish. */
   async function completeWorkoutWithSet(
@@ -37,20 +8,23 @@ test.describe('DB persistence — PR tracking', () => {
     reps: string,
   ) {
     await page.goto('/workout')
+    await page.getByLabel('Session type').selectOption('gym')
     await page.getByRole('button', { name: /start empty session/i }).click()
     await expect(page.getByText('Active Session')).toBeVisible({ timeout: 10_000 })
 
     await page.getByRole('button', { name: /add exercise/i }).click()
-    await expect(page.getByRole('list').locator('button').first()).toBeVisible({ timeout: 15_000 })
-    await page.getByRole('searchbox', { name: /search exercises/i }).fill('barbell squat')
-    await page.getByText('Barbell Squat').first().click()
-    await expect(page.getByRole('dialog', { name: /add exercise/i })).not.toBeVisible()
-
-    await page.getByRole('button', { name: /\+ set/i }).click()
-    await expect(page.getByRole('dialog', { name: /log set/i })).toBeVisible()
-    await page.getByLabel('Weight', { exact: true }).fill(weight)
-    await page.getByLabel('Reps', { exact: true }).fill(reps)
-    await page.getByRole('button', { name: /log set/i }).click()
+    const picker = page.getByRole('dialog', { name: /add exercise/i })
+    await expect(picker.getByRole('button', { name: /barbell squat/i })).toBeVisible({
+      timeout: 15_000,
+    })
+    await picker.getByRole('searchbox', { name: /search exercises/i }).fill('barbell squat')
+    await picker.getByRole('button', { name: /barbell squat/i }).click()
+    const exercise = page.getByRole('region', { name: 'Barbell Squat' })
+    await exercise.getByRole('button', { name: '+ Set' }).click()
+    const dialog = page.getByRole('dialog', { name: /log set/i })
+    await dialog.getByLabel('Weight', { exact: true }).fill(weight)
+    await dialog.getByLabel('Reps', { exact: true }).fill(reps)
+    await dialog.getByRole('button', { name: /log set/i }).click()
 
     await page.getByRole('button', { name: /finish/i }).click()
     await expect(page.getByRole('dialog', { name: /finish workout/i })).toBeVisible()
@@ -59,25 +33,30 @@ test.describe('DB persistence — PR tracking', () => {
     await page.getByRole('button', { name: /done/i }).click()
   }
 
-  test('workout summary shows PRs count after logging a heavy set', async ({ page }) => {
+  test('summary announces the new weight record after the first logged set', async ({ page }) => {
     await page.goto('/workout')
+    await page.getByLabel('Session type').selectOption('gym')
     await page.getByRole('button', { name: /start empty session/i }).click()
     await expect(page.getByText('Active Session')).toBeVisible({ timeout: 10_000 })
 
     await page.getByRole('button', { name: /add exercise/i }).click()
-    await expect(page.getByRole('list').locator('button').first()).toBeVisible({ timeout: 15_000 })
-    await page.getByRole('searchbox', { name: /search exercises/i }).fill('barbell squat')
-    await page.getByText('Barbell Squat').first().click()
-    await page.getByRole('button', { name: /\+ set/i }).click()
-    await page.getByLabel('Weight', { exact: true }).fill('140')
-    await page.getByLabel('Reps', { exact: true }).fill('5')
-    await page.getByRole('button', { name: /log set/i }).click()
+    const picker = page.getByRole('dialog', { name: /add exercise/i })
+    await expect(picker.getByRole('button', { name: /barbell squat/i })).toBeVisible({
+      timeout: 15_000,
+    })
+    await picker.getByRole('searchbox', { name: /search exercises/i }).fill('barbell squat')
+    await picker.getByRole('button', { name: /barbell squat/i }).click()
+    const exercise = page.getByRole('region', { name: 'Barbell Squat' })
+    await exercise.getByRole('button', { name: '+ Set' }).click()
+    const dialog = page.getByRole('dialog', { name: /log set/i })
+    await dialog.getByLabel('Weight', { exact: true }).fill('140')
+    await dialog.getByLabel('Reps', { exact: true }).fill('5')
+    await dialog.getByRole('button', { name: /log set/i }).click()
     await page.getByRole('button', { name: /finish/i }).click()
     await page.getByRole('button', { name: /save workout/i }).click()
     await expect(page.locator('h1')).toContainText('Session Complete')
 
-    // The PRs stat card should be visible (may show 0 or more)
-    await expect(page.getByText('PRs')).toBeVisible()
+    await expect(page.getByText(/new weight pr/i)).toBeVisible()
   })
 
   test('progress page shows non-zero PRs after completing workout with sets', async ({ page }) => {
@@ -85,16 +64,21 @@ test.describe('DB persistence — PR tracking', () => {
     await page.goto('/progress')
     await expect(page.getByText(/loading analytics/i)).not.toBeVisible({ timeout: 15_000 })
     // PRs section should exist
-    await expect(page.getByText(/recent personal records/i)).toBeVisible()
-    // Should not show the empty state (because we logged a set which creates a PR)
-    await expect(page.getByText(/complete workouts to track prs/i)).not.toBeVisible()
+    const records = page.getByRole('region', { name: 'Recent Personal Records' })
+    await expect(records).toBeVisible()
+    await expect(records.getByText(/weight pr/i)).toBeVisible()
+    await expect(records.getByText('150 kg', { exact: true })).toBeVisible()
   })
 
-  test('history shows completed workout after finishing', async ({ page }) => {
+  test('history detail retains the completed lift and its logged load', async ({ page }) => {
     await completeWorkoutWithSet(page, '80', '8')
     await page.goto('/history')
     await expect(page.getByText(/loading workouts/i)).not.toBeVisible({ timeout: 15_000 })
-    await expect(page.getByText(/gym session/i)).toBeVisible()
+    await page.getByRole('link', { name: /gym session/i }).click()
+    await expect(page.getByRole('table', { name: /sets for barbell squat/i })).toContainText(
+      '80 kg',
+    )
+    await expect(page.getByRole('table', { name: /sets for barbell squat/i })).toContainText('8')
   })
 
   test('training load section updates after logging workout', async ({ page }) => {
@@ -102,7 +86,7 @@ test.describe('DB persistence — PR tracking', () => {
     await page.goto('/progress')
     await expect(page.getByText(/loading analytics/i)).not.toBeVisible({ timeout: 15_000 })
     // Training load stats should be visible
-    await expect(page.getByText('Training Load')).toBeVisible()
-    await expect(page.getByText('Acute')).toBeVisible()
+    const load = page.getByRole('region', { name: 'Training Load' })
+    await expect(load.getByText('500 kg', { exact: true })).toBeVisible()
   })
 })

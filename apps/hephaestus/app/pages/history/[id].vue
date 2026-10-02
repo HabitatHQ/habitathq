@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { formatDuration } from '~/lib/format'
+import { buildWorkoutCard } from '~/lib/workout-card'
 import type { ExerciseRow, SetRow, WorkoutExerciseRow, WorkoutRow } from '~/types/database'
 
 const route = useRoute()
-const workoutId = route.params.id as string
+const workoutId = String(route.params['id'] ?? '')
 
 const db = useDatabase()
 
@@ -135,12 +136,45 @@ const totalSets = computed(() =>
 
 const workoutDate = computed(() => {
   if (!workout.value) return ''
-  return new Date(workout.value.date).toLocaleDateString('en-US', {
+  return new Date(`${workout.value.date}T12:00:00`).toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
   })
 })
+
+const workoutCard = computed(() => {
+  if (!workout.value?.ended_at) return null
+  const distance = exercises.value
+    .flatMap((block) => block.sets)
+    .filter((set) => set.completed === 1)
+    .reduce((sum, set) => sum + (set.distance_m ?? 0), 0)
+  return buildWorkoutCard({
+    date: workout.value.date,
+    sessionType: workout.value.session_type,
+    durationMinutes: Math.max(
+      0,
+      (new Date(workout.value.ended_at).getTime() - new Date(workout.value.started_at).getTime()) /
+        60000,
+    ),
+    exerciseCount: exercises.value.length,
+    workingSets: totalSets.value,
+    volumeKg: workout.value.session_type === 'gym' ? totalVolume.value : null,
+    distanceMeters: distance > 0 ? distance : null,
+  })
+})
+
+function downloadWorkoutCard() {
+  if (!workoutCard.value) return
+  const url = URL.createObjectURL(
+    new Blob([workoutCard.value.svg], { type: 'image/svg+xml;charset=utf-8' }),
+  )
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `workout-summary-${workout.value?.date ?? 'completed'}.svg`
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
 
 function moodEmoji(rating: number | null): string {
   if (rating === null) return '—'
@@ -228,6 +262,17 @@ function moodEmoji(rating: number | null): string {
           </dl>
 
           <p v-if="workout.notes" class="mt-3 text-sm text-(--ui-text-muted) italic">{{ workout.notes }}</p>
+        </section>
+
+        <section v-if="workoutCard" aria-labelledby="card-heading" class="rounded-xl bg-(--color-surface) p-4">
+          <h2 id="card-heading" class="text-sm font-semibold">Workout summary card</h2>
+          <p class="mt-1 text-xs text-(--ui-text-muted)">
+            The image contains workout totals only; notes and identifying details are excluded.
+          </p>
+          <UButton class="mt-3" icon="i-ph-image" @click="downloadWorkoutCard">Download summary image</UButton>
+          <p class="mt-3 text-sm" aria-label="Text alternative for workout summary card">
+            {{ workoutCard.textAlternative }}
+          </p>
         </section>
 
         <!-- Exercises -->

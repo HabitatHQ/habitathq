@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { formatDuration } from '~/lib/format'
+import { filterWorkouts, SESSION_TYPES, type SessionFilter, sessionLabel } from '~/lib/history'
 import type { WorkoutRow } from '~/types/database'
 
 const db = useDatabase()
 
 const workouts = ref<WorkoutRow[]>([])
 const loading = ref(true)
-const filter = ref<'all' | 'gym' | 'run'>('all')
+const filter = ref<SessionFilter>('all')
 const searchQuery = ref('')
 
 watch(
@@ -28,15 +29,7 @@ async function load() {
   }
 }
 
-const filtered = computed(() => {
-  let result = workouts.value
-  if (filter.value !== 'all') result = result.filter((w) => w.session_type === filter.value)
-  if (searchQuery.value.trim()) {
-    const q = searchQuery.value.toLowerCase()
-    result = result.filter((w) => w.date.includes(q) || (w.notes ?? '').toLowerCase().includes(q))
-  }
-  return result
-})
+const filtered = computed(() => filterWorkouts(workouts.value, filter.value, searchQuery.value))
 
 // Group by month
 const grouped = computed(() => {
@@ -57,11 +50,6 @@ function monthLabel(ym: string): string {
   })
 }
 
-function sessionLabel(w: WorkoutRow): string {
-  if (w.session_type === 'run') return '🏃 Run'
-  return '🏋️ Gym Session'
-}
-
 function duration(w: WorkoutRow): string {
   if (!w.ended_at) return '—'
   const secs = Math.round(
@@ -78,20 +66,20 @@ function duration(w: WorkoutRow): string {
     </header>
 
     <!-- Filter chips -->
-    <div class="flex gap-2" role="group" aria-label="Filter by session type">
+    <div class="flex flex-wrap gap-2" role="group" aria-label="Filter by session type">
       <button
-        v-for="type in (['all', 'gym', 'run'] as const)"
-        :key="type"
-        class="px-3 py-1.5 text-xs font-medium rounded-full capitalize transition-colors"
+        v-for="type in SESSION_TYPES"
+        :key="type.value"
+        class="min-h-11 px-3 py-1.5 text-xs font-medium rounded-full capitalize transition-colors"
         :class="
-          filter === type
-            ? 'bg-(--color-accent) text-white'
+          filter === type.value
+            ? 'bg-(--color-accent) text-(--color-on-accent)'
             : 'bg-(--color-surface) text-(--ui-text-muted)'
         "
-        :aria-pressed="filter === type"
-        @click="filter = type"
+        :aria-pressed="filter === type.value"
+        @click="filter = type.value"
       >
-        {{ type === 'all' ? 'All' : type === 'gym' ? 'Gym' : 'Runs' }}
+        {{ type.label }}
       </button>
     </div>
 
@@ -131,26 +119,26 @@ function duration(w: WorkoutRow): string {
               <!-- Session type avatar -->
               <div
                 class="shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
-                :class="w.session_type === 'run' ? 'bg-green-500/20' : 'bg-orange-500/20'"
+                :class="w.session_type === 'run' ? 'bg-green-500/20' : w.session_type === 'gym' ? 'bg-orange-500/20' : 'bg-(--color-surface-2)'"
                 aria-hidden="true"
               >
                 <UIcon
-                  :name="w.session_type === 'run' ? 'i-ph-person-simple-run' : 'i-ph-barbell'"
+                  :name="w.session_type === 'run' ? 'i-ph-person-simple-run' : w.session_type === 'gym' ? 'i-ph-barbell' : 'i-ph-person-simple'"
                   class="w-4 h-4"
-                  :class="w.session_type === 'run' ? 'text-green-400' : 'text-orange-400'"
+                  :class="w.session_type === 'run' ? 'text-green-400' : w.session_type === 'gym' ? 'text-orange-400' : 'text-(--ui-text-muted)'"
                 />
               </div>
               <div class="min-w-0 flex-1">
                 <p class="text-sm font-medium">{{ sessionLabel(w) }}</p>
                 <p class="text-xs text-(--ui-text-muted)">
-                  {{ new Date(w.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) }}
+                  {{ new Date(`${w.date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) }}
                   · {{ duration(w) }}
                 </p>
                 <p v-if="w.notes" class="text-xs text-(--ui-text-muted) truncate mt-0.5">
                   {{ w.notes }}
                 </p>
               </div>
-              <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
+              <UIcon name="i-ph-caret-right" class="w-4 h-4 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
             </NuxtLink>
           </li>
         </ul>

@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { calculateReadiness } from '~/lib/readiness'
 
 describe('calculateReadiness', () => {
-  it('returns moderate with no data (acwr=0, days=0)', () => {
-    const r = calculateReadiness(0, 0, null)
-    expect(r.score).toBe(0)
-    expect(r.label).toBe('Moderate')
+  it('reports unavailable with no completed training history', () => {
+    const result = calculateReadiness(0, 999, null)
+    expect(result.score).toBeNull()
+    expect(result.label).toBe('Unavailable')
+    expect(result.isEstimate).toBe(true)
   })
 
   it('returns High for optimal acwr + 1 rest day + good mood', () => {
@@ -19,9 +20,10 @@ describe('calculateReadiness', () => {
     expect(r.label).toBe('Low')
   })
 
-  it('returns Detraining for > 7 days since last workout', () => {
-    const r = calculateReadiness(0.5, 8, null)
-    expect(r.label).toBe('Detraining')
+  it('keeps extended time off in the heuristic range without a diagnosis label', () => {
+    const result = calculateReadiness(0.5, 8, null)
+    expect(result.label).toBe('Low')
+    expect(result.description).toContain('Heuristic estimate')
   })
 
   it('penalises bad mood', () => {

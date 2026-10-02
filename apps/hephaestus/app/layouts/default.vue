@@ -1,12 +1,16 @@
 <script setup lang="ts">
+useHead({
+  htmlAttrs: { lang: 'en' },
+})
+
 const route = useRoute()
 
 const navItems = [
-  { to: '/', label: 'Today', icon: 'i-heroicons-sun' },
-  { to: '/workout', label: 'Workout', icon: 'i-heroicons-bolt' },
-  { to: '/exercises', label: 'Exercises', icon: 'i-heroicons-list-bullet' },
-  { to: '/history', label: 'History', icon: 'i-heroicons-clock' },
-  { to: '/profile', label: 'Profile', icon: 'i-heroicons-user' },
+  { to: '/', label: 'Today', icon: 'i-ph-sun' },
+  { to: '/workout', label: 'Workout', icon: 'i-ph-barbell' },
+  { to: '/exercises', label: 'Exercises', icon: 'i-ph-list-bullets' },
+  { to: '/history', label: 'History', icon: 'i-ph-clock-counter-clockwise' },
+  { to: '/profile', label: 'Profile', icon: 'i-ph-user' },
 ]
 
 function isActive(to: string) {
@@ -17,7 +21,8 @@ function isActive(to: string) {
 
 <template>
   <div class="flex flex-col min-h-screen">
-    <main class="flex-1 pb-20">
+    <a href="#main-content" class="skip-link">Skip to training content</a>
+    <main id="main-content" tabindex="-1" class="flex-1 pb-24 w-full max-w-3xl mx-auto">
       <slot />
     </main>
 
@@ -26,7 +31,7 @@ function isActive(to: string) {
         <li v-for="item in navItems" :key="item.to">
           <NuxtLink
             :to="item.to"
-            class="flex flex-col items-center gap-0.5 px-3 py-2 text-xs transition-colors"
+            class="flex flex-col items-center justify-center gap-0.5 min-h-14 min-w-14 px-2 py-2 text-xs transition-colors"
             :class="
               isActive(item.to)
                 ? 'text-(--color-accent)'

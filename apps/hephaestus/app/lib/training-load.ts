@@ -10,24 +10,16 @@ export function calculateVolume(sets: SetRow[]): number {
     .reduce((total, s) => total + (s.weight_kg ?? 0) * (s.reps ?? 0), 0)
 }
 
-/**
- * Calculate acute training load: average of weekly volumes over the last week.
- * For simplicity, returns the mean of all provided values (caller supplies a
- * sliding 7-day window as weekly volumes).
- */
+/** Acute load is the latest completed weekly value supplied by the caller. */
 export function calculateAcuteLoad(weeklyVolumes: number[]): number {
-  if (weeklyVolumes.length === 0) return 0
-  // Caller provides a 7-day sliding window of daily/weekly volumes; we average them.
-  return weeklyVolumes.reduce((sum, v) => sum + v, 0) / weeklyVolumes.length
+  return weeklyVolumes.at(-1) ?? 0
 }
 
-/**
- * Calculate chronic training load: 28-day rolling average (last 4 weeks).
- */
+/** Chronic load is the mean of up to the previous four completed weeks. */
 export function calculateChronicLoad(weeklyVolumes: number[]): number {
-  if (weeklyVolumes.length === 0) return 0
-  const last4 = weeklyVolumes.slice(-4)
-  return last4.reduce((sum, v) => sum + v, 0) / last4.length
+  const previousWeeks = weeklyVolumes.slice(-5, -1)
+  if (previousWeeks.length === 0) return 0
+  return previousWeeks.reduce((sum, volume) => sum + volume, 0) / previousWeeks.length
 }
 
 /**

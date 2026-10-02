@@ -1,3 +1,12 @@
+import {
+  applySchema,
+  isTransactable,
+  type SchemaConfig,
+  type StorageAdapter,
+} from '@palladium/core'
+import { EQUIPMENT_DDL } from '~/lib/equipment-schema'
+import { toAppDbAdapter } from '~/lib/palladium-database'
+import { migrateWorkout, WORKOUT_DDL } from '~/lib/workout-schema'
 import type { DbAdapter } from '~/types/database'
 
 export const SCHEMA_DDL = `
@@ -84,7 +93,8 @@ export const SCHEMA_DDL = `
     created_at   TEXT NOT NULL,
     current_week INTEGER DEFAULT 1,
     started_at   TEXT,
-    active       INTEGER DEFAULT 0
+    active       INTEGER DEFAULT 0,
+    completed_at TEXT
   );
 
   CREATE TABLE IF NOT EXISTS program_weeks (
@@ -288,7 +298,47 @@ export const SCHEMA_DDL = `
   CREATE INDEX IF NOT EXISTS idx_runs_workout ON runs(workout_id);
   CREATE INDEX IF NOT EXISTS idx_template_groups_template ON template_groups(template_id);
   CREATE INDEX IF NOT EXISTS idx_workout_tags_workout ON workout_tags(workout_id);
+  ${EQUIPMENT_DDL}
+  ${WORKOUT_DDL}
 `
+
+export const HEPHAESTUS_SCHEMA: SchemaConfig = {
+  schema: SCHEMA_DDL,
+  version: 1,
+}
+
+/** Apply baseline DDL and legacy repair in the same transaction as the version stamp. */
+export async function initializeSchema(storage: StorageAdapter, db: DbAdapter): Promise<void> {
+  const versionRows = await storage.exec<{ user_version: number }>('PRAGMA user_version')
+  const version = versionRows[0]?.user_version ?? 0
+  const migrate = async (target: DbAdapter): Promise<void> => {
+    await runMigrations(target)
+    await migrateWorkout(target)
+  }
+
+  if (version === 0) {
+    if (!isTransactable(storage)) {
+      throw new Error('Hephaestus schema initialization requires transaction support.')
+    }
+    await storage.transaction(async (tx) => {
+      const schemaAdapter: StorageAdapter = {
+        open: () => tx.open(),
+        exec: <T>(sql: string, params?: readonly unknown[]) => tx.exec<T>(sql, params),
+        put: (table, id, data) => tx.put(table, id, data),
+        patch: (table, id, patch) => tx.patch(table, id, patch),
+        remove: (table, id) => tx.remove(table, id),
+        runMigrations: (migrations) => tx.runMigrations(migrations),
+        close: () => tx.close(),
+      }
+      await applySchema(schemaAdapter, HEPHAESTUS_SCHEMA)
+      await migrate(toAppDbAdapter(tx, false))
+    })
+    return
+  }
+
+  await applySchema(storage, HEPHAESTUS_SCHEMA)
+  await db.transaction(migrate)
+}
 
 /**
  * Idempotent migrations — runs on every startup via addColumn which
@@ -358,6 +408,7 @@ export async function runMigrations(db: DbAdapter): Promise<void> {
   await addColumn('programs', 'current_week', 'INTEGER DEFAULT 1')
   await addColumn('programs', 'started_at', 'TEXT')
   await addColumn('programs', 'active', 'INTEGER DEFAULT 0')
+  await addColumn('programs', 'completed_at', 'TEXT')
   await addColumn('program_weeks', 'intensity_modifier', 'REAL DEFAULT 1.0')
   await addColumn('program_weeks', 'volume_modifier', 'REAL DEFAULT 1.0')
   await addColumn('program_weeks', 'phase', 'TEXT')

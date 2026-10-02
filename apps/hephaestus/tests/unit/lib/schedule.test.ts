@@ -5,6 +5,7 @@ import {
   scheduledDaysForToday,
   serialiseDaySchedule,
   suggestTemplatesForToday,
+  weekdayNumber,
 } from '~/lib/schedule'
 import type { TemplateRow } from '~/types/database'
 
@@ -25,14 +26,24 @@ function makeTemplate(id: string, scheduledDays: string | null = null): Template
 }
 
 describe('dayIndexToName', () => {
-  it('returns Sunday for 0', () => {
-    expect(dayIndexToName(0)).toBe('Sunday')
+  it('uses Monday=1 through Sunday=7', () => {
+    expect([1, 2, 3, 4, 5, 6, 7].map(dayIndexToName)).toEqual([
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+      'Sunday',
+    ])
+    expect(dayIndexToName(0)).toBe('Unknown')
   })
-  it('returns Monday for 1', () => {
-    expect(dayIndexToName(1)).toBe('Monday')
-  })
-  it('returns Saturday for 6', () => {
-    expect(dayIndexToName(6)).toBe('Saturday')
+})
+describe('weekdayNumber', () => {
+  it('maps every JavaScript weekday to Monday=1 through Sunday=7', () => {
+    expect(Array.from({ length: 7 }, (_, i) => weekdayNumber(new Date(2026, 2, 9 + i)))).toEqual([
+      1, 2, 3, 4, 5, 6, 7,
+    ])
   })
 })
 
@@ -73,12 +84,16 @@ describe('scheduledDaysForToday', () => {
 })
 
 describe('suggestTemplatesForToday', () => {
-  it('returns templates scheduled for today', () => {
-    const today = new Date('2026-03-10') // Tuesday = day 2
-    const t1 = makeTemplate('t1', '[2]') // Tuesdays
-    const t2 = makeTemplate('t2', '[1]') // Mondays
-    const result = suggestTemplatesForToday([t1, t2] as any, today)
-    expect(result.map((t) => t.id)).toContain('t1')
-    expect(result.map((t) => t.id)).not.toContain('t2')
+  it('returns templates scheduled today using Monday=1 and Sunday=7', () => {
+    const tuesday = new Date(2026, 2, 10)
+    const sunday = new Date(2026, 2, 15)
+    const tuesdayTemplate = makeTemplate('tuesday', '[2]')
+    const sundayTemplate = makeTemplate('sunday', '[7]')
+    expect(
+      suggestTemplatesForToday([tuesdayTemplate, sundayTemplate], tuesday).map((t) => t.id),
+    ).toEqual(['tuesday'])
+    expect(
+      suggestTemplatesForToday([tuesdayTemplate, sundayTemplate], sunday).map((t) => t.id),
+    ).toEqual(['sunday'])
   })
 })

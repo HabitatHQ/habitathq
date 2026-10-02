@@ -67,5 +67,10 @@ export function useAppSettings() {
     if (import.meta.client) localStorage.setItem(KEY, JSON.stringify(settings.value))
   }
 
-  return { settings: readonly(settings), set }
+  function replace(value: AppSettings, persist = true) {
+    if (persist && import.meta.client) localStorage.setItem(KEY, JSON.stringify(value))
+    settings.value = { ...value, warmupRamps: [...value.warmupRamps] }
+  }
+
+  return { settings: readonly(settings), set, replace }
 }

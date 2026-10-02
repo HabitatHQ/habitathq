@@ -21,21 +21,21 @@ const colorClass = computed(() => {
 <template>
   <div
     class="fixed top-0 left-0 right-0 z-40 px-4 py-2 flex items-center gap-3 bg-(--color-surface-2) border-b border-(--ui-border)"
-    role="status"
-    aria-live="polite"
+    role="timer"
+    aria-live="off"
     :aria-label="`Rest timer: ${formatCountdown(remaining)} remaining`"
   >
-    <UIcon name="i-heroicons-clock" class="w-5 h-5 shrink-0" :class="colorClass" aria-hidden="true" />
+    <UIcon name="i-ph-clock" class="w-5 h-5 shrink-0" :class="colorClass" aria-hidden="true" />
     <div class="flex-1 min-w-0">
       <p class="text-xs text-(--ui-text-muted) truncate">
         Rest{{ exerciseName ? ` · ${exerciseName}` : '' }}
       </p>
-      <p class="text-sm font-bold tabular-nums" :class="colorClass">
+      <p class="text-xl font-bold tabular-nums" :class="colorClass">
         {{ formatCountdown(remaining) }}
       </p>
     </div>
     <button
-      class="text-xs text-(--ui-text-muted) hover:text-(--ui-text) px-2 py-1 rounded-lg"
+      class="text-sm text-(--ui-text) hover:text-(--color-accent) min-w-14 px-3 py-2 rounded-lg"
       @click="emit('skip')"
     >
       Skip

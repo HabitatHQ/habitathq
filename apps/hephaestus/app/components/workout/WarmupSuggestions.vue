@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatWeight } from '~/lib/format'
 import { warmupWeightSuggestions } from '~/lib/set-schemes'
 
 const props = defineProps<{
@@ -7,6 +8,7 @@ const props = defineProps<{
   unit?: 'kg' | 'lbs'
   ramps?: number[]
 }>()
+const modalFocus = useModalFocus(() => props.open)
 
 const emit = defineEmits<{
   close: []
@@ -24,27 +26,9 @@ const suggestions = computed<Array<{ pct: number; weight: number }>>(() => {
 </script>
 
 <template>
-  <!-- Single root prevents Vue fragment-anchor issues with transitions -->
-  <div>
-    <!-- Backdrop -->
-    <Transition name="fade">
-      <div
-        v-if="open"
-        class="fixed inset-0 bg-black/50 z-[100]"
-        role="presentation"
-        @click="emit('close')"
-      />
-    </Transition>
-
-    <!-- Sheet -->
-    <Transition name="slide-up">
-      <div
-        v-if="open"
-        class="fixed bottom-0 left-0 right-0 z-[100] rounded-t-2xl bg-(--color-surface) safe-area-bottom p-6 space-y-5"
-        role="dialog"
-        aria-label="Warm-up Suggestions"
-        aria-modal="true"
-      >
+  <UModal :open="open" :content="modalFocus" title="Warm-up Suggestions" description="Editable warm-up loads based on your working weight." @update:open="value => { if (!value) emit('close') }">
+    <template #content>
+      <div class="safe-area-bottom p-6 space-y-5">
         <header class="flex items-center justify-between">
           <h2 class="font-semibold">Warm-up Suggestions</h2>
           <button
@@ -52,7 +36,7 @@ const suggestions = computed<Array<{ pct: number; weight: number }>>(() => {
             aria-label="Close"
             @click="emit('close')"
           >
-            <UIcon name="i-heroicons-x-mark" class="w-5 h-5" aria-hidden="true" />
+            <UIcon name="i-ph-x" class="w-5 h-5" aria-hidden="true" />
           </button>
         </header>
 
@@ -74,7 +58,7 @@ const suggestions = computed<Array<{ pct: number; weight: number }>>(() => {
             <span class="text-sm">
               <span class="font-bold text-(--color-accent)">{{ pct }}%</span>
               &mdash;
-              <span class="font-semibold">{{ weight }}{{ effectiveUnit }}</span>
+              <span class="font-semibold">{{ formatWeight(weight, effectiveUnit) }}</span>
               <span class="text-(--ui-text-muted)"> &times; 10–15 reps</span>
             </span>
             <UButton
@@ -88,26 +72,7 @@ const suggestions = computed<Array<{ pct: number; weight: number }>>(() => {
           </li>
         </ul>
       </div>
-    </Transition>
-  </div>
+    </template>
+  </UModal>
 </template>
 
-<style scoped>
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
-
-.slide-up-enter-active,
-.slide-up-leave-active {
-  transition: transform 0.25s ease;
-}
-.slide-up-enter-from,
-.slide-up-leave-to {
-  transform: translateY(100%);
-}
-</style>

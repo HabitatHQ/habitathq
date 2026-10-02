@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { formatWeight } from '~/lib/format'
-import type { SetRow } from '~/types/database'
+import type { LoggingMode, SetRow } from '~/types/database'
 
 const props = defineProps<{
   set: SetRow
   unit?: 'kg' | 'lbs'
+  loggingMode?: LoggingMode
 }>()
-
 const emit = defineEmits<{ tap: [set: SetRow] }>()
 
 const unit = computed(() => props.unit ?? 'kg')
+const loggingMode = computed(() => props.loggingMode ?? 'strength')
 
 const label = computed(() => {
   if (props.set.is_warmup) return 'W'
@@ -47,20 +48,31 @@ const weightStr = computed(() =>
     <!-- Weight × Reps -->
     <button
       class="flex-1 flex items-center gap-2 text-left"
+      :aria-label="`Edit set ${set.set_num}`"
       :class="set.completed ? 'text-(--ui-text)' : 'text-(--ui-text-muted) italic'"
       @click="emit('tap', set)"
     >
-      <span class="font-medium tabular-nums">{{ weightStr }}</span>
-      <span class="text-(--ui-text-muted)">×</span>
-      <span class="font-medium tabular-nums">{{ set.reps ?? '—' }}</span>
-      <span v-if="set.rpe !== null" class="text-xs text-(--ui-text-muted)">
+      <template v-if="loggingMode !== 'strength'">
+        <span class="font-medium tabular-nums">
+          {{ set.distance_m == null ? '—' : `${(set.distance_m / 1000).toFixed(2)} km` }}
+        </span>
+        <span v-if="set.duration_sec != null" class="text-xs text-(--ui-text-muted)">
+          {{ set.duration_sec }} sec
+        </span>
+      </template>
+      <template v-else>
+        <span class="font-medium tabular-nums">{{ weightStr }}</span>
+        <span class="text-(--ui-text-muted)">×</span>
+        <span class="font-medium tabular-nums">{{ set.reps ?? '—' }}</span>
+      </template>
+      <span v-if="loggingMode === 'strength' && set.rpe !== null" class="text-xs text-(--ui-text-muted)">
         RPE {{ set.rpe }}
       </span>
-      <span v-if="set.rir !== null" class="text-xs text-(--ui-text-muted)">
+      <span v-if="loggingMode === 'strength' && set.rir !== null" class="text-xs text-(--ui-text-muted)">
         RIR {{ set.rir }}
       </span>
-      <span v-if="set.failure_flag === 1" class="text-xs font-bold text-red-400 shrink-0">F</span>
-      <span v-if="set.failure_flag === 1 && set.partial_reps" class="text-xs text-(--ui-text-muted)">
+      <span v-if="loggingMode === 'strength' && set.failure_flag === 1" class="text-xs font-bold text-red-400 shrink-0">F</span>
+      <span v-if="loggingMode === 'strength' && set.failure_flag === 1 && set.partial_reps" class="text-xs text-(--ui-text-muted)">
         +{{ set.partial_reps }}p
       </span>
     </button>
@@ -68,7 +80,7 @@ const weightStr = computed(() =>
     <!-- Notes indicator -->
     <UIcon
       v-if="set.notes"
-      name="i-heroicons-chat-bubble-left-ellipsis"
+      name="i-ph-chat-text"
       class="w-4 h-4 text-(--ui-text-muted) shrink-0"
       aria-label="Has note"
     />

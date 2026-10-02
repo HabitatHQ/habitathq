@@ -5,16 +5,25 @@ import {
   findNeglectedTemplates,
   findSimilarTemplates,
 } from '~/lib/template-discovery'
+import type { TemplateRow } from '~/types/database'
 
 const NOW = new Date('2026-03-10')
 
-function makeTemplate(id: string, lastUsedAt: string | null = null) {
+function makeTemplate(id: string, lastUsedAt: string | null = null): TemplateRow {
   return {
     id,
     name: `Template ${id}`,
     last_used_at: lastUsedAt,
     created_at: '2026-01-01T00:00:00Z',
     use_count: 1,
+    description: null,
+    archived_at: null,
+    sort_order: 0,
+    pinned_at: null,
+    cover_emoji: null,
+    scheduled_days: null,
+    notification_enabled: 0,
+    notification_time: null,
   }
 }
 
@@ -22,14 +31,14 @@ describe('findNeglectedTemplates', () => {
   it('returns templates not used within threshold', () => {
     const t1 = makeTemplate('t1', '2026-03-01') // 9 days ago
     const t2 = makeTemplate('t2', '2026-03-08') // 2 days ago
-    const neglected = findNeglectedTemplates([t1, t2] as any, 7, NOW)
+    const neglected = findNeglectedTemplates([t1, t2], 7, NOW)
     expect(neglected.map((t) => t.id)).toContain('t1')
     expect(neglected.map((t) => t.id)).not.toContain('t2')
   })
 
   it('includes templates never used', () => {
     const t1 = makeTemplate('t1', null)
-    const result = findNeglectedTemplates([t1] as any, 7, NOW)
+    const result = findNeglectedTemplates([t1], 7, NOW)
     expect(result.map((t) => t.id)).toContain('t1')
   })
 })
@@ -44,7 +53,7 @@ describe('calculateMuscleBalance', () => {
       { muscles_primary: JSON.stringify(['chest']), movement: 'press' },
       { muscles_primary: JSON.stringify(['lats', 'biceps']), movement: 'row' },
     ]
-    const balance = calculateMuscleBalance(exercises as any)
+    const balance = calculateMuscleBalance(exercises)
     expect(balance.push).toBeGreaterThan(0)
     expect(balance.pull).toBeGreaterThan(0)
   })
@@ -77,7 +86,7 @@ describe('checkMuscleBalance', () => {
       { muscles_primary: JSON.stringify(['chest']), movement: 'press' },
       { muscles_primary: JSON.stringify(['lats']), movement: 'row' },
     ]
-    const warning = checkMuscleBalance(exercises as any)
+    const warning = checkMuscleBalance(exercises)
     expect(warning).toBeTruthy()
   })
 
@@ -86,6 +95,6 @@ describe('checkMuscleBalance', () => {
       { muscles_primary: JSON.stringify(['chest']), movement: 'press' },
       { muscles_primary: JSON.stringify(['lats']), movement: 'row' },
     ]
-    expect(checkMuscleBalance(exercises as any)).toBeNull()
+    expect(checkMuscleBalance(exercises)).toBeNull()
   })
 })

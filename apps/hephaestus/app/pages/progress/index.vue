@@ -69,10 +69,10 @@ const acwrColor = computed(() => {
 const acwrLabel = computed(() => {
   const r = acwr.value
   if (r === 0) return 'No data'
-  if (r < 0.8) return 'Detraining'
-  if (r <= 1.0) return 'Optimal'
-  if (r <= 1.3) return 'Progressive'
-  return 'High risk'
+  if (r < 0.8) return 'Below previous weeks'
+  if (r <= 1.0) return 'Similar recent load'
+  if (r <= 1.3) return 'Higher recent load'
+  return 'Elevated recent load'
 })
 
 const recentPRs = computed(() => prs.value.slice(0, 5))
@@ -94,16 +94,19 @@ const recentPRs = computed(() => prs.value.slice(0, 5))
         <h2 id="load-heading" class="text-sm font-semibold uppercase tracking-wider text-(--ui-text-muted) mb-3">
           Training Load
         </h2>
+        <p class="text-xs text-(--ui-text-muted) mb-3">
+          Strength-session volume estimate (kg × reps). Acute is the latest recorded week; chronic is the prior four-week mean. Not a recovery or injury-risk measure.
+        </p>
         <div class="grid grid-cols-3 gap-3">
           <CommonStatCard
             label="Acute"
             :value="acuteLoad > 0 ? formatVolume(acuteLoad, settings.weightUnit) : '—'"
-            sub="7-day avg"
+            sub="most recent week"
           />
           <CommonStatCard
             label="Chronic"
             :value="chronicLoad > 0 ? formatVolume(chronicLoad, settings.weightUnit) : '—'"
-            sub="28-day avg"
+            sub="previous 4-week average"
           />
           <div class="rounded-xl bg-(--color-surface) p-4 space-y-1">
             <p class="text-xs text-(--ui-text-muted) uppercase tracking-wider">ACWR</p>

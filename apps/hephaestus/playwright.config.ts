@@ -5,9 +5,10 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  reporter: 'html',
+  workers: process.env.CI ? 2 : 4,
+  reporter: [['list'], ['html', { open: 'never' }]],
   use: {
-    baseURL: 'http://localhost:3210',
+    baseURL: 'http://127.0.0.1:3212',
     trace: 'on-first-retry',
   },
   projects: [
@@ -17,9 +18,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'NUXT_DEVTOOLS_ENABLED=false pnpm dev:pwa',
-    url: 'http://localhost:3210',
-    reuseExistingServer: !process.env.CI,
+    command: 'node scripts/preview-pwa.mjs',
+    url: 'http://127.0.0.1:3212',
+    reuseExistingServer: false,
     timeout: 120_000,
   },
 })

@@ -1,5 +1,26 @@
 import type { ExerciseRow, SetRow, WorkoutExerciseRow, WorkoutRow } from '~/types/database'
 import { calculateE1RM } from './e1rm'
+/** Return an ISO calendar date in the local timezone; YYYY-MM-DD is parsed as local. */
+export function localDateKey(date: Date = new Date()): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+/** Add calendar days without converting through UTC. */
+export function addCalendarDays(dateKey: string, days: number): string {
+  const date = parseCalendarDate(dateKey)
+  date.setDate(date.getDate() + days)
+  return localDateKey(date)
+}
+function parseCalendarDate(dateKey: string): Date {
+  return new Date(
+    Number(dateKey.slice(0, 4)),
+    Number(dateKey.slice(5, 7)) - 1,
+    Number(dateKey.slice(8, 10)),
+  )
+}
 
 export interface WeeklyVolumeStat {
   week: string // ISO week label e.g. '2026-W10'
@@ -48,13 +69,13 @@ export function buildWeekGrid(
   weeks: number,
   referenceDate: string,
 ): WeekDot[][] {
-  const refDate = new Date(referenceDate)
+  const refDate = parseCalendarDate(referenceDate)
   // Align to Monday of current week
   const dayOfWeek = (refDate.getDay() + 6) % 7 // 0=Mon, 6=Sun
   const startDate = new Date(refDate)
   startDate.setDate(startDate.getDate() - dayOfWeek - (weeks - 1) * 7)
 
-  const dateSet = new Set(workoutDates)
+  const dateSet = new Set(workoutDates.filter((date) => date <= referenceDate))
   const grid: WeekDot[][] = []
 
   for (let w = 0; w < weeks; w++) {
@@ -62,7 +83,7 @@ export function buildWeekGrid(
     for (let d = 0; d < 7; d++) {
       const current = new Date(startDate)
       current.setDate(startDate.getDate() + w * 7 + d)
-      const dateStr = current.toISOString().slice(0, 10)
+      const dateStr = localDateKey(current)
       week.push({ date: dateStr, hasWorkout: dateSet.has(dateStr) })
     }
     grid.push(week)
@@ -77,25 +98,32 @@ export function buildWeekGrid(
 export function aggregateMuscleFrequency(
   workoutExercises: WorkoutExerciseRow[],
   exercises: ExerciseRow[],
-  workouts: Pick<WorkoutRow, 'id' | 'date'>[],
+  workouts: Array<
+    Pick<WorkoutRow, 'id' | 'date'> & Partial<Pick<WorkoutRow, 'ended_at' | 'session_type'>>
+  >,
   days: number,
   referenceDate: string,
 ): MuscleFrequency[] {
-  const cutoff = new Date(referenceDate)
-  cutoff.setDate(cutoff.getDate() - days)
-  const cutoffStr = cutoff.toISOString().slice(0, 10)
+  const cutoffStr = addCalendarDays(referenceDate, -days)
 
-  const workoutDateMap = new Map(workouts.map((w) => [w.id, w.date]))
+  const workoutDateMap = new Map(
+    workouts
+      .filter(
+        (w) =>
+          (w.ended_at === undefined || w.ended_at !== null) &&
+          (w.session_type === undefined || w.session_type === 'gym'),
+      )
+      .map((w) => [w.id, w.date]),
+  )
   const exerciseMap = new Map(exercises.map((e) => [e.id, e]))
 
   const muscleFreq = new Map<string, { count: number; lastTrained: string | null }>()
 
   for (const we of workoutExercises) {
     const workoutDate = workoutDateMap.get(we.workout_id)
-    if (!workoutDate || workoutDate < cutoffStr) continue
-
+    if (!workoutDate || workoutDate < cutoffStr || workoutDate > referenceDate) continue
     const exercise = exerciseMap.get(we.exercise_id)
-    if (!exercise) continue
+    if (!exercise || exercise.logging_mode !== 'strength') continue
 
     let muscles: string[] = []
     try {
@@ -129,9 +157,19 @@ export function buildExerciseHistory(
   exerciseId: string,
   workoutExercises: WorkoutExerciseRow[],
   sets: SetRow[],
-  workouts: Pick<WorkoutRow, 'id' | 'date'>[],
+  workouts: Array<
+    Pick<WorkoutRow, 'id' | 'date'> & Partial<Pick<WorkoutRow, 'ended_at' | 'session_type'>>
+  >,
 ): ExerciseSessionStat[] {
-  const workoutDateMap = new Map(workouts.map((w) => [w.id, w.date]))
+  const workoutDateMap = new Map(
+    workouts
+      .filter(
+        (w) =>
+          (w.ended_at === undefined || w.ended_at !== null) &&
+          (w.session_type === undefined || w.session_type === 'gym'),
+      )
+      .map((w) => [w.id, w.date]),
+  )
   const relevantWEs = workoutExercises.filter((we) => we.exercise_id === exerciseId)
   const weIds = new Set(relevantWEs.map((we) => we.id))
 

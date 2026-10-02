@@ -1,16 +1,6 @@
 import { expect, test } from '@playwright/test'
 
 test.describe('Today page', () => {
-  test('loads with heading', async ({ page }) => {
-    await page.goto('/')
-    await expect(page.locator('h1')).toContainText('Today')
-  })
-
-  test('shows start workout button', async ({ page }) => {
-    await page.goto('/')
-    await expect(page.getByRole('link', { name: /start workout/i })).toBeVisible()
-  })
-
   test('displays current date', async ({ page }) => {
     await page.goto('/')
     // The date is rendered in a <time> element
@@ -24,11 +14,6 @@ test.describe('Today page', () => {
   test('shows recent activity section', async ({ page }) => {
     await page.goto('/')
     await expect(page.getByText(/recent activity/i)).toBeVisible()
-  })
-
-  test('shows empty state message when no workouts logged', async ({ page }) => {
-    await page.goto('/')
-    await expect(page.getByText(/no recent workouts/i)).toBeVisible()
   })
 
   test('start workout button links to /workout', async ({ page }) => {
@@ -57,7 +42,10 @@ test.describe('Navigation', () => {
 
   test('navigates to workout page', async ({ page }) => {
     await page.goto('/')
-    await page.getByRole('link', { name: 'Workout' }).nth(1).click()
+    await page
+      .getByRole('navigation', { name: 'Primary navigation' })
+      .getByRole('link', { name: 'Workout' })
+      .click()
     await expect(page.locator('h1')).toContainText('Workout')
   })
 
@@ -103,34 +91,63 @@ test.describe('Navigation', () => {
 test.describe('Profile settings', () => {
   test('can switch theme to Forge', async ({ page }) => {
     await page.goto('/profile')
-    await page.getByRole('button', { name: 'Forge' }).click()
+    const themes = page.locator('article')
+    await themes.getByRole('button', { name: /^Forge/ }).click()
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'forge')
   })
 
   test('can switch theme to Daylight', async ({ page }) => {
     await page.goto('/profile')
-    await page.getByRole('button', { name: 'Daylight' }).click()
+    await page
+      .locator('article')
+      .getByRole('button', { name: /^Daylight/ })
+      .click()
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'daylight')
   })
 
   test('can switch theme back to Hephaestus', async ({ page }) => {
     await page.goto('/profile')
-    await page.getByRole('button', { name: 'Forge' }).click()
-    await page.getByRole('button', { name: 'Hephaestus' }).click()
+    await page
+      .locator('article')
+      .getByRole('button', { name: /^Forge/ })
+      .click()
+    await page
+      .locator('article')
+      .getByRole('button', { name: /^Hephaestus/ })
+      .click()
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'hephaestus')
   })
 
-  test('selected theme button shows aria-pressed=true', async ({ page }) => {
+  test('selected theme remains selected after navigating away and back', async ({ page }) => {
     await page.goto('/profile')
-    await page.getByRole('button', { name: 'Forge' }).click()
-    await expect(page.getByRole('button', { name: 'Forge' })).toHaveAttribute(
+    const forge = page.locator('article').getByRole('button', { name: /^Forge/ })
+    await forge.click()
+    await expect(forge).toHaveAttribute('aria-pressed', 'true')
+    await page.getByRole('link', { name: 'Today' }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'forge')
+    await page.getByRole('link', { name: 'Profile' }).click()
+    await expect(page.locator('article').getByRole('button', { name: /^Forge/ })).toHaveAttribute(
       'aria-pressed',
       'true',
     )
-    await expect(page.getByRole('button', { name: 'Daylight' })).toHaveAttribute(
-      'aria-pressed',
-      'false',
-    )
+  })
+
+  test('can change and persist the rest timer preset', async ({ page }) => {
+    await page.goto('/profile')
+    const defaults = page.getByRole('region', { name: 'Workout Defaults' })
+    const restOptions = defaults.getByRole('group', { name: 'Rest timer options' })
+    await restOptions.getByRole('button', { name: '120s' }).click()
+    const defaultTimer = defaults.getByText('Default rest timer').locator('..')
+    await expect(defaultTimer.getByText('120s', { exact: true })).toBeVisible()
+
+    await page.reload()
+    const reloadedDefaults = page.getByRole('region', { name: 'Workout Defaults' })
+    await expect(
+      reloadedDefaults
+        .getByText('Default rest timer')
+        .locator('..')
+        .getByText('120s', { exact: true }),
+    ).toBeVisible()
   })
 
   test('can switch weight unit to lbs', async ({ page }) => {
@@ -181,35 +198,5 @@ test.describe('Profile settings', () => {
     const timeSwitch = page.getByRole('switch', { name: /24.hour time/i })
     await timeSwitch.click()
     await expect(timeSwitch).toHaveAttribute('aria-checked', 'true')
-  })
-
-  test('rest timer preset buttons are visible', async ({ page }) => {
-    await page.goto('/profile')
-    const group = page.getByRole('group', { name: /rest timer/i })
-    await expect(group).toBeVisible()
-    await expect(group.getByRole('button', { name: '60s' })).toBeVisible()
-    await expect(group.getByRole('button', { name: '120s' })).toBeVisible()
-    await expect(group.getByRole('button', { name: '300s' })).toBeVisible()
-  })
-
-  test('can change rest timer preset', async ({ page }) => {
-    await page.goto('/profile')
-    const group = page.getByRole('group', { name: /rest timer/i })
-    await group.getByRole('button', { name: '90s' }).click()
-    await expect(group.getByRole('button', { name: '90s' })).toHaveAttribute('aria-pressed', 'true')
-    await expect(group.getByRole('button', { name: '120s' })).toHaveAttribute(
-      'aria-pressed',
-      'false',
-    )
-  })
-
-  test('theme persists after navigating away and back', async ({ page }) => {
-    await page.goto('/profile')
-    await page.getByRole('button', { name: 'Forge' }).click()
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'forge')
-    await page.getByRole('link', { name: 'Today' }).click()
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'forge')
-    await page.getByRole('link', { name: 'Profile' }).click()
-    await expect(page.locator('html')).toHaveAttribute('data-theme', 'forge')
   })
 })

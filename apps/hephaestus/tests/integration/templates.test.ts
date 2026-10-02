@@ -267,7 +267,8 @@ describe('templates — Phase 1 new columns', () => {
       description: string | null
       cover_emoji: string | null
       sort_order: number
-    }>('SELECT name, description, cover_emoji, sort_order FROM templates WHERE id = ?', [srcId])[0]!
+    }>('SELECT name, description, cover_emoji, sort_order FROM templates WHERE id = ?', [srcId])[0]
+    if (!src) throw new Error('Source template missing')
     const cloneId = testId('tpl')
     db.exec(
       'INSERT INTO templates (id, name, description, cover_emoji, created_at) VALUES (?, ?, ?, ?, ?)',

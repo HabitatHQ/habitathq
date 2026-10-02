@@ -29,12 +29,12 @@ async function handleSetActive(id: string) {
     <header class="flex items-center justify-between pt-2">
       <div class="flex items-center gap-3">
         <NuxtLink to="/templates" class="text-(--ui-text-muted)" aria-label="Back">
-          <UIcon name="i-heroicons-arrow-left" class="w-6 h-6" aria-hidden="true" />
+          <UIcon name="i-ph-arrow-left" class="w-6 h-6" aria-hidden="true" />
         </NuxtLink>
         <h1 class="text-2xl font-bold">Programs</h1>
       </div>
       <UButton size="sm" color="primary" to="/templates/programs/new">
-        <UIcon name="i-heroicons-plus" class="w-4 h-4" aria-hidden="true" />
+        <UIcon name="i-ph-plus" class="w-4 h-4" aria-hidden="true" />
         New
       </UButton>
     </header>
@@ -89,7 +89,7 @@ async function handleSetActive(id: string) {
     </ul>
 
     <div v-else class="rounded-xl bg-(--color-surface) p-10 text-center space-y-3">
-      <UIcon name="i-heroicons-calendar-days" class="w-10 h-10 text-(--ui-text-muted) mx-auto" />
+      <UIcon name="i-ph-calendar-dots" class="w-10 h-10 text-(--ui-text-muted) mx-auto" />
       <div>
         <p class="font-medium text-sm">No programs yet</p>
         <p class="text-xs text-(--ui-text-muted) mt-1">Create a structured training program with weekly templates.</p>

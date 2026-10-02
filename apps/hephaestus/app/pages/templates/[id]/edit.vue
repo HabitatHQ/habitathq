@@ -5,7 +5,7 @@ const route = useRoute()
 const { getById, update } = useTemplates()
 const db = useDatabase()
 
-const templateId = computed(() => route.params.id as string)
+const templateId = computed(() => String(route.params['id'] ?? ''))
 
 const template = ref<TemplateRow | null>(null)
 const loading = ref(true)

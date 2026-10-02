@@ -299,6 +299,35 @@ const SCHEMA = `
   CREATE TABLE IF NOT EXISTS applied_defaults (
     key TEXT PRIMARY KEY
   );
+  CREATE TABLE IF NOT EXISTS equipment_profiles (
+    exercise_id TEXT PRIMARY KEY REFERENCES exercises(id) ON DELETE CASCADE,
+    minimum_kg REAL NOT NULL CHECK (minimum_kg >= 0),
+    increment_kg REAL NOT NULL CHECK (increment_kg > 0),
+    maximum_kg REAL CHECK (maximum_kg IS NULL OR maximum_kg >= minimum_kg),
+    additional_loads_kg TEXT NOT NULL DEFAULT '[]',
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS workout_finish_summaries (
+    workout_id TEXT PRIMARY KEY REFERENCES workouts(id) ON DELETE CASCADE,
+    summary_json TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS workout_session_options (
+    workout_id TEXT PRIMARY KEY REFERENCES workouts(id) ON DELETE CASCADE,
+    intensity_modifier REAL NOT NULL DEFAULT 1,
+    volume_modifier REAL NOT NULL DEFAULT 1
+  );
+
+  CREATE TRIGGER IF NOT EXISTS trg_workouts_single_unfinished_insert
+  BEFORE INSERT ON workouts
+  WHEN NEW.ended_at IS NULL AND EXISTS (SELECT 1 FROM workouts WHERE ended_at IS NULL)
+  BEGIN SELECT RAISE(ABORT, 'An unfinished workout already exists'); END;
+
+  CREATE TRIGGER IF NOT EXISTS trg_workouts_single_unfinished_update
+  BEFORE UPDATE OF ended_at ON workouts
+  WHEN NEW.ended_at IS NULL AND EXISTS (SELECT 1 FROM workouts WHERE id != NEW.id AND ended_at IS NULL)
+  BEGIN SELECT RAISE(ABORT, 'An unfinished workout already exists'); END;
 
   CREATE INDEX IF NOT EXISTS idx_workouts_date ON workouts(date);
   CREATE INDEX IF NOT EXISTS idx_template_folder_items_folder ON template_folder_items(folder_id);

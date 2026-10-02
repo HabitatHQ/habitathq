@@ -8,6 +8,50 @@
   --ui-text: var(--ui-color-neutral-100);
 }
 
+html[data-theme] {
+  background: var(--color-bg);
+  color: var(--color-text);
+  --ui-bg: var(--color-bg);
+  --ui-bg-muted: var(--color-surface);
+  --ui-text: var(--color-text);
+  --ui-text-muted: var(--color-text-muted);
+  --ui-primary: var(--color-accent);
+  --ui-error: var(--color-danger);
+  --ui-border: var(--color-surface-2);
+}
+
+button, input, select, textarea {
+  min-height: 44px;
+}
+
+button, a, input, select, textarea {
+  touch-action: manipulation;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
+main:focus {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
+.skip-link {
+  position: fixed;
+  top: -100px;
+  left: 1rem;
+  z-index: 100;
+  padding: 0.75rem 1rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.skip-link:focus {
+  top: 1rem;
+}
+
 @layer utilities {
   .safe-area-bottom {
     padding-bottom: env(safe-area-inset-bottom);

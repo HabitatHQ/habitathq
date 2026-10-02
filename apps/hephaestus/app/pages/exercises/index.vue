@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Equipment, EquipmentSub, MovementPattern } from '~/types/database'
+import type { Equipment, EquipmentSub, LoggingMode, MovementPattern } from '~/types/database'
 
 const db = useDatabase()
 const { exercises, load, addCustom } = useExercises()
@@ -16,11 +16,14 @@ const searchQuery = ref('')
 const equipFilter = ref<Equipment | 'all'>('all')
 const movFilter = ref<MovementPattern | 'all'>('all')
 const showCreateSheet = ref(false)
+const modalFocus = useModalFocus(() => showCreateSheet.value)
 
 const newName = ref('')
 const newEquipment = ref<EquipmentSub>('barbell')
 const newMovement = ref<MovementPattern>('press')
 const saving = ref(false)
+const loggingMode = ref<LoggingMode>('strength')
+const createError = ref<string | null>(null)
 
 const equipOptions: Array<{ value: Equipment | 'all'; label: string }> = [
   { value: 'all', label: 'All' },
@@ -88,10 +91,20 @@ const filtered = computed(() => {
 async function handleCreate() {
   if (!newName.value.trim()) return
   saving.value = true
+  createError.value = null
   try {
-    await addCustom(newName.value.trim(), newEquipment.value, newMovement.value, [])
+    await addCustom(
+      newName.value.trim(),
+      newEquipment.value,
+      newMovement.value,
+      [],
+      [],
+      loggingMode.value,
+    )
     showCreateSheet.value = false
     newName.value = ''
+  } catch (error) {
+    createError.value = error instanceof Error ? error.message : 'Exercise could not be saved.'
   } finally {
     saving.value = false
   }
@@ -104,7 +117,7 @@ async function handleCreate() {
       <div class="flex items-center justify-between mb-3">
         <h1 class="text-2xl font-bold">Exercises</h1>
         <UButton size="sm" color="primary" @click="showCreateSheet = true">
-          <UIcon name="i-heroicons-plus" class="w-4 h-4" aria-hidden="true" />
+          <UIcon name="i-ph-plus" class="w-4 h-4" aria-hidden="true" />
           New
         </UButton>
       </div>
@@ -112,7 +125,7 @@ async function handleCreate() {
       <!-- Search -->
       <div class="relative mb-3">
         <UIcon
-          name="i-heroicons-magnifying-glass"
+          name="i-ph-magnifying-glass"
           class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-(--ui-text-muted)"
           aria-hidden="true"
         />
@@ -133,7 +146,7 @@ async function handleCreate() {
           class="shrink-0 px-3 py-1.5 text-xs font-medium rounded-full transition-colors"
           :class="
             movFilter === opt.value
-              ? 'bg-(--color-accent) text-white'
+              ? 'bg-(--color-accent) text-(--color-on-accent)'
               : 'bg-(--color-surface) text-(--ui-text-muted)'
           "
           :aria-pressed="movFilter === opt.value"
@@ -190,19 +203,9 @@ async function handleCreate() {
     </ul>
 
     <!-- Create custom exercise sheet -->
-    <Transition name="slide-up">
-      <div
-        v-if="showCreateSheet"
-        class="fixed inset-0 z-[100] bg-black/50"
-        role="presentation"
-        @click.self="showCreateSheet = false"
-      >
-        <div
-          class="absolute bottom-0 left-0 right-0 bg-(--color-surface) rounded-t-2xl p-6 space-y-4 safe-area-bottom"
-          role="dialog"
-          aria-label="Create custom exercise"
-          aria-modal="true"
-        >
+    <UModal v-model:open="showCreateSheet" :content="modalFocus" title="Create custom exercise" description="Add an exercise to your local training library.">
+      <template #content>
+        <div class="p-6 space-y-4 safe-area-bottom max-h-[85dvh] overflow-y-auto">
           <h2 class="text-lg font-semibold">New Exercise</h2>
 
           <div class="space-y-1">
@@ -255,6 +258,15 @@ async function handleCreate() {
               </button>
             </div>
           </div>
+          <label class="block space-y-1">
+            <span class="text-sm font-medium">Logging fields</span>
+            <select v-model="loggingMode" class="w-full bg-(--color-surface-2) rounded-xl px-3 py-2">
+              <option value="strength">Weight &amp; reps</option>
+              <option value="cardio">Duration / recovery</option>
+              <option value="distance">Distance &amp; duration</option>
+            </select>
+          </label>
+          <p v-if="createError" role="alert" class="text-sm text-red-400">{{ createError }}</p>
 
           <div class="flex gap-3">
             <UButton variant="ghost" color="neutral" class="flex-1" @click="showCreateSheet = false">
@@ -271,20 +283,12 @@ async function handleCreate() {
             </UButton>
           </div>
         </div>
-      </div>
-    </Transition>
+      </template>
+    </UModal>
   </article>
 </template>
 
 <style scoped>
-.slide-up-enter-active,
-.slide-up-leave-active {
-  transition: transform 0.25s ease;
-}
-.slide-up-enter-from,
-.slide-up-leave-to {
-  transform: translateY(100%);
-}
 .scrollbar-none {
   scrollbar-width: none;
 }

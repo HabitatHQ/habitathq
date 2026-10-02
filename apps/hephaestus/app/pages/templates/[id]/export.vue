@@ -1,15 +1,16 @@
 <script setup lang="ts">
+import type { TemplateExerciseWithName } from '~/composables/useTemplates'
 import { buildExportPayload, payloadToQrData } from '~/lib/template-export'
+import type { TemplateGroupRow, TemplateRow } from '~/types/database'
 
 const route = useRoute()
 const { getById, getExercises } = useTemplates()
 const { getForTemplate } = useTemplateGroups()
 const db = useDatabase()
-
-const templateId = computed(() => route.params.id as string)
-const template = ref<any>(null)
-const exercises = ref<any[]>([])
-const groups = ref<any[]>([])
+const templateId = computed(() => String(route.params['id'] ?? ''))
+const template = ref<TemplateRow | null>(null)
+const exercises = ref<TemplateExerciseWithName[]>([])
+const groups = ref<TemplateGroupRow[]>([])
 const loading = ref(true)
 const copied = ref(false)
 const qrData = ref<string | null>(null)
@@ -75,7 +76,7 @@ const payloadSizeKb = computed(() => {
   <article class="p-4 pb-24 space-y-5">
     <header class="flex items-center gap-3 pt-2">
       <NuxtLink :to="`/templates/${templateId}`" class="text-(--ui-text-muted)" aria-label="Back">
-        <UIcon name="i-heroicons-arrow-left" class="w-6 h-6" aria-hidden="true" />
+        <UIcon name="i-ph-arrow-left" class="w-6 h-6" aria-hidden="true" />
       </NuxtLink>
       <h1 class="text-xl font-bold flex-1">Export Template</h1>
     </header>
@@ -97,15 +98,15 @@ const payloadSizeKb = computed(() => {
 
       <div class="space-y-3">
         <UButton class="w-full" color="primary" @click="handleDownload">
-          <UIcon name="i-heroicons-arrow-down-tray" class="w-4 h-4" aria-hidden="true" />
+          <UIcon name="i-ph-download-simple" class="w-4 h-4" aria-hidden="true" />
           Download JSON
         </UButton>
         <UButton class="w-full" variant="outline" @click="handleCopyJson">
-          <UIcon :name="copied ? 'i-heroicons-check' : 'i-heroicons-clipboard'" class="w-4 h-4" aria-hidden="true" />
+          <UIcon :name="copied ? 'i-ph-check' : 'i-ph-clipboard'" class="w-4 h-4" aria-hidden="true" />
           {{ copied ? 'Copied!' : 'Copy JSON' }}
         </UButton>
         <UButton class="w-full" variant="ghost" @click="handleShowQr">
-          <UIcon name="i-heroicons-qr-code" class="w-4 h-4" aria-hidden="true" />
+          <UIcon name="i-ph-qr-code" class="w-4 h-4" aria-hidden="true" />
           Show QR Code
         </UButton>
       </div>

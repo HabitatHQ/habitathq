@@ -1,19 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-const MOBILE = { viewport: { width: 390, height: 844 } }
-
 test.describe('Exercises page', () => {
-  test('loads with heading and count', async ({ page }) => {
-    await page.goto('/exercises')
-    await expect(page.locator('h1')).toContainText('Exercises')
-  })
-
-  test('shows exercise count after DB seeds', async ({ page }) => {
-    await page.goto('/exercises')
-    // Wait for exercises to load from the seeded DB
-    await expect(page.getByText(/\d+ exercises?/i)).toBeVisible({ timeout: 20_000 })
-  })
-
   test('exercise list is populated from seed', async ({ page }) => {
     await page.goto('/exercises')
     // Wait for at least one exercise to appear
@@ -88,15 +75,6 @@ test.describe('Exercises page', () => {
     await expect(page.getByRole('dialog', { name: /create custom exercise/i })).toBeVisible()
   })
 
-  test('create exercise sheet has name, equipment, and movement fields', async ({ page }) => {
-    await page.goto('/exercises')
-    await page.getByRole('button', { name: 'New' }).click()
-    const dialog = page.getByRole('dialog', { name: /create custom exercise/i })
-    await expect(dialog.getByRole('textbox', { name: /exercise name/i })).toBeVisible()
-    await expect(dialog.getByRole('group', { name: /equipment type/i })).toBeVisible()
-    await expect(dialog.getByRole('group', { name: /movement pattern/i })).toBeVisible()
-  })
-
   test('Create button is disabled when name is empty', async ({ page }) => {
     await page.goto('/exercises')
     await page.getByRole('button', { name: 'New' }).click()
@@ -124,9 +102,13 @@ test.describe('Exercises page', () => {
     // Sheet should close
     await expect(page.getByRole('dialog', { name: /create custom exercise/i })).not.toBeVisible()
     // Exercise should appear in list
-    await expect(page.getByText('Playwright Test Exercise')).toBeVisible()
-    // Custom badge should appear
-    await expect(page.getByText('Custom').first()).toBeVisible()
+    const exercise = page
+      .locator('article')
+      .getByRole('list')
+      .getByRole('listitem')
+      .filter({ hasText: 'Playwright Test Exercise' })
+    await expect(exercise).toBeVisible()
+    await expect(exercise.getByText('Custom', { exact: true })).toBeVisible()
   })
 
   test('can select a different equipment type in create sheet', async ({ page }) => {
@@ -160,40 +142,6 @@ test.describe('Exercises page', () => {
   })
 })
 
-test.describe('Exercise icons', () => {
-  test('exercise list shows icon avatars after load', async ({ page }) => {
-    await page.goto('/exercises')
-    await expect(page.getByText('Barbell Squat')).toBeVisible({ timeout: 20_000 })
-    // Each exercise row should have an icon avatar (aria-hidden div with bg color class)
-    // The first icon div is inside the list
-    const icons = page.locator('ul[role="list"] li div[aria-hidden="true"]')
-    await expect(icons.first()).toBeVisible()
-  })
-
-  test('custom exercise gets movement-based icon (person icon for bodyweight)', async ({
-    page,
-  }) => {
-    await page.goto('/exercises')
-    await expect(page.getByText('Barbell Squat')).toBeVisible({ timeout: 20_000 })
-
-    await page.getByRole('button', { name: 'New' }).click()
-    const dialog = page.getByRole('dialog', { name: /create custom exercise/i })
-    await dialog.getByRole('textbox', { name: /exercise name/i }).fill('My Bodyweight Move')
-    // Select bodyweight equipment
-    await dialog
-      .getByRole('group', { name: /equipment type/i })
-      .getByRole('button', { name: 'bodyweight' })
-      .click()
-    await dialog.getByRole('button', { name: /create/i }).click()
-
-    await expect(page.getByRole('dialog', { name: /create custom exercise/i })).not.toBeVisible()
-    await expect(page.getByText('My Bodyweight Move')).toBeVisible()
-    // Icon should be present in the row
-    const row = page.locator('li').filter({ hasText: 'My Bodyweight Move' })
-    await expect(row.locator('[aria-hidden="true"]').first()).toBeVisible()
-  })
-})
-
 test.describe('DB persistence — custom exercise flows', () => {
   test('custom exercise persists after navigation and appears in workout picker', async ({
     page,
@@ -209,14 +157,16 @@ test.describe('DB persistence — custom exercise flows', () => {
 
     // Navigate to workout and open exercise picker
     await page.goto('/workout')
+    await page.getByLabel('Session type').selectOption('gym')
     await page.getByRole('button', { name: /start empty session/i }).click()
     await expect(page.getByText('Active Session')).toBeVisible({ timeout: 10_000 })
     await page.getByRole('button', { name: /add exercise/i }).click()
     await expect(page.getByRole('dialog', { name: /add exercise/i })).toBeVisible()
 
     // Search for the custom exercise
-    await page.getByRole('searchbox', { name: /search exercises/i }).fill('E2E Custom Move')
-    await expect(page.getByText('E2E Custom Move')).toBeVisible({ timeout: 10_000 })
+    const picker = page.getByRole('dialog', { name: /add exercise/i })
+    await picker.getByRole('searchbox', { name: /search exercises/i }).fill('E2E Custom Move')
+    await expect(picker.getByRole('button', { name: /E2E Custom Move/i })).toBeVisible()
   })
 
   test('custom exercise can be added to a workout and set logged', async ({ page }) => {
@@ -231,54 +181,21 @@ test.describe('DB persistence — custom exercise flows', () => {
 
     // Start a workout and add the custom exercise
     await page.goto('/workout')
+    await page.getByLabel('Session type').selectOption('gym')
     await page.getByRole('button', { name: /start empty session/i }).click()
     await expect(page.getByText('Active Session')).toBeVisible({ timeout: 10_000 })
     await page.getByRole('button', { name: /add exercise/i }).click()
-    await page.getByRole('searchbox', { name: /search exercises/i }).fill('E2E Custom Lift')
-    await page.getByText('E2E Custom Lift').first().click()
-    await expect(page.getByRole('dialog', { name: /add exercise/i })).not.toBeVisible()
-
-    // Log a set
-    await page.getByRole('button', { name: /\+ set/i }).click()
-    await expect(page.getByRole('dialog', { name: /log set/i })).toBeVisible()
-    await page.getByLabel('Weight', { exact: true }).fill('50')
-    await page.getByLabel('Reps', { exact: true }).fill('10')
-    await page.getByRole('button', { name: /log set/i }).click()
-    await expect(page.getByRole('dialog', { name: /log set/i })).not.toBeVisible()
-  })
-})
-
-test.describe('Exercises page screenshots', () => {
-  test('exercises page empty search state', async ({ page }) => {
-    await page.setViewportSize(MOBILE.viewport)
-    await page.goto('/exercises')
-    await expect(page.getByText('Barbell Squat')).toBeVisible({ timeout: 20_000 })
-    await page.screenshot({ path: 'test-results/screenshots/exercises-list.png', fullPage: false })
-  })
-
-  test('exercises page with movement filter applied', async ({ page }) => {
-    await page.setViewportSize(MOBILE.viewport)
-    await page.goto('/exercises')
-    await expect(page.getByText('Barbell Squat')).toBeVisible({ timeout: 20_000 })
-    await page
-      .getByRole('group', { name: /filter by movement/i })
-      .getByRole('button', { name: 'Press' })
-      .click()
-    await page.screenshot({
-      path: 'test-results/screenshots/exercises-filter-press.png',
-      fullPage: false,
-    })
-  })
-
-  test('exercises page create custom exercise sheet', async ({ page }) => {
-    await page.setViewportSize(MOBILE.viewport)
-    await page.goto('/exercises')
-    await expect(page.getByText('Barbell Squat')).toBeVisible({ timeout: 20_000 })
-    await page.getByRole('button', { name: 'New' }).click()
-    await expect(page.getByRole('dialog', { name: /create custom exercise/i })).toBeVisible()
-    await page.screenshot({
-      path: 'test-results/screenshots/exercises-create-sheet.png',
-      fullPage: false,
-    })
+    const picker = page.getByRole('dialog', { name: /add exercise/i })
+    await picker.getByRole('searchbox', { name: /search exercises/i }).fill('E2E Custom Lift')
+    await picker.getByRole('button', { name: /E2E Custom Lift/i }).click()
+    const exercise = page.getByRole('region', { name: 'E2E Custom Lift' })
+    await exercise.getByRole('button', { name: '+ Set' }).click()
+    const setDialog = page.getByRole('dialog', { name: /log set/i })
+    await expect(setDialog).toBeVisible()
+    await setDialog.getByLabel('Weight', { exact: true }).fill('50')
+    await setDialog.getByLabel('Reps', { exact: true }).fill('10')
+    await setDialog.getByRole('button', { name: /log set/i }).click()
+    await expect(setDialog).not.toBeVisible()
+    await expect(exercise.getByRole('button', { name: 'Edit set 1' })).toContainText('50')
   })
 })

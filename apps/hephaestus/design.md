@@ -1,19 +1,20 @@
 # Hephaestus — Design Document
 
 > Named after the Greek god of the forge. Local-first PWA for tracking gym workouts and running.
+> **Current product contract (2026-10-02):** The supported release is a local-first installable PWA for independent lifters. It covers strength/hypertrophy, manual running/cardio, conditioning, and mobility/recovery; persistent workout recovery; programs; equipment-aware editable suggestions; progress estimates; and local data portability. Capacitor certification, GPS, health integrations, body metrics, fitted strength curves, concurrent cross-device active sessions, and account-backed Palladium sync are deferred. Detailed implementation and follow-on sync prerequisites are in [`../../docs/plans/hephaestus-completion-20261002.md`](../../docs/plans/hephaestus-completion-20261002.md). Older aspirational sections below are historical context, not shipped-feature commitments.
 
 ---
 
 ## 1. Overview
 
-**Hephaestus** is a local-first Progressive Web App (and optional native Capacitor build) for tracking strength training and running. It prioritizes a frictionless logging experience (GymKeeper-inspired one-page workout view) with deep analytics (Outsiders-inspired training load and readiness). All data lives on-device using SQLite WASM + OPFS.
+**Hephaestus** is a local-first Progressive Web App for tracking strength, manual running/cardio, conditioning, and mobility/recovery sessions. It prioritizes fast logging, durable reload recovery, transparent editable suggestions, and on-device progress estimates. Supported release data lives on-device through Palladium's schema/transaction boundary over SQLite WASM + app-scoped OPFS.
 
 ### Goals
 - Fast, one-tap set logging that doesn't get in your way
 - Full program/periodization support with mesocycle tracking
 - Deep analytics: PRs, e1RM trends, training load, muscle balance
 - Unified dashboard showing both gym and run activity
-- Purely local — no accounts, no sync, no telemetry
+- Local-first by default—no account, telemetry, or sync requirement
 
 ---
 
@@ -28,12 +29,12 @@ Directly mirrors Habitat's architecture:
 | Styling | Tailwind CSS 4 + Nuxt UI 4 |
 | State | `useState` composables (no Pinia) |
 | Routing | File-based (Nuxt `/pages/`) |
-| Database | SQLite WASM (`@sqlite.org/sqlite-wasm`) + OPFS |
-| DB thread | Web Worker (`database.worker.ts`) |
-| PWA | `@vite-pwa/nuxt` + Workbox |
-| Native | Capacitor 8 (iOS + Android) |
-| Native DB | `@capacitor-community/sqlite` |
-| Health | Google Fit / Health Connect (write workouts) |
+| Database boundary | Palladium SchemaConfig + DbAdapter transactions |
+| Browser storage | `@palladium/sqlite-browser` + app-scoped OPFS |
+| DB thread | Web Worker (`database.worker.ts`), serialized one-writer dispatch |
+| PWA | `@vite-pwa/nuxt` + Workbox app shell |
+| Native | Deferred; no supported native database path in this release |
+| External health | Deferred |
 | Linting | Biome |
 | Testing | Vitest + Playwright |
 

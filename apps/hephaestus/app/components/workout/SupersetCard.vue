@@ -17,6 +17,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   addSet: [weId: string]
+  tapSet: [set: SetRow]
 }>()
 
 const unit = computed(() => props.unit ?? 'kg')
@@ -103,16 +104,25 @@ const roundsCompleted = computed(() => {
                 <p class="text-sm font-semibold leading-tight truncate">{{ ex.exercise.name }}</p>
                 <!-- Completed set chips -->
                 <div class="flex flex-wrap gap-1 mt-1.5" role="list" :aria-label="`Completed sets for ${ex.exercise.name}`">
-                  <span
+                  <button
                     v-for="s in workingSets(ex)"
                     :key="s.id"
                     role="listitem"
+                    type="button"
+                    :aria-label="`Edit set ${s.set_num} for ${ex.exercise.name}`"
                     class="inline-block text-[11px] tabular-nums bg-(--color-surface-2) rounded px-1.5 py-0.5"
+                    @click="emit('tapSet', s)"
                   >
-                    {{ s.weight_kg !== null ? `${s.weight_kg}${unit}` : '—' }}
-                    <span class="text-(--ui-text-muted)">×</span>
-                    {{ s.reps ?? '—' }}
-                  </span>
+                    <template v-if="ex.exercise.logging_mode === 'strength'">
+                      {{ s.weight_kg !== null ? `${s.weight_kg}${unit}` : '—' }}
+                      <span class="text-(--ui-text-muted)">×</span>
+                      {{ s.reps ?? '—' }}
+                    </template>
+                    <template v-else>
+                      {{ s.distance_m == null ? '—' : `${(s.distance_m / 1000).toFixed(2)} km` }}
+                      <span v-if="s.duration_sec != null">· {{ s.duration_sec }} sec</span>
+                    </template>
+                  </button>
                   <span
                     v-if="workingSets(ex).length === 0"
                     class="text-xs text-(--ui-text-muted)"
@@ -140,11 +150,11 @@ const roundsCompleted = computed(() => {
       style="background: color-mix(in srgb, var(--color-surface-2) 60%, transparent)"
     >
       <span class="flex items-center gap-1">
-        <UIcon name="i-heroicons-arrows-right-left" class="w-3 h-3" aria-hidden="true" />
+        <UIcon name="i-ph-arrows-left-right" class="w-3 h-3" aria-hidden="true" />
         {{ transitionRest > 0 ? `${transitionRest}s between` : 'No rest between' }}
       </span>
       <span class="ml-auto flex items-center gap-1">
-        <UIcon name="i-heroicons-clock" class="w-3 h-3" aria-hidden="true" />
+        <UIcon name="i-ph-clock" class="w-3 h-3" aria-hidden="true" />
         {{ roundRest }}s after round
       </span>
     </footer>

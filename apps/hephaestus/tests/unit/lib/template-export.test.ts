@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { TemplateExerciseWithName } from '~/composables/useTemplates'
 import {
   buildExportPayload,
   EXPORT_VERSION,
@@ -6,16 +7,25 @@ import {
   qrDataToPayload,
   validateImportPayload,
 } from '~/lib/template-export'
+import type { TemplateGroupRow, TemplateRow } from '~/types/database'
 
-const mockTemplate = {
+const mockTemplate: TemplateRow = {
   id: 'tpl-1',
   name: 'Push Day',
   description: 'Chest and triceps',
   cover_emoji: '💪',
   created_at: '2026-01-01T00:00:00Z',
+  archived_at: null,
+  sort_order: 0,
+  pinned_at: null,
+  last_used_at: null,
+  use_count: 0,
+  scheduled_days: null,
+  notification_enabled: 0,
+  notification_time: null,
 }
 
-const mockExercises = [
+const mockExercises: TemplateExerciseWithName[] = [
   {
     id: 'te-1',
     template_id: 'tpl-1',
@@ -46,31 +56,56 @@ const mockExercises = [
   },
 ]
 
+const mockGroups: TemplateGroupRow[] = [
+  {
+    id: 'group-1',
+    template_id: 'tpl-1',
+    label: 'A',
+    name: 'Press circuit',
+    group_type: 'circuit',
+    transition_rest_sec: 20,
+    rest_after_round_sec: 90,
+    circuit_rest_mode: 'after_round',
+    sort_order: 1,
+    display_name: 'Press circuit',
+    rounds: 3,
+    amrap: 1,
+    time_cap_sec: 600,
+  },
+]
+
 describe('buildExportPayload', () => {
   it('builds a valid export payload', () => {
-    const payload = buildExportPayload(mockTemplate as any, mockExercises as any, [])
+    const payload = buildExportPayload(mockTemplate, mockExercises, mockGroups)
     expect(payload.version).toBe(EXPORT_VERSION)
     expect(payload.template.name).toBe('Push Day')
     expect(payload.exercises).toHaveLength(1)
     expect(payload.exercises[0].exercise_name).toBe('Bench Press')
+    expect(payload.groups[0]).toMatchObject({
+      name: 'Press circuit',
+      transition_rest_sec: 20,
+      rest_after_round_sec: 90,
+      circuit_rest_mode: 'after_round',
+      sort_order: 1,
+      amrap: 1,
+      time_cap_sec: 600,
+    })
   })
 
   it('includes export timestamp', () => {
-    const payload = buildExportPayload(mockTemplate as any, mockExercises as any, [])
+    const payload = buildExportPayload(mockTemplate, mockExercises, mockGroups)
     expect(payload.exportedAt).toBeTruthy()
   })
 
-  it('strips id fields from exercises in QR mode', () => {
-    const qrData = payloadToQrData(
-      buildExportPayload(mockTemplate as any, mockExercises as any, []),
-    )
+  it('keeps a one-exercise full payload below the existing QR size guard', () => {
+    const qrData = payloadToQrData(buildExportPayload(mockTemplate, mockExercises, mockGroups))
     expect(JSON.stringify(qrData).length).toBeLessThan(3000 + 1)
   })
 })
 
 describe('validateImportPayload', () => {
   it('validates a correct payload', () => {
-    const payload = buildExportPayload(mockTemplate as any, mockExercises as any, [])
+    const payload = buildExportPayload(mockTemplate, mockExercises, mockGroups)
     expect(validateImportPayload(payload)).toBe(true)
   })
 
@@ -79,18 +114,17 @@ describe('validateImportPayload', () => {
   })
 
   it('rejects payload without template name', () => {
-    const payload = buildExportPayload(mockTemplate as any, mockExercises as any, [])
+    const payload = buildExportPayload(mockTemplate, mockExercises, mockGroups)
     const bad = { ...payload, template: { ...payload.template, name: undefined } }
     expect(validateImportPayload(bad)).toBe(false)
   })
 })
 
 describe('QR encode/decode', () => {
-  it('round-trips through QR encode/decode', () => {
-    const payload = buildExportPayload(mockTemplate as any, mockExercises as any, [])
-    const qrData = payloadToQrData(payload)
-    const decoded = qrDataToPayload(qrData)
-    expect(decoded?.template.name).toBe('Push Day')
+  it('round-trips every exported field through QR encode/decode', () => {
+    const payload = buildExportPayload(mockTemplate, mockExercises, mockGroups)
+    const decoded = qrDataToPayload(payloadToQrData(payload))
+    expect(decoded).toEqual(payload)
   })
 
   it('returns null for invalid QR data', () => {
