@@ -60,8 +60,9 @@ or replacing the existing replica simulation:
 4. Generate recovery and seeded expectations from Quint ITF; replay them through
    actual TypeScript clients, file-backed SQLite, and Atrium. Assert durable
    intermediate state after every transition, not only final convergence.
-5. Require model verification and the full live E2E suite in the existing sync
-   CI job. Report the seed/trace/transition for reproducible failures.
+5. Keep model verification and real trace replay manual-only through `model:check`
+   and `test:model`. Exclude the replay from the CI E2E suite and do not provision
+   Java for this pilot in CI. Report the seed/trace/transition for reproducible failures.
 
 Commands, guarantees, and excluded domains are maintained in
 [`TESTING-SYNC.md`](../../libs/palladium/docs/TESTING-SYNC.md#bounded-quint-delivery-pilot).

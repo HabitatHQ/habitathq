@@ -32,11 +32,11 @@ three immutable single-row insert Changes. It is not a second LWW simulator or
 a specification of the entire library.
 
 ```sh
-# Requires Node 24, installed workspace dependencies, and Java 17+.
-# CI provisions Temurin 21; first verification downloads Apalache 0.62.1.
+# Manual-only model checking requires Node 24, workspace dependencies, and Java 17+.
+# First verification downloads Apalache 0.62.1; CI does not provision Java for this pilot.
 pnpm --filter @palladium/e2e run model:check
 
-# Build actual client packages before replaying through the real Atrium binary.
+# Manual-only trace replay requires built clients and Rust tooling, but not Java.
 pnpm --filter @palladium/core build
 pnpm --filter @palladium/sqlite-node build
 pnpm --filter @palladium/e2e run test:model
@@ -76,8 +76,9 @@ eligibility instead of modifying queue IDs, payloads, or retry deadlines.
 Client reopen occurs between completed transactions, not during a process kill.
 Power loss, browser OPFS, multi-operation Change rollback, ACL grant/revoke
 ordering, concurrent LWW edits, and liveness/fairness are outside this pilot;
-their existing suites remain necessary. CI runs both the model check and the
-normal E2E suite, which includes the trace replay.
+their existing suites remain necessary. Model checking and trace replay are
+manual-only: CI does not run either. The default E2E configuration excludes the
+Quint replay; `test:model` selects it through `vitest.model.config.ts`.
 
 ## Maintained TypeScript package gates
 
