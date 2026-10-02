@@ -20,31 +20,36 @@ export interface LiveQueryResult<T> {
  */
 export function useLiveQuery<T = Record<string, unknown>>(query: SqlQuery): LiveQueryResult<T> {
   const engine = usePalladium();
-  const [rows, setRows] = useState<T[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
+  const queryKey = `${query.text}\u0000${JSON.stringify(query.params)}`;
+  const [state, setState] = useState<{
+    key: string;
+    rows: T[];
+    loading: boolean;
+    error: Error | null;
+  }>({ key: queryKey, rows: [], loading: true, error: null });
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — keyed on text+params, not object identity
   useEffect(() => {
     let cancelled = false;
+    setState({ key: queryKey, rows: [], loading: true, error: null });
 
     const lq = engine.liveQuery<T>(query);
 
     const unsub = lq.on("change", (newRows) => {
-      if (!cancelled) setRows(newRows);
+      if (!cancelled) {
+        setState((current) => ({ ...current, key: queryKey, rows: newRows }));
+      }
     });
 
     lq.exec()
       .then((initial) => {
         if (!cancelled) {
-          setRows(initial);
-          setLoading(false);
+          setState({ key: queryKey, rows: initial, loading: false, error: null });
         }
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          setError(toError(err));
-          setLoading(false);
+          setState({ key: queryKey, rows: [], loading: false, error: toError(err) });
         }
       });
 
@@ -53,7 +58,10 @@ export function useLiveQuery<T = Record<string, unknown>>(query: SqlQuery): Live
       unsub();
       lq.cancel();
     };
-  }, [engine, query.text, JSON.stringify(query.params)]);
+  }, [engine, queryKey]);
 
-  return { rows, loading, error };
+  if (state.key !== queryKey) {
+    return { rows: [], loading: true, error: null };
+  }
+  return { rows: state.rows, loading: state.loading, error: state.error };
 }
