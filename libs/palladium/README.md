@@ -33,6 +33,31 @@ just fmt            # format everything
 just ci             # full CI check
 ```
 
+For maintained Palladium TypeScript packages, use `just test-ts` (builds package
+dependencies first) and `just lint-palladium-ts` (the root Biome version).
+Examples and live-server E2E remain separate from this unit gate.
+
+### Storage ownership and Kysely
+
+`PalladiumDialect` transactions use the adapter's real transaction boundary and
+hold exclusive engine storage ownership until commit or rollback. Concurrent
+Kysely queries, queued engine writes, and engine-created live-query reads wait
+for that boundary. Adapter transaction support is required.
+
+`engine.withStorage(callback)` is the low-level coordination primitive. The
+callback receives the adapter and owns the storage queue for its full async
+lifetime; it is not itself a transaction. Use `adapter.transaction()` inside it
+when atomicity is needed. Do not re-enter queued engine methods from that
+callback—they would wait on the callback and deadlock.
+
+Raw SQL through Kysely or the adapter does not generate replicated operations,
+outbox entries, or live-query write notifications. Use engine mutations for
+replicated writes; Kysely transactions are for explicitly low-level SQL work.
+
+IndexedDB blob replacement and deletion commit metadata and chunks atomically.
+Failed writes preserve the previous blob, and concurrent reads use a consistent
+metadata/chunk snapshot.
+
 ## Local Authentik OIDC
 
 The reproducible local identity-provider stack lives in

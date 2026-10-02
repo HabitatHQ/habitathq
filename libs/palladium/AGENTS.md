@@ -105,7 +105,7 @@ just ci                               # full CI pipeline
 ## Tooling (palladium-specific)
 
 - **TS base tsconfig**: `libs/palladium/tsconfig.base.json` (sub-packages extend via `../tsconfig.base.json`). Strict — `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`.
-- **TS tests**: Vitest workspace at `libs/palladium/vitest.workspace.ts`.
+- **TS tests**: `just test-ts` builds dependencies and runs maintained packages with their own Vitest configs; E2E and examples have separate gates.
 - **TS lint + format**: Biome (extends root `biome.json` — double quotes, semicolons, plus `noExplicitAny` + `noDefaultExport` errors).
 - **Rust lint**: Clippy with workspace lints (`-D warnings`).
 - **Rust security**: `cargo deny`, `cargo audit`, `cargo machete`.

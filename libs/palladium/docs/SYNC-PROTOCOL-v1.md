@@ -11,6 +11,7 @@ V1 has no bare change-array response, no HLC history cursor, no legacy pending-o
 - A syncable operation is `insert`, `update`, or `delete`. The engine validates a remote HLC and rejects a remote change whose operations are not canonical before its page transaction begins. Schema/table validation is performed while applying operations.
 - The server derives scope from authentication. Atrium additionally requires the `x-workspace` header and verifies workspace membership; callers do not submit a generic store scope in the change payload.
 - `PalladiumEngine.init({ version, schema })` derives and persists a local `schema_identity_v1` value. `SyncTransport` requires either an explicit `schemaFingerprint` or an initialized engine identity, and records that identity with durable outbox rows. Before posting an outbox row from a different identity, the transport moves it to `_sync_outbox_quarantine` rather than sending it. This implementation has no schema-identity field or negotiation in the v1 HTTP payload; server-side schema compatibility is therefore outside this wire contract.
+- A local schema identity may change during an upward, versioned `SchemaConfig` migration. Migration steps, current baseline DDL, `user_version`, and the new identity commit in one storage transaction; failure leaves the prior schema and identity intact. Same-version identity changes and downgrades are rejected. Pending outbox rows keep their original fingerprints and are quarantined, not relabeled, after an upgrade.
 
 ## 2. HTTP wire contract
 
@@ -59,6 +60,8 @@ Atrium event acknowledgements use `POST /v1/changes/events/ack` with:
 
 The endpoint is caller- and workspace-scoped and returns `204 No Content` only for events owned by that caller. The client first persists deduplicated `grant`/`revoke` event records in `_sync_events`, then sends the acknowledgement. Atrium can repeat one pending grant event ID across count-bounded historical chunks: a GET replays the currently offered chunk after response loss, and acknowledgement advances its durable backfill cursor without marking the event delivered until the captured history is exhausted. If acknowledgement fails, the local event remains unacknowledged and a later poll can retry it without duplicating its persisted event record.
 
+Grant backfill scans at most 100 raw history rows per request across pending grant events, separately from the ordinary history page. Sparse batches can contain no matching changes and still offer an advancing scan position. The device must acknowledge these event offers to progress; an unacknowledged offer remains replayable against its captured history bound.
+
 ## 3. Transactional downlink and recovery
 
 `PalladiumEngine.applyRemotePage` is the transport coordination primitive. It validates the page's remote changes first, then applies each `Change` in its own storage transaction. This makes the change—not an arbitrary operation prefix—the atomic unit and lets deferred constraint failures roll back before quarantine is recorded. When every remote change succeeds, a final transaction applies ACL purges and runs the transport callback that persists events and the append checkpoint; only after that transaction commits does the transport acknowledge page events.
@@ -72,6 +75,8 @@ A rejected remote change is reported through the quarantine callback in a separa
 - `retryQuarantined(changeId)` restores an uplink entry to `_sync_outbox`, or validates and reapplies the persisted downlink payload.
 
 The public recovery API exposes `inspectQuarantine()`, `exportQuarantine()`, `retryQuarantined(changeId)`, and `discardQuarantined(changeId)`. Discard persists a permanent forward skip; it does not delete the evidence. Quarantine entries contain the serialized payload, phase, attempts/permanent state, timestamps, and available schema/error identity. Downlink entries additionally retain their HLC metadata.
+
+For terminal uplink rows, explicit discard atomically moves the original payload, change ID, fingerprint, HLC, attempts, and error into quarantine with a `discarded` disposition and removes the outbox blocker. Later uploads may then proceed. Discarded evidence remains inspectable/exportable across restart; repeated discard is idempotent, and explicit retry restores the same payload and change ID. Uplink discard does not suppress authoritative downlink replay. Discarding an unknown ID has no effect.
 
 ## 4. Lifecycle and status
 

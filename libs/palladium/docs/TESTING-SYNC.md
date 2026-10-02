@@ -24,6 +24,14 @@ Run commands from the repository root unless a command changes directory explici
 
 The e2e fixture command is independent of a running server. Core Vitest commands use the package's in-memory/node adapter aliases. Rust commands compile the relevant crates and may require the repository's configured Cargo target directory.
 
+## Maintained TypeScript package gates
+
+`just test-ts` builds the core first to resolve its development dependency cycle with SQLite-node, builds the remaining maintained packages in dependency order, and runs each package's own unit suite. This covers SQLite adapters, Kysely, React/Vue/Svelte, notifications, Vite integration, and worker ownership. Examples and live-server E2E have separate gates; Nuxt currently has no unit suite.
+
+`just lint-palladium-ts` uses the root Biome binary with the shared repository configuration for every maintained package, including the CLI wrapper. CI also typechecks these packages. Notification packages extend Palladium's strict shared TypeScript configuration.
+
+Focused behavioral regressions include Kysely rollback/commit isolation and commit errors, atomic IndexedDB replacement/deletion, schema upgrade rollback and old-outbox quarantine, explicit discard/retry after restart, React query error recovery, notification permission fallback, and bounded Atrium backfill offer/ACK progression.
+
 ## End-to-end prerequisites (not part of the fixture gate)
 
 The live client/server suite requires built core and SQLite-node packages plus Rust server binaries:
