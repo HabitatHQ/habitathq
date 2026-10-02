@@ -45,6 +45,38 @@ test.describe('finish workout flow', () => {
     await expect(page.getByRole('button', { name: /^done$/i })).toBeVisible()
   })
 
+  test('completion PR badges name the exercise and show one selected weight unit', async ({
+    page,
+  }) => {
+    await startEmptyWorkout(page)
+    await addExerciseAndLogSet(page)
+    await page.getByRole('button', { name: /^finish$/i }).click()
+    await page.getByRole('button', { name: /save workout/i }).click()
+
+    const record = page.getByRole('list').getByText(/barbell squat · new weight pr/i)
+    await expect(record).toBeVisible()
+    const badge = record.locator('..')
+    await expect(badge.getByText('100 kg', { exact: true })).toBeVisible()
+    await expect(badge.getByText(/kg kg/)).toHaveCount(0)
+  })
+
+  test('completion PR badges convert loads to the selected pounds unit', async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        'hephaestus-app-settings',
+        JSON.stringify({ theme: 'forge', weightUnit: 'lbs' }),
+      )
+    })
+    await startEmptyWorkout(page)
+    await addExerciseAndLogSet(page)
+    await page.getByRole('button', { name: /^finish$/i }).click()
+    await page.getByRole('button', { name: /save workout/i }).click()
+
+    const record = page.getByRole('list').getByText(/barbell squat · new weight pr/i)
+    await expect(record).toBeVisible()
+    await expect(record.locator('..').getByText('100 lbs', { exact: true })).toBeVisible()
+  })
+
   test('cancelling finish keeps the active session available', async ({ page }) => {
     await startEmptyWorkout(page)
     await page.getByRole('button', { name: /^finish$/i }).click()

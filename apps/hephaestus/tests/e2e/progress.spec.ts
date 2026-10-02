@@ -66,8 +66,28 @@ test.describe('DB persistence — PR tracking', () => {
     // PRs section should exist
     const records = page.getByRole('region', { name: 'Recent Personal Records' })
     await expect(records).toBeVisible()
-    await expect(records.getByText(/weight pr/i)).toBeVisible()
+    await expect(records.getByText(/barbell squat · weight pr/i)).toBeVisible()
     await expect(records.getByText('150 kg', { exact: true })).toBeVisible()
+    await expect(records.getByText('3 reps', { exact: true })).toBeVisible()
+  })
+
+  test('progress PR loads use the selected pounds unit while reps remain counts', async ({
+    page,
+  }) => {
+    await completeWorkoutWithSet(page, '100', '5')
+    await page.goto('/profile')
+    await page
+      .getByRole('group', { name: 'Weight units' })
+      .getByRole('button', { name: 'lbs', exact: true })
+      .click()
+    await page.goto('/progress')
+    await expect(page.getByText(/loading analytics/i)).not.toBeVisible({ timeout: 15_000 })
+
+    const records = page.getByRole('region', { name: 'Recent Personal Records' })
+    await expect(records.getByText(/barbell squat · weight pr/i)).toBeVisible()
+    await expect(records.getByText('220.5 lbs', { exact: true })).toBeVisible()
+    await expect(records.getByText('5 reps', { exact: true })).toBeVisible()
+    await expect(records.getByText(/barbell squat · reps pr/i)).toBeVisible()
   })
 
   test('history detail retains the completed lift and its logged load', async ({ page }) => {

@@ -1,15 +1,19 @@
 <script setup lang="ts">
 import type { MuscleFrequency, WeekDot } from '~/lib/analytics'
-import { formatVolume } from '~/lib/format'
+import { formatVolume, formatWeight } from '~/lib/format'
 import type { ReadinessResult } from '~/lib/readiness'
 import { calculateAcuteLoad, calculateChronicLoad, getLoadRatio } from '~/lib/training-load'
 import type { PersonalRecordRow, WeeklyTrainingLoadRow } from '~/types/database'
+
+type ProgressPersonalRecordRow = PersonalRecordRow & {
+  exercise_name: string | null
+}
 
 const { settings } = useAppSettings()
 const db = useDatabase()
 const progress = useProgress()
 
-const prs = ref<PersonalRecordRow[]>([])
+const prs = ref<ProgressPersonalRecordRow[]>([])
 const weeklyLoad = ref<WeeklyTrainingLoadRow[]>([])
 const loading = ref(true)
 
@@ -30,8 +34,11 @@ async function load() {
   loading.value = true
   try {
     // Load recent PRs with exercise names
-    prs.value = await db.query<PersonalRecordRow>(
-      'SELECT pr.* FROM personal_records pr ORDER BY pr.date DESC LIMIT 20',
+    prs.value = await db.query<ProgressPersonalRecordRow>(
+      `SELECT pr.*, e.name AS exercise_name
+       FROM personal_records pr
+       LEFT JOIN exercises e ON e.id = pr.exercise_id
+       ORDER BY pr.date DESC LIMIT 20`,
     )
     weeklyLoad.value = await db.query<WeeklyTrainingLoadRow>(
       'SELECT * FROM weekly_training_load ORDER BY week DESC LIMIT 8',
@@ -75,6 +82,11 @@ const acwrLabel = computed(() => {
   return 'Elevated recent load'
 })
 
+function formatPrValue(pr: ProgressPersonalRecordRow): string {
+  return pr.record_type === 'reps'
+    ? `${pr.value} reps`
+    : formatWeight(pr.value, settings.value.weightUnit)
+}
 const recentPRs = computed(() => prs.value.slice(0, 5))
 </script>
 
@@ -152,13 +164,15 @@ const recentPRs = computed(() => prs.value.slice(0, 5))
           >
             <UIcon name="i-heroicons-trophy" class="w-5 h-5 text-yellow-400 shrink-0" aria-hidden="true" />
             <div class="flex-1 min-w-0">
-              <p class="text-sm font-medium capitalize">{{ pr.record_type }} PR</p>
+              <p class="text-sm font-medium capitalize">
+                {{ pr.exercise_name ?? 'Unknown exercise' }} · {{ pr.record_type }} PR
+              </p>
               <p class="text-xs text-(--ui-text-muted)">
                 {{ new Date(pr.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) }}
               </p>
             </div>
             <span class="text-sm font-bold tabular-nums text-(--color-accent)">
-              {{ Math.round(pr.value * 10) / 10 }} kg
+              {{ formatPrValue(pr) }}
             </span>
           </li>
         </ul>

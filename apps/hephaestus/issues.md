@@ -2,6 +2,8 @@
 
 > **Historical audit, superseded for the local-PWA release (2026-10-02).** The current lifecycle persists all set fields, supports explicit recovery, and commits completion/PRs/weekly load transactionally with idempotent finish receipts. Running, conditioning, and mobility are separate modes; mood and energy are captured; history routes and saved dates are authoritative. Reset is app-table scoped, and migrations preserve legacy data. Use [`../../docs/plans/hephaestus-completion-20261002.md`](../../docs/plans/hephaestus-completion-20261002.md) for current release scope and verification evidence; the findings below describe the earlier implementation, not unresolved release bugs.
 
+The subsequent [UX/routines handoff](../../docs/plans/hephaestus-ux-routines-handoff-20261002.md) records the 2026-10-03 logging/feedback fixes and their verification: pending rows complete through the log operation, persisted pending-to-warm-up changes retain set identity, completed-set corrections do not duplicate rows, PRs show exercise names and appropriate kg/lbs/rep units, and recovery labels are human-readable. Routine/domain implementation remains separate from these fixes.
+
 ## Bugs
 
 ### B1 — `logSet` INSERT drops cardio/advanced columns
