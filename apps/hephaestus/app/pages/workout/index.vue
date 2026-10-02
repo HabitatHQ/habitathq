@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { EquipmentProfile } from '~/lib/equipment'
 import { formatDuration, formatWeight } from '~/lib/format'
+import { sessionLabel } from '~/lib/history'
 import { historicalWeightSuggestion } from '~/lib/progression'
 import type { WorkoutSummary } from '~/lib/workout-storage'
 import type {
@@ -42,6 +43,24 @@ const currentEquipmentProfile = ref<EquipmentProfile | null>(null)
 const suggestedWeightKg = ref<number | null>(null)
 const suggestionReason = ref<string | null>(null)
 let profileLoad = 0
+
+const recoveryLabel = computed(() => {
+  const activeWorkout = workout.activeWorkout.value
+  if (!activeWorkout) return ''
+  const template = activeWorkout.template_id
+    ? templates.value.find((item) => item.id === activeWorkout.template_id)
+    : undefined
+  return template?.name ?? sessionLabel(activeWorkout)
+})
+
+const recoveryStartedAt = computed(() => {
+  const startedAt = workout.activeWorkout.value?.started_at
+  if (!startedAt) return ''
+  const date = new Date(startedAt)
+  return Number.isNaN(date.getTime())
+    ? 'start time unavailable'
+    : date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+})
 
 function syncRunFields() {
   runDistanceKm.value =
@@ -288,7 +307,7 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
     <article v-if="workout.recoverySession.value && workout.hasActiveWorkout.value" class="p-4 space-y-5">
       <h1 class="text-2xl font-bold mt-2">Unfinished session</h1>
       <p class="text-sm text-(--ui-text-muted)">
-        {{ workout.activeWorkout.value?.session_type }} · started {{ workout.activeWorkout.value?.started_at }}
+        {{ recoveryLabel }} · started {{ recoveryStartedAt }}
       </p>
       <p class="text-sm">Your exercises, sets, and elapsed time are saved. Resume this session or discard it before starting another.</p>
       <div class="grid grid-cols-2 gap-3">
@@ -391,8 +410,8 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
       <ul v-if="summary.newPRs.length > 0" role="list" class="space-y-2">
         <li v-for="pr in summary.newPRs" :key="pr.id" class="flex items-center gap-2 text-sm">
           <UIcon name="i-ph-trophy" class="w-4 h-4 text-yellow-400" aria-hidden="true" />
-          <span class="font-medium">New {{ pr.record_type.toUpperCase() }} PR</span>
-          <span class="text-(--ui-text-muted)">{{ pr.record_type === 'reps' ? `${pr.value} reps` : `${formatWeight(pr.value, settings.weightUnit)} ${settings.weightUnit}` }}</span>
+          <span class="font-medium">{{ exerciseLibrary.find((exercise) => exercise.id === pr.exercise_id)?.name ?? 'Unknown exercise' }} · New {{ pr.record_type.toUpperCase() }} PR</span>
+          <span class="text-(--ui-text-muted)">{{ pr.record_type === 'reps' ? `${pr.value} reps` : formatWeight(pr.value, settings.weightUnit) }}</span>
         </li>
       </ul>
 

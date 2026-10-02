@@ -309,12 +309,12 @@ async function saveSet(db: DbAdapter, type: string, payload: Payload): Promise<S
     [set.workout_exercise_id],
   )
   if (!session || session.ended_at) throw new Error('Session is not writable')
-  if (type === 'WORKOUT_UPDATE_SET') {
-    const target = await db.queryOne<{ id: string }>(
-      'SELECT id FROM sets WHERE id=? AND workout_exercise_id=?',
-      [set.id, set.workout_exercise_id],
-    )
-    if (!target) throw new Error('Set is not part of the active session')
+  const target = await db.queryOne<{ id: string }>(
+    'SELECT id FROM sets WHERE id=? AND workout_exercise_id=?',
+    [set.id, set.workout_exercise_id],
+  )
+  if (type === 'WORKOUT_UPDATE_SET' && !target) {
+    throw new Error('Set is not part of the active session')
   }
   const binds = [
     set.set_num,
@@ -338,10 +338,11 @@ async function saveSet(db: DbAdapter, type: string, payload: Payload): Promise<S
   ]
   const prior =
     type === 'WORKOUT_LOG_SET'
-      ? await db.queryOne<{ id: string }>(
+      ? (target ??
+        (await db.queryOne<{ id: string }>(
           'SELECT id FROM sets WHERE workout_exercise_id=? AND set_num=? AND is_warmup=?',
           [set.workout_exercise_id, set.set_num, set.is_warmup],
-        )
+        )))
       : null
   if (type === 'WORKOUT_UPDATE_SET' || prior) {
     const id = type === 'WORKOUT_UPDATE_SET' ? set.id : (prior?.id ?? set.id)

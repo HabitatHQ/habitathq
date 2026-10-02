@@ -67,13 +67,9 @@ function installSession(data: WorkoutSession) {
   for (const exercise of data.exercises) {
     const exerciseSets = data.sets.filter((set) => set.workout_exercise_id === exercise.id)
     if (!exerciseSets.some((set) => set.completed === 0)) {
-      exerciseSets.push(
-        buildPendingSet(
-          exercise.id,
-          [...exerciseSets].reverse().find((set) => set.completed === 1) ?? null,
-          exerciseSets.filter((set) => set.completed === 1).length + 1,
-        ),
-      )
+      const lastCompleted = [...exerciseSets].reverse().find((set) => set.completed === 1) ?? null
+      const nextSetNum = exerciseSets.reduce((max, set) => Math.max(max, set.set_num), 0) + 1
+      exerciseSets.push(buildPendingSet(exercise.id, lastCompleted, nextSetNum))
     }
     byExercise.set(exercise.id, exerciseSets)
   }
@@ -267,7 +263,9 @@ export function useWorkout() {
     const current = sets.value.get(workoutExerciseId) ?? []
     const pendingIdx = current.findIndex((set) => set.completed === 0)
     const setNum =
-      pendingIdx >= 0 ? (current[pendingIdx]?.set_num ?? current.length + 1) : current.length + 1
+      pendingIdx >= 0
+        ? (current[pendingIdx]?.set_num ?? nextSetNumber(current))
+        : nextSetNumber(current)
     const set: SetRow = {
       id: pendingIdx >= 0 ? (current[pendingIdx]?.id ?? crypto.randomUUID()) : crypto.randomUUID(),
       workout_exercise_id: workoutExerciseId,
@@ -304,6 +302,22 @@ export function useWorkout() {
       )
       .find((item) => item.set.id === setId)
     if (!entry || !activeWorkout.value) throw new Error('Set is not part of the active session')
+    if (entry.set.completed === 0) {
+      const committed = await db.workout<SetRow>('WORKOUT_LOG_SET', {
+        set: {
+          ...entry.set,
+          ...partial,
+          id: entry.set.id,
+          workout_exercise_id: entry.exerciseId,
+          set_num: entry.set.set_num,
+          completed: 1,
+          logged_at: new Date().toISOString(),
+        },
+      })
+      replaceSetInState(entry.exerciseId, entry.index, committed)
+      startRestForSet(entry.exerciseId, committed)
+      return committed
+    }
     const committed = await db.workout<SetRow>('WORKOUT_UPDATE_SET', {
       set: { ...entry.set, ...partial, id: setId },
     })
@@ -313,13 +327,16 @@ export function useWorkout() {
     return committed
   }
 
+  function nextSetNumber(current: SetRow[]): number {
+    return current.reduce((max, set) => Math.max(max, set.set_num), 0) + 1
+  }
+
   function replaceSetInState(workoutExerciseId: string, pendingIdx: number, set: SetRow) {
     const updated = [...(sets.value.get(workoutExerciseId) ?? [])]
     if (pendingIdx >= 0) updated[pendingIdx] = set
     else updated.push(set)
     if (!updated.some((item) => item.completed === 0)) {
-      const nextNum = updated.filter((item) => item.completed === 1).length + 1
-      updated.push(buildPendingSet(workoutExerciseId, set, nextNum))
+      updated.push(buildPendingSet(workoutExerciseId, set, nextSetNumber(updated)))
     }
     sets.value = new Map(sets.value).set(workoutExerciseId, updated)
   }

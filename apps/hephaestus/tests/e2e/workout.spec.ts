@@ -71,6 +71,45 @@ test.describe('workout controls', () => {
     await expect(loggedSet).toContainText('103.7')
     await expect(loggedSet).toContainText('7')
   })
+
+  test('completes an in-memory pending row, resumes it, and edits without duplicating it', async ({
+    page,
+  }) => {
+    await page.goto('/workout')
+    await page.getByLabel('Session type').selectOption('gym')
+    await page.getByRole('button', { name: /start empty session/i }).click()
+    await addBarbellSquat(page)
+
+    await page.getByRole('button', { name: 'Edit set 1' }).click()
+    const dialog = page.getByRole('dialog', { name: /edit set/i })
+    await expect(dialog).toBeVisible()
+    await dialog.getByLabel('Weight', { exact: true }).fill('97.5')
+    await dialog.getByLabel('Reps', { exact: true }).fill('6')
+    await dialog.getByRole('button', { name: /save changes/i }).click()
+
+    const loggedSet = page.getByRole('button', { name: 'Edit set 1' })
+    await expect(loggedSet).toContainText('97.5')
+    await expect(loggedSet).toContainText('6')
+    await expect(page.getByRole('button', { name: 'Edit set 2' })).toBeVisible()
+    await expect(page.getByText(/set is not part of the active session/i)).toHaveCount(0)
+
+    await page.reload()
+    await expect(page.getByRole('heading', { name: /unfinished session/i })).toBeVisible()
+    await page.getByRole('button', { name: /^resume$/i }).click()
+    const resumedSet = page.getByRole('button', { name: 'Edit set 1' })
+    await expect(resumedSet).toContainText('97.5')
+    await expect(resumedSet).toContainText('6')
+    await expect(resumedSet).toHaveCount(1)
+
+    await resumedSet.click()
+    const editDialog = page.getByRole('dialog', { name: /edit set/i })
+    await editDialog.getByLabel('Weight', { exact: true }).fill('100')
+    await editDialog.getByLabel('Reps', { exact: true }).fill('5')
+    await editDialog.getByRole('button', { name: /save changes/i }).click()
+    await expect(resumedSet).toContainText('100')
+    await expect(resumedSet).toContainText('5')
+    await expect(resumedSet).toHaveCount(1)
+  })
 })
 
 test.describe('populated local-first acceptance journey', () => {

@@ -432,6 +432,71 @@ describe('atomic workout lifecycle operations', () => {
     expect(hydrated.sets.find((set) => set.id === pending.id)?.completed).toBe(1)
   })
 
+  it('completes a persisted pending row as a warmup without changing its identity', async () => {
+    const exerciseId = insertExercise('pending-warmup', 'Pending Warmup')
+    const templateId = testId('template')
+    db.exec('INSERT INTO templates (id,name,created_at) VALUES (?,?,?)', [
+      templateId,
+      'Warmup Plan',
+      NOW,
+    ])
+    db.exec(
+      'INSERT INTO template_exercises (id,template_id,exercise_id,order_num,sets_planned) VALUES (?,?,?,?,?)',
+      [testId('te'), templateId, exerciseId, 1, 1],
+    )
+    const started = await runWorkoutOperation<WorkoutSession>('WORKOUT_START', {
+      id: testId('workout'),
+      now: NOW,
+      templateId,
+      options: { sessionType: 'gym' },
+    })
+    const pending = started.sets[0]
+    if (!pending) throw new Error('Expected a persisted planned set')
+    const actual = {
+      ...pending,
+      is_warmup: 1,
+      weight_kg: 40,
+      reps: 8,
+      completed: 1,
+      logged_at: NOW,
+    }
+    await runWorkoutOperation('WORKOUT_LOG_SET', { set: actual })
+    await runWorkoutOperation('WORKOUT_LOG_SET', { set: actual })
+    const recovered = await runWorkoutOperation<WorkoutSession>('WORKOUT_ACTIVE', {})
+    expect(recovered.sets).toEqual([
+      expect.objectContaining({
+        id: pending.id,
+        set_num: pending.set_num,
+        is_warmup: 1,
+        weight_kg: 40,
+        reps: 8,
+        completed: 1,
+      }),
+    ])
+  })
+
+  it('keeps unknown set ids rejected for active workout exercises', async () => {
+    const exerciseId = insertExercise('unknown-set-target', 'Unknown Set Target')
+    const started = await runWorkoutOperation<WorkoutSession>('WORKOUT_START', {
+      id: testId('workout'),
+      now: NOW,
+    })
+    const exercise: WorkoutExerciseRow = {
+      id: testId('workout-exercise'),
+      workout_id: started.workout.id,
+      exercise_id: exerciseId,
+      order_num: 1,
+      superset_group: null,
+      rest_seconds: 120,
+    }
+    await runWorkoutOperation('WORKOUT_ADD_EXERCISE', { exercise })
+    await expect(
+      runWorkoutOperation('WORKOUT_UPDATE_SET', {
+        set: workoutSet(exercise.id, { id: testId('unknown-set') }),
+      }),
+    ).rejects.toThrow('Set is not part of the active session')
+  })
+
   it('rolls back a failed finish and safely retries without duplicating PRs or weekly load', async () => {
     const exerciseId = insertExercise('rollback-strength', 'Rollback Strength')
     const started = await runWorkoutOperation<WorkoutSession>('WORKOUT_START', {

@@ -99,4 +99,32 @@ test.describe('template superset groups', () => {
       group.getByRole('list', { name: 'Completed sets for Barbell Row' }).getByRole('listitem'),
     ).toContainText('70')
   })
+
+  test('edits one grouped set and preserves both exercises across recovery', async ({ page }) => {
+    await createGroupedTemplate(page, 'E2E Grouped Edit')
+    const group = await startGroupedTemplate(page, 'E2E Grouped Edit')
+    await logGroupedSet(page, group, 'Bench Press', '80')
+    await logGroupedSet(page, group, 'Barbell Row', '70')
+
+    await group.getByLabel('Edit set 1 for Bench Press').click()
+    const dialog = page.getByRole('dialog', { name: /edit set/i })
+    await dialog.getByLabel('Weight', { exact: true }).fill('82.5')
+    await dialog.getByLabel('Reps', { exact: true }).fill('6')
+    await dialog.getByRole('button', { name: /save changes/i }).click()
+
+    const benchSets = group.getByRole('list', { name: 'Completed sets for Bench Press' })
+    const rowSets = group.getByRole('list', { name: 'Completed sets for Barbell Row' })
+    await expect(benchSets.getByRole('listitem')).toHaveCount(1)
+    await expect(benchSets).toContainText('82.5')
+    await expect(benchSets).toContainText('6')
+    await expect(rowSets.getByRole('listitem')).toHaveCount(1)
+    await expect(rowSets).toContainText('70')
+
+    await page.reload()
+    await page.getByRole('button', { name: /^resume$/i }).click()
+    await expect(benchSets).toContainText('82.5')
+    await expect(benchSets).toContainText('6')
+    await expect(rowSets).toContainText('70')
+    await expect(group.getByLabel('1 round completed')).toBeVisible()
+  })
 })
