@@ -61,6 +61,31 @@ jobs:
       - name: Unit tests
         run: pnpm --filter ${{ matrix.app }} test:unit
 
+  palladium-packages:
+    name: Palladium TypeScript packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: extractions/setup-just@v3
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build maintained package dependencies
+        run: just build-palladium-ts
+      - name: Lint maintained packages
+        run: just lint-palladium-ts
+      - name: Typecheck maintained packages
+        run: pnpm --filter '@palladium/*' --filter palladium-cli --filter '!@palladium/e2e' --filter '!@palladium/example-*' -r typecheck
+      - name: Unit and worker ownership contracts
+        run: just test-ts
+
   sync:
     name: Palladium sync and resilience
     runs-on: ubuntu-latest
