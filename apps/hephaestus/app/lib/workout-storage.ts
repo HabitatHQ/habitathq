@@ -187,7 +187,7 @@ async function recordStrengthPRs(
       'SELECT logging_mode FROM exercises WHERE id=?',
       [exercise.exercise_id],
     )
-    if (!mode || mode.logging_mode !== 'strength') continue
+    if (mode?.logging_mode !== 'strength') continue
     strengthSets.push(...exerciseSets)
     const existing = await db.queryAll<PersonalRecordRow>(
       'SELECT * FROM personal_records WHERE exercise_id = ?',

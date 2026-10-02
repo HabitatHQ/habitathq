@@ -25,7 +25,7 @@
     "@palladium/core": "workspace:*"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.6",
-    "typescript": "^5.7.0"
+    "@biomejs/biome": "^2.5.15",
+    "typescript": "^5.9.3"
   }
 }

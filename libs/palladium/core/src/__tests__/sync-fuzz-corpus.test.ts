@@ -73,19 +73,20 @@ afterEach(() => {
 });
 
 describe("bounded TypeScript protocol corpus", () => {
-  it.each(
-    corpus.typescript.pages,
-  )("rejects $name without advancing or throwing", async (fixture) => {
-    vi.useFakeTimers();
-    const db = await engine();
-    const fetch: typeof globalThis.fetch = async () => jsonResponse(materialize(fixture));
-    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+  it.each(corpus.typescript.pages)(
+    "rejects $name without advancing or throwing",
+    async (fixture) => {
+      vi.useFakeTimers();
+      const db = await engine();
+      const fetch: typeof globalThis.fetch = async () => jsonResponse(materialize(fixture));
+      const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
 
-    await expect(transport.poll()).resolves.toBeUndefined();
-    expect(await db.getSyncState("append_cursor_v1")).toBeNull();
-    await transport.dispose();
-    expect(vi.getTimerCount()).toBe(0);
-  });
+      await expect(transport.poll()).resolves.toBeUndefined();
+      expect(await db.getSyncState("append_cursor_v1")).toBeNull();
+      await transport.dispose();
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
 
   it.each(corpus.typescript.receipts)("retains the outbox for $name", async (fixture) => {
     vi.useFakeTimers();

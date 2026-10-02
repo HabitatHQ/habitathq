@@ -123,7 +123,7 @@ export function aggregateMuscleFrequency(
     const workoutDate = workoutDateMap.get(we.workout_id)
     if (!workoutDate || workoutDate < cutoffStr || workoutDate > referenceDate) continue
     const exercise = exerciseMap.get(we.exercise_id)
-    if (!exercise || exercise.logging_mode !== 'strength') continue
+    if (exercise?.logging_mode !== 'strength') continue
 
     let muscles: string[] = []
     try {

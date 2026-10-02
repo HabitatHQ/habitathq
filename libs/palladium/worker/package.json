@@ -30,8 +30,8 @@
     "comlink": "^4.4.2"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.6",
-    "typescript": "^5.7.0",
+    "@biomejs/biome": "^2.5.15",
+    "typescript": "^5.9.3",
     "vitest": "^2.1.9"
   }
 }

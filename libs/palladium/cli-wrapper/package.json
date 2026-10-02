@@ -7,16 +7,19 @@
   "bin": {
     "palladium": "./src/cli.ts"
   },
-  "files": ["src", "dist"],
+  "files": [
+    "src",
+    "dist"
+  ],
   "scripts": {
     "lint": "biome check src",
     "test": "echo 'no tests'",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@biomejs/biome": "^1.9.4",
-    "@types/node": "^24.0.0",
-    "typescript": "^5.7.0"
+    "@biomejs/biome": "^2.5.15",
+    "@types/node": "^24.19.0",
+    "typescript": "^5.9.3"
   },
   "engines": {
     "node": ">=24"

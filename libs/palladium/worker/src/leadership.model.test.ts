@@ -122,43 +122,44 @@ afterEach(() => {
 });
 
 describe("whileLeader generated leadership schedules", () => {
-  it.each(
-    SEEDS,
-  )("retries bounded failures and releases to one exclusive holder (seed %#)", async (seed) => {
-    vi.useFakeTimers();
-    const schedule = generateSchedule(seed);
-    const model = new DeterministicLockModel();
+  it.each(SEEDS)(
+    "retries bounded failures and releases to one exclusive holder (seed %#)",
+    async (seed) => {
+      vi.useFakeTimers();
+      const schedule = generateSchedule(seed);
+      const model = new DeterministicLockModel();
 
-    for (let index = 0; index < CONTENDER_COUNT; index += 1) {
-      const contender = `worker-${index}`;
-      whileLeader("palladium-leader:model", async () => model.onAcquired(contender), {
-        locks: model.requesterFor(contender),
-        retryDelayMs: 0,
-        onError: (error) => {
-          model.errors.push(error);
-        },
-      });
-    }
-
-    await Promise.resolve();
-    for (const outcome of schedule) {
-      if (model.pendingRequests === 0) {
-        await vi.advanceTimersByTimeAsync(0);
+      for (let index = 0; index < CONTENDER_COUNT; index += 1) {
+        const contender = `worker-${index}`;
+        whileLeader("palladium-leader:model", async () => model.onAcquired(contender), {
+          locks: model.requesterFor(contender),
+          retryDelayMs: 0,
+          onError: (error) => {
+            model.errors.push(error);
+          },
+        });
       }
-      expect(model.pendingRequests, replayContext(seed, schedule, model)).toBeGreaterThan(0);
-      await model.grantNext(outcome);
+
       await Promise.resolve();
-    }
+      for (const outcome of schedule) {
+        if (model.pendingRequests === 0) {
+          await vi.advanceTimersByTimeAsync(0);
+        }
+        expect(model.pendingRequests, replayContext(seed, schedule, model)).toBeGreaterThan(0);
+        await model.grantNext(outcome);
+        await Promise.resolve();
+      }
 
-    const context = replayContext(seed, schedule, model);
-    const decisions = model.promotions.map(({ decision }) => decision);
-    const holdIndex = decisions.indexOf("hold");
+      const context = replayContext(seed, schedule, model);
+      const decisions = model.promotions.map(({ decision }) => decision);
+      const holdIndex = decisions.indexOf("hold");
 
-    expect(schedule.at(-1), context).toBe("hold");
-    expect(model.errors.length, context).toBeGreaterThan(0);
-    expect(decisions.slice(0, holdIndex), context).toContain("release");
-    expect(holdIndex, context).toBe(decisions.length - 1);
-    expect(model.heldOwners.size, context).toBe(1);
-    expect(model.maximumActiveOwners, context).toBe(1);
-  });
+      expect(schedule.at(-1), context).toBe("hold");
+      expect(model.errors.length, context).toBeGreaterThan(0);
+      expect(decisions.slice(0, holdIndex), context).toContain("release");
+      expect(holdIndex, context).toBe(decisions.length - 1);
+      expect(model.heldOwners.size, context).toBe(1);
+      expect(model.maximumActiveOwners, context).toBe(1);
+    },
+  );
 });

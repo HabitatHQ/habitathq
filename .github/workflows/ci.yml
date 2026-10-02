@@ -30,12 +30,12 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 11.13.1
 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 24.21.0
           cache: pnpm
 
       - name: Install dependencies
@@ -87,22 +87,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 11.13.1
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 24.21.0
           cache: pnpm
       - uses: extractions/setup-just@v3
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
-      - name: Build maintained package dependencies
-        run: just build-palladium-ts
-      - name: Lint maintained packages
-        run: just lint-palladium-ts
-      - name: Typecheck maintained packages
-        run: pnpm --filter '@palladium/*' --filter palladium-cli --filter '!@palladium/e2e' --filter '!@palladium/example-*' -r typecheck
-      - name: Unit and worker ownership contracts
-        run: just test-ts
+      - name: Build, lint, typecheck, and test maintained packages
+        run: just build-palladium-ts lint-palladium-ts typecheck-palladium-ts test-ts
 
   sync:
     name: Palladium sync and resilience
@@ -130,12 +124,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 11.13.1
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 24.21.0
           cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.0
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
@@ -149,15 +143,11 @@ jobs:
           cargo clippy --locked --workspace --all-features --all-targets -- -D warnings
       - name: Test Rust, Postgres, and OIDC integration
         run: cargo test --locked --workspace --features palladium-postgres/integration-tests,atrium/oidc-testcontainers
-      - name: Check and build sync clients
+      - name: Build and typecheck sync integration clients
         run: |
-          pnpm --filter @palladium/core lint
-          pnpm --filter @palladium/core typecheck
           pnpm --filter @palladium/core build
           pnpm --filter @palladium/sqlite-node build
           pnpm --filter @palladium/e2e typecheck
-      - name: Client contracts and deterministic simulation
-        run: pnpm --filter @palladium/core test
       - name: Live Rust server end-to-end and network faults
         run: pnpm --filter @palladium/e2e test
       - name: Build browser recovery prerequisites

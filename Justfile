@@ -24,6 +24,10 @@ build-palladium-ts:
     pnpm --filter @palladium/core build
     pnpm --filter '@palladium/*' --filter '!@palladium/core' --filter '!@palladium/e2e' --filter '!@palladium/example-*' -r --if-present build
 
+# Type-check maintained Palladium packages.
+typecheck-palladium-ts:
+    pnpm --filter '@palladium/*' --filter palladium-cli --filter '!@palladium/e2e' --filter '!@palladium/example-*' -r typecheck
+
 # Use the root Biome version that owns the shared configuration.
 lint-palladium-ts:
     pnpm --filter '@palladium/*' --filter palladium-cli --filter '!@palladium/e2e' --filter '!@palladium/example-*' -r exec sh -c 'pnpm --workspace-root exec biome check "$PWD/src"'
@@ -197,6 +201,10 @@ verify pkg:
 doctor:
     @bash scripts/doctor.sh
 
+# Prepare independent dependencies and generated artifacts in this worktree.
+worktree-setup:
+    @sh scripts/worktree-setup.sh
+
 # ── Changed-only ──────────────────────────────────────────────────────────────
 
 # Lint files changed vs base ref (default: origin/main)
@@ -208,6 +216,6 @@ lint-changed base="origin/main":
     echo "$files" | tr '\n' '\0' | xargs -0 pnpm exec biome check
     echo "$files" | tr '\n' '\0' | xargs -0 pnpm lint:semgrep
 
-# Run unit tests only for packages changed vs base ref (pnpm filter syntax)
+# Run app unit suites and maintained Palladium tests affected since base.
 test-changed base="origin/main":
-    pnpm --filter "...[{{base}}]" test:unit
+    @bash scripts/test-changed.sh {{quote(base)}}

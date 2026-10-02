@@ -82,7 +82,11 @@ Quint replay; `test:model` selects it through `vitest.model.config.ts`.
 
 ## Maintained TypeScript package gates
 
-`just test-ts` builds the core first to resolve its development dependency cycle with SQLite-node, builds the remaining maintained packages in dependency order, and runs each package's own unit suite. This covers SQLite adapters, Kysely, React/Vue/Svelte, notifications, Vite integration, and worker ownership. Examples and live-server E2E have separate gates; Nuxt currently has no unit suite.
+`just test-changed [base-ref]` (default `origin/main`) runs affected Habitat app `test:unit` suites and maintained Palladium package `test` scripts. It includes committed changes since the base, tracked working-tree edits, and untracked files under workspace app/library packages. pnpm's workspace graph selects affected packages and their dependents; `just build-palladium-ts` builds the generated dependency exports before any selected suite. Root manifests, the lockfile, workspace config, shared TypeScript/Biome config, mise, Justfile, workflow, and script changes conservatively select every app and maintained Palladium package. An invalid or unrelated base ref fails rather than producing an empty selection. This local convenience is not a replacement for full CI.
+
+Changed-only runs exclude Nuxt (no unit suite), Palladium E2E, examples, and Quint/model replay; they do not invoke application `test` scripts, which include Playwright. Live-server and browser gates remain in CI; model replay remains opt-in.
+
+CI uses one ordered `just build-palladium-ts lint-palladium-ts typecheck-palladium-ts test-ts` invocation. Just executes the build prerequisite once before lint, typechecks, and all maintained package unit suites. `just test-ts` still builds dependencies when run standalone. Core lint, typechecks, and unit contracts are owned by this package job rather than repeated in the sync job.
 
 `just lint-palladium-ts` uses the root Biome binary with the shared repository configuration for every maintained package, including the CLI wrapper. CI also typechecks these packages. Notification packages extend Palladium's strict shared TypeScript configuration.
 

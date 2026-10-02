@@ -5,11 +5,14 @@ packages:
   - "libs/habitat-shared"
   - "libs/habitat-utils"
 
+# Keep dependency resolution and frozen installs on the same 24-hour release-age policy.
+minimumReleaseAge: 1440
+
 # Nuxt's dev server requires its bundler and file watcher postinstall binaries.
 allowBuilds:
   esbuild: true
-  '@parcel/watcher': true
-  '@biomejs/biome': false
+  "@parcel/watcher": true
+  "@biomejs/biome": false
   electron: false
   lefthook: false
   onnxruntime-node: false

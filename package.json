@@ -2,6 +2,7 @@
   "name": "habitat-monorepo",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@11.13.1",
   "scripts": {
     "dev:habitat": "pnpm --filter habitat dev",
     "dev:hearth": "pnpm --filter hearth dev",
@@ -26,23 +27,16 @@
     "dedupe:check": "pnpm dedupe --check"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.11.1",
-    "@biomejs/biome": "^2.4.6",
-    "@playwright/test": "^1.58.2",
+    "@axe-core/playwright": "^4.13.0",
+    "@biomejs/biome": "^2.5.15",
+    "@playwright/test": "^1.63.0",
     "@typescript/native-preview": "7.0.0-dev.20260501.1",
-    "axe-core": "^4.11.1",
-    "dependency-cruiser": "^17.4.2",
-    "lefthook": "^2.1.6",
-    "playwright-core": "^1.58.2",
-    "prettier": "^3.8.3",
+    "axe-core": "^4.13.0",
+    "dependency-cruiser": "^17.4.3",
+    "lefthook": "^2.1.15",
+    "playwright-core": "^1.63.0",
+    "prettier": "^3.9.9",
     "typescript": "^6.0.3",
-    "vue-tsc": "^3.2.5"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@parcel/watcher",
-      "esbuild",
-      "vue-demi"
-    ]
+    "vue-tsc": "^3.3.11"
   }
 }
