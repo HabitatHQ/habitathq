@@ -24,6 +24,62 @@ Run commands from the repository root unless a command changes directory explici
 
 The e2e fixture command is independent of a running server. Core Vitest commands use the package's in-memory/node adapter aliases. Rust commands compile the relevant crates and may require the repository's configured Cargo target directory.
 
+## Bounded Quint delivery pilot
+
+[`delivery.qnt`](../e2e/models/delivery.qnt) specifies delivery and checkpoint
+recovery for one writer, one reader, one fixed-schema workspace, and at most
+three immutable single-row insert Changes. It is not a second LWW simulator or
+a specification of the entire library.
+
+```sh
+# Manual-only model checking requires Node 24, workspace dependencies, and Java 17+.
+# First verification downloads Apalache 0.62.1; CI does not provision Java for this pilot.
+pnpm --filter @palladium/e2e run model:check
+
+# Manual-only trace replay requires built clients and Rust tooling, but not Java.
+pnpm --filter @palladium/core build
+pnpm --filter @palladium/sqlite-node build
+pnpm --filter @palladium/e2e run test:model
+
+# Regenerate and replay a failing seeded campaign.
+PALLADIUM_QUINT_SEED=0x5eedc0de pnpm --filter @palladium/e2e run test:model
+```
+
+`model:simulate` samples 1,000 executions of up to 18 transitions with the
+TypeScript evaluator. `model:verify` uses TLC to exhaust the reachable state
+graph of this finite model, not Apalache's depth-bounded symbolic checker.
+Apalache is still used to compile Quint to TLA+. Neither result proves the
+implementation correct or establishes an unbounded distributed-system theorem.
+
+The invariants require distinct queued/history IDs, retention of every local
+commit in the outbox or server history, applied rows drawn only from history,
+and complete durable application of every checkpointed history prefix. Wire
+cursors remain opaque; the model's integer checkpoint is a history-prefix
+abstraction rather than a cursor parser.
+
+The replay test generates its expectations directly from Quint ITF: one fixed
+13-transition recovery schedule plus eight seeded 18-transition executions.
+It runs actual `PalladiumEngine`/`SyncTransport`, file-backed SQLite, and Atrium;
+after each transition it checks row contents, queue/history identities and
+order, retry payload stability, applied-change identities, and checkpoints.
+The schedule includes atomic local rollback, committed upload followed by
+receipt loss and duplicate retry, truncated download, independently committed
+remote Changes followed by checkpoint failure, one rejected page Change,
+client file reopen, and same-database server SIGKILL/restart. Failures identify
+the seed, trace, transition, and expected state; regenerate with the displayed
+seed rather than editing the expected values.
+
+Atomic adapter transactions, a single writer per local database, fixed
+authorization/schema, and durability of completed server appends are explicit
+model assumptions. Replay advances a scoped client clock to persisted retry
+eligibility instead of modifying queue IDs, payloads, or retry deadlines.
+Client reopen occurs between completed transactions, not during a process kill.
+Power loss, browser OPFS, multi-operation Change rollback, ACL grant/revoke
+ordering, concurrent LWW edits, and liveness/fairness are outside this pilot;
+their existing suites remain necessary. Model checking and trace replay are
+manual-only: CI does not run either. The default E2E configuration excludes the
+Quint replay; `test:model` selects it through `vitest.model.config.ts`.
+
 ## Maintained TypeScript package gates
 
 `just test-ts` builds the core first to resolve its development dependency cycle with SQLite-node, builds the remaining maintained packages in dependency order, and runs each package's own unit suite. This covers SQLite adapters, Kysely, React/Vue/Svelte, notifications, Vite integration, and worker ownership. Examples and live-server E2E have separate gates; Nuxt currently has no unit suite.
