@@ -91,8 +91,15 @@ describe("bounded TypeScript protocol corpus", () => {
   it.each(corpus.typescript.receipts)("retains the outbox for $name", async (fixture) => {
     vi.useFakeTimers();
     const db = await engine();
-    const fetch: typeof globalThis.fetch = async (_input, init) =>
-      init?.method === "POST"
+    const fetch: typeof globalThis.fetch = async (input, init) => {
+      const url =
+        typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
+      if (new URL(url).pathname === "/v1/clock") {
+        return jsonResponse(
+          JSON.stringify({ version: 1, nowMs: Date.now(), maxFutureMs: 300_000 }),
+        );
+      }
+      return init?.method === "POST"
         ? jsonResponse(materialize(fixture), 201)
         : jsonResponse(
             JSON.stringify({
@@ -106,6 +113,7 @@ describe("bounded TypeScript protocol corpus", () => {
               control: { mustRefetch: false },
             }),
           );
+    };
     const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
     await transport.poll();
     await db.insert("notes", { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab", title: fixture.name });

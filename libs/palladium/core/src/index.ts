@@ -37,7 +37,9 @@ export {
   generateUuidV7,
   hlcFromString,
   hlcToString,
+  isHlcWithinFutureBound,
   isUuidV7,
+  isValidHlc,
   recvHlc,
   sendHlc,
 } from "./hlc.js";
@@ -64,6 +66,7 @@ export { isTransactable, supportsConstraintDeferral } from "./storage.js";
 export type {
   DeleteWireOp,
   InsertWireOp,
+  SyncClock,
   SyncError,
   SyncEvent,
   SyncPageEnvelope,

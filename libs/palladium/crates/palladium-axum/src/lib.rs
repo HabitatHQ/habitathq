@@ -7,8 +7,8 @@
 //!
 //! | Method | Path | Description |
 //! |--------|------|-------------|
+//! | `GET`  | `/v1/clock` | Authenticated server clock and fresh-upload skew bound |
 //! | `POST` | `/v1/changes` | Accept a single change from a client |
-//! | `GET`  | `/v1/changes` | List bounded append-history page (`?cursor=`) |
 //!
 //! # Example
 //!
@@ -20,7 +20,7 @@
 //! # struct MyStore;
 //! # impl palladium_core::ChangeStore for MyStore {
 //! #     type Error = std::io::Error;
-//! #     async fn insert<'a>(&'a self, _: &'a palladium_core::Scope, _: &'a palladium_core::Change) -> Result<palladium_core::InsertOutcome, std::io::Error> { Ok(palladium_core::InsertOutcome::Inserted(palladium_core::AppendCursor::new(1))) }
+//! #     async fn insert<'a>(&'a self, _: &'a palladium_core::Scope, _: &'a palladium_core::Change, _: u64) -> Result<palladium_core::InsertOutcome, std::io::Error> { Ok(palladium_core::InsertOutcome::Inserted(palladium_core::AppendCursor::new(1))) }
 //! #     async fn page<'a>(&'a self, _: &'a palladium_core::Scope, _: Option<&'a palladium_core::AppendCursor>, _: u32) -> Result<palladium_core::ChangePage, std::io::Error> { Ok(palladium_core::ChangePage { version: 1, changes: vec![], purges: vec![], events: vec![], cursor: None, upper_bound: palladium_core::AppendCursor::new(1), caught_up: true, control: palladium_core::PageControl { must_refetch: false } }) }
 //! #     async fn get<'a>(&'a self, _: &'a palladium_core::Scope, _: uuid::Uuid) -> Result<Option<palladium_core::Change>, std::io::Error> { Ok(None) }
 //! # }

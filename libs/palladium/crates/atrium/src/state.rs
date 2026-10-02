@@ -4,6 +4,8 @@
 
 use std::sync::Arc;
 
+use palladium_core::{ServerClock, SystemClock};
+
 use crate::{db::AtriumDb, identity::IdentityProvider};
 
 /// State injected into every handler via [`axum::extract::State`].
@@ -11,6 +13,7 @@ use crate::{db::AtriumDb, identity::IdentityProvider};
 pub struct AtriumState {
     db: Arc<AtriumDb>,
     identity: Arc<dyn IdentityProvider>,
+    clock: Arc<dyn ServerClock>,
 }
 
 impl AtriumState {
@@ -20,7 +23,24 @@ impl AtriumState {
         Self {
             db: Arc::new(db),
             identity: Arc::new(identity),
+            clock: Arc::new(SystemClock),
         }
+    }
+
+    /// Replace the authoritative clock, including deterministic integration clocks.
+    #[must_use]
+    pub fn with_clock(mut self, clock: impl ServerClock) -> Self {
+        self.clock = Arc::new(clock);
+        self
+    }
+
+    /// Read the authoritative server time used for fresh-change admission.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the configured clock cannot provide a valid Unix timestamp.
+    pub fn now_millis(&self) -> Result<u64, palladium_core::ClockError> {
+        self.clock.now_millis()
     }
 
     #[must_use]

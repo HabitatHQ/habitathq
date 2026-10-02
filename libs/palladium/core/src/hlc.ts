@@ -28,23 +28,37 @@ export function isUuidV7(value: unknown): value is string {
   return typeof value === "string" && UUID_V7_PATTERN.test(value);
 }
 
-/** Validate an untrusted HLC before it can affect ordering or persistence. */
-export function isValidHlc(
-  value: unknown,
-  options: { readonly nowMs?: number; readonly maxFutureMs?: number } = {},
-): value is Hlc {
-  if (typeof value !== "object" || value === null) return false;
+/** Validate the structure of an untrusted HLC before ordering or persistence. */
+export function isValidHlc(value: unknown): value is Hlc {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const candidate = value as Record<string, unknown>;
-  const nowMs = options.nowMs ?? Date.now();
-  const maxFutureMs = options.maxFutureMs ?? 5 * 60_000;
   return (
     Number.isSafeInteger(candidate["wallMs"]) &&
     (candidate["wallMs"] as number) >= 0 &&
-    (candidate["wallMs"] as number) <= nowMs + maxFutureMs &&
     Number.isSafeInteger(candidate["counter"]) &&
     (candidate["counter"] as number) >= 0 &&
     (candidate["counter"] as number) <= 0xffff_ffff &&
     isUuidV4(candidate["nodeId"])
+  );
+}
+
+/**
+ * Apply the fresh-upload future-clock admission bound after structural
+ * validation. Authenticated history uses {@link isValidHlc} instead.
+ */
+export function isHlcWithinFutureBound(
+  value: unknown,
+  nowMs = Date.now(),
+  maxFutureMs = 5 * 60_000,
+): value is Hlc {
+  return (
+    isValidHlc(value) &&
+    Number.isSafeInteger(nowMs) &&
+    nowMs >= 0 &&
+    Number.isSafeInteger(maxFutureMs) &&
+    maxFutureMs >= 0 &&
+    nowMs <= Number.MAX_SAFE_INTEGER - maxFutureMs &&
+    value.wallMs <= nowMs + maxFutureMs
   );
 }
 
@@ -65,9 +79,9 @@ export function generateUuidV7(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-/** Create an initial HLC anchored to now for the given node. */
-export function createHlc(nodeId: string): Hlc {
-  return { wallMs: Date.now(), counter: 0, nodeId };
+/** Create an initial HLC anchored to `nowMs` for the given node. */
+export function createHlc(nodeId: string, nowMs = Date.now()): Hlc {
+  return { wallMs: nowMs, counter: 0, nodeId };
 }
 
 /**
@@ -90,10 +104,9 @@ function nextCounter(wallMs: number, counter: number): { wallMs: number; counter
  * Guarantees the returned timestamp is strictly greater than `prev`.
  * If the counter would overflow `COUNTER_MAX`, wallMs is advanced by 1 ms.
  */
-export function sendHlc(prev: Hlc): Hlc {
-  const now = Date.now();
-  if (now > prev.wallMs) {
-    return { wallMs: now, counter: 0, nodeId: prev.nodeId };
+export function sendHlc(prev: Hlc, nowMs = Date.now()): Hlc {
+  if (nowMs > prev.wallMs) {
+    return { wallMs: nowMs, counter: 0, nodeId: prev.nodeId };
   }
   // Same millisecond — increment counter (with overflow guard).
   const next = nextCounter(prev.wallMs, prev.counter);
@@ -105,9 +118,8 @@ export function sendHlc(prev: Hlc): Hlc {
  * The result is greater than both `local` and `remote`.
  * If the counter would overflow `COUNTER_MAX`, wallMs is advanced by 1 ms.
  */
-export function recvHlc(local: Hlc, remote: Hlc): Hlc {
-  const now = Date.now();
-  const maxWall = Math.max(local.wallMs, remote.wallMs, now);
+export function recvHlc(local: Hlc, remote: Hlc, nowMs = Date.now()): Hlc {
+  const maxWall = Math.max(local.wallMs, remote.wallMs, nowMs);
 
   if (maxWall === local.wallMs && maxWall === remote.wallMs) {
     // Both clocks are at the same ms — pick max counter + 1 (with overflow guard).

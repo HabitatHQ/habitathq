@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use palladium_blobs::DynBlobStore;
-use palladium_core::ChangeStore;
+use palladium_core::{ChangeStore, ServerClock, SystemClock};
 
 use crate::auth::{Authenticator, Authorizer, Principal, StaticAuthenticator, StaticAuthorizer};
 
@@ -17,6 +17,8 @@ pub struct AppState<S> {
     pub authenticator: Arc<dyn Authenticator>,
     /// Route-level authorizer.
     pub authorizer: Arc<dyn Authorizer>,
+    /// Authoritative server clock.
+    pub clock: Arc<dyn ServerClock>,
 }
 
 impl<S> AppState<S>
@@ -30,7 +32,14 @@ where
             blob_store: None,
             authenticator: Arc::new(StaticAuthenticator::new(Principal::new("default"))),
             authorizer: Arc::new(StaticAuthorizer::new(palladium_core::Scope::new("default"))),
+            clock: Arc::new(SystemClock),
         }
+    }
+    /// Replace the authoritative server clock.
+    #[must_use]
+    pub fn with_clock(mut self, clock: impl ServerClock) -> Self {
+        self.clock = Arc::new(clock);
+        self
     }
     /// Attach a blob store.
     #[must_use]
@@ -59,6 +68,7 @@ impl<S> Clone for AppState<S> {
             blob_store: self.blob_store.clone(),
             authenticator: Arc::clone(&self.authenticator),
             authorizer: Arc::clone(&self.authorizer),
+            clock: Arc::clone(&self.clock),
         }
     }
 }

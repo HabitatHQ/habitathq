@@ -68,11 +68,18 @@ export interface SyncEvent {
   readonly root_id: string;
 }
 
+/** Authenticated server clock response used to anchor client HLC authoring. */
+export interface SyncClock {
+  readonly version: 1;
+  readonly nowMs: number;
+  readonly maxFutureMs: 300_000;
+}
+
 export interface SyncPageEnvelope {
   readonly version: 1;
-  readonly changes: readonly WireChange[];
-  readonly purges: readonly { table: string; row_id: string }[];
-  readonly events: readonly SyncEvent[];
+  readonly changes: ReadonlyArray<WireChange>;
+  readonly purges: ReadonlyArray<{ readonly table: string; readonly row_id: string }>;
+  readonly events: ReadonlyArray<SyncEvent>;
   readonly cursor: string | null;
   readonly upperBound: string;
   readonly caughtUp: boolean;
@@ -248,12 +255,16 @@ const OUTBOX_QUARANTINE_DDL = `CREATE TABLE IF NOT EXISTS ${OUTBOX_QUARANTINE_TA
   quarantined_at INTEGER NOT NULL,
   retry_attempts INTEGER NOT NULL DEFAULT 0,
   terminal_error TEXT,
-  disposition TEXT NOT NULL DEFAULT 'blocking'
+  disposition TEXT NOT NULL DEFAULT 'blocking',
+  payload TEXT NOT NULL DEFAULT '{}',
+  replacement_change_id TEXT
 )`;
 const OUTBOX_QUARANTINE_MIGRATIONS = [
   `ALTER TABLE ${OUTBOX_QUARANTINE_TABLE} ADD COLUMN retry_attempts INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE ${OUTBOX_QUARANTINE_TABLE} ADD COLUMN terminal_error TEXT`,
   `ALTER TABLE ${OUTBOX_QUARANTINE_TABLE} ADD COLUMN disposition TEXT NOT NULL DEFAULT 'blocking'`,
+  `ALTER TABLE ${OUTBOX_QUARANTINE_TABLE} ADD COLUMN payload TEXT NOT NULL DEFAULT '{}'`,
+  `ALTER TABLE ${OUTBOX_QUARANTINE_TABLE} ADD COLUMN replacement_change_id TEXT`,
 ] as const;
 /**
  * Durable dead-letter table for remote changes that fail to apply (`D2a`,
@@ -290,6 +301,8 @@ const QUARANTINE_MIGRATIONS = [
   `ALTER TABLE ${QUARANTINE_TABLE} ADD COLUMN discarded_at INTEGER`,
 ] as const;
 
+const CLOCK_SERVER_PATH = "/v1/clock";
+
 const EVENT_TABLE = "_sync_events";
 const EVENT_DDL = `CREATE TABLE IF NOT EXISTS ${EVENT_TABLE} (
   event_id INTEGER PRIMARY KEY,
@@ -311,12 +324,13 @@ export interface SyncQuarantineEntry {
   readonly changeId: string;
   readonly attempts: number;
   readonly permanent: boolean;
-  /** Complete serialized WireChange for downlink records. */
+  /** Complete serialized WireChange evidence, including explicitly superseded uplink changes. */
   readonly payload: string;
   readonly schemaIdentity?: string;
   readonly code?: string;
   readonly historyPosition?: string;
-  readonly disposition?: "blocking" | "degraded_skip" | "discarded";
+  readonly disposition?: "blocking" | "degraded_skip" | "discarded" | "superseded";
+  readonly replacementChangeId?: string;
   readonly firstFailedAt?: number;
   readonly discardedAt?: number;
   readonly updatedAt: number;
@@ -591,6 +605,7 @@ export class SyncTransport<S extends SchemaMap> {
   #stopPromise: Promise<void> | null = null;
   #disposed = false;
   #stopping = false;
+  #clockCalibrated = false;
   #lastError: SyncError | null = null;
   #attempts = new Map<string, number>();
   #quarantineCache = new Map<string, QuarantineState>();
@@ -638,6 +653,7 @@ export class SyncTransport<S extends SchemaMap> {
           if (!(err instanceof Error && /duplicate column name:/iu.test(err.message))) throw err;
         }
       }
+
       await this.#engine.setSyncState("schema_identity_v1", this.#schemaFingerprint);
       const savedAppendCursor = await this.#engine.getSyncState(STATE_APPEND_CURSOR);
       await this.#engine.adapter.exec(EVENT_DDL, []);
@@ -645,7 +661,6 @@ export class SyncTransport<S extends SchemaMap> {
         this.#cursor = savedAppendCursor;
         this.#initialHydrationDone = true;
       }
-      this.#initialized = true;
     } catch (err) {
       this.#initPromise = null;
       throw err;
@@ -691,6 +706,65 @@ export class SyncTransport<S extends SchemaMap> {
         );
       },
     );
+  }
+
+  async #fetchClock(): Promise<SyncClock | null> {
+    try {
+      const response = await this.#fetchCancellable(`${this.#serverUrl}${CLOCK_SERVER_PATH}`);
+      if (!response.ok) {
+        const body = await this.#readBody(() => response.text());
+        const code = serverErrorCode(body);
+        this.#recordError({
+          phase: "uplink",
+          code: response.status === 401 ? "unauthorized" : code,
+          retryable: isRetryableServerError(code, response.status),
+          status: response.status,
+          body,
+        });
+        return null;
+      }
+      let body: unknown;
+      try {
+        body = await this.#readBody(() => response.json());
+      } catch (error) {
+        if (error instanceof SyncRequestAbortedError) throw error;
+        this.#recordError({ phase: "protocol", code: "invalid_clock", retryable: false });
+        return null;
+      }
+      if (
+        typeof body !== "object" ||
+        body === null ||
+        Array.isArray(body) ||
+        Object.keys(body).length !== 3 ||
+        (body as Record<string, unknown>)["version"] !== 1 ||
+        !Number.isSafeInteger((body as Record<string, unknown>)["nowMs"]) ||
+        ((body as Record<string, unknown>)["nowMs"] as number) < 0 ||
+        ((body as Record<string, unknown>)["nowMs"] as number) >
+          Number.MAX_SAFE_INTEGER - 300_000 ||
+        (body as Record<string, unknown>)["maxFutureMs"] !== 300_000
+      ) {
+        this.#recordError({ phase: "protocol", code: "invalid_clock", retryable: false });
+        return null;
+      }
+      const clock = body as SyncClock;
+      await this.#engine.calibrateClock(clock.nowMs);
+      this.#clockCalibrated = true;
+      return clock;
+    } catch (error) {
+      const authFailure = error instanceof SyncAuthHeadersError;
+      const code = authFailure
+        ? "auth_headers_failed"
+        : error instanceof SyncRequestAbortedError
+          ? error.code
+          : "offline";
+      this.#recordError({
+        phase: "uplink",
+        code,
+        retryable: !authFailure && (code === "request_timeout" || code === "offline"),
+        body: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
   }
   /**
    * Fetch with the auth-decoration hook applied.
@@ -785,6 +859,185 @@ export class SyncTransport<S extends SchemaMap> {
     }
   }
 
+  /** Reconfirm and explicitly re-author every pending server clock rejection. */
+  async recoverClock(): Promise<
+    readonly { originalChangeId: string; replacementChangeId: string }[]
+  > {
+    if (this.#disposed) throw new Error("Cannot recover clock on a disposed transport");
+    await this.#ensureInitialized();
+    return this.#serializeLifecycle(async () => {
+      if (this.#disposed) throw new Error("Cannot recover clock on a disposed transport");
+      const clock = await this.#fetchClock();
+      if (clock === null)
+        throw new Error("Clock recovery could not obtain authenticated server time");
+      const snapshot = await this.#readRecoveryOutbox(this.#engine.adapter);
+      const rejected: Array<{ readonly row: OutboxRow; readonly change: WireChange }> = [];
+      for (const row of snapshot) {
+        const change = await this.#reconfirmRecoveryChange(row);
+        if (change !== null) rejected.push({ row, change });
+      }
+      if (rejected.length === 0) return [];
+      const replacements = await this.#engine.reauthorClockRejectedChanges(
+        rejected.map(({ change }) => wireChangeToRemote<S>(change)),
+        clock.nowMs,
+        (reauthored, adapter) =>
+          this.#archiveClockRecovery(rejected, reauthored, adapter, clock.nowMs),
+      );
+      return rejected.map(({ change }, index) => {
+        const replacement = replacements[index];
+        if (replacement?.id === undefined)
+          throw new Error("Clock recovery result missing identifier");
+        return { originalChangeId: change.id, replacementChangeId: replacement.id };
+      });
+    });
+  }
+
+  #readRecoveryOutbox(adapter: StorageAdapter): Promise<OutboxRow[]> {
+    return adapter.exec<OutboxRow>(
+      `SELECT change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint,
+              retry_attempts, next_retry_at, terminal, terminal_error, created_at
+         FROM ${OUTBOX_TABLE}
+        ORDER BY hlc_wall_ms ASC, hlc_counter ASC, change_id ASC`,
+      [],
+    );
+  }
+
+  async #reconfirmRecoveryChange(row: OutboxRow): Promise<WireChange | null> {
+    if (row.schema_fingerprint !== this.#schemaFingerprint) {
+      throw new Error(`Clock recovery cannot confirm schema-mismatched Change ${row.change_id}`);
+    }
+    const change = rowToChange(row);
+    if (!isWireChange(change) || !hasCanonicalWireOps(change.ops)) {
+      throw new Error(`Clock recovery found invalid outbox Change ${row.change_id}`);
+    }
+    let response: Response;
+    try {
+      response = await this.#fetchCancellable(`${this.#serverUrl}/v1/changes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(change),
+      });
+    } catch (error) {
+      this.#recordPostException(change, error);
+      throw new Error(`Clock recovery could not confirm ${change.id}`);
+    }
+    if (response.ok) {
+      await this.#acknowledgeRecoveryChange(change, response);
+      return null;
+    }
+    const body = await this.#readBody(() => response.text());
+    const code = serverErrorCode(body);
+    if (code !== "clock_skew" || response.status !== 400) {
+      this.#recordError({
+        phase: "uplink",
+        code: response.status === 401 ? "unauthorized" : code,
+        retryable: isRetryableServerError(code, response.status),
+        status: response.status,
+        body,
+        changeId: change.id,
+      });
+      throw new Error(`Clock recovery stopped on ${code} for ${change.id}`);
+    }
+    return change;
+  }
+
+  async #acknowledgeRecoveryChange(change: WireChange, response: Response): Promise<void> {
+    let receipt: SyncReceipt | null = null;
+    try {
+      receipt = decodeReceipt(await this.#readBody(() => response.json()));
+    } catch (error) {
+      if (error instanceof SyncRequestAbortedError) throw error;
+    }
+    if (receipt === null) {
+      this.#recordInvalidReceipt(change, response);
+      throw new Error(`Clock recovery could not resolve receipt for ${change.id}`);
+    }
+    await this.#engine.withStorage(async (adapter) => {
+      if (!isTransactable(adapter)) throw new Error("Clock recovery requires transactions");
+      await adapter.transaction(async (transaction) => {
+        await this.#engine.recordAcceptedClock(change.hlc, transaction);
+        await transaction.exec(`DELETE FROM ${OUTBOX_TABLE} WHERE change_id = ?`, [change.id]);
+      });
+    });
+  }
+
+  #sameRecoveryRow(row: OutboxRow, expected: OutboxRow | undefined): boolean {
+    return (
+      expected !== undefined &&
+      row.change_id === expected.change_id &&
+      row.hlc_wall_ms === expected.hlc_wall_ms &&
+      row.hlc_counter === expected.hlc_counter &&
+      row.hlc_node_id === expected.hlc_node_id &&
+      row.ops === expected.ops &&
+      row.schema_fingerprint === expected.schema_fingerprint &&
+      row.retry_attempts === expected.retry_attempts &&
+      row.next_retry_at === expected.next_retry_at &&
+      row.terminal === expected.terminal &&
+      row.terminal_error === expected.terminal_error &&
+      row.created_at === expected.created_at
+    );
+  }
+
+  async #archiveClockRecovery(
+    rejected: readonly { readonly row: OutboxRow; readonly change: WireChange }[],
+    reauthored: readonly RemoteChange<S>[],
+    adapter: StorageAdapter,
+    nowMs: number,
+  ): Promise<void> {
+    const current = await this.#readRecoveryOutbox(adapter);
+    if (
+      current.length !== rejected.length ||
+      current.some((row, index) => !this.#sameRecoveryRow(row, rejected[index]?.row))
+    ) {
+      throw new Error("Clock recovery outbox changed while confirmations were pending");
+    }
+    for (const [index, { row, change }] of rejected.entries()) {
+      const replacement = reauthored[index];
+      if (replacement === undefined || replacement.id === undefined)
+        throw new Error("Clock recovery replacement missing its identifier");
+      const replacementWire: WireChange = {
+        id: replacement.id,
+        hlc: replacement.hlc,
+        ops: replacement.ops.flatMap((op) => engineOpToWire(op)),
+      };
+      await adapter.exec(
+        `INSERT INTO ${OUTBOX_QUARANTINE_TABLE}
+         (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint,
+          error_code, quarantined_at, retry_attempts, terminal_error, disposition,
+          payload, replacement_change_id)
+         VALUES (?, ?, ?, ?, ?, ?, 'clock_skew', ?, ?, 'clock_skew', 'superseded', ?, ?)`,
+        [
+          change.id,
+          row.hlc_wall_ms,
+          row.hlc_counter,
+          row.hlc_node_id,
+          row.ops,
+          row.schema_fingerprint,
+          nowMs,
+          row.retry_attempts,
+          JSON.stringify(change),
+          replacement.id,
+        ],
+      );
+      await adapter.exec(`DELETE FROM ${OUTBOX_TABLE} WHERE change_id = ?`, [change.id]);
+      await adapter.exec(
+        `INSERT INTO ${OUTBOX_TABLE}
+         (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint,
+          retry_attempts, next_retry_at, terminal, terminal_error, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 0, NULL, 0, NULL, ?)`,
+        [
+          replacementWire.id,
+          replacementWire.hlc.wallMs,
+          replacementWire.hlc.counter,
+          replacementWire.hlc.nodeId,
+          JSON.stringify(replacementWire.ops),
+          row.schema_fingerprint,
+          nowMs,
+        ],
+      );
+    }
+  }
+
   /** Re-attempt pending rows, terminally quarantining schema mismatches. */
   async #drainOutbox(): Promise<void> {
     const rows = await this.#engine.adapter.exec<OutboxRow>(
@@ -795,24 +1048,43 @@ export class SyncTransport<S extends SchemaMap> {
       [],
     );
     if (rows.length === 0) return;
-    this.#engine.setStatus("syncing");
-    let lastOutcome: PostOutcome = "ok";
+    const sendRows: OutboxRow[] = [];
     for (const row of rows) {
+      if (row.schema_fingerprint === this.#schemaFingerprint) {
+        sendRows.push(row);
+      } else {
+        await this.#recordSchemaMismatch(row);
+      }
+    }
+    if (sendRows.length === 0) {
+      this.#engine.setStatus("degraded");
+      return;
+    }
+    this.#engine.setStatus("syncing");
+    if (!this.#clockCalibrated && (await this.#fetchClock()) === null) {
+      this.#engine.setStatus(this.#failureStatus());
+      return;
+    }
+    let lastOutcome: PostOutcome = "ok";
+    for (const row of sendRows) {
       if (this.#isOutboxRowBlocked(row)) {
         lastOutcome = "rejected";
         break;
       }
-      if (row.schema_fingerprint !== this.#schemaFingerprint) {
-        await this.#recordSchemaMismatch(row);
-        lastOutcome = "rejected";
-        continue;
-      }
-      const outcome = await this.#tryPost(rowToChange(row));
+      const change = rowToChange(row);
+      const outcome = await this.#tryPost(change);
       lastOutcome = outcome;
       if (outcome === "ok") {
-        await this.#engine.adapter.exec(`DELETE FROM ${OUTBOX_TABLE} WHERE change_id = ?`, [
-          row.change_id,
-        ]);
+        await this.#engine.withStorage(async (adapter) => {
+          if (!isTransactable(adapter))
+            throw new Error("Outbox acknowledgement requires transactions");
+          await adapter.transaction(async (transaction) => {
+            await this.#engine.recordAcceptedClock(change.hlc, transaction);
+            await transaction.exec(`DELETE FROM ${OUTBOX_TABLE} WHERE change_id = ?`, [
+              row.change_id,
+            ]);
+          });
+        });
       } else {
         await this.#recordOutboxFailure(row, outcome);
         break;
@@ -851,11 +1123,13 @@ export class SyncTransport<S extends SchemaMap> {
     }
     const nextRetryAt =
       error?.nextRetryAt ?? (error?.retryable ? this.#backoffAt(row.retry_attempts + 1) : null);
+    const durableError =
+      outcome === "rejected" && error?.code === "clock_skew" ? "clock_skew" : null;
     await this.#engine.adapter.exec(
       `UPDATE ${OUTBOX_TABLE}
-         SET retry_attempts = retry_attempts + 1, next_retry_at = ?, terminal = 0, terminal_error = NULL
+         SET retry_attempts = retry_attempts + 1, next_retry_at = ?, terminal = 0, terminal_error = ?
        WHERE change_id = ?`,
-      [nextRetryAt, row.change_id],
+      [nextRetryAt, durableError, row.change_id],
     );
   }
 
@@ -892,6 +1166,7 @@ export class SyncTransport<S extends SchemaMap> {
       if (this.#disposed || this.#pollHandle !== null || this.#stopping) return;
       await this.#ensureInitialized();
       if (this.#disposed || this.#stopping) return;
+      await this.#fetchClock();
       await this.#drainOutbox();
       if (this.#disposed || this.#stopping) return;
       this.#unsubscribeLocal = this.#engine.on("changes:local", () => this.#backgroundTick());
@@ -959,49 +1234,68 @@ export class SyncTransport<S extends SchemaMap> {
     const rows = await this.#engine.adapter.exec<
       Omit<
         SyncQuarantineEntry,
-        "permanent" | "schemaIdentity" | "code" | "firstFailedAt" | "discardedAt"
+        | "permanent"
+        | "schemaIdentity"
+        | "code"
+        | "firstFailedAt"
+        | "discardedAt"
+        | "replacementChangeId"
       > & {
         permanent: number;
         schemaIdentity: string | null;
         code: string | null;
         firstFailedAt: number | null;
         discardedAt: number | null;
+        replacementChangeId: string | null;
       }
     >(
       `SELECT 'downlink' AS phase, change_id AS changeId, attempts, permanent, ops AS payload,
               hlc_wall_ms AS hlcWallMs, hlc_counter AS hlcCounter, hlc_node_id AS hlcNodeId,
               NULL AS schemaIdentity, last_error AS code, COALESCE(disposition, 'blocking') AS disposition,
-              NULLIF(first_failed_at, 0) AS firstFailedAt,
+              NULL AS replacementChangeId, NULLIF(first_failed_at, 0) AS firstFailedAt,
               discarded_at AS discardedAt, updated_at AS updatedAt
          FROM ${QUARANTINE_TABLE}
        UNION ALL
-       SELECT 'uplink' AS phase, change_id AS changeId, retry_attempts AS attempts, 1 AS permanent,
+       SELECT 'uplink' AS phase, change_id AS changeId, retry_attempts AS attempts, terminal AS permanent,
               ops AS payload, hlc_wall_ms AS hlcWallMs, hlc_counter AS hlcCounter,
               hlc_node_id AS hlcNodeId, schema_fingerprint AS schemaIdentity,
               COALESCE(terminal_error, 'terminal_failure') AS code, 'blocking' AS disposition,
-              created_at AS firstFailedAt, NULL AS discardedAt, created_at AS updatedAt
+              NULL AS replacementChangeId, created_at AS firstFailedAt, NULL AS discardedAt,
+              created_at AS updatedAt
          FROM ${OUTBOX_TABLE}
-        WHERE terminal != 0
+        WHERE terminal != 0 OR terminal_error IS NOT NULL
        UNION ALL
        SELECT 'uplink' AS phase, change_id AS changeId, retry_attempts AS attempts, 1 AS permanent,
-              ops AS payload, hlc_wall_ms AS hlcWallMs, hlc_counter AS hlcCounter,
-              hlc_node_id AS hlc_node_id, schema_fingerprint AS schemaIdentity,
+              COALESCE(NULLIF(payload, '{}'), ops) AS payload,
+              hlc_wall_ms AS hlcWallMs, hlc_counter AS hlcCounter,
+              hlc_node_id AS hlcNodeId, schema_fingerprint AS schemaIdentity,
               COALESCE(terminal_error, error_code) AS code, disposition,
-              quarantined_at AS firstFailedAt,
+              replacement_change_id AS replacementChangeId, quarantined_at AS firstFailedAt,
               CASE WHEN disposition = 'discarded' THEN quarantined_at ELSE NULL END AS discardedAt,
               quarantined_at AS updatedAt
          FROM ${OUTBOX_QUARANTINE_TABLE}
        ORDER BY updatedAt ASC`,
       [],
     );
-    return rows.map(({ permanent, schemaIdentity, code, firstFailedAt, discardedAt, ...row }) => ({
-      ...row,
-      permanent: permanent !== 0,
-      ...(schemaIdentity === null ? {} : { schemaIdentity }),
-      ...(code === null ? {} : { code }),
-      ...(firstFailedAt === null ? {} : { firstFailedAt }),
-      ...(discardedAt === null ? {} : { discardedAt }),
-    }));
+    return rows.map(
+      ({
+        permanent,
+        schemaIdentity,
+        code,
+        firstFailedAt,
+        discardedAt,
+        replacementChangeId,
+        ...row
+      }) => ({
+        ...row,
+        permanent: permanent !== 0,
+        ...(schemaIdentity === null ? {} : { schemaIdentity }),
+        ...(code === null ? {} : { code }),
+        ...(firstFailedAt === null ? {} : { firstFailedAt }),
+        ...(discardedAt === null ? {} : { discardedAt }),
+        ...(replacementChangeId === null ? {} : { replacementChangeId }),
+      }),
+    );
   }
 
   async exportQuarantine(): Promise<string> {
@@ -1023,6 +1317,15 @@ export class SyncTransport<S extends SchemaMap> {
             ops: string;
           } | null;
         }> => {
+          const superseded = await target.exec<{ replacement_change_id: string }>(
+            `SELECT replacement_change_id FROM ${OUTBOX_QUARANTINE_TABLE}
+              WHERE change_id = ? AND replacement_change_id IS NOT NULL`,
+            [changeId],
+          );
+          if (superseded[0] !== undefined) {
+            throw new Error("A superseded Change cannot be retried");
+          }
+
           const retained = await target.exec<{ change_id: string }>(
             `SELECT change_id FROM ${OUTBOX_TABLE} WHERE change_id = ? AND terminal != 0`,
             [changeId],
@@ -1149,11 +1452,16 @@ export class SyncTransport<S extends SchemaMap> {
             await target.exec(`DELETE FROM ${OUTBOX_TABLE} WHERE change_id = ?`, [changeId]);
             return "uplink";
           }
-          const uplink = await target.exec<{ change_id: string }>(
-            `SELECT change_id FROM ${OUTBOX_QUARANTINE_TABLE} WHERE change_id = ?`,
+          const uplink = await target.exec<{
+            change_id: string;
+            replacement_change_id: string | null;
+          }>(
+            `SELECT change_id, replacement_change_id
+               FROM ${OUTBOX_QUARANTINE_TABLE} WHERE change_id = ?`,
             [changeId],
           );
           if (uplink[0] !== undefined) {
+            if (uplink[0].replacement_change_id !== null) return "uplink";
             await target.exec(
               `UPDATE ${OUTBOX_QUARANTINE_TABLE}
                   SET disposition = 'discarded'
@@ -1312,6 +1620,7 @@ export class SyncTransport<S extends SchemaMap> {
     return this.#serializeLifecycle(async () => {
       if (this.#disposed || this.#stopping) return;
       await this.#ensureInitialized();
+      await this.#fetchClock();
       await this.#drainOutbox();
       if (!this.#disposed && !this.#stopping) await this.#poll();
     });
@@ -1460,7 +1769,10 @@ export class SyncTransport<S extends SchemaMap> {
     this.#polling = true;
     try {
       const page = await this.#fetchPollPage();
-      if (page === null) return;
+      if (page === null) {
+        this.#engine.setStatus(this.#failureStatus());
+        return;
+      }
       if (page.control.mustRefetch) {
         this.#engine.setStatus("degraded");
         return;
@@ -1536,7 +1848,7 @@ export class SyncTransport<S extends SchemaMap> {
         return;
       }
       if (await this.#hasUnresolvedFailure()) {
-        this.#engine.setStatus("degraded");
+        this.#engine.setStatus(this.#failureStatus());
       } else {
         this.#lastError = null;
         this.#engine.setStatus(page.caughtUp ? "caught_up" : "syncing");
@@ -1546,9 +1858,18 @@ export class SyncTransport<S extends SchemaMap> {
     }
   }
 
+  #failureStatus(): SyncStatus {
+    const code = this.#lastError?.code;
+    if (code === "unauthorized" || code === "auth_headers_failed" || code === "auth_refresh_failed")
+      return "blocked_auth";
+    if (code === "offline" || code === "request_timeout" || code === "internal") return "offline";
+    return "degraded";
+  }
+
   async #hasUnresolvedFailure(): Promise<boolean> {
     if (
       this.#lastError?.phase === "uplink" ||
+      this.#lastError?.code === "invalid_clock" ||
       this.#lastError?.code === "invalid_receipt" ||
       this.#lastError?.code.startsWith("quarantine_") === true
     ) {

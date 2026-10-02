@@ -12,10 +12,26 @@ V1 has no bare change-array response, no HLC history cursor, no legacy pending-o
 - The server derives scope from authentication. Atrium additionally requires the `x-workspace` header and verifies workspace membership; callers do not submit a generic store scope in the change payload.
 - `PalladiumEngine.init({ version, schema })` derives and persists a local `schema_identity_v1` value. `SyncTransport` requires either an explicit `schemaFingerprint` or an initialized engine identity, and records that identity with durable outbox rows. Before posting an outbox row from a different identity, the transport moves it to `_sync_outbox_quarantine` rather than sending it. This implementation has no schema-identity field or negotiation in the v1 HTTP payload; server-side schema compatibility is therefore outside this wire contract.
 - A local schema identity may change during an upward, versioned `SchemaConfig` migration. Migration steps, current baseline DDL, `user_version`, and the new identity commit in one storage transaction; failure leaves the prior schema and identity intact. Same-version identity changes and downgrades are rejected. Pending outbox rows keep their original fingerprints and are quarantined, not relabeled, after an upgrade.
+- Client row deletion is permanent remove-wins for that UUID: subsequent or reordered updates and same-ID inserts cannot restore it, regardless of HLC. Local reuse is rejected. Restoration requires a new UUID and deliberate reference updates. An ACL visibility purge is not a replicated deletion; authorized regrant/backfill can restore its local view.
+- This is a breaking pre-alpha cutover: upgrade all replicas and the server together. Mixed old/new row-lifecycle policies are unsupported; the new transport fails closed for uploads when the server lacks the authenticated clock endpoint. V1 still has no capability/schema negotiation or compatibility fallback.
 
 ## 2. HTTP wire contract
 
-### 2.1 Upload
+### 2.1 Authenticated server clock
+
+Both servers expose `GET /v1/clock` with the same response:
+
+```json
+{ "version": 1, "nowMs": 1700000000000, "maxFutureMs": 300000 }
+```
+
+The route is authenticated; Atrium additionally requires `x-workspace` and verifies membership. `nowMs` is server Unix time in milliseconds. A fresh upload may be at most `maxFutureMs` ahead of that time.
+
+Structural HLC validity is separate from fresh-upload admission. Authenticated accepted history is not rejected because a receiving device's wall clock is slow. New uploads retain the server-relative five-minute bound; both server implementations return HTTP 400 with code `clock_skew` for that rejection. Accepted identical retries precede the current-time check. Atrium still enforces node ownership, but does not reject a new valid Change merely because another Change from that node arrived with a larger HLC.
+
+The client calibrates authoring against this sample, persists trusted time, and advances it using monotonic process elapsed time rather than device wall time. Startup calibration precedes uploads. A malformed or unavailable sample prevents upload without discarding the outbox. Transaction failure must restore the in-memory HLC as well as roll back persisted metadata.
+
+### 2.2 Upload
 
 `POST /v1/changes` accepts one JSON `Change` and returns `201 Created` with the typed receipt:
 
@@ -23,11 +39,9 @@ V1 has no bare change-array response, no HLC history cursor, no legacy pending-o
 { "version": 1, "outcome": "inserted", "cursor": "opaque-position" }
 ```
 
-`outcome` is exactly `inserted` or `duplicate`; `cursor` is a non-empty string. A `duplicate` receipt identifies a previously accepted identical scoped change. The client removes an `_sync_outbox` row only after it decodes this complete receipt. A malformed JSON body, another receipt version, an unknown outcome, or a missing/empty cursor leaves the row durable and records `lastError` as `invalid_receipt`.
+`outcome` is exactly `inserted` or `duplicate`; `cursor` is a non-empty string. A `duplicate` receipt identifies a previously accepted identical scoped change. Identical retries are recognized atomically before the current-time skew check, so they remain acknowledged after server clock rollback. Reusing a scoped ID with changed content is an idempotency conflict and is never appended. The client removes an `_sync_outbox` row only after it decodes this complete receipt. A malformed JSON body, another receipt version, an unknown outcome, or a missing/empty cursor leaves the row durable and records `lastError` as `invalid_receipt`.
 
-Generic Palladium Axum and Atrium both emit this receipt shape. They return the cursor associated with the append outcome, including a duplicate. A successful receipt is the acknowledgement for only the posted change; a response lost after the server commits is retried with the same durable change ID.
-
-### 2.2 Download
+### 2.3 Download
 
 `GET /v1/changes?cursor=<token>&limit=<n>` returns the complete versioned envelope:
 
@@ -48,7 +62,7 @@ The TypeScript transport requires every displayed member, validates the envelope
 
 A page cursor is the server append position after the last scanned history entry. It can advance when ACL filtering hides all changes in the scanned window. `upperBound` is the append maximum captured before that page is selected; it is independent of the continuation cursor. `caughtUp` is false when the raw history window filled the requested limit or an Atrium grant still has a bounded backfill chunk pending. It is not a promise that later entries cannot be appended. Atrium currently emits `mustRefetch: false`; transports treat a true value as `degraded` and do not continue that page.
 
-### 2.3 Errors and event acknowledgement
+### 2.4 Errors and event acknowledgement
 
 Non-success HTTP responses use JSON `{ "code": "stable_code", "message": "human explanation" }`. `SyncTransport.lastError` is a typed `SyncError` with phase, stable code, retryability, and—when available—HTTP status, response body, change ID, attempt, and retry time. Rate-limited uploads persist and honor `Retry-After` as `nextRetryAt`; terminal invalid receipts remain durable and are not posted again automatically. Known HTTP code handling includes authorization, request/cursor validation, conflict, clock, checkpoint, rate-limit, schema, and internal classifications; an unrecognized or malformed error body remains a terminal transport classification rather than a success.
 
@@ -70,13 +84,17 @@ A rejected remote change is reported through the quarantine callback in a separa
 
 `SyncTransport` exposes restart-safe quarantine operations:
 
-- `inspectQuarantine()` reads durable uplink and downlink entries.
+- `inspectQuarantine()` reads durable uplink and downlink entries, including original payloads and replacement IDs for superseded clock rejections.
 - `exportQuarantine()` serializes those entries for operator inspection.
-- `retryQuarantined(changeId)` restores an uplink entry to `_sync_outbox`, or validates and reapplies the persisted downlink payload.
+- `retryQuarantined(changeId)` restores an ordinary uplink entry with the same identity, or validates and reapplies a downlink payload. Superseded clock originals cannot be retried.
+- `discardQuarantined(changeId)` persists a forward skip without deleting evidence. It does not alter a superseded original or its replacement mapping.
+- `recoverClock()` explicitly reconfirms pending upload outcomes and returns original-to-replacement Change IDs.
 
-The public recovery API exposes `inspectQuarantine()`, `exportQuarantine()`, `retryQuarantined(changeId)`, and `discardQuarantined(changeId)`. Discard persists a permanent forward skip; it does not delete the evidence. Quarantine entries contain the serialized payload, phase, attempts/permanent state, timestamps, and available schema/error identity. Downlink entries additionally retain their HLC metadata.
+Quarantine entries contain serialized payloads, phase, attempts/permanent state, timestamps, and available schema/error identity. Downlink entries additionally retain their HLC metadata.
 
 For terminal uplink rows, explicit discard atomically moves the original payload, change ID, fingerprint, HLC, attempts, and error into quarantine with a `discarded` disposition and removes the outbox blocker. Later uploads may then proceed. Discarded evidence remains inspectable/exportable across restart; repeated discard is idempotent, and explicit retry restores the same payload and change ID. Uplink discard does not suppress authoritative downlink replay. Discarding an unknown ID has no effect.
+
+Clock recovery first obtains authenticated server time and reposts original immutable Changes. Valid receipts acknowledge already accepted work without rewriting it. Only confirmed HTTP 400 `clock_skew` rejections are eligible for fresh IDs/HLCs; unavailable, ambiguous, malformed-receipt, or other failure outcomes stop recovery. Under the engine write lock, recovery verifies the unchanged outbox snapshot and atomically remaps only rejected conflict versions, archives complete originals as `superseded`, and replaces their outbox rows. Accepted or unrelated future versions are never lowered; a server rollback below such a floor remains blocked. Replacements upload through normal sync and survive restart with the same fresh identity.
 
 ## 4. Lifecycle and status
 
@@ -96,6 +114,7 @@ The engine status vocabulary is exactly `uninitialized`, `hydrating`, `syncing`,
   cargo test -p atrium bounded_hostile_route_corpus -- --nocapture
   ```
 - Deterministic generated-sequence commands:
+
   ```sh
   pnpm --filter @palladium/core exec vitest run src/__tests__/sync-fuzz-generated.test.ts
   cargo test -p atrium generated_hostile_route_sequences -- --nocapture

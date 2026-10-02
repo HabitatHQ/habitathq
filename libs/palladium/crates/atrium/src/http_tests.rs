@@ -11,13 +11,26 @@ use axum::{
     },
     Router,
 };
+use palladium_core::{ClockError, ServerClock};
 use serde_json::{json, Value};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
 use tower::ServiceExt;
 use tower_http::cors::CorsLayer;
 use uuid::Uuid;
 
 use crate::{create_router, AtriumDb, AtriumState, DevBearerProvider};
 
+#[derive(Clone)]
+struct FixedClock(Arc<AtomicU64>);
+
+impl ServerClock for FixedClock {
+    fn now_millis(&self) -> Result<u64, ClockError> {
+        Ok(self.0.load(Ordering::SeqCst))
+    }
+}
 async fn app_with_db() -> (Router, AtriumDb) {
     let db = AtriumDb::in_memory().await.unwrap();
     let router = create_router(
@@ -25,6 +38,15 @@ async fn app_with_db() -> (Router, AtriumDb) {
         CorsLayer::permissive(),
     );
     (router, db)
+}
+async fn app_with_clock(now: u64) -> (Router, AtriumDb, Arc<AtomicU64>) {
+    let db = AtriumDb::in_memory().await.unwrap();
+    let clock = Arc::new(AtomicU64::new(now));
+    let router = create_router(
+        AtriumState::new(db.clone(), DevBearerProvider).with_clock(FixedClock(Arc::clone(&clock))),
+        CorsLayer::permissive(),
+    );
+    (router, db, clock)
 }
 
 async fn app() -> Router {
@@ -1362,4 +1384,129 @@ async fn generated_hostile_route_sequences() {
         let (health, _) = call(&app, "GET", "/v1/health", None, None, None).await;
         assert_eq!(health, StatusCode::OK);
     }
+}
+#[tokio::test]
+async fn clock_requires_authentication_and_workspace_membership_with_shared_v1_shape() {
+    let (app, _, _) = app_with_clock(1_700_000_000_123).await;
+    let ws = create_workspace(&app, "alice").await;
+    let (unauthorized, _) = call(&app, "GET", "/v1/clock", None, Some(&ws), None).await;
+    assert_eq!(unauthorized, StatusCode::UNAUTHORIZED);
+    let (non_member, _) = call(&app, "GET", "/v1/clock", Some("dave"), Some(&ws), None).await;
+    assert_eq!(non_member, StatusCode::FORBIDDEN);
+    let (status, clock) = call(&app, "GET", "/v1/clock", Some("alice"), Some(&ws), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        clock,
+        json!({
+            "version": 1,
+            "nowMs": 1_700_000_000_123_u64,
+            "maxFutureMs": 300_000,
+        })
+    );
+}
+
+#[tokio::test]
+async fn accepted_retry_survives_clock_rollback_and_conflicts_do_not_append() {
+    let (app, _, now) = app_with_clock(10_000).await;
+    let ws = family(&app).await;
+    let (row, mut accepted) = root_insert("lists");
+    accepted["hlc"]["wallMs"] = json!(310_000_u64);
+    accepted["hlc"]["nodeId"] = json!(node_for("alice"));
+    let (inserted, receipt) = call(
+        &app,
+        "POST",
+        "/v1/changes",
+        Some("alice"),
+        Some(&ws),
+        Some(accepted.clone()),
+    )
+    .await;
+    assert_eq!(inserted, StatusCode::CREATED);
+    assert_eq!(receipt["outcome"], json!("inserted"));
+    let cursor = receipt["cursor"].clone();
+
+    now.store(0, Ordering::SeqCst);
+    let (duplicate_status, duplicate) = call(
+        &app,
+        "POST",
+        "/v1/changes",
+        Some("alice"),
+        Some(&ws),
+        Some(accepted.clone()),
+    )
+    .await;
+    assert_eq!(duplicate_status, StatusCode::CREATED);
+    assert_eq!(duplicate["outcome"], json!("duplicate"));
+    assert_eq!(duplicate["cursor"], cursor);
+
+    let mut conflicting = accepted;
+    conflicting["hlc"]["wallMs"] = json!(310_001_u64);
+    let (conflict_status, conflict) = call(
+        &app,
+        "POST",
+        "/v1/changes",
+        Some("alice"),
+        Some(&ws),
+        Some(conflicting),
+    )
+    .await;
+    assert_eq!(conflict_status, StatusCode::CONFLICT);
+    assert_eq!(conflict["code"], json!("idempotency_conflict"));
+
+    let (fresh_row, mut fresh_skewed) = root_insert("lists");
+    fresh_skewed["hlc"]["wallMs"] = json!(300_001_u64);
+    fresh_skewed["hlc"]["nodeId"] = json!(node_for("alice"));
+    let (skew_status, skew) = call(
+        &app,
+        "POST",
+        "/v1/changes",
+        Some("alice"),
+        Some(&ws),
+        Some(fresh_skewed),
+    )
+    .await;
+    assert_eq!(skew_status, StatusCode::CONFLICT);
+    assert_eq!(skew["code"], json!("clock_skew"));
+
+    let history = get_env(&app, "alice", &ws).await;
+    assert_eq!(history["changes"].as_array().unwrap().len(), 1);
+    assert_eq!(history["changes"][0]["ops"][0]["row_id"], json!(row));
+    assert_ne!(fresh_row, row);
+}
+
+#[tokio::test]
+async fn same_owned_node_may_upload_changes_in_decreasing_hlc_order() {
+    let (app, _, _) = app_with_clock(20_000).await;
+    let ws = family(&app).await;
+    let (first_row, mut first) = root_insert("lists");
+    first["hlc"]["wallMs"] = json!(20_000_u64);
+    first["hlc"]["nodeId"] = json!(node_for("alice"));
+    let (first_status, _) = call(
+        &app,
+        "POST",
+        "/v1/changes",
+        Some("alice"),
+        Some(&ws),
+        Some(first),
+    )
+    .await;
+    assert_eq!(first_status, StatusCode::CREATED);
+
+    let (second_row, mut second) = root_insert("lists");
+    second["hlc"]["wallMs"] = json!(10_000_u64);
+    second["hlc"]["nodeId"] = json!(node_for("alice"));
+    let (second_status, _) = call(
+        &app,
+        "POST",
+        "/v1/changes",
+        Some("alice"),
+        Some(&ws),
+        Some(second),
+    )
+    .await;
+    assert_eq!(second_status, StatusCode::CREATED);
+    let history = get_env(&app, "alice", &ws).await;
+    assert_eq!(history["changes"].as_array().unwrap().len(), 2);
+    assert_eq!(history["changes"][0]["ops"][0]["row_id"], json!(first_row));
+    assert_eq!(history["changes"][1]["ops"][0]["row_id"], json!(second_row));
 }

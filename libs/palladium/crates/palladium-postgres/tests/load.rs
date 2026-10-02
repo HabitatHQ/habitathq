@@ -55,7 +55,10 @@ fn make_change(hlc: Hlc, op_count: usize) -> Change {
 
 async fn insert(store: &PostgresStore, change: &Change) {
     let scope = scope();
-    store.insert(&scope, change).await.expect("insert failed");
+    store
+        .insert(&scope, change, u64::MAX)
+        .await
+        .expect("insert failed");
 }
 
 async fn read_all(store: &PostgresStore) -> Vec<Change> {

@@ -3,8 +3,8 @@
  * edits by HLC, per column, so that:
  *   - the higher-HLC write to a column wins *regardless of arrival order*;
  *   - concurrent writes to *different* columns of a row both survive;
- *   - a delete and an update reconcile by HLC (tombstone), and a lower-HLC
- *     update cannot resurrect a deleted row.
+ *   - a delete permanently retires its UUID regardless of insert/update HLC;
+ *     restoration is a new insert with a fresh UUID.
  *
  * These exercise `applyRemote({ hlc, ops })` directly (the remote-apply path)
  * against a local write, which is exactly the two-client concurrency F1
@@ -163,40 +163,129 @@ describe("column-level LWW", () => {
     expect(await db.exec(sql`SELECT * FROM notes`)).toHaveLength(0);
   });
 
-  it("delete tombstone: a higher-HLC insert resurrects the row", async () => {
-    await db.insert("notes", {
-      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
-      title: "T",
-      body: "B",
-      updated_at: 1,
-    });
-    const base = db.currentHlc?.wallMs ?? 0;
+  it("deletion permanently retires a UUID across every insert/delete/update delivery order", async () => {
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    const operations = [
+      {
+        hlc: hlc(1_000),
+        ops: [
+          {
+            type: "insert" as const,
+            table: "notes" as const,
+            id,
+            data: { id, title: "insert", body: "body", updated_at: 1 },
+          },
+        ],
+      },
+      {
+        hlc: hlc(2_000),
+        ops: [{ type: "delete" as const, table: "notes" as const, id }],
+      },
+      {
+        hlc: hlc(3_000),
+        ops: [{ type: "update" as const, table: "notes" as const, id, patch: { title: "update" } }],
+      },
+    ];
+    const permutations = (items: typeof operations): Array<typeof operations> =>
+      items.length === 0
+        ? [[]]
+        : items.flatMap((item, index) =>
+            permutations(items.filter((_, itemIndex) => itemIndex !== index)).map((rest) => [
+              item,
+              ...rest,
+            ]),
+          );
+    for (const schedule of permutations(operations)) {
+      const replica = await makeEngine(BOB);
+      for (const change of schedule) {
+        await replica.applyRemote(change);
+        await replica.applyRemote(change);
+      }
+      expect(await replica.exec(sql`SELECT * FROM notes WHERE id = ${id}`)).toEqual([]);
+      const tombstones = await replica.exec<{ hlc_wall_ms: number }>(
+        sql`SELECT hlc_wall_ms FROM _sync_row_meta WHERE tbl = 'notes' AND row_id = ${id} AND col = '__palladium_deleted__'`,
+      );
+      expect(tombstones).toEqual([{ hlc_wall_ms: 2_000 }]);
+      const pending = await replica.exec(
+        sql`SELECT * FROM _sync_pending_remote_updates WHERE tbl = 'notes' AND row_id = ${id}`,
+      );
+      expect(pending).toEqual([]);
+      await replica.adapter.close();
+    }
+  });
 
+  it("delete-before-insert rejects even a higher-HLC insert and later updates", async () => {
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
     await db.applyRemote({
-      hlc: hlc(base + 500),
-      ops: [{ type: "delete", table: "notes", id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab" }],
+      hlc: hlc(2_000),
+      ops: [{ type: "delete", table: "notes", id }],
     });
-    expect(await db.exec(sql`SELECT * FROM notes`)).toHaveLength(0);
-
     await db.applyRemote({
-      hlc: hlc(base + 1000),
+      hlc: hlc(9_000),
       ops: [
         {
           type: "insert",
           table: "notes",
-          id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
-          data: {
-            id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
-            title: "reborn",
-            body: "B2",
-            updated_at: 3,
-          },
+          id,
+          data: { id, title: "reborn", body: "body", updated_at: 1 },
         },
       ],
     });
-    const rows = await db.exec<Schema["notes"]>(sql`SELECT * FROM notes`);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.title).toBe("reborn");
+    await db.applyRemote({
+      hlc: hlc(10_000),
+      ops: [{ type: "update", table: "notes", id, patch: { title: "zombie" } }],
+    });
+    expect(await db.exec(sql`SELECT * FROM notes WHERE id = ${id}`)).toEqual([]);
+  });
+
+  it("local deletion clears buffered updates for an absent row and retires its UUID", async () => {
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    await db.applyRemote({
+      hlc: hlc(2_000),
+      ops: [{ type: "update", table: "notes", id, patch: { title: "buffered" } }],
+    });
+    expect(
+      await db.exec(
+        sql`SELECT * FROM _sync_pending_remote_updates WHERE tbl = 'notes' AND row_id = ${id}`,
+      ),
+    ).toHaveLength(1);
+    await db.delete("notes", id);
+    expect(
+      await db.exec(
+        sql`SELECT * FROM _sync_pending_remote_updates WHERE tbl = 'notes' AND row_id = ${id}`,
+      ),
+    ).toEqual([]);
+    await db.applyRemote({
+      hlc: hlc(3_000),
+      ops: [
+        {
+          type: "insert",
+          table: "notes",
+          id,
+          data: { id, title: "revived", body: "body", updated_at: 1 },
+        },
+      ],
+    });
+    expect(await db.exec(sql`SELECT * FROM notes WHERE id = ${id}`)).toEqual([]);
+  });
+
+  it("rejects local insert and update of a retired UUID and restores using a new UUID", async () => {
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    const restoredId = "018f0f50-7b8d-7a1c-8e2f-1234567890ac";
+    await db.applyRemote({
+      hlc: hlc(2_000),
+      ops: [{ type: "delete", table: "notes", id }],
+    });
+    await expect(
+      db.insert("notes", { id, title: "reuse", body: "body", updated_at: 1 }),
+    ).rejects.toThrow("restore with a new UUID");
+    await expect(db.update("notes", id, { title: "reuse" })).rejects.toThrow(
+      "restore with a new UUID",
+    );
+    await db.insert("notes", { id: restoredId, title: "restored", body: "body", updated_at: 2 });
+    expect(await db.exec<Schema["notes"]>(sql`SELECT * FROM notes`)).toEqual([
+      { id: restoredId, title: "restored", body: "body", updated_at: 2 },
+    ]);
   });
 
   it("retains the newest tombstone when delayed deletes and inserts interleave", async () => {

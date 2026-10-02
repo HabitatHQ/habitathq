@@ -1351,16 +1351,28 @@ impl AtriumDb {
         workspace: &str,
         caller: &str,
         change: &Change,
+        now_millis: u64,
     ) -> Result<AppendOutcome, AtriumError> {
-        palladium_core::validate_change(
-            change,
-            now_millis().try_into().unwrap_or(u64::MAX),
-            300_000,
-        )
-        .map_err(AtriumError::BadRequest)?;
+        palladium_core::validate_structure(change).map_err(AtriumError::BadRequest)?;
         let canonical = serde_json::to_vec(change).map_err(AtriumError::internal)?;
         let content_hash = format!("{:x}", Sha256::digest(canonical));
         let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let node_id = change.hlc.node_id().to_string();
+        let registered_owner = sqlx::query_scalar::<_, String>(
+            "SELECT user_id FROM member_nodes WHERE workspace_id = ? AND node_id = ?",
+        )
+        .bind(workspace)
+        .bind(&node_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if registered_owner
+            .as_deref()
+            .is_some_and(|owner| owner != caller)
+        {
+            return Err(AtriumError::Forbidden(
+                "hlc node is registered to another workspace member".to_owned(),
+            ));
+        }
         let change_id = change.id.to_string();
         if let Some((existing, append_seq)) = sqlx::query_as::<_, (String, i64)>(
             "SELECT content_hash, append_seq FROM palladium_changes WHERE scope = ? AND id = ?",
@@ -1376,26 +1388,9 @@ impl AtriumDb {
             }
             return Err(AtriumError::Conflict("change_conflict".to_owned()));
         }
-        let now = now_millis();
-        let wall = i64::try_from(change.hlc.millis())
-            .map_err(|_| AtriumError::BadRequest("invalid_hlc".to_owned()))?;
-        if wall > now.saturating_add(300_000) {
-            return Err(AtriumError::Conflict("clock_skew".to_owned()));
-        }
-        let node_id = change.hlc.node_id().to_string();
-        if let Some((last_millis, last_counter)) = sqlx::query_as::<_, (i64, i64)>(
-            "SELECT hlc_millis, hlc_counter FROM palladium_changes
-             WHERE scope = ? AND hlc_node_id = ?
-             ORDER BY hlc_millis DESC, hlc_counter DESC LIMIT 1",
-        )
-        .bind(workspace)
-        .bind(&node_id)
-        .fetch_optional(&mut *tx)
-        .await?
+        if change.hlc.millis() > now_millis.saturating_add(palladium_core::V1_MAX_FUTURE_HLC_MILLIS)
         {
-            if (wall, i64::from(change.hlc.counter())) <= (last_millis, last_counter) {
-                return Err(AtriumError::Conflict("clock_skew".to_owned()));
-            }
+            return Err(AtriumError::Conflict("clock_skew".to_owned()));
         }
         sqlx::query(
             "INSERT OR IGNORE INTO member_nodes (workspace_id, user_id, node_id)
@@ -1699,15 +1694,15 @@ mod tests {
         let workspace = db.create_workspace("alice").await.unwrap();
         let first = root_change(Uuid::new_v4(), Uuid::now_v7(), 2_000);
         let late = root_change(Uuid::new_v4(), Uuid::now_v7(), 1_000);
-        db.authorize_and_append_change(&workspace, "alice", &first)
+        db.authorize_and_append_change(&workspace, "alice", &first, u64::MAX)
             .await
             .unwrap();
-        db.authorize_and_append_change(&workspace, "alice", &late)
+        db.authorize_and_append_change(&workspace, "alice", &late, u64::MAX)
             .await
             .unwrap();
         let (left, right) = tokio::join!(
-            db.authorize_and_append_change(&workspace, "alice", &late),
-            db.authorize_and_append_change(&workspace, "alice", &late)
+            db.authorize_and_append_change(&workspace, "alice", &late, u64::MAX),
+            db.authorize_and_append_change(&workspace, "alice", &late, u64::MAX)
         );
         left.unwrap();
         right.unwrap();
@@ -1724,16 +1719,16 @@ mod tests {
         let second_scope = db.create_workspace("bob").await.unwrap();
         let id = Uuid::new_v4();
         let first = root_change(id, Uuid::now_v7(), 2_000);
-        db.authorize_and_append_change(&first_scope, "alice", &first)
+        db.authorize_and_append_change(&first_scope, "alice", &first, u64::MAX)
             .await
             .unwrap();
         let divergent = root_change(id, Uuid::now_v7(), 2_001);
         assert!(matches!(
-            db.authorize_and_append_change(&first_scope, "alice", &divergent)
+            db.authorize_and_append_change(&first_scope, "alice", &divergent, u64::MAX)
                 .await,
             Err(super::AtriumError::Conflict(_))
         ));
-        db.authorize_and_append_change(&second_scope, "bob", &first)
+        db.authorize_and_append_change(&second_scope, "bob", &first, u64::MAX)
             .await
             .unwrap();
         assert_eq!(

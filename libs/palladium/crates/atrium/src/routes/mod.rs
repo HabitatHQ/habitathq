@@ -17,6 +17,7 @@ use crate::state::AtriumState;
 /// Build Atrium's client-facing router.
 ///
 /// Routes:
+/// - `GET /v1/clock` (authenticated, workspace-member scoped)
 /// - `GET /v1/health`
 /// - `POST /v1/workspaces`, `GET /v1/workspaces`
 /// - `POST /v1/workspaces/:id/invites`, `GET /v1/workspaces/:id/members`
@@ -28,6 +29,7 @@ use crate::state::AtriumState;
 /// `cors` controls cross-origin access (use [`CorsLayer::permissive`] in dev).
 pub fn create_router(state: AtriumState, cors: CorsLayer) -> Router {
     Router::new()
+        .route("/v1/clock", get(changes::get_clock))
         .route("/v1/health", get(health::get_health))
         .route(
             "/v1/workspaces",

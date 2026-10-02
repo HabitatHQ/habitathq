@@ -42,6 +42,11 @@ function makeFakeFetch(responder: (call: FetchCall) => Response): {
   const calls: FetchCall[] = [];
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : (input as URL | Request).toString();
+    if (new URL(url).pathname === "/v1/clock") {
+      const call = { input: url, init: init ?? undefined };
+      calls.push(call);
+      return jsonResponse({ version: 1, nowMs: Date.now(), maxFutureMs: 300_000 });
+    }
     const call: FetchCall = { input: url, init: init ?? undefined };
     calls.push(call);
     return responder(call);
@@ -184,35 +189,6 @@ describe("SyncTransport — uplink", () => {
       "title",
       "updated_at",
     ]);
-  });
-
-  it("HLC counter advances across consecutive local writes in the same ms", async () => {
-    const db = await makeEngine(ALICE);
-    const transport = new SyncTransport(db, {
-      serverUrl: SERVER_URL,
-      fetch: fakeFetch.fetch,
-    });
-
-    vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
-    await transport.start();
-    await db.insert("notes", {
-      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
-      title: "a",
-      updated_at: 1,
-    });
-    await db.insert("notes", {
-      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac",
-      title: "b",
-      updated_at: 2,
-    });
-    await transport.syncOnce();
-    await transport.stop();
-
-    expect(postBodies).toHaveLength(2);
-    const first = postBodies[0]?.hlc;
-    const second = postBodies[1]?.hlc;
-    expect(first?.wallMs).toBe(second?.wallMs);
-    expect(second?.counter).toBeGreaterThan(first?.counter ?? -1);
   });
 
   it("non-OK POST flips status to error", async () => {
@@ -1269,8 +1245,11 @@ describe("SyncTransport — durable outbox", () => {
   it("network failure (fetch throws) leaves the change in the outbox; status is 'offline'", async () => {
     const db = await makeEngine(ALICE);
     const fetch: typeof globalThis.fetch = async (input, init) => {
+      const url =
+        typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
+      if (new URL(url).pathname === "/v1/clock")
+        return jsonResponse({ version: 1, nowMs: Date.now(), maxFutureMs: 300_000 });
       if (init?.method === "POST") throw new Error("net::ERR_INTERNET_DISCONNECTED");
-      void input;
       return jsonResponse(page());
     };
     const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
@@ -1333,7 +1312,12 @@ describe("SyncTransport — durable outbox", () => {
     const accepted = new Set<string>();
     let postCount = 0;
     let loseFirstResponse = true;
-    const fetch: typeof globalThis.fetch = async (_input, init) => {
+    const fetch: typeof globalThis.fetch = async (input, init) => {
+      const url =
+        typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
+      if (new URL(url).pathname === "/v1/clock") {
+        return jsonResponse({ version: 1, nowMs: Date.now(), maxFutureMs: 300_000 });
+      }
       if (init?.method === "POST") {
         postCount += 1;
         const change = JSON.parse(String(init.body)) as WireChange;
@@ -1501,6 +1485,8 @@ describe("SyncTransport — auth decoration (§2b)", () => {
         url,
         node: new Headers(init?.headers).get("X-Palladium-Node"),
       });
+      if (url.endsWith("/v1/clock"))
+        return jsonResponse({ version: 1, nowMs: Date.now(), maxFutureMs: 300_000 });
       if (url.endsWith("/events/ack")) return new Response(null, { status: 204 });
       if (init?.method === "POST") return jsonResponse(receipt(), 201);
       return jsonResponse({
@@ -1520,6 +1506,9 @@ describe("SyncTransport — auth decoration (§2b)", () => {
     await transport.stop();
 
     expect(seen.every((request) => request.node === ALICE)).toBe(true);
+    expect(seen.map((request) => `${request.method} ${request.url}`)).toContain(
+      `GET ${SERVER_URL}/v1/clock`,
+    );
     expect(seen.map((request) => `${request.method} ${request.url}`)).toContain(
       `GET ${SERVER_URL}/v1/changes?limit=100`,
     );

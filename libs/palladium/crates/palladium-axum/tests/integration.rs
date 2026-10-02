@@ -18,13 +18,26 @@ use axum::{
     routing::get,
     Router,
 };
-use palladium_axum::{create_router, AppState};
-use palladium_core::{Change, Hlc, NodeId, Op};
+use palladium_axum::{create_router, AppState, BearerAuthenticator, BearerScopeAuthorizer};
+use palladium_core::{Change, ClockError, Hlc, NodeId, Op, ServerClock};
 use palladium_sqlite::SqliteStore;
 use serde_json::json;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
 use tower::ServiceExt;
 use tower_http::cors::CorsLayer;
 use uuid::Uuid;
+
+#[derive(Clone)]
+struct FixedClock(Arc<AtomicU64>);
+
+impl ServerClock for FixedClock {
+    fn now_millis(&self) -> Result<u64, ClockError> {
+        Ok(self.0.load(Ordering::SeqCst))
+    }
+}
 fn page(body: &[u8]) -> serde_json::Value {
     serde_json::from_slice(body).unwrap()
 }
@@ -35,6 +48,35 @@ fn page(body: &[u8]) -> serde_json::Value {
 async fn palladium() -> Router {
     let store = SqliteStore::in_memory().await.unwrap();
     create_router(AppState::new(store), CorsLayer::permissive())
+}
+async fn clock_app(now: u64) -> (Router, Arc<AtomicU64>) {
+    let store = SqliteStore::in_memory().await.unwrap();
+    let time = Arc::new(AtomicU64::new(now));
+    let state = AppState::new(store)
+        .with_authenticator(BearerAuthenticator)
+        .with_authorizer(BearerScopeAuthorizer)
+        .with_clock(FixedClock(Arc::clone(&time)));
+    (create_router(state, CorsLayer::permissive()), time)
+}
+
+async fn post_json_value(app: Router, body: &str) -> (StatusCode, serde_json::Value) {
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/changes")
+                .header("authorization", "Bearer alice")
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_owned()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (status, page(&bytes))
 }
 
 async fn get_ok(app: Router, uri: &str) -> (StatusCode, Vec<u8>) {
@@ -230,6 +272,10 @@ async fn openapi_spec_contains_expected_paths() {
         paths.contains_key("/v1/changes"),
         "missing GET/POST /v1/changes in spec"
     );
+    assert!(
+        paths.contains_key("/v1/clock"),
+        "missing GET /v1/clock in spec"
+    );
 }
 
 #[tokio::test]
@@ -419,6 +465,85 @@ async fn future_hlc_is_rejected_with_clock_skew_classification() {
         .await
         .unwrap();
     let error = page(&body);
-    assert_eq!(error["code"], json!("invalid_request"));
-    assert_eq!(error["message"], json!("clock_skew"));
+    assert_eq!(error["code"], json!("clock_skew"));
+}
+#[tokio::test]
+async fn clock_is_authenticated_and_returns_the_v1_server_contract() {
+    let (app, _) = clock_app(1_700_000_000_123).await;
+    let unauthorized = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/clock")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/clock")
+                .header("authorization", "Bearer alice")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert_eq!(
+        page(&bytes),
+        json!({
+            "version": 1,
+            "nowMs": 1_700_000_000_123_u64,
+            "maxFutureMs": 300_000,
+        })
+    );
+}
+
+#[tokio::test]
+async fn fresh_clock_skew_is_rejected_but_identical_rollback_retry_precedes_skew() {
+    let (app, now) = clock_app(10_000).await;
+    let accepted = change_json(310_000);
+    let (status, receipt) = post_json_value(app.clone(), &accepted).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(receipt["outcome"], json!("inserted"));
+    let cursor = receipt["cursor"].clone();
+
+    now.store(0, Ordering::SeqCst);
+    let (retry_status, retry) = post_json_value(app.clone(), &accepted).await;
+    assert_eq!(retry_status, StatusCode::CREATED);
+    assert_eq!(retry["outcome"], json!("duplicate"));
+    assert_eq!(retry["cursor"], cursor);
+
+    let changed_payload = accepted.replace("310000", "310001");
+    let (conflict_status, conflict) = post_json_value(app.clone(), &changed_payload).await;
+    assert_eq!(conflict_status, StatusCode::CONFLICT);
+    assert_eq!(conflict["code"], json!("idempotency_conflict"));
+
+    let fresh_skewed = change_json(300_001);
+    let (skew_status, skew) = post_json_value(app.clone(), &fresh_skewed).await;
+    assert_eq!(skew_status, StatusCode::BAD_REQUEST);
+    assert_eq!(skew["code"], json!("clock_skew"));
+
+    let history = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/changes")
+                .header("authorization", "Bearer alice")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(history.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(history.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert_eq!(page(&bytes)["changes"].as_array().unwrap().len(), 1);
 }

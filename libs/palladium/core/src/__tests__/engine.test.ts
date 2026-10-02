@@ -797,4 +797,34 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
       await db.adapter.close();
     }
   });
+  it("ACL purge clears retirement metadata so grant replay rebuilds the authoritative tombstone", async () => {
+    const db = makeDb();
+    await db.init(SCHEMA);
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    const nodeId = "00000000-0000-4000-8000-00000000cafe";
+    const insert: RemoteChange<Schema> = {
+      id: "00000000-0000-4000-8000-000000000021",
+      hlc: { wallMs: 1_000, counter: 0, nodeId },
+      ops: [{ type: "insert", table: "tasks", id, data: { id, name: "authoritative", done: 0 } }],
+    };
+    const deletion: RemoteChange<Schema> = {
+      id: "00000000-0000-4000-8000-000000000022",
+      hlc: { wallMs: 2_000, counter: 0, nodeId },
+      ops: [{ type: "delete", table: "tasks", id }],
+    };
+    try {
+      await db.applyRemote(insert);
+      await db.applyRemote(deletion);
+      await db.applyRemotePage([], [{ table: "tasks", id }], async () => {});
+      await db.applyRemote(insert);
+      await db.applyRemote(deletion);
+      expect(await db.exec(sql`SELECT * FROM tasks WHERE id = ${id}`)).toEqual([]);
+      const tombstones = await db.exec<{ hlc_wall_ms: number }>(
+        sql`SELECT hlc_wall_ms FROM _sync_row_meta WHERE tbl = 'tasks' AND row_id = ${id} AND col = '__palladium_deleted__'`,
+      );
+      expect(tombstones).toEqual([{ hlc_wall_ms: 2_000 }]);
+    } finally {
+      await db.adapter.close();
+    }
+  });
 });

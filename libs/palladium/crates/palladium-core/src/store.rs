@@ -117,10 +117,13 @@ pub trait ChangeStore {
     type Error: std::error::Error + Send + Sync + 'static;
 
     /// Atomically append a change in a scope, with content-checked idempotency.
+    /// `now_millis` is the authoritative server time used only for fresh inserts;
+    /// a previously accepted identical retry is returned regardless of skew.
     fn insert<'a>(
         &'a self,
         scope: &'a Scope,
         change: &'a Change,
+        now_millis: u64,
     ) -> impl Future<Output = Result<InsertOutcome, Self::Error>> + Send + 'a;
 
     /// Return a bounded append-history page.

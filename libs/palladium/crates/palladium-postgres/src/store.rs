@@ -171,18 +171,24 @@ impl ChangeStore for PostgresStore {
         &self,
         scope: &Scope,
         change: &Change,
+        now_millis: u64,
     ) -> std::result::Result<palladium_core::InsertOutcome, Error> {
-        palladium_core::validate_v1_change(change).map_err(Error::InvalidData)?;
+        palladium_core::validate_structure(change).map_err(Error::InvalidData)?;
         let payload = palladium_core::canonical_change_bytes(change)?;
         let hash = format!("{:x}", sha2::Sha256::digest(&payload));
-        let millis = i64::try_from(change.hlc.millis())
-            .map_err(|_| Error::InvalidData("hlc millis overflow".into()))?;
+        let millis = i64::try_from(change.hlc.millis()).unwrap_or(i64::MAX);
         let ops_json = serde_json::to_value(&change.ops)?;
         let mut tx = self.pool.begin().await?;
         let inserted: Option<(i64,)> = sqlx::query_as(&format!("INSERT INTO {} (id,scope,hlc_millis,hlc_counter,hlc_node_id,ops_json,payload_hash) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (scope,id) DO NOTHING RETURNING append_seq", self.table))
             .bind(change.id).bind(scope.as_str()).bind(millis).bind(i64::from(change.hlc.counter())).bind(change.hlc.node_id().to_string()).bind(ops_json).bind(&hash)
             .fetch_optional(&mut *tx).await?;
         let (seq, inserted) = if let Some((seq,)) = inserted {
+            if change.hlc.millis() > i64::MAX.unsigned_abs()
+                || change.hlc.millis()
+                    > now_millis.saturating_add(palladium_core::V1_MAX_FUTURE_HLC_MILLIS)
+            {
+                return Err(Error::InvalidData("clock_skew".into()));
+            }
             (seq, true)
         } else {
             let (seq, existing): (i64, String) = sqlx::query_as(&format!(
@@ -300,6 +306,8 @@ mod tests {
     #[cfg(feature = "integration-tests")]
     use serde_json::json;
     #[cfg(feature = "integration-tests")]
+    use sqlx::ConnectOptions;
+    #[cfg(feature = "integration-tests")]
     use std::sync::Arc;
     #[cfg(feature = "integration-tests")]
     use tokio::sync::Barrier;
@@ -356,7 +364,7 @@ mod tests {
             let change = change.clone();
             async move {
                 barrier.wait().await;
-                store.insert(&scope, &change).await
+                store.insert(&scope, &change, u64::MAX).await
             }
         };
         let (left, right) = tokio::join!(insert(Arc::clone(&store)), insert(store));
@@ -367,6 +375,54 @@ mod tests {
         assert!(outcomes
             .iter()
             .any(|outcome| matches!(outcome, InsertOutcome::Duplicate(_))));
+        Ok(())
+    }
+
+    #[cfg(feature = "integration-tests")]
+    #[sqlx::test]
+    async fn accepted_retry_survives_clock_rollback_without_admitting_new_future_writes(
+        pool: sqlx::PgPool,
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let url = pool.connect_options().to_url_lossy();
+        let store = PostgresStore::connect(url.as_str()).await?;
+        let scope = Scope::new(format!("clock-{}", Uuid::new_v4()));
+        let row_id = Uuid::now_v7();
+        let time = 1_700_000_000_000;
+        let change = Change::new(
+            Hlc::new(NodeId::new(), time),
+            vec![Op::Insert {
+                table: "notes".into(),
+                row_id,
+                data: json!({"id": row_id, "title": "accepted"}),
+            }],
+        );
+        let cursor = match store.insert(&scope, &change, time).await? {
+            InsertOutcome::Inserted(cursor) => cursor,
+            InsertOutcome::Duplicate(_) => {
+                return Err("first insert was unexpectedly duplicate".into())
+            }
+        };
+        assert_eq!(
+            store.insert(&scope, &change, 0).await?,
+            InsertOutcome::Duplicate(cursor)
+        );
+        let mut conflicting = change.clone();
+        conflicting.ops = vec![Op::Insert {
+            table: "notes".into(),
+            row_id,
+            data: json!({"id": row_id, "title": "changed payload"}),
+        }];
+        match store.insert(&scope, &conflicting, 0).await {
+            Err(error) => assert!(error.to_string().contains("change_conflict")),
+            Ok(_) => return Err("conflicting retry was accepted".into()),
+        }
+        let fresh = Change::new(change.hlc, change.ops.clone());
+        match store.insert(&scope, &fresh, 0).await {
+            Err(error) => assert!(error.to_string().contains("clock_skew")),
+            Ok(_) => return Err("fresh future write was accepted".into()),
+        }
+        assert_eq!(store.get(&scope, change.id).await?, Some(change));
+        assert_eq!(store.get(&scope, fresh.id).await?, None);
         Ok(())
     }
 }

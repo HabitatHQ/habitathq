@@ -16,6 +16,7 @@
 use std::collections::HashMap;
 
 mod change;
+mod clock;
 mod config;
 mod error;
 mod hlc;
@@ -28,6 +29,7 @@ mod scope;
 mod store;
 
 pub use change::Change;
+pub use clock::{ClockError, ClockResponse, ServerClock, SystemClock};
 pub use config::ServerConfig;
 pub use error::Error;
 pub use hlc::Hlc;
@@ -54,28 +56,36 @@ pub const V1_MAX_FUTURE_HLC_MILLIS: u64 = 300_000;
 /// the permitted future offset. It also rejects non-v4 change and node IDs,
 /// empty changes, non-v7 row IDs, and non-canonical operation sequences.
 pub fn validate_v1_change(change: &Change) -> std::result::Result<(), String> {
-    let now_millis = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|_| "clock_skew".to_owned())
-        .and_then(|duration| {
-            u64::try_from(duration.as_millis()).map_err(|_| "clock_skew".to_owned())
-        })?;
+    let now_millis = SystemClock
+        .now_millis()
+        .map_err(|_| "clock_skew".to_owned())?;
     validate_change(change, now_millis, V1_MAX_FUTURE_HLC_MILLIS)
 }
 
-/// Returns `clock_skew` when the HLC exceeds the permitted future offset. It
-/// also rejects non-v4 change and node IDs, empty changes, non-v7 row IDs, and
-/// non-canonical operation sequences.
+/// Validate v1 structural invariants and a fresh-upload future bound.
 ///
 /// # Errors
 ///
-/// Returns a stable validation error code when any v1 identity, timestamp, row
-/// ID, or canonical-operation invariant is violated.
+/// Returns a stable error when any identity, timestamp, row ID, canonical
+/// operation invariant, or future-time bound is violated.
 pub fn validate_change(
     change: &Change,
     now_millis: u64,
     max_future_millis: u64,
 ) -> std::result::Result<(), String> {
+    validate_structure(change)?;
+    if change.hlc.millis() > now_millis.saturating_add(max_future_millis) {
+        return Err("clock_skew".to_owned());
+    }
+    Ok(())
+}
+
+/// Validate v1 identities, nonempty operations, and canonical operation order.
+///
+/// # Errors
+///
+/// Returns a stable error code for structurally invalid changes.
+pub fn validate_structure(change: &Change) -> std::result::Result<(), String> {
     if change.id.get_version() != Some(uuid::Version::Random) {
         return Err(format!("change id {} is not UUIDv4", change.id));
     }
@@ -84,9 +94,6 @@ pub fn validate_change(
             "HLC node id {} is not UUIDv4",
             change.hlc.node_id()
         ));
-    }
-    if change.hlc.millis() > now_millis.saturating_add(max_future_millis) {
-        return Err("clock_skew".to_owned());
     }
     if change.ops.is_empty() {
         return Err("change has no operations".to_owned());

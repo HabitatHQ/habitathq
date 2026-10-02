@@ -91,6 +91,12 @@ describe("SyncTransport — non-poisoning apply", () => {
       const url =
         typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
       if (init?.method === "POST") return new Response(JSON.stringify({}), { status: 201 });
+      if (new URL(url).pathname === "/v1/clock") {
+        return new Response(
+          JSON.stringify({ version: 1, nowMs: Date.now(), maxFutureMs: 300_000 }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
       if (url.includes("/v1/changes")) {
         polls += 1;
         // Return the whole batch until the cursor moves past it; simplest is to

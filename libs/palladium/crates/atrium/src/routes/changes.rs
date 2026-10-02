@@ -137,6 +137,17 @@ async fn change_visible(
     Ok(true)
 }
 
+pub(super) async fn get_clock(
+    State(state): State<AtriumState>,
+    Caller(user): Caller,
+    headers: HeaderMap,
+) -> Result<Json<palladium_core::ClockResponse>, AtriumError> {
+    let workspace = workspace_of(&headers)?;
+    state.db().require_member(&workspace, user.as_str()).await?;
+    let now_millis = state.now_millis().map_err(AtriumError::internal)?;
+    Ok(Json(palladium_core::ClockResponse::v1(now_millis)))
+}
+
 pub(super) async fn post_changes(
     State(state): State<AtriumState>,
     Caller(user): Caller,
@@ -145,9 +156,10 @@ pub(super) async fn post_changes(
 ) -> Result<(StatusCode, Json<PostReceipt>), AtriumError> {
     let workspace = workspace_of(&headers)?;
     state.db().require_member(&workspace, user.as_str()).await?;
+    let now_millis = state.now_millis().map_err(AtriumError::internal)?;
     let outcome = state
         .db()
-        .authorize_and_append_change(&workspace, user.as_str(), &change)
+        .authorize_and_append_change(&workspace, user.as_str(), &change, now_millis)
         .await?;
     let (outcome, cursor) = match outcome {
         AppendOutcome::Inserted(cursor) => ("inserted", cursor),

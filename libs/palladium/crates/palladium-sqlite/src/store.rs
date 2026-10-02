@@ -328,12 +328,12 @@ impl ChangeStore for SqliteStore {
         &self,
         scope: &Scope,
         change: &Change,
+        now_millis: u64,
     ) -> std::result::Result<palladium_core::InsertOutcome, Error> {
-        palladium_core::validate_v1_change(change).map_err(Error::InvalidData)?;
+        palladium_core::validate_structure(change).map_err(Error::InvalidData)?;
         let payload = palladium_core::canonical_change_bytes(change)?;
         let hash = format!("{:x}", sha2::Sha256::digest(&payload));
-        let millis = i64::try_from(change.hlc.millis())
-            .map_err(|_| Error::InvalidData("hlc millis overflow".into()))?;
+        let millis = i64::try_from(change.hlc.millis()).unwrap_or(i64::MAX);
         let ops_json = serde_json::to_string(&change.ops)?;
         let mut tx = self.pool.begin().await?;
         let inserted: Option<(i64,)> = sqlx::query_as(
@@ -353,6 +353,12 @@ impl ChangeStore for SqliteStore {
         .fetch_optional(&mut *tx)
         .await?;
         let (seq, inserted) = if let Some((seq,)) = inserted {
+            if change.hlc.millis() > i64::MAX.unsigned_abs()
+                || change.hlc.millis()
+                    > now_millis.saturating_add(palladium_core::V1_MAX_FUTURE_HLC_MILLIS)
+            {
+                return Err(Error::InvalidData("clock_skew".into()));
+            }
             (seq, true)
         } else {
             let (seq, existing): (i64, String) = sqlx::query_as(
@@ -489,8 +495,8 @@ mod tests {
         let store = SqliteStore::in_memory().await?;
         let scope = Scope::new("a");
         let c = make_change(1);
-        let first = store.insert(&scope, &c).await?;
-        let second = store.insert(&scope, &c).await?;
+        let first = store.insert(&scope, &c, u64::MAX).await?;
+        let second = store.insert(&scope, &c, u64::MAX).await?;
         assert!(matches!(first, palladium_core::InsertOutcome::Inserted(_)));
         assert!(matches!(
             second,
@@ -507,8 +513,10 @@ mod tests {
         let scope = Scope::new("a");
         let change = make_change(1);
 
-        let (first, second) =
-            tokio::join!(store.insert(&scope, &change), store.insert(&scope, &change));
+        let (first, second) = tokio::join!(
+            store.insert(&scope, &change, u64::MAX),
+            store.insert(&scope, &change, u64::MAX)
+        );
         let outcomes = [first?, second?];
         assert!(outcomes
             .iter()
@@ -526,7 +534,7 @@ mod tests {
         let scope = Scope::new("a");
         let change = make_change(i64::MAX as u64);
 
-        let result = store.insert(&scope, &change).await;
+        let result = store.insert(&scope, &change, 0).await;
         assert!(matches!(
             result,
             Err(Error::InvalidData(classification)) if classification == "clock_skew"
@@ -542,11 +550,11 @@ mod tests {
         let scope_b = Scope::new("b");
         let change = |millis| make_change(millis);
 
-        store.insert(&scope_a, &change(1)).await?;
+        store.insert(&scope_a, &change(1), u64::MAX).await?;
         for millis in 2..=6 {
-            store.insert(&scope_b, &change(millis)).await?;
+            store.insert(&scope_b, &change(millis), u64::MAX).await?;
         }
-        store.insert(&scope_a, &change(7)).await?;
+        store.insert(&scope_a, &change(7), u64::MAX).await?;
 
         let first = store.page(&scope_a, None, 1).await?;
         assert_eq!(

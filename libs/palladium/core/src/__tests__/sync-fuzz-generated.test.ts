@@ -187,8 +187,18 @@ describe("seeded generated SyncTransport protocol inputs", () => {
       const db = await engine();
       const transport = new SyncTransport(db, {
         serverUrl: SERVER_URL,
-        fetch: async (_input, init) =>
-          init?.method === "POST" ? response(generatedCase.receipt, 201) : response(page("0")),
+        fetch: async (input, init) => {
+          const url =
+            typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
+          if (new URL(url).pathname === "/v1/clock") {
+            return response(
+              JSON.stringify({ version: 1, nowMs: Date.now(), maxFutureMs: 300_000 }),
+            );
+          }
+          return init?.method === "POST"
+            ? response(generatedCase.receipt, 201)
+            : response(page("0"));
+        },
       });
       await transport.poll();
       await db.insert("notes", {
@@ -220,9 +230,13 @@ describe("seeded generated SyncTransport protocol inputs", () => {
           if (rejectHeaders) throw new Error("seeded auth callback failure");
           return { Authorization: `Bearer seed-${sequence}` };
         },
-        fetch: async (_input, init) => {
+        fetch: async (input, init) => {
           expect(new Headers(init?.headers).get("Authorization")).toBe(`Bearer seed-${sequence}`);
-          return response(page(`lifecycle-${sequence}`));
+          const url =
+            typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
+          return new URL(url).pathname === "/v1/clock"
+            ? response(JSON.stringify({ version: 1, nowMs: Date.now(), maxFutureMs: 300_000 }))
+            : response(page(`lifecycle-${sequence}`));
         },
       });
 

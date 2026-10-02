@@ -5,7 +5,9 @@ import {
   generateUuidV7,
   hlcFromString,
   hlcToString,
+  isHlcWithinFutureBound,
   isUuidV7,
+  isValidHlc,
   recvHlc,
   sendHlc,
 } from "../hlc.js";
@@ -16,6 +18,20 @@ describe("Hlc", () => {
     expect(hlc.counter).toBe(0);
     expect(hlc.nodeId).toBe("node-1");
     expect(hlc.wallMs).toBeGreaterThan(0);
+  });
+
+  it("separates structural validity from fresh-upload future admission", () => {
+    const serverHlc = {
+      wallMs: 1_800_000_000_000,
+      counter: 4,
+      nodeId: "00000000-0000-4000-8000-00000000b0b0",
+    };
+    expect(isValidHlc(serverHlc)).toBe(true);
+    expect(isHlcWithinFutureBound(serverHlc, 1_500_000_000_000)).toBe(false);
+    expect(isHlcWithinFutureBound(serverHlc, 1_800_000_000_000)).toBe(true);
+    expect(isValidHlc({ ...serverHlc, wallMs: Number.MAX_SAFE_INTEGER + 1 })).toBe(false);
+    expect(isValidHlc({ ...serverHlc, counter: 0x1_0000_0000 })).toBe(false);
+    expect(isValidHlc({ ...serverHlc, nodeId: serverHlc.nodeId.toUpperCase() })).toBe(false);
   });
 
   it("generates and validates canonical UUIDv7 row IDs", () => {

@@ -239,6 +239,8 @@ const SYNC_STATE_DDL = `CREATE TABLE IF NOT EXISTS ${SYNC_STATE} (
 
 const STATE_NODE_ID = "node_id";
 const STATE_HLC = "hlc";
+const STATE_ACCEPTED_HLC = "accepted_hlc";
+const STATE_TRUSTED_TIME = "trusted_server_time";
 const STATE_CURSOR = "cursor";
 /** The fingerprint of the SchemaConfig that initialized this local view. */
 const STATE_SCHEMA_IDENTITY = "schema_identity_v1";
@@ -293,6 +295,245 @@ export class PalladiumEngine<S extends SchemaMap> {
    * so a restart resumes from the persisted floor and never reissues an HLC.
    */
   #currentHlc: Hlc | null = null;
+  #clockAnchor: { readonly serverMs: number; readonly monotonicMs: number } | null = null;
+
+  #clockNow(): number {
+    if (this.#clockAnchor === null) return Date.now();
+    return (
+      this.#clockAnchor.serverMs + Math.floor(performance.now() - this.#clockAnchor.monotonicMs)
+    );
+  }
+
+  /**
+   * Anchor authoring time to an authenticated server sample. An existing HLC
+   * floor is not lowered; rejected future writes require explicit recovery.
+   * Across restart the saved sample is a conservative time floor, not evidence
+   * that the device's wall clock elapsed correctly while the process was closed.
+   */
+  async calibrateClock(serverNowMs: number): Promise<void> {
+    this.#assertServerTime(serverNowMs);
+    await this.#serialize(async () => {
+      await this.setSyncState(STATE_TRUSTED_TIME, String(serverNowMs));
+      this.#clockAnchor = { serverMs: serverNowMs, monotonicMs: performance.now() };
+    });
+  }
+
+  #assertServerTime(serverNowMs: number): void {
+    if (
+      !Number.isSafeInteger(serverNowMs) ||
+      serverNowMs < 0 ||
+      serverNowMs > Number.MAX_SAFE_INTEGER - 300_000
+    ) {
+      throw new TypeError("Invalid authenticated server time");
+    }
+  }
+
+  async #checkpointAcceptedClock(adapter: StorageAdapter, hlc: Hlc): Promise<void> {
+    const rows = await adapter.exec<{ value: string }>(
+      `SELECT value FROM ${SYNC_STATE} WHERE key = ?`,
+      [STATE_ACCEPTED_HLC],
+    );
+    const prior = rows[0]?.value;
+    if (prior === undefined || compareHlc(hlc, hlcFromString(prior)) > 0) {
+      await this.setSyncState(STATE_ACCEPTED_HLC, hlcToString(hlc), adapter);
+    }
+  }
+
+  #validateClockRejectedChanges(changes: readonly RemoteChange<S>[]): Set<string> {
+    const identities = new Set<string>();
+    const rejectedVersions = new Set<string>();
+    for (const change of changes) {
+      if (
+        !isUuidV4(change.id) ||
+        identities.has(change.id) ||
+        !isValidHlc(change.hlc) ||
+        change.hlc.nodeId !== this.nodeId ||
+        !sameOps(change.ops, normalizeOps(change.ops)) ||
+        change.ops.some((op) => !isUuidV7(op.id))
+      ) {
+        throw new TypeError("Invalid clock-rejected local Change");
+      }
+      identities.add(change.id);
+      const version = hlcToString(change.hlc);
+      if (rejectedVersions.has(version)) throw new TypeError("Duplicate rejected HLC");
+      rejectedVersions.add(version);
+    }
+    return rejectedVersions;
+  }
+
+  async #readClockRecoveryFloor(
+    adapter: StorageAdapter,
+    rejectedVersions: ReadonlySet<string>,
+    serverNowMs: number,
+  ): Promise<{
+    floor: Hlc;
+    registers: Array<MetaRow & { tbl: string; row_id: string; col: string }>;
+    pending: Array<MetaRow & { pending_id: string }>;
+  }> {
+    let floor: Hlc = { wallMs: serverNowMs, counter: 0, nodeId: this.nodeId };
+    const include = (version: Hlc): void => {
+      if (compareHlc(version, floor) > 0) floor = { ...version, nodeId: this.nodeId };
+    };
+    const accepted = await adapter.exec<{ value: string }>(
+      `SELECT value FROM ${SYNC_STATE} WHERE key = ?`,
+      [STATE_ACCEPTED_HLC],
+    );
+    if (accepted[0] !== undefined) include(hlcFromString(accepted[0].value));
+    const registers = await adapter.exec<MetaRow & { tbl: string; row_id: string; col: string }>(
+      `SELECT tbl, row_id, col, hlc_wall_ms, hlc_counter, hlc_node_id FROM ${SYNC_ROW_META}`,
+    );
+    const pending = await adapter.exec<MetaRow & { pending_id: string }>(
+      `SELECT pending_id, hlc_wall_ms, hlc_counter, hlc_node_id FROM ${PENDING_REMOTE_UPDATES}`,
+    );
+    for (const row of registers) {
+      const version = metaRowToHlc(row);
+      if (!rejectedVersions.has(hlcToString(version))) include(version);
+    }
+    for (const row of pending) {
+      const version = metaRowToHlc(row);
+      if (!rejectedVersions.has(hlcToString(version))) include(version);
+    }
+    return { floor, registers, pending };
+  }
+
+  async #createClockRecoveryReplacements(
+    adapter: StorageAdapter,
+    changes: readonly RemoteChange<S>[],
+    initialFloor: Hlc,
+    serverNowMs: number,
+  ): Promise<RemoteChange<S>[]> {
+    const replacements: RemoteChange<S>[] = [];
+    let floor = initialFloor;
+    for (const change of changes) {
+      const applied = await adapter.exec<{ change_id: string }>(
+        `SELECT change_id FROM ${APPLIED_CHANGES} WHERE change_id = ? LIMIT 1`,
+        [change.id],
+      );
+      if (applied.length !== 0) {
+        throw new Error("An accepted Change cannot be re-authored");
+      }
+      floor = sendHlc(floor, serverNowMs);
+      if (floor.wallMs > serverNowMs + 300_000) {
+        throw new Error("Clock recovery cannot lower accepted or unrelated future versions");
+      }
+      replacements.push({ id: crypto.randomUUID(), hlc: floor, ops: change.ops });
+    }
+    return replacements;
+  }
+
+  async #remapClockRejectedVersions(
+    adapter: StorageAdapter,
+    changes: readonly RemoteChange<S>[],
+    replacements: readonly RemoteChange<S>[],
+    registers: readonly (MetaRow & { tbl: string; row_id: string; col: string })[],
+    pending: readonly (MetaRow & { pending_id: string })[],
+  ): Promise<void> {
+    const replacementByVersion = new Map<string, Hlc>();
+    for (const [index, original] of changes.entries()) {
+      const replacement = replacements[index];
+      if (replacement === undefined) throw new Error("Missing recovery replacement");
+      replacementByVersion.set(hlcToString(original.hlc), replacement.hlc);
+    }
+    // Captured metadata is remapped by immutable key; overlapping HLC values
+    // cannot cascade into another register or pending row.
+    for (const row of registers) {
+      const replacement = replacementByVersion.get(hlcToString(metaRowToHlc(row)));
+      if (replacement === undefined) continue;
+      await adapter.exec(
+        `UPDATE ${SYNC_ROW_META} SET hlc_wall_ms = ?, hlc_counter = ?, hlc_node_id = ?
+         WHERE tbl = ? AND row_id = ? AND col = ?`,
+        [replacement.wallMs, replacement.counter, replacement.nodeId, row.tbl, row.row_id, row.col],
+      );
+    }
+    for (const row of pending) {
+      const replacement = replacementByVersion.get(hlcToString(metaRowToHlc(row)));
+      if (replacement === undefined) continue;
+      await adapter.exec(
+        `UPDATE ${PENDING_REMOTE_UPDATES} SET hlc_wall_ms = ?, hlc_counter = ?, hlc_node_id = ?
+         WHERE pending_id = ?`,
+        [replacement.wallMs, replacement.counter, replacement.nodeId, row.pending_id],
+      );
+    }
+  }
+
+  async #reauthorClockRejectedChangesInTransaction(
+    adapter: StorageAdapter,
+    changes: readonly RemoteChange<S>[],
+    rejectedVersions: ReadonlySet<string>,
+    serverNowMs: number,
+    checkpoint: (
+      replacements: readonly RemoteChange<S>[],
+      adapter: StorageAdapter,
+    ) => Promise<void>,
+  ): Promise<RemoteChange<S>[]> {
+    await this.#ensureSyncTables(adapter);
+    const snapshot = await this.#readClockRecoveryFloor(adapter, rejectedVersions, serverNowMs);
+    const replacements = await this.#createClockRecoveryReplacements(
+      adapter,
+      changes,
+      snapshot.floor,
+      serverNowMs,
+    );
+    await this.#remapClockRejectedVersions(
+      adapter,
+      changes,
+      replacements,
+      snapshot.registers,
+      snapshot.pending,
+    );
+    await checkpoint(replacements, adapter);
+    const floor = replacements.at(-1)?.hlc ?? snapshot.floor;
+    await this.setSyncState(STATE_TRUSTED_TIME, String(serverNowMs), adapter);
+    await this.setSyncState(STATE_HLC, hlcToString(floor), adapter);
+    return replacements;
+  }
+
+  /** Preserve the accepted clock floor before removing an acknowledged outbox entry. */
+  async recordAcceptedClock(hlc: Hlc, adapter?: StorageAdapter): Promise<void> {
+    if (!isValidHlc(hlc)) throw new TypeError("Invalid accepted HLC");
+    if (adapter !== undefined) {
+      await this.#checkpointAcceptedClock(adapter, hlc);
+      return;
+    }
+    await this.#serialize(() => this.#checkpointAcceptedClock(this.adapter, hlc));
+  }
+
+  /**
+   * Explicitly re-author server-confirmed clock rejections with fresh identities.
+   * The caller must archive immutable originals and enqueue the replacements in
+   * `checkpoint`, in this same transaction, and verify its outbox snapshot there.
+   * Accepted or unrelated conflict versions are never lowered.
+   *
+   * @internal Transport recovery coordination; never use for uncertain uploads.
+   */
+  async reauthorClockRejectedChanges(
+    changes: readonly RemoteChange<S>[],
+    serverNowMs: number,
+    checkpoint: (
+      replacements: readonly RemoteChange<S>[],
+      adapter: StorageAdapter,
+    ) => Promise<void>,
+  ): Promise<readonly RemoteChange<S>[]> {
+    this.#assertServerTime(serverNowMs);
+    const rejectedVersions = this.#validateClockRejectedChanges(changes);
+    return this.#serialize(async () => {
+      if (!isTransactable(this.adapter)) {
+        throw new Error("Clock recovery requires transaction support");
+      }
+      const replacements = await this.adapter.transaction((adapter) =>
+        this.#reauthorClockRejectedChangesInTransaction(
+          adapter,
+          changes,
+          rejectedVersions,
+          serverNowMs,
+          checkpoint,
+        ),
+      );
+      this.#currentHlc = replacements.at(-1)?.hlc ?? this.#currentHlc;
+      this.#clockAnchor = { serverMs: serverNowMs, monotonicMs: performance.now() };
+      return replacements;
+    });
+  }
 
   constructor(adapter: StorageAdapter, options?: PalladiumEngineOptions | BlobAdapter) {
     this.adapter = adapter;
@@ -311,23 +552,24 @@ export class PalladiumEngine<S extends SchemaMap> {
   }
 
   /**
-   * Advance the engine's HLC for a *send* (local mutation about to be
-   * propagated to the server). Counter increments on same-millisecond bursts;
-   * `wallMs` advances when the OS clock ticks. The returned HLC is strictly
-   * greater than any HLC this engine has issued or received.
+   * Advance the engine's HLC for a local mutation. After calibration, wall time
+   * comes from the authenticated server sample plus monotonic process elapsed
+   * time, not the device wall clock. The result exceeds the current floor.
    */
   nextSendHlc(): Hlc {
+    const now = this.#clockNow();
     this.#currentHlc =
-      this.#currentHlc === null ? createHlc(this.nodeId) : sendHlc(this.#currentHlc);
+      this.#currentHlc === null ? createHlc(this.nodeId, now) : sendHlc(this.#currentHlc, now);
     return this.#currentHlc;
   }
 
   /** Advance the engine clock after observing a remote HLC. */
   receiveHlc(remote: Hlc): void {
+    const now = this.#clockNow();
     this.#currentHlc =
       this.#currentHlc === null
-        ? recvHlc(createHlc(this.nodeId), remote)
-        : recvHlc(this.#currentHlc, remote);
+        ? recvHlc(createHlc(this.nodeId, now), remote, now)
+        : recvHlc(this.#currentHlc, remote, now);
   }
 
   /** Most-recently-issued HLC, or `null` if the engine has not yet stamped anything. */
@@ -387,6 +629,12 @@ export class PalladiumEngine<S extends SchemaMap> {
    * Adopt the durable `nodeId` and engine HLC from `_sync_state`.
    */
   async #loadDurableState(): Promise<void> {
+    const trustedTime = await this.getSyncState(STATE_TRUSTED_TIME);
+    if (trustedTime !== null) {
+      const serverMs = Number(trustedTime);
+      this.#assertServerTime(serverMs);
+      this.#clockAnchor = { serverMs, monotonicMs: performance.now() };
+    }
     const persistedNode = await this.getSyncState(STATE_NODE_ID);
     if (persistedNode === null) {
       await this.setSyncState(STATE_NODE_ID, this.#nodeId);
@@ -489,6 +737,34 @@ export class PalladiumEngine<S extends SchemaMap> {
     if (this.#syncTransportOwner === owner) this.#syncTransportOwner = null;
   }
 
+  async #assertLocalRowsNotRetired(adpt: StorageAdapter, ops: ReadonlyArray<Op<S>>): Promise<void> {
+    for (const op of ops) {
+      if (op.type === "delete") continue;
+      const table = String(op.table);
+      const id =
+        op.type === "insert" ? (op.data as unknown as Record<string, unknown>)["id"] : op.id;
+      if (
+        typeof id === "string" &&
+        (await this.#getColMeta(adpt, table, id, DELETED_COL)) !== null
+      ) {
+        throw new Error(`Cannot ${op.type} retired row ${table}/${id}; restore with a new UUID`);
+      }
+    }
+  }
+
+  async #applyLocalOps(
+    adpt: StorageAdapter,
+    ops: ReadonlyArray<Op<S>>,
+    hlc: Hlc | null,
+    touchedTables: Set<string>,
+  ): Promise<void> {
+    for (const op of ops) {
+      touchedTables.add(String(op.table).toLowerCase());
+      await this.#applyOp(adpt, op);
+      if (hlc !== null) await this.#stampLocalMeta(adpt, op, hlc);
+    }
+  }
+
   /**
    * Execute a batch of local mutations atomically. The whole batch is stamped
    * with a single HLC (`D2a`), and every written `(table, row, column)` records
@@ -513,6 +789,7 @@ export class PalladiumEngine<S extends SchemaMap> {
       if (!isTransactable(this.adapter)) {
         throw new Error("PalladiumEngine writes require transaction support");
       }
+      const previousHlc = this.#currentHlc;
       // One HLC per change (only minted when there is something to stamp).
       const hlc = ops.length > 0 ? this.nextSendHlc() : null;
       const localChange =
@@ -528,18 +805,20 @@ export class PalladiumEngine<S extends SchemaMap> {
 
       const applyAll = async (adpt: StorageAdapter): Promise<void> => {
         await this.#ensureSyncTables(adpt);
-        for (const op of ops) {
-          touchedTables.add(String(op.table).toLowerCase());
-          await this.#applyOp(adpt, op);
-          if (hlc !== null) await this.#stampLocalMeta(adpt, op, hlc);
-        }
+        await this.#assertLocalRowsNotRetired(adpt, ops);
+        await this.#applyLocalOps(adpt, ops, hlc, touchedTables);
         if (hlc !== null) await this.setSyncState(STATE_HLC, hlcToString(hlc), adpt);
         if (localChange !== null && !this.#suppressLocalEmit) {
           for (const checkpoint of checkpoints) await checkpoint(localChange, adpt);
         }
       };
 
-      await this.adapter.transaction(applyAll);
+      try {
+        await this.adapter.transaction(applyAll);
+      } catch (error) {
+        this.#currentHlc = previousHlc;
+        throw error;
+      }
 
       if (localChange !== null && !this.#suppressLocalEmit) {
         this.emitter.emit("changes:local", localChange);
@@ -629,6 +908,7 @@ export class PalladiumEngine<S extends SchemaMap> {
     if (!duplicate) {
       await this.#recordRemoteChange(adpt, scope, change.id, payload);
     }
+    await this.#checkpointAcceptedClock(adpt, change.hlc);
     await this.#checkpointRemoteState(adpt, cursor);
   }
 
@@ -662,9 +942,13 @@ export class PalladiumEngine<S extends SchemaMap> {
       const applyAll = async (adpt: StorageAdapter): Promise<void> => {
         await this.#applyRemoteTransaction(adpt, change, canonicalOps, touchedTables, cursor);
       };
+      const previousHlc = this.#currentHlc;
       this.#suppressLocalEmit = true;
       try {
         await this.adapter.transaction(applyAll);
+      } catch (error) {
+        this.#currentHlc = previousHlc;
+        throw error;
       } finally {
         this.#suppressLocalEmit = false;
       }
@@ -716,6 +1000,7 @@ export class PalladiumEngine<S extends SchemaMap> {
       try {
         for (const { change, canonicalOps } of prepared) {
           const changeTouchedTables = new Set<string>();
+          const previousHlc = this.#currentHlc;
           try {
             await this.adapter.transaction(async (adpt) => {
               await this.#applyRemoteTransaction(
@@ -728,6 +1013,7 @@ export class PalladiumEngine<S extends SchemaMap> {
             });
             for (const table of changeTouchedTables) touchedTables.add(table);
           } catch (error) {
+            this.#currentHlc = previousHlc;
             if (onRejected === undefined) throw error;
             allApplied = false;
             await this.adapter.transaction(async (adpt) => {
@@ -885,21 +1171,6 @@ export class PalladiumEngine<S extends SchemaMap> {
     return rows[0] ? metaRowToHlc(rows[0]) : null;
   }
 
-  /** Highest write HLC across all *data* columns of a row (excludes the tombstone). */
-  async #maxColMeta(adpt: StorageAdapter, table: string, rowId: string): Promise<Hlc | null> {
-    const rows = await adpt.exec<MetaRow>(
-      `SELECT hlc_wall_ms, hlc_counter, hlc_node_id FROM ${SYNC_ROW_META}
-         WHERE tbl = ? AND row_id = ? AND col != ?`,
-      [table, rowId, DELETED_COL],
-    );
-    let max: Hlc | null = null;
-    for (const r of rows) {
-      const h = metaRowToHlc(r);
-      if (max === null || compareHlc(h, max) > 0) max = h;
-    }
-    return max;
-  }
-
   /** Upsert the write HLC for one `(table, row, column)`. */
   async #putColMeta(
     adpt: StorageAdapter,
@@ -959,15 +1230,6 @@ export class PalladiumEngine<S extends SchemaMap> {
     ]);
   }
 
-  /** Drop the delete tombstone for a row (on resurrection). */
-  async #clearTombstone(adpt: StorageAdapter, table: string, rowId: string): Promise<void> {
-    await adpt.exec(`DELETE FROM ${SYNC_ROW_META} WHERE tbl = ? AND row_id = ? AND col = ?`, [
-      table,
-      rowId,
-      DELETED_COL,
-    ]);
-  }
-
   /** Stamp a set of columns of one row with the same write HLC. */
   async #stampCols(
     adpt: StorageAdapter,
@@ -988,7 +1250,6 @@ export class PalladiumEngine<S extends SchemaMap> {
       const data = op.data as unknown as Record<string, unknown> & {
         id: string;
       };
-      await this.#clearTombstone(adpt, table, data.id);
       await this.#stampCols(adpt, table, data.id, Object.keys(data), hlc);
     } else if (op.type === "update") {
       await this.#stampCols(
@@ -999,7 +1260,11 @@ export class PalladiumEngine<S extends SchemaMap> {
         hlc,
       );
     } else {
-      await this.#putColMeta(adpt, table, op.id, DELETED_COL, hlc);
+      await this.#clearPendingRemoteUpdates(adpt, table, op.id);
+      const existing = await this.#getColMeta(adpt, table, op.id, DELETED_COL);
+      if (existing === null || compareHlc(hlc, existing) > 0) {
+        await this.#putColMeta(adpt, table, op.id, DELETED_COL, hlc);
+      }
     }
   }
 
@@ -1024,9 +1289,8 @@ export class PalladiumEngine<S extends SchemaMap> {
 
   /**
    * Apply one remote op with column-level LWW gating against `_sync_row_meta`.
-   * A column is written only when the incoming `hlc` strictly beats the stored
-   * write HLC; deletes reconcile against the row's newest column write and
-   * leave a durable tombstone.
+   * Column writes require a strictly newer HLC. A delete permanently retires
+   * its row UUID regardless of operation HLC and keeps the newest delete HLC.
    */
   async #applyRemoteOp(adpt: StorageAdapter, op: Op<S>, hlc: Hlc): Promise<void> {
     const table = String(op.table);
@@ -1054,24 +1318,17 @@ export class PalladiumEngine<S extends SchemaMap> {
     hlc: Hlc,
   ): Promise<void> {
     const data = op.data as unknown as Record<string, unknown> & { id: string };
-    const tombstone = await this.#getColMeta(adpt, table, data.id, DELETED_COL);
-    if (tombstone !== null && compareHlc(hlc, tombstone) <= 0) return;
+    if ((await this.#getColMeta(adpt, table, data.id, DELETED_COL)) !== null) return;
     const winning = await this.#winningCols(adpt, table, data.id, data, hlc);
     if (Object.keys(winning).length === 0) return;
 
-    if (tombstone === null) {
-      const existing = await adpt.exec(`SELECT 1 FROM ${table} WHERE id = ? LIMIT 1`, [data.id]);
-      if (existing.length === 0) {
-        await this._putRow(adpt, table, data.id, data);
-        await this.#stampCols(adpt, table, data.id, Object.keys(data), hlc);
-      } else {
-        await this._patchRow(adpt, table, data.id, winning);
-        await this.#stampCols(adpt, table, data.id, Object.keys(winning), hlc);
-      }
-    } else {
-      await this.#clearTombstone(adpt, table, data.id);
+    const existing = await adpt.exec(`SELECT 1 FROM ${table} WHERE id = ? LIMIT 1`, [data.id]);
+    if (existing.length === 0) {
       await this._putRow(adpt, table, data.id, data);
       await this.#stampCols(adpt, table, data.id, Object.keys(data), hlc);
+    } else {
+      await this._patchRow(adpt, table, data.id, winning);
+      await this.#stampCols(adpt, table, data.id, Object.keys(winning), hlc);
     }
 
     const pending = await this.#pendingRemoteUpdates(adpt, table, data.id);
@@ -1097,8 +1354,7 @@ export class PalladiumEngine<S extends SchemaMap> {
     op: Extract<Op<S>, { type: "update" }>,
     hlc: Hlc,
   ): Promise<void> {
-    const tombstone = await this.#getColMeta(adpt, table, op.id, DELETED_COL);
-    if (tombstone !== null && compareHlc(hlc, tombstone) <= 0) return;
+    if ((await this.#getColMeta(adpt, table, op.id, DELETED_COL)) !== null) return;
     const existing = await adpt.exec(`SELECT 1 FROM ${table} WHERE id = ? LIMIT 1`, [op.id]);
     if (existing.length === 0) {
       await this.#bufferRemoteUpdate(adpt, table, op.id, op.patch as Record<string, unknown>, hlc);
@@ -1112,7 +1368,6 @@ export class PalladiumEngine<S extends SchemaMap> {
       hlc,
     );
     if (Object.keys(winning).length === 0) return;
-    if (tombstone !== null) await this.#clearTombstone(adpt, table, op.id);
     await this._patchRow(adpt, table, op.id, winning);
     await this.#stampCols(adpt, table, op.id, Object.keys(winning), hlc);
   }
@@ -1124,11 +1379,11 @@ export class PalladiumEngine<S extends SchemaMap> {
     hlc: Hlc,
   ): Promise<void> {
     const tombstone = await this.#getColMeta(adpt, table, rowId, DELETED_COL);
-    if (tombstone !== null && compareHlc(hlc, tombstone) <= 0) return;
-    const maxCol = await this.#maxColMeta(adpt, table, rowId);
-    if (maxCol !== null && compareHlc(hlc, maxCol) <= 0) return;
     await this._removeRow(adpt, table, rowId);
-    await this.#putColMeta(adpt, table, rowId, DELETED_COL, hlc);
+    await this.#clearPendingRemoteUpdates(adpt, table, rowId);
+    if (tombstone === null || compareHlc(hlc, tombstone) > 0) {
+      await this.#putColMeta(adpt, table, rowId, DELETED_COL, hlc);
+    }
   }
 }
 

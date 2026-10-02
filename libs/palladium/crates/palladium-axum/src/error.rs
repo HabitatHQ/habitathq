@@ -23,8 +23,12 @@ pub enum AppError {
     NotFound,
     /// The caller is not permitted to perform the operation.
     Forbidden(String),
+    /// A request conflicts with an already accepted idempotency key.
+    Conflict(String),
     /// The request body or parameters were invalid.
     BadRequest(String),
+    /// A fresh Change exceeds the authoritative server clock's future bound.
+    ClockSkew,
     /// An unexpected internal error occurred.
     Internal(Box<dyn std::error::Error + Send + Sync>),
 }
@@ -39,7 +43,13 @@ impl IntoResponse for AppError {
         let (status, code, message) = match self {
             Self::NotFound => (StatusCode::NOT_FOUND, "not_found", "not found".to_owned()),
             Self::Forbidden(message) => (StatusCode::FORBIDDEN, "forbidden", message),
+            Self::Conflict(message) => (StatusCode::CONFLICT, "idempotency_conflict", message),
             Self::BadRequest(message) => (StatusCode::BAD_REQUEST, "invalid_request", message),
+            Self::ClockSkew => (
+                StatusCode::BAD_REQUEST,
+                "clock_skew",
+                "change HLC exceeds the server future bound".to_owned(),
+            ),
             Self::Internal(err) => {
                 tracing::error!(%err, "internal server error");
                 (

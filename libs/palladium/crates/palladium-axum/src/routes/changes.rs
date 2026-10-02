@@ -10,7 +10,9 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use palladium_core::{AppendCursor, Change, ChangeStore, InsertOutcome, MAX_PAGE_SIZE};
+use palladium_core::{
+    AppendCursor, Change, ChangeStore, ClockResponse, InsertOutcome, MAX_PAGE_SIZE,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -23,6 +25,30 @@ struct PostReceipt {
 pub(super) struct ListQuery {
     pub cursor: Option<String>,
     pub limit: Option<u32>,
+}
+
+#[utoipa::path(get, path="/v1/clock", tag="changes", responses((status=200, body=ClockResponse, description="authoritative server clock")))]
+pub(super) async fn get_clock<S>(
+    State(state): State<AppState<S>>,
+    AuthPrincipal(principal): AuthPrincipal,
+) -> Result<Json<ClockResponse>, AppError>
+where
+    S: ChangeStore + Send + Sync,
+{
+    state
+        .authorizer
+        .authorize(AuthorizationRequest {
+            principal: &principal,
+            action: Action::ReadChanges,
+            resource: Resource::ChangeStream,
+        })
+        .await
+        .map_err(|error| match error {
+            crate::auth::AuthorizationError::Forbidden(message) => AppError::Forbidden(message),
+            crate::auth::AuthorizationError::NotFound => AppError::NotFound,
+        })?;
+    let now_millis = state.clock.now_millis().map_err(AppError::internal)?;
+    Ok(Json(palladium_core::ClockResponse::v1(now_millis)))
 }
 
 #[utoipa::path(post, path="/v1/changes", tag="changes", request_body=Change, responses((status=201, body=PostReceipt, description="accepted")))]
@@ -47,12 +73,22 @@ where
             crate::auth::AuthorizationError::Forbidden(message) => AppError::Forbidden(message),
             crate::auth::AuthorizationError::NotFound => AppError::NotFound,
         })?;
-    palladium_core::validate_v1_change(&change).map_err(AppError::BadRequest)?;
+    palladium_core::validate_structure(&change).map_err(AppError::BadRequest)?;
+    let now_millis = state.clock.now_millis().map_err(AppError::internal)?;
     let outcome = state
         .store
-        .insert(grant.scope(), &change)
+        .insert(grant.scope(), &change, now_millis)
         .await
-        .map_err(AppError::internal)?;
+        .map_err(|error| {
+            let message = error.to_string();
+            if message.contains("change_conflict") {
+                AppError::Conflict("change_conflict".to_owned())
+            } else if message.contains("clock_skew") {
+                AppError::ClockSkew
+            } else {
+                AppError::internal(error)
+            }
+        })?;
     let (outcome, cursor) = match outcome {
         InsertOutcome::Inserted(cursor) => ("inserted", cursor),
         InsertOutcome::Duplicate(cursor) => ("duplicate", cursor),

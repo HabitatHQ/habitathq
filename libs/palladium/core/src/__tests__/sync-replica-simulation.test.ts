@@ -85,22 +85,12 @@ function applyOracle(rows: Map<string, OracleRow>, remote: RemoteChange<Schema>)
   const wins = (stored: Hlc | undefined) =>
     stored === undefined || compareHlc(remote.hlc, stored) > 0;
   if (op.type === "delete") {
-    const maxColumn = [...row.versions.values()].reduce<Hlc | null>(
-      (maximum, version) =>
-        maximum === null || compareHlc(version, maximum) > 0 ? version : maximum,
-      null,
-    );
-    if (
-      (row.tombstone !== null && compareHlc(remote.hlc, row.tombstone) <= 0) ||
-      (maxColumn !== null && compareHlc(remote.hlc, maxColumn) <= 0)
-    )
-      return;
-    row.tombstone = remote.hlc;
+    if (row.tombstone === null || compareHlc(remote.hlc, row.tombstone) > 0)
+      row.tombstone = remote.hlc;
     return;
   }
-  if (row.tombstone !== null && compareHlc(remote.hlc, row.tombstone) <= 0) return;
+  if (row.tombstone !== null) return;
   if (op.type === "insert") {
-    row.tombstone = null;
     for (const [column, value] of Object.entries(op.data)) {
       if (!wins(row.versions.get(column))) continue;
       row.values.set(column, value);
@@ -168,6 +158,12 @@ function simulationChanges(seed: number): readonly RemoteChange<Schema>[] {
       data: { id: ROW_A, title: "stale resurrection", body: "stale", updated_at: 2 },
     }),
     change(102, 1_500, REPLICA_IDS[2], { type: "delete", table: "notes", id: ROW_A }),
+    change(103, 1_600, REPLICA_IDS[0], {
+      type: "update",
+      table: "notes",
+      id: ROW_A,
+      patch: { body: "post-delete update" },
+    }),
   );
   return changes;
 }
@@ -234,8 +230,8 @@ async function runReplicaSchedule(
   trace: string[],
 ): Promise<void> {
   const initial = changes.slice(0, 2);
-  const updates = changes.slice(2, -3);
-  const delayedDeletes = changes.slice(-3);
+  const updates = changes.slice(2, -4);
+  const delayedDeletes = changes.slice(-4);
   for (const remote of initial)
     await applyAndTrace(replica, replicaIndex, remote, "initial", trace);
 
@@ -270,6 +266,79 @@ async function assertReplicaState(
   trace.push(`r${replicaIndex}:assert`);
 }
 
+async function runRetirementPermutations(directory: string, trace: string[]): Promise<void> {
+  const operations = [
+    change(200, 1_000, REPLICA_IDS[0], {
+      type: "insert",
+      table: "notes",
+      id: ROW_A,
+      data: { id: ROW_A, title: "insert", body: "body", updated_at: 1 },
+    }),
+    change(201, 2_000, REPLICA_IDS[1], { type: "delete", table: "notes", id: ROW_A }),
+    change(202, 3_000, REPLICA_IDS[2], {
+      type: "update",
+      table: "notes",
+      id: ROW_A,
+      patch: { title: "update" },
+    }),
+  ];
+  const permutations = (items: typeof operations): Array<typeof operations> =>
+    items.length === 0
+      ? [[]]
+      : items.flatMap((item, index) =>
+          permutations(items.filter((_, itemIndex) => itemIndex !== index)).map((rest) => [
+            item,
+            ...rest,
+          ]),
+        );
+  for (const [index, schedule] of permutations(operations).entries()) {
+    const filename = join(directory, `retirement-${index.toString()}.sqlite`);
+    const nodeId = REPLICA_IDS[index % REPLICA_IDS.length] ?? REPLICA_IDS[0];
+    let engine = new PalladiumEngine<Schema>(
+      new NodeSqliteAdapter({ vfs: { type: "file", filename } }),
+      { nodeId },
+    );
+    await engine.init(SCHEMA);
+    const delivered: RemoteChange<Schema>[] = [];
+    for (const [step, remote] of schedule.entries()) {
+      await engine.applyRemote(remote);
+      await engine.applyRemote(remote);
+      delivered.push(remote, remote);
+      if (step === 0) {
+        await engine.adapter.close();
+        engine = new PalladiumEngine<Schema>(
+          new NodeSqliteAdapter({ vfs: { type: "file", filename } }),
+          { nodeId },
+        );
+        await engine.init(SCHEMA);
+      }
+    }
+    const oracle = new Map<string, OracleRow>();
+    for (const remote of delivered) applyOracle(oracle, remote);
+    const expected = [...oracle.entries()]
+      .filter(([, row]) => row.tombstone === null)
+      .map(([id, row]) => ({
+        id,
+        title: String(row.values.get("title")),
+        body: String(row.values.get("body")),
+        updated_at: Number(row.values.get("updated_at")),
+      }));
+    const actual = await engine.exec<Schema["notes"]>(sql`SELECT * FROM notes`);
+    expect(actual, `trace=${trace.join(",")} retirement=${index}`).toEqual(expected);
+    expect(actual).toEqual([]);
+    const tombstones = await engine.exec<{ hlc_wall_ms: number }>(
+      sql`SELECT hlc_wall_ms FROM _sync_row_meta WHERE tbl = 'notes' AND row_id = ${ROW_A} AND col = '__palladium_deleted__'`,
+    );
+    expect(tombstones).toEqual([{ hlc_wall_ms: 2_000 }]);
+    const pending = await engine.exec(
+      sql`SELECT * FROM _sync_pending_remote_updates WHERE tbl = 'notes' AND row_id = ${ROW_A}`,
+    );
+    expect(pending).toEqual([]);
+    trace.push(`retirement:${index}:restart:converged`);
+    await engine.adapter.close();
+  }
+}
+
 async function runSeed(seed: number): Promise<void> {
   const directory = mkdtempSync(join(tmpdir(), "palladium-sync-simulation-"));
   const trace: string[] = [];
@@ -282,6 +351,7 @@ async function runSeed(seed: number): Promise<void> {
     const expected = oracleRows(changes);
     for (const [replicaIndex, replica] of replicas.entries())
       await assertReplicaState(replica, replicaIndex, expected, seed, trace);
+    await runRetirementPermutations(directory, trace);
   } finally {
     for (const replica of replicas) await replica.engine.adapter.close();
     rmSync(directory, { recursive: true, force: true });

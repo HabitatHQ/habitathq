@@ -140,8 +140,15 @@ describe("durable sync state — poll cursor across transport restart", () => {
 
     // First transport session: apply c1, which persists the cursor.
     let served = false;
-    const fetch1: typeof globalThis.fetch = async (_input, init) => {
-      if (init?.method === "POST") return new Response("{}", { status: 201 });
+    const fetch1: typeof globalThis.fetch = async (input) => {
+      const url =
+        typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
+      if (new URL(url).pathname === "/v1/clock") {
+        return new Response(
+          JSON.stringify({ version: 1, nowMs: Date.now(), maxFutureMs: 300_000 }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
       if (!served) {
         served = true;
         return new Response(
@@ -189,10 +196,16 @@ describe("durable sync state — poll cursor across transport restart", () => {
     // persisted cursor — the first GET carries ?limit=100&cursor=<cursor>.
     const seenUrls: string[] = [];
     const fetch2: typeof globalThis.fetch = async (input, init) => {
+      const url =
+        typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
+      if (new URL(url).pathname === "/v1/clock") {
+        return new Response(
+          JSON.stringify({ version: 1, nowMs: Date.now(), maxFutureMs: 300_000 }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
       if (init?.method === "POST") return new Response("{}", { status: 201 });
-      seenUrls.push(
-        typeof input === "string" ? input : input instanceof Request ? input.url : input.href,
-      );
+      seenUrls.push(url);
       return new Response(
         JSON.stringify({
           version: 1,
@@ -389,7 +402,16 @@ describe("durable sync state — schema identity", () => {
 
       const transport = new SyncTransport(upgraded, {
         serverUrl: SERVER_URL,
-        fetch: async () => new Response("unexpected", { status: 500 }),
+        fetch: async (input) => {
+          const url =
+            typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
+          return new URL(url).pathname === "/v1/clock"
+            ? new Response(
+                JSON.stringify({ version: 1, nowMs: Date.now(), maxFutureMs: 300_000 }),
+                { status: 200, headers: { "Content-Type": "application/json" } },
+              )
+            : new Response("unexpected", { status: 500 });
+        },
       });
       await transport.start();
       const quarantined = await transport.inspectQuarantine();

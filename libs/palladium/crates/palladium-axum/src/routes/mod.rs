@@ -19,14 +19,15 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::state::AppState;
 use blobs::{delete_blob, get_blob, get_presigned, post_blob};
-use changes::{get_changes, post_changes};
+use changes::{get_changes, get_clock, post_changes};
 use health::{get_health, get_instance_health};
 
 /// `OpenAPI` specification for the Palladium sync engine REST API.
 #[derive(OpenApi)]
 #[openapi(
-    paths(changes::post_changes, changes::get_changes),
+    paths(changes::get_clock, changes::post_changes, changes::get_changes),
     components(schemas(
+        palladium_core::ClockResponse,
         palladium_core::Change,
         palladium_core::Op,
         palladium_core::Hlc,
@@ -46,6 +47,7 @@ pub struct ApiDoc;
 /// Build the versioned API router with all routes and middleware.
 ///
 /// The router includes:
+/// - `GET /v1/clock` — authenticated server Unix time and future-upload bound
 /// - `POST /v1/changes` and `GET /v1/changes` — sync endpoints
 /// - `POST /v1/blobs`, `GET /v1/blobs/:id`, `DELETE /v1/blobs/:id` — blob endpoints
 /// - `GET /v1/blobs/:id/presigned` — pre-signed URL endpoint
@@ -63,6 +65,7 @@ where
 {
     // Apply state to the API routes first so they become Router<()>.
     let api = Router::new()
+        .route("/v1/clock", get(get_clock::<S>))
         .route("/v1/changes", post(post_changes::<S>))
         .route("/v1/changes", get(get_changes::<S>))
         .route("/v1/health", get(get_health::<S>))

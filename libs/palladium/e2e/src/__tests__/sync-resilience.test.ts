@@ -16,7 +16,7 @@ import {
   sql,
 } from "@palladium/core";
 import { NodeSqliteAdapter } from "@palladium/sqlite-node";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ManagedServer, rustBinary, startServer, WORKSPACE_ROOT } from "../setup/process.js";
 
 type TaskRow = { id: string; text: string; done: number };
@@ -283,9 +283,9 @@ async function waitUntil(description: string, predicate: () => Promise<boolean>)
 }
 
 async function retryWhenDue(client: Client): Promise<void> {
-  await waitUntil("outbox retry backoff", async () => {
+  await waitUntil("outbox upload eligibility", async () => {
     const [row] = await outbox(client);
-    return row !== undefined && row.next_retry_at !== null && row.next_retry_at <= Date.now();
+    return row !== undefined && (row.next_retry_at === null || row.next_retry_at <= Date.now());
   });
 }
 async function waitForFixtureMessage<T extends FixtureMessage["event"]>(
@@ -394,6 +394,7 @@ describe("SyncTransport resilience against the real Rust server", () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     let clientFailure: unknown;
     await Promise.all(
       fixtureProcesses.splice(0).map(async (fixture) => {
@@ -638,5 +639,66 @@ describe("SyncTransport resilience against the real Rust server", () => {
         ops: [{ op: "insert", table: "tasks", row_id: rowId, data: { id: rowId, text, done: 0 } }],
       }),
     ]);
+  });
+  it("recovers future-clock pending work and syncs to a ten-year-slow receiver through the real server", async () => {
+    if (server === undefined || tmpDir === undefined) throw new Error("server fixture unavailable");
+    const filename = join(tmpDir, "skewed-writer.db");
+    const writer = track(await makeClient(filename, server.baseUrl, undefined, false));
+    const rowId = generateUuidV7();
+    const accurateNow = Date.now();
+    const tenYears = 10 * 365 * 24 * 60 * 60 * 1_000;
+    const wall = vi.spyOn(Date, "now").mockReturnValue(accurateNow + tenYears);
+    await writer.engine.insert("tasks", { id: rowId, text: "preserved offline intent", done: 0 });
+    wall.mockRestore();
+    const original = (await outbox(writer))[0];
+    if (original === undefined) throw new Error("missing skewed durable Change");
+    await writer.transport.syncOnce();
+    expect(writer.transport.lastError?.code).toBe("clock_skew");
+    expect((await serverHistory(server.baseUrl)).map((entry) => entry.id)).not.toContain(
+      original.change_id,
+    );
+    await writer.close();
+    clients.splice(clients.indexOf(writer), 1);
+
+    const reopened = track(await makeClient(filename, server.baseUrl, undefined, false));
+    const recovered = await reopened.transport.recoverClock();
+    expect(recovered).toEqual([
+      {
+        originalChangeId: original.change_id,
+        replacementChangeId: expect.any(String),
+      },
+    ]);
+    const replacement = recovered[0];
+    if (replacement === undefined) throw new Error("missing replacement mapping");
+    expect(replacement.replacementChangeId).not.toBe(original.change_id);
+    expect(await reopened.transport.inspectQuarantine()).toContainEqual(
+      expect.objectContaining({
+        changeId: original.change_id,
+        disposition: "superseded",
+      }),
+    );
+    await reopened.transport.syncOnce();
+    expect(await outbox(reopened)).toEqual([]);
+    expect((await serverHistory(server.baseUrl)).map((entry) => entry.id)).toEqual([
+      replacement.replacementChangeId,
+    ]);
+
+    const reader = track(
+      await makeClient(join(tmpDir, "slow-reader.db"), server.baseUrl, undefined, false),
+    );
+    vi.spyOn(Date, "now").mockReturnValue(accurateNow - tenYears);
+    await reader.transport.syncOnce();
+    expect(await taskRows(reader)).toEqual([
+      { id: rowId, text: "preserved offline intent", done: 0 },
+    ]);
+    await reader.engine.update("tasks", rowId, { done: 1 });
+    await reader.transport.syncOnce();
+    vi.restoreAllMocks();
+    await reopened.transport.syncOnce();
+    expect(await taskRows(reopened)).toEqual([
+      { id: rowId, text: "preserved offline intent", done: 1 },
+    ]);
+    expect(await reader.transport.inspectQuarantine()).toEqual([]);
+    expect(await outbox(reader)).toEqual([]);
   });
 });
