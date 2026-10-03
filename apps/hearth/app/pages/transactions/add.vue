@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { getCreditCardPaymentSuggestion } from '~/lib/credit-card-payments'
 import { SUPPORTED_CURRENCIES } from '~/lib/currency/convert'
+import { getTransferDestinationError } from '~/lib/transaction-edit-rules'
 import type { Account, Category, User } from '~/types/database'
 import { formatCurrency } from '~/utils/format'
 
@@ -55,15 +57,6 @@ onMounted(async () => {
   if (accts[1]) form.toAccountId = accts[1].id
 })
 
-// Sync currency when account changes
-watch(
-  () => form.accountId,
-  (id) => {
-    const acct = accounts.value.find((a) => a.id === id)
-    if (acct) form.currency = acct.currency || homeCurrency.value
-  },
-)
-
 // ── Category options flat list for current type ────────────────────────────
 
 const categoryOptions = computed(() => {
@@ -79,6 +72,58 @@ const categoryOptions = computed(() => {
   }
   return result
 })
+const selectedTransferTarget = computed(() =>
+  form.type === 'transfer'
+    ? accounts.value.find((account) => account.id === form.toAccountId)
+    : undefined,
+)
+const creditPaymentSuggestion = computed(() => {
+  const target = selectedTransferTarget.value
+  const source = accounts.value.find((account) => account.id === form.accountId)
+  return getCreditCardPaymentSuggestion(source, target, form.currency)
+})
+
+function useCreditPaymentSuggestion() {
+  if (creditPaymentSuggestion.value === null) return
+  form.amountStr = creditPaymentSuggestion.value.toFixed(2)
+  if (!form.description) form.description = 'Credit card payment'
+}
+
+watch(
+  () => form.toAccountId,
+  () => {
+    if (creditPaymentSuggestion.value !== null) {
+      if (!form.description || form.description === 'Credit card payment') {
+        form.description = 'Credit card payment'
+      }
+    } else if (form.description === 'Credit card payment') {
+      form.description = ''
+    }
+  },
+)
+
+watch(
+  () => form.accountId,
+  (id) => {
+    const account = accounts.value.find((entry) => entry.id === id)
+    if (account) form.currency = account.currency || homeCurrency.value
+    if (form.type === 'transfer' && form.toAccountId === id) {
+      form.toAccountId = accounts.value.find((entry) => entry.id !== id)?.id ?? ''
+    }
+  },
+)
+
+watch(
+  () => form.type,
+  (type) => {
+    if (type !== 'transfer') return
+    if (!form.toAccountId || form.toAccountId === form.accountId) {
+      form.toAccountId = accounts.value.find((entry) => entry.id !== form.accountId)?.id ?? ''
+    }
+  },
+)
+
+// ── Amount display ─────────────────────────────────────────────────────────
 
 const otherUsers = computed(() => users.value.filter((u) => !u.is_current))
 
@@ -130,6 +175,11 @@ async function submit() {
   }
   if (!form.accountId) {
     error.value = 'Please select an account'
+    return
+  }
+  const transferError = getTransferDestinationError(form.type, form.accountId, form.toAccountId)
+  if (transferError) {
+    error.value = transferError
     return
   }
   saving.value = true
@@ -281,13 +331,12 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
           step="any"
           inputmode="decimal"
           placeholder="0.00"
-          class="text-5xl text-center font-bold font-mono tracking-tight amount-display
+          class="w-0 min-w-0 flex-1 text-4xl text-center font-bold font-mono tracking-tight amount-display
           focus:outline-none focus:ring-0 focus:border-transparent"
           :class="form.type === 'income' ? 'text-green-400' : 'text-(--ui-text)'"
           v-model="form.amountStr"
           aria-label="Amount"
-        >
-        </input>
+        />
         </div>
       </div>
 
@@ -360,11 +409,26 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
             v-model="form.toAccountId"
             class="flex-1 bg-transparent text-sm text-(--ui-text) focus:outline-none"
           >
-            <option v-for="acct in accounts.filter(a => a.id !== form.accountId)" :key="acct.id" :value="acct.id">
+            <option value="">Select destination account</option>
+            <option v-for="acct in accounts.filter((account) => account.id !== form.accountId)" :key="acct.id" :value="acct.id">
               {{ acct.name }}
             </option>
           </select>
         </div>
+
+        <button
+          v-if="creditPaymentSuggestion !== null"
+          type="button"
+          class="flex w-full items-center justify-between gap-3 rounded-xl border border-primary-500/20 bg-primary-500/5 px-4 py-3 text-left min-h-[56px]"
+          aria-label="Use suggested credit card payment"
+          @click="useCreditPaymentSuggestion"
+        >
+          <span>
+            <span class="block text-xs text-(--ui-text-muted)">Suggested: Full balance</span>
+            <span class="block font-mono text-sm font-semibold text-(--ui-text)">{{ formatAmount(creditPaymentSuggestion ?? 0, form.currency) }}</span>
+          </span>
+          <span class="text-sm font-medium text-primary-400">Use</span>
+        </button>
 
         <!-- Category -->
         <div

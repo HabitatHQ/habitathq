@@ -1,6 +1,15 @@
+import type { Page } from '@playwright/test'
 import { expect, test } from '@playwright/test'
 
-// These tests require the dev server at http://127.0.0.1:3000 with seed data loaded.
+// Edit and search tests create their own transaction so they do not depend on persistent local data.
+async function createTestExpense(page: Page, merchant: string) {
+  await page.goto('/transactions/add')
+  await page.waitForLoadState('networkidle')
+  await page.locator('input[aria-label="Amount"]').fill('11.25')
+  await page.getByLabel('Merchant').fill(merchant)
+  await page.getByRole('button', { name: 'Save transaction' }).click()
+  await expect(page).not.toHaveURL(/\/transactions\/add$/)
+}
 
 test.describe('Add Transaction — full flow', () => {
   test('saves an expense and it appears in the transaction list', async ({ page }) => {
@@ -11,17 +20,9 @@ test.describe('Add Transaction — full flow', () => {
     const typeGroup = page.getByRole('group', { name: 'Transaction type' })
     await typeGroup.getByRole('button', { name: /Expense/i }).click()
 
-    // Enter amount via number pad: 1 2 . 5 0
-    const pad = page.getByRole('group', { name: 'Number pad' })
-    await pad.getByRole('button', { name: '1' }).click()
-    await pad.getByRole('button', { name: '2' }).click()
-    await pad.getByRole('button', { name: '.' }).click()
-    await pad.getByRole('button', { name: '5' }).click()
-    await pad.getByRole('button', { name: '0' }).click()
-
-    // Verify amount display
-    const amountDisplay = page.getByLabel('Amount to enter')
-    await expect(amountDisplay).toContainText('12.50')
+    const amount = page.locator('input[aria-label="Amount"]')
+    await amount.fill('12.50')
+    await expect(amount).toHaveValue('12.50')
 
     // Fill in merchant / note
     const merchantField = page.getByLabel(/merchant|payee/i)
@@ -43,40 +44,88 @@ test.describe('Add Transaction — full flow', () => {
     const typeGroup = page.getByRole('group', { name: 'Transaction type' })
     await typeGroup.getByRole('button', { name: /Income/i }).click()
 
-    const pad = page.getByRole('group', { name: 'Number pad' })
-    await pad.getByRole('button', { name: '5' }).click()
-    await pad.getByRole('button', { name: '0' }).click()
-    await pad.getByRole('button', { name: '0' }).click()
-
-    await expect(page.getByLabel('Amount to enter')).toContainText('500')
+    const amount = page.locator('input[aria-label="Amount"]')
+    await amount.fill('500')
+    await expect(amount).toHaveValue('500')
 
     await page.getByRole('button', { name: 'Save transaction' }).click()
     await expect(page).not.toHaveURL('/transactions/add', { timeout: 5000 })
   })
 
-  test('backspace removes last digit', async ({ page }) => {
+  test('backspace removes the final amount digit', async ({ page }) => {
     await page.goto('/transactions/add')
-    const pad = page.getByRole('group', { name: 'Number pad' })
-    await pad.getByRole('button', { name: '4' }).click()
-    await pad.getByRole('button', { name: '2' }).click()
-    await pad.getByRole('button', { name: '3' }).click()
-    await pad.getByRole('button', { name: 'Backspace' }).click()
+    const amount = page.locator('input[aria-label="Amount"]')
+    await amount.fill('423')
+    await amount.press('End')
+    await amount.press('Backspace')
 
-    await expect(page.getByLabel('Amount to enter')).toContainText('42')
-    await expect(page.getByLabel('Amount to enter')).not.toContainText('423')
+    await expect(amount).toHaveValue('42')
   })
 
   test('Save is disabled until amount is non-zero', async ({ page }) => {
     await page.goto('/transactions/add')
     await expect(page.getByRole('button', { name: 'Save transaction' })).toBeDisabled()
 
-    await page.getByRole('group', { name: 'Number pad' }).getByRole('button', { name: '5' }).click()
+    await page.locator('input[aria-label="Amount"]').fill('5')
     await expect(page.getByRole('button', { name: 'Save transaction' })).toBeEnabled()
   })
 })
 
+test.describe('Transfer transactions', () => {
+  test('rejects a transfer with no destination account', async ({ page }) => {
+    await page.goto('/transactions/add')
+    await page.waitForLoadState('networkidle')
+    await page.getByRole('group', { name: 'Transaction type' }).getByRole('button', { name: /Transfer/i }).click()
+    await page.locator('#tx-to-account').selectOption('')
+    await page.locator('input[aria-label="Amount"]').fill('5')
+    await page.getByLabel('Merchant').fill('Invalid transfer marker')
+    await page.getByRole('button', { name: 'Save transaction' }).click()
+
+    await expect(page).toHaveURL(/\/transactions\/add$/)
+    await expect(page.getByText('Please select a destination account')).toBeVisible()
+    await page.goto('/transactions')
+    await expect(page.getByText('Invalid transfer marker')).toHaveCount(0)
+  })
+
+  test('does not offer the source account as a transfer destination', async ({ page }) => {
+    await page.goto('/transactions/add')
+    await page.waitForLoadState('networkidle')
+    await page.getByRole('group', { name: 'Transaction type' }).getByRole('button', { name: /Transfer/i }).click()
+
+    const sourceId = await page.locator('#tx-account').inputValue()
+    expect(sourceId).not.toBe('')
+    await expect(page.locator(`#tx-to-account option[value="${sourceId}"]`)).toHaveCount(0)
+  })
+})
+test.describe('Edit transfer validation', () => {
+  test('does not save a transfer with an empty destination', async ({ page }) => {
+    await createTestExpense(page, 'Edit transfer validation fixture')
+    await page.goto('/transactions')
+    await page.waitForLoadState('networkidle')
+
+    const row = page
+      .locator('[data-testid="transaction-row"]')
+      .filter({ hasText: 'Edit transfer validation fixture' })
+      .first()
+    await expect(row).toBeVisible()
+    const href = await row.getAttribute('href')
+    expect(href).toMatch(/transactions\/[^/]+$/)
+    if (!href) throw new Error('The created transaction row has no edit link')
+    await page.goto(href)
+    await page.waitForLoadState('networkidle')
+
+    await page.getByRole('group', { name: 'Transaction type' }).getByRole('button', { name: 'Transfer' }).click()
+    await page.locator('#tx-to-account').selectOption('')
+    await page.getByRole('button', { name: 'Save transaction' }).click()
+    await expect(page.getByText('Please select a destination account')).toBeVisible()
+    await expect(page).toHaveURL(/transactions\/[^/]+$/)
+  })
+})
+
+
 test.describe('Edit Transaction — row click and edit flow', () => {
   test.beforeEach(async ({ page }) => {
+    await createTestExpense(page, 'Edit transaction fixture')
     await page.goto('/transactions')
     await page.waitForLoadState('networkidle')
     await page.waitForTimeout(1500)
@@ -111,9 +160,8 @@ test.describe('Edit Transaction — row click and edit flow', () => {
     await page.waitForLoadState('networkidle')
     await page.waitForTimeout(1000)
     // Amount display should show a non-zero value
-    const amountDisplay = page.getByLabel('Amount to enter')
-    const text = await amountDisplay.textContent()
-    expect(text).not.toBe('$0.00')
+    const amount = page.locator('input[aria-label="Amount"]')
+    await expect(amount).not.toHaveValue('0')
   })
 
   test('edit page cancel button navigates back', async ({ page }) => {
@@ -139,6 +187,7 @@ test.describe('Edit Transaction — row click and edit flow', () => {
 
 test.describe('Transaction list — search and filter', () => {
   test.beforeEach(async ({ page }) => {
+    await createTestExpense(page, 'Search fixture')
     await page.goto('/transactions')
     await page.waitForLoadState('networkidle')
     await page.waitForTimeout(1000)

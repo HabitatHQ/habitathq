@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { SUPPORTED_CURRENCIES } from '~/lib/currency/convert'
+import { getIouSplitEditError, getTransferDestinationError } from '~/lib/transaction-edit-rules'
 import type { Account, Category, User } from '~/types/database'
 import { formatCurrency } from '~/utils/format'
 
@@ -31,17 +32,20 @@ const form = reactive({
 const saving = ref(false)
 const error = ref<string | null>(null)
 const notFound = ref(false)
+const iouSplit = ref<Awaited<ReturnType<typeof db.getIouSplits>>[number] | null>(null)
+const iouTransaction = ref<{ type: TxType; amount: number; currency: string } | null>(null)
 
 const accounts = ref<Account[]>([])
 const categories = ref<Array<Category & { children: Category[] }>>([])
 const users = ref<User[]>([])
 
 onMounted(async () => {
-  const [tx, accts, cats, usrs] = await Promise.all([
+  const [tx, accts, cats, usrs, splits] = await Promise.all([
     db.getTransaction(id),
     db.getAccounts(),
     db.getCategoryTree(),
     db.getUsers(),
+    db.getIouSplits(),
   ])
 
   accounts.value = accts
@@ -53,6 +57,10 @@ onMounted(async () => {
     return
   }
 
+  iouSplit.value = splits.find((split) => split.transaction_id === id) ?? null
+  if (iouSplit.value) {
+    iouTransaction.value = { type: tx.type, amount: tx.amount, currency: tx.currency || 'USD' }
+  }
   form.type = tx.type
   form.amountStr = String(Math.abs(tx.amount))
   form.currency = tx.currency || 'USD'
@@ -125,6 +133,26 @@ async function submit() {
   if (!form.accountId) {
     error.value = 'Please select an account'
     return
+  }
+  const transferError = getTransferDestinationError(form.type, form.accountId, form.toAccountId)
+  if (transferError) {
+    error.value = transferError
+    return
+  }
+  if (iouSplit.value) {
+    if (!iouTransaction.value) {
+      error.value = 'This IOU-linked transaction cannot be safely edited.'
+      return
+    }
+    const iouEditError = getIouSplitEditError(true, iouTransaction.value, {
+      type: form.type,
+      amount: form.type === 'expense' ? -amountNum.value : amountNum.value,
+      currency: form.currency,
+    })
+    if (iouEditError) {
+      error.value = iouEditError
+      return
+    }
   }
   saving.value = true
   error.value = null
@@ -228,7 +256,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
           step="any"
           inputmode="decimal"
           placeholder="0.00"
-          class="text-5xl text-center font-bold font-mono tracking-tight amount-display
+          class="w-0 min-w-0 flex-1 text-4xl text-center font-bold font-mono tracking-tight amount-display
           focus:outline-none focus:ring-0 focus:border-transparent"
           :class="form.type === 'income' ? 'text-green-400' : 'text-(--ui-text)'"
           v-model="form.amountStr"
@@ -307,6 +335,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
             v-model="form.toAccountId"
             class="flex-1 bg-transparent text-sm text-(--ui-text) focus:outline-none"
           >
+            <option value="">Select destination</option>
             <option v-for="acct in accounts.filter(a => a.id !== form.accountId)" :key="acct.id" :value="acct.id">
               {{ acct.name }}
             </option>

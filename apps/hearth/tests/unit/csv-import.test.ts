@@ -3,6 +3,8 @@ import { autoMapCategories } from '~/lib/import/category-mapper'
 import { autoMapColumns } from '~/lib/import/column-mapper'
 import { detectDelimiter, parseCSV } from '~/lib/import/csv-parser'
 import { findDuplicates } from '~/lib/import/dedup'
+import { buildImportRecord } from '~/lib/import/record-builder'
+import { parseImportAmount, parseImportDate } from '~/lib/import/parsers'
 
 describe('parseCSV', () => {
   it('parses comma-delimited CSV', () => {
@@ -50,6 +52,142 @@ describe('parseCSV', () => {
   })
 })
 
+describe('parseCSV source row indices', () => {
+  it('keeps original line numbers when blank rows are omitted', () => {
+    const parsed = parseCSV('Date,Amount\n2026-01-01,1\n\n2026-01-02,2')
+    expect(parsed.rows).toHaveLength(2)
+    expect(parsed.rowIndices).toEqual([2, 4])
+  })
+})
+
+describe('parseImportAmount', () => {
+  it.each([
+    ['$1,234.50', 1234.5],
+    ['$12.50', 12.5],
+    ['12.50€', 12.5],
+    ['(€25.00)', -25],
+    ['-12.5', -12.5],
+    [' 50 ', 50],
+  ])('parses supported amount %s', (raw, expected) => {
+    expect(parseImportAmount(raw)).toBe(expected)
+  })
+
+  it.each(['12abc', '1$2', 'Infinity', '-Infinity', 'NaN', '1,23.00', '1e3', '$'])(
+    'rejects invalid amount %s',
+    (raw) => {
+      expect(parseImportAmount(raw)).toBeNull()
+    },
+  )
+})
+
+describe('parseImportDate', () => {
+  it.each([
+    ['2024-02-29', '2024-02-29'],
+    ['2/9/2024', '2024-02-09'],
+    ['2/9/51', '1951-02-09'],
+    ['2/9/50', '2050-02-09'],
+  ])('parses documented date %s', (raw, expected) => {
+    expect(parseImportDate(raw)).toBe(expected)
+  })
+
+  it.each(['2023-02-29', '2/30/2024', '13/1/2024', '1/0/2024', '2024-1-01'])(
+    'rejects invalid or unsupported date %s',
+    (raw) => {
+      expect(parseImportDate(raw)).toBeNull()
+    },
+  )
+})
+
+describe('buildImportRecord', () => {
+  const accounts = [
+    { id: 'checking', name: 'Checking', currency: 'USD' },
+    { id: 'euro', name: 'Euro Account', currency: 'EUR' },
+  ]
+
+  it('uses mapped account, type, and explicit CSV currency', () => {
+    const result = buildImportRecord(
+      {
+        date: '2026-01-02',
+        amount: '25',
+        merchant: 'Market',
+        description: '',
+        category: '',
+        account: 'Euro Account',
+        type: 'expense',
+        currency: 'GBP',
+      },
+      accounts,
+      'checking',
+      'USD',
+      'user',
+      null,
+    )
+    expect(result.record).toMatchObject({
+      account_id: 'euro',
+      amount: -25,
+      type: 'expense',
+      currency: 'GBP',
+    })
+  })
+
+  it('uses the selected account currency when CSV currency is absent', () => {
+    const result = buildImportRecord(
+      {
+        date: '2026-01-02',
+        amount: '-25',
+        merchant: 'Market',
+        description: '',
+        category: '',
+        account: 'Euro Account',
+        type: '',
+        currency: '',
+      },
+      accounts,
+      'checking',
+      'USD',
+      'user',
+      null,
+    )
+    expect(result.record).toMatchObject({ account_id: 'euro', amount: -25, type: 'expense', currency: 'EUR' })
+  })
+
+  it('rejects unknown account, type, or unsupported explicit currency', () => {
+    const fields = {
+      date: '2026-01-02',
+      amount: '25',
+      merchant: '',
+      description: '',
+      category: '',
+      account: 'Missing',
+      type: '',
+      currency: '',
+    }
+    expect(buildImportRecord(fields, accounts, 'checking', 'USD', 'user', null).reason).toContain(
+      'Unknown account',
+    )
+    expect(
+      buildImportRecord(
+        { ...fields, account: '', type: 'transfer' },
+        accounts,
+        'checking',
+        'USD',
+        'user',
+        null,
+      ).reason,
+    ).toContain('Unsupported transaction type')
+    expect(
+      buildImportRecord(
+        { ...fields, account: '', currency: 'XYZ' },
+        accounts,
+        'checking',
+        'USD',
+        'user',
+        null,
+      ).reason,
+    ).toContain('Unsupported currency')
+  })
+})
+
 describe('detectDelimiter', () => {
   it('detects comma', () => {
     expect(detectDelimiter('a,b,c\n1,2,3')).toBe(',')
@@ -89,6 +227,12 @@ describe('autoMapColumns', () => {
     ])
     expect(mapping.get('Outflow')).toBe('amount')
     expect(mapping.get('Memo')).toBe('description')
+  })
+  it('maps account, transaction type, and currency fields', () => {
+    const mapping = autoMapColumns(['Account Name', 'Transaction Type', 'Currency Code'])
+    expect(mapping.get('Account Name')).toBe('account')
+    expect(mapping.get('Transaction Type')).toBe('type')
+    expect(mapping.get('Currency Code')).toBe('currency')
   })
 })
 

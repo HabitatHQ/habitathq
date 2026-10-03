@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { useAppSettings } from '~/composables/useAppSettings'
 import { autoMapCategories } from '~/lib/import/category-mapper'
 import { autoMapColumns, type HearthField } from '~/lib/import/column-mapper'
 import { parseCSV } from '~/lib/import/csv-parser'
 import { findDuplicates } from '~/lib/import/dedup'
 import type { ImportPreset } from '~/lib/import/presets'
+import { buildImportRecord } from '~/lib/import/record-builder'
 import type { Transaction } from '~/types/database'
 
 const db = useDatabase()
@@ -19,7 +21,7 @@ const preset = ref<ImportPreset | null>(null)
 const rawText = ref('')
 const parsedHeaders = ref<string[]>([])
 const parsedRows = ref<string[][]>([])
-
+const parsedRowIndices = ref<number[]>([])
 // Step 2: Column mapping
 const columnMap = ref<Map<string, HearthField>>(new Map())
 const fieldOptions: HearthField[] = [
@@ -30,6 +32,7 @@ const fieldOptions: HearthField[] = [
   'description',
   'account',
   'type',
+  'currency',
   'skip',
 ]
 
@@ -46,9 +49,9 @@ const errorRows = ref<Array<{ index: number; reason: string }>>([])
 const importing = ref(false)
 const importProgress = ref(0)
 
-// ── Reference data ─────────────────────────────────────────────────────
-const accounts = ref<Array<{ id: string; name: string }>>([])
+const accounts = ref<Array<{ id: string; name: string; currency: string }>>([])
 const currentUserId = ref('')
+const { settings } = useAppSettings()
 
 onMounted(async () => {
   const [accts, cats, user] = await Promise.all([
@@ -56,7 +59,7 @@ onMounted(async () => {
     db.getCategories(),
     db.getCurrentUser(),
   ])
-  accounts.value = accts.map((a) => ({ id: a.id, name: a.name }))
+  accounts.value = accts.map((a) => ({ id: a.id, name: a.name, currency: a.currency }))
   hearthCategories.value = cats.map((c) => ({ id: c.id, name: c.name }))
   currentUserId.value = user?.id ?? ''
 })
@@ -71,7 +74,7 @@ function handleFile(e: Event) {
     const parsed = parseCSV(rawText.value)
     parsedHeaders.value = parsed.headers
     parsedRows.value = parsed.rows
-
+    parsedRowIndices.value = parsed.rowIndices
     if (preset.value) {
       // Apply preset column mapping
       columnMap.value = new Map(Object.entries(preset.value.columnMap))
@@ -134,76 +137,55 @@ function setCategoryMapping(imported: string, hearthId: string | null) {
 // ── Step 4: Preview ──────────────────────────────────────────────────────
 async function preparePreview() {
   step.value = 'preview'
-
-  const dateCol = [...columnMap.value.entries()].find(([, f]) => f === 'date')?.[0]
-  const amountCol = [...columnMap.value.entries()].find(([, f]) => f === 'amount')?.[0]
-  const merchantCol = [...columnMap.value.entries()].find(([, f]) => f === 'merchant')?.[0]
-  const catCol = [...columnMap.value.entries()].find(([, f]) => f === 'category')?.[0]
-  const descCol = [...columnMap.value.entries()].find(([, f]) => f === 'description')?.[0]
-
-  const dateIdx = dateCol ? parsedHeaders.value.indexOf(dateCol) : -1
-  const amountIdx = amountCol ? parsedHeaders.value.indexOf(amountCol) : -1
-  const merchantIdx = merchantCol ? parsedHeaders.value.indexOf(merchantCol) : -1
-  const catIdx = catCol ? parsedHeaders.value.indexOf(catCol) : -1
-  const descIdx = descCol ? parsedHeaders.value.indexOf(descCol) : -1
-
+  const indexFor = (field: HearthField) => {
+    const header = [...columnMap.value.entries()].find(([, mapped]) => mapped === field)?.[0]
+    return header ? parsedHeaders.value.indexOf(header) : -1
+  }
+  const indices = {
+    date: indexFor('date'),
+    amount: indexFor('amount'),
+    merchant: indexFor('merchant'),
+    category: indexFor('category'),
+    description: indexFor('description'),
+    account: indexFor('account'),
+    type: indexFor('type'),
+    currency: indexFor('currency'),
+  }
   const txns: Array<Omit<Transaction, 'id' | 'created_at' | 'updated_at'>> = []
   const errors: Array<{ index: number; reason: string }> = []
 
   for (let i = 0; i < parsedRows.value.length; i++) {
     const row = parsedRows.value[i]!
-
-    // Parse date
-    const rawDate = dateIdx >= 0 ? (row[dateIdx]?.trim() ?? '') : ''
-    const date = parseImportDate(rawDate)
-    if (!date) {
-      errors.push({ index: i, reason: `Invalid date: "${rawDate}"` })
+    const value = (index: number) => (index >= 0 ? (row[index]?.trim() ?? '') : '')
+    const rawCategory = value(indices.category)
+    const categoryId = categoryMap.value.get(rawCategory)?.hearthId ?? null
+    const result = buildImportRecord(
+      {
+        date: value(indices.date),
+        amount: value(indices.amount),
+        merchant: value(indices.merchant),
+        description: value(indices.description),
+        category: rawCategory,
+        account: value(indices.account),
+        type: value(indices.type),
+        currency: value(indices.currency),
+      },
+      accounts.value,
+      accounts.value[0]?.id ?? null,
+      settings.value.currency,
+      currentUserId.value,
+      categoryId,
+    )
+    if (result.reason) {
+      errors.push({ index: parsedRowIndices.value[i] ?? i + 2, reason: result.reason })
       continue
     }
-
-    // Parse amount
-    const rawAmount = amountIdx >= 0 ? (row[amountIdx]?.trim() ?? '') : ''
-    const amount = parseImportAmount(rawAmount)
-    if (amount == null) {
-      errors.push({ index: i, reason: `Invalid amount: "${rawAmount}"` })
-      continue
-    }
-
-    const merchant = merchantIdx >= 0 ? (row[merchantIdx]?.trim() ?? '') : ''
-    const description = descIdx >= 0 ? (row[descIdx]?.trim() ?? '') : ''
-    const rawCategory = catIdx >= 0 ? (row[catIdx]?.trim() ?? '') : ''
-
-    // Map category
-    let categoryId: string | null = null
-    if (rawCategory) {
-      const mapping = categoryMap.value.get(rawCategory)
-      if (mapping?.hearthId) categoryId = mapping.hearthId
-    }
-
-    const type = amount < 0 ? 'expense' : 'income'
-
-    txns.push({
-      date,
-      amount,
-      currency: 'USD',
-      account_id: accounts.value[0]?.id ?? '',
-      user_id: currentUserId.value,
-      type: type as 'expense' | 'income',
-      category_id: categoryId,
-      description,
-      merchant,
-      is_private: 0,
-      is_recurring: 0,
-      transfer_to_account_id: null,
-      split_id: null,
-      source: 'import',
-    })
+    txns.push(result.record)
   }
 
   importReady.value = txns
   errorRows.value = errors
 
-  // Duplicate detection
   const existingTxns = await db.getTransactions(10000)
   const incoming = txns.map((t) => ({ date: t.date, amount: t.amount, merchant: t.merchant }))
   const existing = existingTxns.map((t) => ({
@@ -212,32 +194,6 @@ async function preparePreview() {
     merchant: t.merchant,
   }))
   duplicateIndices.value = findDuplicates(incoming, existing)
-}
-
-// ── Date/Amount parsing helpers ──────────────────────────────────────────
-function parseImportDate(raw: string): string | null {
-  // Try ISO format: YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw
-  // Try M/D/YYYY
-  const mdyMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
-  if (mdyMatch) {
-    return `${mdyMatch[3]}-${mdyMatch[1]?.padStart(2, '0')}-${mdyMatch[2]?.padStart(2, '0')}`
-  }
-  // Try M/D/YY
-  const mdyShort = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/)
-  if (mdyShort) {
-    const year = Number(mdyShort[3]) > 50 ? `19${mdyShort[3]}` : `20${mdyShort[3]}`
-    return `${year}-${mdyShort[1]?.padStart(2, '0')}-${mdyShort[2]?.padStart(2, '0')}`
-  }
-  return null
-}
-
-function parseImportAmount(raw: string): number | null {
-  // Strip currency symbols, commas, spaces
-  const cleaned = raw.replace(/[$,\s]/g, '')
-  const num = Number.parseFloat(cleaned)
-  if (Number.isNaN(num)) return null
-  return num
 }
 
 // ── Import execution ─────────────────────────────────────────────────────
@@ -444,7 +400,7 @@ const totalIncome = computed(() =>
         <UAlert
           v-if="errorRows.length"
           title="Rows with errors"
-          :description="`${errorRows.length} row(s) will be skipped: ${errorRows.slice(0, 3).map((e) => e.reason).join(', ')}${errorRows.length > 3 ? '...' : ''}`"
+          :description="`${errorRows.length} row(s) will be skipped: ${errorRows.slice(0, 3).map((e) => `Row ${e.index}: ${e.reason}`).join(', ')}${errorRows.length > 3 ? '...' : ''}`"
           color="warning"
           variant="soft"
         />

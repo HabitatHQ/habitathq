@@ -2,6 +2,7 @@
 import type { AppTheme, ColorMode, NlpTier } from '~/composables/useAppSettings'
 import { SUPPORTED_CURRENCIES } from '~/lib/currency/convert'
 import type { Account, HearthExport } from '~/types/database'
+import { formatCurrency } from '~/utils/format'
 
 const currencies = SUPPORTED_CURRENCIES
 
@@ -18,6 +19,49 @@ const dbInfo = ref<{
 } | null>(null)
 const importFileRef = ref<HTMLInputElement | null>(null)
 const accounts = ref<Account[]>([])
+const reconcileAccount = ref<Account | null>(null)
+const reconcileBalance = ref('')
+const reconcileError = ref('')
+const reconciling = ref(false)
+
+const reconcileDifference = computed(() => {
+  const rawAmount = String(reconcileBalance.value)
+  const amount = Number(rawAmount)
+  return rawAmount.trim() !== '' && Number.isFinite(amount) && reconcileAccount.value
+    ? amount - reconcileAccount.value.balance
+    : null
+})
+
+function openReconcile(account: Account) {
+  reconcileAccount.value = account
+  reconcileBalance.value = account.balance.toFixed(2)
+  reconcileError.value = ''
+}
+
+async function saveReconciliation() {
+  const account = reconcileAccount.value
+  const rawAmount = String(reconcileBalance.value)
+  const actual = Number(rawAmount)
+  if (!account || rawAmount.trim() === '' || !Number.isFinite(actual)) {
+    reconcileError.value = 'Enter a valid balance.'
+    return
+  }
+  reconciling.value = true
+  reconcileError.value = ''
+  try {
+    await db.reconcileAccount(account.id, actual)
+    accounts.value = await db.getAccountsWithBalances()
+    reconcileAccount.value = null
+  } catch (error) {
+    reconcileError.value = error instanceof Error ? error.message : 'Could not reconcile account.'
+  } finally {
+    reconciling.value = false
+  }
+}
+
+const reconciledAccount = computed(
+  () => accounts.value.find((account) => account.id === reconcileAccount.value?.id) ?? null,
+)
 
 const NLP_TIERS: { id: NlpTier; label: string; desc: string }[] = [
   { id: 'regex', label: 'Lite', desc: 'Instant, pattern matching' },
@@ -328,6 +372,84 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
       </div>
     </section>
 
+    <section aria-label="Account balances">
+      <h2 class="text-xs uppercase tracking-widest text-(--ui-text-muted) font-medium mb-3">Account balances</h2>
+      <div class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) divide-y divide-(--ui-border) overflow-hidden">
+        <div v-for="account in accounts" :key="account.id" class="flex items-center gap-3 p-4 min-h-[60px]">
+          <div class="min-w-0 flex-1">
+            <p class="text-sm font-medium text-(--ui-text)">{{ account.name }}</p>
+            <p class="text-xs text-(--ui-text-muted)">{{ account.type }} · {{ account.currency }}</p>
+          </div>
+          <span class="font-mono text-sm text-(--ui-text)">{{ formatCurrency(account.balance, account.currency) }}</span>
+          <button
+            type="button"
+            class="min-h-[44px] px-3 rounded-lg text-sm font-medium text-primary-400 hover:bg-(--ui-bg-elevated)"
+            :aria-label="`Reconcile ${account.name}`"
+            @click="openReconcile(account)"
+          >
+            Reconcile
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <div
+      v-if="reconcileAccount"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      role="presentation"
+      @click.self="reconcileAccount = null"
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="reconcile-title"
+        class="w-full max-w-md rounded-2xl bg-(--ui-bg) border border-(--ui-border) p-5 space-y-4"
+      >
+        <div>
+          <h2 id="reconcile-title" class="text-lg font-semibold">Reconcile {{ reconciledAccount?.name }}</h2>
+          <p class="text-sm text-(--ui-text-muted) mt-1">
+            Computed balance: {{ formatCurrency(reconciledAccount?.balance ?? 0, reconciledAccount?.currency ?? 'USD') }}
+          </p>
+        </div>
+        <label class="block space-y-1 text-sm" for="reconcile-balance">
+          <span>Actual balance ({{ reconciledAccount?.currency }})</span>
+          <input
+            id="reconcile-balance"
+            v-model="reconcileBalance"
+            type="number"
+            inputmode="decimal"
+            step="0.01"
+            class="w-full min-h-[44px] rounded-lg border border-(--ui-border) bg-(--ui-bg-muted) px-3 font-mono"
+          />
+        </label>
+        <p v-if="reconcileDifference !== null" class="text-sm">
+          Difference:
+          <span class="font-mono" :class="reconcileDifference < 0 ? 'text-rose-400' : 'text-green-400'">
+            {{ reconcileDifference >= 0 ? '+' : '' }}{{ formatCurrency(reconcileDifference, reconciledAccount?.currency ?? 'USD') }}
+          </span>
+          <span class="block text-xs text-(--ui-text-muted)">This changes the opening balance only; no transaction is added.</span>
+        </p>
+        <p v-if="reconcileError" role="alert" class="text-sm text-rose-400">{{ reconcileError }}</p>
+        <div class="flex justify-end gap-2">
+          <button
+            type="button"
+            class="min-h-[44px] px-4 rounded-lg text-sm"
+            :disabled="reconciling"
+            @click="reconcileAccount = null"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="min-h-[44px] px-4 rounded-lg bg-primary-500 text-white text-sm font-semibold disabled:opacity-50"
+            :disabled="reconciling || reconcileDifference === null"
+            @click="saveReconciliation"
+          >
+            {{ reconciling ? 'Saving…' : 'Reconcile' }}
+          </button>
+        </div>
+      </section>
+    </div>
     <!-- ── Data ───────────────────────────────────────────────────────────── -->
     <section aria-label="Data management">
       <h2 class="text-xs uppercase tracking-widest text-(--ui-text-muted) font-medium mb-3">Data</h2>
