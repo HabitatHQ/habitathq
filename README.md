@@ -17,6 +17,8 @@ Use Node.js 24.21.0, pnpm 11.13.1, and Rust 1.99.0, as pinned in `mise.toml`, `p
 
 The root `packageManager` pin keeps short commands and long-lived dev servers on the same pnpm version. Dependency updates and frozen installs retain a 24-hour release-age limit; newly published versions must age before adoption.
 
+Generate dependency-consolidation changes through the pinned pnpm version, never by hand-editing the lockfile. For cache-backed consolidation, run `pnpm dedupe --lockfile-only --ignore-scripts --offline` and review the generated diff for unrelated version changes. Verify `pnpm install --frozen-lockfile`, `pnpm dedupe:check`, and affected package checks, typechecks, and tests before publishing.
+
 Run from the repository root:
 
 ```sh
