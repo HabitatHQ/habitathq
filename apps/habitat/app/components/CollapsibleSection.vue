@@ -7,7 +7,11 @@ defineProps<{
 </script>
 
 <template>
-  <AppCollapsible :label="label" :open-label="openLabel" :default-open="defaultOpen">
+  <AppCollapsible
+    :label="label"
+    :default-open="defaultOpen"
+    v-bind="openLabel === undefined ? {} : { openLabel }"
+  >
     <slot />
   </AppCollapsible>
 </template>

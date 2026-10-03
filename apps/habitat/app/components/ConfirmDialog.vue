@@ -16,6 +16,16 @@ const emit = defineEmits<{
   'update:open': [open: boolean]
 }>()
 
+const dialogProps = computed(() => ({
+  icon: props.icon,
+  title: props.title,
+  message: props.message,
+  ...(props.iconColor === undefined ? {} : { iconColor: props.iconColor }),
+  ...(props.confirmLabel === undefined ? {} : { confirmLabel: props.confirmLabel }),
+  ...(props.confirmColor === undefined ? {} : { confirmColor: props.confirmColor }),
+  ...(props.cancelLabel === undefined ? {} : { cancelLabel: props.cancelLabel }),
+}))
+
 const { impact, notification } = useHaptics()
 
 const openModel = computed({
@@ -39,13 +49,7 @@ function handleConfirm() {
 <template>
   <AppConfirmDialog
     v-model="openModel"
-    :icon="icon"
-    :icon-color="iconColor"
-    :title="title"
-    :message="message"
-    :confirm-label="confirmLabel"
-    :confirm-color="confirmColor"
-    :cancel-label="cancelLabel"
+    v-bind="dialogProps"
     @confirm="handleConfirm"
     @cancel="emit('cancel')"
   />

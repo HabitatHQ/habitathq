@@ -97,7 +97,6 @@ const opfsLoading = ref(false)
 
 async function walkOpfs(dir: FileSystemDirectoryHandle, prefix = ''): Promise<OpfsFile[]> {
   const out: OpfsFile[] = []
-  // @ts-expect-error — entries() not in TypeScript's FileSystemDirectoryHandle types
   for await (const [name, handle] of dir.entries()) {
     const path = prefix ? `${prefix}/${name}` : name
     if ((handle as FileSystemHandle).kind === 'directory') {

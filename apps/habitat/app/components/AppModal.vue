@@ -7,7 +7,7 @@ const modelValue = defineModel<boolean>({ default: false })
 </script>
 
 <template>
-  <AppBottomSheet v-model="modelValue" :title="title" :closeable="false">
+  <AppBottomSheet v-bind="title === undefined ? {} : { title }" v-model="modelValue" :closeable="false">
     <template v-if="$slots['title']" #title>
       <slot name="title" />
     </template>

@@ -13,7 +13,7 @@ const emit = defineEmits<{
   <UTextarea
     v-bind="$attrs"
     class="app-text-area"
-    @update:model-value="emit('update:modelValue', $event)"
+    @update:model-value="emit('update:modelValue', String($event ?? ''))"
     @keydown="emit('keydown', $event)"
     @blur="emit('blur', $event)"
     @focus="emit('focus', $event)"

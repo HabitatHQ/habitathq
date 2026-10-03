@@ -7,7 +7,7 @@ defineProps<{
 </script>
 
 <template>
-  <AppEmptyState :icon="icon" :title="title" :description="description">
+  <AppEmptyState :icon="icon" :title="title" v-bind="description === undefined ? {} : { description }">
     <template v-if="$slots['actions']" #actions>
       <slot name="actions" />
     </template>

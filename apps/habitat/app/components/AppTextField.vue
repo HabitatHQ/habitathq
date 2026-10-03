@@ -13,7 +13,9 @@ const emit = defineEmits<{
   <UInput
     v-bind="$attrs"
     class="app-text-field"
-    @update:model-value="emit('update:modelValue', $event)"
+    @update:model-value="
+      emit('update:modelValue', typeof $event === 'number' ? $event : String($event ?? ''))
+    "
     @keydown="emit('keydown', $event)"
     @blur="emit('blur', $event)"
     @focus="emit('focus', $event)"

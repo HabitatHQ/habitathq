@@ -72,8 +72,14 @@ Code quality:
 ```bash
 pnpm check        # lint + format check
 pnpm check:fix    # auto-fix
-pnpm typecheck    # TypeScript
+pnpm typecheck:all # native TypeScript + Nuxt/Vue templates
 ```
+
+The shared Nuxt layer declares Vue as a peer dependency so its component props
+and models resolve under pnpm's isolated dependency layout. Input adapters
+normalize text to non-null strings while preserving numeric input values;
+forwarding components retain optional props rather than passing `undefined`
+as a present value. Keep the Vue template check green alongside the unit tests.
 
 ## Native Builds (Capacitor)
 

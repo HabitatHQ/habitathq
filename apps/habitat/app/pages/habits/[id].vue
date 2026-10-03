@@ -160,7 +160,15 @@ const streakInput = computed<StreakInput | null>(() => {
 const streak = computed<StreakResult>(() =>
   streakInput.value
     ? computeStreak(streakInput.value)
-    : { current: 0, longest: 0, status: 'broken', saved: 0 },
+    : {
+        current: 0,
+        longest: 0,
+        status: 'active',
+        thawProgress: 0,
+        plantLevel: 0,
+        daisies: 0,
+        thawed: 0,
+      },
 )
 
 const streakColor = computed(() => {

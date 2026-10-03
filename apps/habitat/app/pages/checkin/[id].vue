@@ -67,8 +67,8 @@ async function persistIdentity() {
   }
 }
 
-function onTitleInput(val: string) {
-  form.title = val
+function onTitleInput(val: string | number) {
+  form.title = String(val)
   if (titleTimer) clearTimeout(titleTimer)
   titleTimer = setTimeout(persistIdentity, 600)
 }
@@ -350,7 +350,7 @@ onMounted(async () => {
             min="1"
             max="31"
             class="w-24"
-            @update:model-value="(v: string) => (form.dayOfMonth = clampDayOfMonth(Number(v)))"
+            @update:model-value="(v) => (form.dayOfMonth = clampDayOfMonth(Number(v)))"
           />
         </UFormField>
       </div>
