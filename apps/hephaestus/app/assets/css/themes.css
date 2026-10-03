@@ -4,6 +4,7 @@
   --color-surface: #1c1c1e;
   --color-surface-2: #2c2c2e;
   --color-accent: #f97316; /* orange */
+  --color-accent-hover: #fb923c;
   --color-on-accent: #111111;
   --color-accent-dim: #7c2d12;
   --color-text: #f2f2f7;
@@ -21,6 +22,7 @@
   --color-surface: #161b22;
   --color-surface-2: #21262d;
   --color-accent: #60a5fa; /* steel blue */
+  --color-accent-hover: #93c5fd;
   --color-on-accent: #0f1117;
   --color-accent-dim: #1e3a5f;
   --color-text: #e6edf3;
@@ -38,6 +40,7 @@
   --color-surface: #ffffff;
   --color-surface-2: #f1f5f9;
   --color-accent: #9a3412; /* orange-800 keeps soft primary controls legible */
+  --color-accent-hover: #7c2d12;
   --color-on-accent: #ffffff;
   --color-accent-dim: #fed7aa;
   --color-text: #0f172a;

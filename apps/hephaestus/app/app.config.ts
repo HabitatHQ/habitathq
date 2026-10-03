@@ -2,7 +2,14 @@ export default defineAppConfig({
   ui: {
     colors: { primary: 'orange', neutral: 'zinc' },
     button: {
-      compoundVariants: [{ color: 'primary', variant: 'solid', class: 'text-(--color-on-accent)' }],
+      compoundVariants: [
+        {
+          color: 'primary',
+          variant: 'solid',
+          class:
+            'text-(--color-on-accent) hover:bg-(--color-accent-hover) active:bg-(--color-accent-hover)',
+        },
+      ],
     },
     icons: {
       close: 'i-ph-x',

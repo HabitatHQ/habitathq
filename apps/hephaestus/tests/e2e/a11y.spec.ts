@@ -47,48 +47,54 @@ test.describe('WCAG 2.1 AA', () => {
   }
 })
 
-test('populated routine authoring and editing remain accessible with manual deferral', async ({
-  page,
-}) => {
-  const templateName = 'E2E Accessible Carry-forward Template'
-  const routineName = 'E2E Accessible Manual Routine'
-  await authorStrengthTemplate(page, {
-    name: templateName,
-    sets: [{ kind: 'exact', reps: 5, weightKg: 80 }],
+for (const theme of themes) {
+  test(`populated routine authoring and editing remain accessible with manual deferral in ${theme}`, async ({
+    page,
+  }) => {
+    await page.addInitScript((selectedTheme) => {
+      localStorage.setItem('hephaestus-app-settings', JSON.stringify({ theme: selectedTheme }))
+    }, theme)
+    const templateName = 'E2E Accessible Carry-forward Template'
+    const routineName = 'E2E Accessible Manual Routine'
+    await authorStrengthTemplate(page, {
+      name: templateName,
+      sets: [{ kind: 'exact', reps: 5, weightKg: 80 }],
+    })
+
+    await page.goto('/routines/new')
+    await page.getByLabel('Routine name').fill(routineName)
+    await page.getByLabel('Template').selectOption({ label: templateName })
+    await expect(
+      page.getByRole('heading', { name: new RegExp(`${templateName} · revision`) }),
+    ).toBeVisible()
+    await selectLabeledOption(page, 'Continuation policy', 'Carry forward')
+    await expect(page.getByLabel('Deferral mode')).toBeVisible()
+    await selectLabeledOption(page, 'Deferral mode', 'Manual deferral')
+
+    const analyzePopulatedForm = async (formPage: Page) => {
+      await formPage.getByRole('button', { name: /^Save(?: revision)?$/ }).hover()
+      const { violations } = await new AxeBuilder({ page: formPage })
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+        .analyze()
+      expect(violations, JSON.stringify(violations)).toEqual([])
+      expect(
+        await formPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+      ).toBe(true)
+    }
+
+    await analyzePopulatedForm(page)
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(page).toHaveURL('/routines')
+    await page.getByRole('link', { name: routineName, exact: true }).click()
+    await expect(page.getByRole('heading', { name: routineName, exact: true })).toBeVisible()
+    await page.getByRole('link', { name: 'Edit configuration', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Edit routine configuration' })).toBeVisible()
+    await expect(page.getByLabel('Continuation policy')).toHaveValue('carry_forward')
+    await expect(page.getByLabel('Deferral mode')).toHaveValue('manual')
+    await expect(page.getByRole('heading', { name: 'Barbell Squat' })).toBeVisible()
+    await analyzePopulatedForm(page)
   })
-
-  await page.goto('/routines/new')
-  await page.getByLabel('Routine name').fill(routineName)
-  await page.getByLabel('Template').selectOption({ label: templateName })
-  await expect(
-    page.getByRole('heading', { name: new RegExp(`${templateName} · revision`) }),
-  ).toBeVisible()
-  await selectLabeledOption(page, 'Continuation policy', 'Carry forward')
-  await expect(page.getByLabel('Deferral mode')).toBeVisible()
-  await selectLabeledOption(page, 'Deferral mode', 'Manual deferral')
-
-  const analyzePopulatedForm = async (formPage: Page) => {
-    const { violations } = await new AxeBuilder({ page: formPage })
-      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-      .analyze()
-    expect(violations, JSON.stringify(violations)).toEqual([])
-    expect(await formPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
-      true,
-    )
-  }
-
-  await analyzePopulatedForm(page)
-  await page.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(page).toHaveURL('/routines')
-  await page.getByRole('link', { name: routineName, exact: true }).click()
-  await expect(page.getByRole('heading', { name: routineName, exact: true })).toBeVisible()
-  await page.getByRole('link', { name: 'Edit configuration', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Edit routine configuration' })).toBeVisible()
-  await expect(page.getByLabel('Continuation policy')).toHaveValue('carry_forward')
-  await expect(page.getByLabel('Deferral mode')).toHaveValue('manual')
-  await expect(page.getByRole('heading', { name: 'Barbell Squat' })).toBeVisible()
-  await analyzePopulatedForm(page)
-})
+}
 
 test('skip link moves keyboard focus to the primary content', async ({ page }) => {
   await page.goto('/')

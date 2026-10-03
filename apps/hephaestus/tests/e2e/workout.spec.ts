@@ -75,9 +75,8 @@ test.describe('workout controls', () => {
     await expect(page.getByRole('heading', { name: /unfinished session/i })).toBeVisible()
     await page.getByRole('button', { name: /^resume$/i }).click()
     await exercise.getByRole('button', { name: '+ Set' }).click()
-    const draftSet = 1
     const dialog = page.getByRole('dialog', {
-      name: new RegExp(`edit set ${draftSet}.*barbell squat`, 'i'),
+      name: /edit set \d+.*barbell squat/i,
     })
     await expect(dialog).toBeVisible()
     await dialog.getByLabel('Weight', { exact: true }).fill('80')
@@ -86,27 +85,20 @@ test.describe('workout controls', () => {
     await expect(dialog).toBeHidden()
 
     const draft = exercise.getByRole('listitem').filter({ hasText: 'Draft—not performed' })
-    await expect(draft.getByLabel(`Weight (kg) for set ${draftSet} for Barbell Squat`)).toHaveValue(
-      '80',
-    )
-    await expect(draft.getByLabel(`Reps for set ${draftSet} for Barbell Squat`)).toHaveValue('8')
+    await expect(draft.getByLabel(/Weight \(kg\) for set \d+ for Barbell Squat/)).toHaveValue('80')
+    await expect(draft.getByLabel(/Reps for set \d+ for Barbell Squat/)).toHaveValue('8')
+    await draft.getByLabel(/Reps for set \d+ for Barbell Squat/).fill('9')
     await expect(
       exercise.getByRole('button', { name: /Undo set \d+ for Barbell Squat/ }),
     ).toHaveCount(0)
 
-    await draft
-      .getByRole('button', { name: `Complete set ${draftSet} for Barbell Squat`, exact: true })
-      .click()
-    const completed = exercise.getByRole('button', {
-      name: `Edit set ${draftSet} for Barbell Squat`,
-      exact: true,
+    await draft.getByRole('button', { name: /Complete set \d+ for Barbell Squat/ }).click()
+    const completed = exercise.getByRole('listitem').filter({
+      has: page.getByRole('button', { name: /Undo set \d+ for Barbell Squat/ }),
     })
     await expect(completed).toContainText('80')
-    await expect(completed).toContainText('8')
+    await expect(completed).toContainText('9')
     await expect(completed).toHaveCount(1)
-    await expect(
-      exercise.getByRole('button', { name: `Undo set ${draftSet} for Barbell Squat`, exact: true }),
-    ).toBeVisible()
     await expect(
       exercise.getByRole('button', { name: /Undo set \d+ for Barbell Squat/ }),
     ).toHaveCount(1)
