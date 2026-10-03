@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { toRaw } from 'vue'
-import { parseBackupSettingsFromEnvelope } from '~/lib/data-transfer'
+import { parseBackupSettingsFromEnvelope, type RestorePreview } from '~/lib/data-transfer'
 
 const { settings, set, replace: replaceSettings } = useAppSettings()
 
@@ -24,24 +24,9 @@ const db = useDatabase()
 const statusMessage = ref('')
 const errorMessage = ref('')
 const pendingBackup = ref<unknown>(null)
-type BackupPreview = {
-  valid: boolean
-  rowCount?: number
-  workoutCount?: number
-  templateCount?: number
-  programCount?: number
-  error?: string
-}
-const backupPreview = ref<BackupPreview | null>(null)
+const backupPreview = ref<RestorePreview | null>(null)
 const pendingPortable = ref<unknown>(null)
-type PortablePreview = {
-  valid: boolean
-  templateCount?: number
-  programCount?: number
-  rowCount?: number
-  error?: string
-}
-const portablePreview = ref<PortablePreview | null>(null)
+const portablePreview = ref<RestorePreview | null>(null)
 const resetPreferences = ref(false)
 
 function download(name: string, content: string, mime: string) {
@@ -77,7 +62,7 @@ async function inspectBackup(event: Event) {
   errorMessage.value = ''
   try {
     pendingBackup.value = JSON.parse(await file.text())
-    const preview = await db.transfer<BackupPreview>('TRANSFER_PREVIEW_RESTORE', {
+    const preview = await db.transfer<RestorePreview>('TRANSFER_PREVIEW_RESTORE', {
       backup: toRaw(pendingBackup.value),
     })
     backupPreview.value = preview
@@ -143,7 +128,7 @@ async function exportPortable() {
       JSON.stringify(bundle, null, 2),
       'application/json;charset=utf-8',
     )
-    statusMessage.value = 'Templates and programs downloaded.'
+    statusMessage.value = 'Training configuration downloaded.'
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error)
   }
@@ -156,7 +141,7 @@ async function inspectPortable(event: Event) {
   errorMessage.value = ''
   try {
     pendingPortable.value = JSON.parse(await file.text())
-    const preview = await db.transfer<PortablePreview>('TRANSFER_PREVIEW_PORTABLE_IMPORT', {
+    const preview = await db.transfer<RestorePreview>('TRANSFER_PREVIEW_PORTABLE_IMPORT', {
       bundle: toRaw(pendingPortable.value),
     })
     portablePreview.value = preview
@@ -174,7 +159,7 @@ async function importPortable() {
   if (!pendingPortable.value || !portablePreview.value?.valid) return
   if (
     !window.confirm(
-      'Import these templates and programs? Existing content will not be overwritten.',
+      'Import these templates, Programs, saved routines and personal plans? Existing content will not be overwritten.',
     )
   )
     return
@@ -183,7 +168,7 @@ async function importPortable() {
     await db.transfer('TRANSFER_IMPORT_PORTABLE', { bundle: toRaw(pendingPortable.value) })
     pendingPortable.value = null
     portablePreview.value = null
-    statusMessage.value = 'Templates and programs imported.'
+    statusMessage.value = 'Training configuration imported.'
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error)
   }
@@ -548,12 +533,13 @@ async function resetData() {
       </h2>
       <p class="text-xs text-(--ui-text-muted)">
         Backups include all supported durable database tables and app preferences; temporary runtime state is excluded.
+        Portable training configuration includes templates, Programs, saved routines and personal plans with their calendar rules; it excludes performed workout history.
         Workout history CSV uses local calendar dates, stored kg values, null marker \N, and quoted empty strings.
       </p>
       <div class="flex flex-wrap gap-2">
         <UButton color="primary" icon="i-ph-download-simple" @click="exportBackup">Download full backup</UButton>
         <UButton color="neutral" icon="i-ph-download-simple" @click="exportCsv">Download workout CSV</UButton>
-        <UButton color="neutral" icon="i-ph-download-simple" @click="exportPortable">Export templates and programs</UButton>
+        <UButton color="neutral" icon="i-ph-download-simple" @click="exportPortable">Export training configuration</UButton>
       </div>
       <label class="block text-sm">
         <span class="sr-only">Choose a Hephaestus backup JSON file</span>
@@ -562,19 +548,21 @@ async function resetData() {
       <div v-if="backupPreview" class="rounded-lg bg-(--color-surface) p-3 text-sm" aria-live="polite">
         <p v-if="backupPreview.valid">
           Preview: {{ backupPreview.rowCount }} rows, {{ backupPreview.workoutCount }} workouts,
-          {{ backupPreview.templateCount }} templates, {{ backupPreview.programCount }} programs.
+          {{ backupPreview.templateCount }} templates, {{ backupPreview.programCount }} Programs,
+          {{ backupPreview.routineCount ?? 0 }} saved routines, {{ backupPreview.planCount ?? 0 }} personal plans.
         </p>
         <UButton v-if="backupPreview.valid" class="mt-2 text-(--color-danger)" color="error" variant="outline" @click="restoreBackup">
           Replace local data from backup
         </UButton>
       </div>
       <label class="block text-sm">
-        <span>Import templates and programs from JSON</span>
-        <input class="mt-1 block" type="file" accept="application/json,.json" aria-label="Choose templates and programs file" @change="inspectPortable">
+        <span>Import training configuration from JSON</span>
+        <input class="mt-1 block" type="file" accept="application/json,.json" aria-label="Choose training configuration file" @change="inspectPortable">
       </label>
       <div v-if="portablePreview" class="rounded-lg bg-(--color-surface) p-3 text-sm" aria-live="polite">
         <p v-if="portablePreview.valid">
-          Preview: {{ portablePreview.templateCount }} templates and {{ portablePreview.programCount }} programs.
+          Preview: {{ portablePreview.templateCount }} templates, {{ portablePreview.programCount }} Programs,
+          {{ portablePreview.routineCount ?? 0 }} saved routines, {{ portablePreview.planCount ?? 0 }} personal plans.
         </p>
         <UButton v-if="portablePreview.valid" class="mt-2" color="primary" @click="importPortable">Import without overwriting</UButton>
       </div>

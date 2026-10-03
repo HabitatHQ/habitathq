@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { createSerialQueue, executeBatch } from '../../../app/lib/database-operations'
 import { resetAppDatabase } from '../../../app/lib/database-reset'
 import { dispatchNative, initNativeDb } from '../../../app/lib/db-native'
-import { initializeSchema } from '../../../app/lib/db-schema'
+import { HEPHAESTUS_SCHEMA, initializeSchema } from '../../../app/lib/db-schema'
 import { toAppDbAdapter } from '../../../app/lib/palladium-database'
 import { dispatchWorkout } from '../../../app/lib/workout-storage'
 import type { DbAdapter } from '../../../app/types/database'
@@ -146,8 +146,8 @@ describe('Palladium Hephaestus local database boundary', () => {
     await adapter.exec(
       `ALTER TABLE exercises ADD COLUMN logging_mode TEXT NOT NULL DEFAULT 'strength'`,
     )
-    await initializeSchema(storage, adapter)
-    await initializeSchema(storage, adapter)
+    await initializeSchema(storage)
+    await initializeSchema(storage)
 
     const exercise = await adapter.queryOne<{ id: string; name: string; logging_mode: string }>(
       'SELECT id,name,logging_mode FROM exercises WHERE id = ?',
@@ -193,7 +193,7 @@ describe('Palladium Hephaestus local database boundary', () => {
       `INSERT INTO exercises (id,name,slug,equipment,movement,created_at) VALUES ('retry','Squat','retry-squat','barbell','squat','2026-01-01')`,
     )
     failOn('ALTER TABLE templates ADD COLUMN notification_enabled')
-    await expect(initializeSchema(storage, adapter)).rejects.toThrow('injected migration failure')
+    await expect(initializeSchema(storage)).rejects.toThrow('injected migration failure')
     expect(await adapter.queryOne<{ user_version: number }>('PRAGMA user_version')).toEqual({
       user_version: 0,
     })
@@ -203,22 +203,56 @@ describe('Palladium Hephaestus local database boundary', () => {
     })
 
     failOn(null)
-    await initializeSchema(storage, adapter)
+    await initializeSchema(storage)
     expect(await adapter.queryOne<{ user_version: number }>('PRAGMA user_version')).toEqual({
-      user_version: 1,
+      user_version: HEPHAESTUS_SCHEMA.version,
     })
     expect(await adapter.queryOne('SELECT id FROM exercises WHERE id = ?', ['retry'])).toEqual({
       id: 'retry',
     })
   })
 
+  it('rolls back versioned prescription conversion and retries without duplicating legacy revisions', async () => {
+    const { storage, adapter, failOn } = await makeDatabase()
+    await createLegacyTables(adapter)
+    await adapter.exec(
+      "INSERT INTO templates (id,name,created_at) VALUES ('legacy-prescription','Preserved template','2026-01-01')",
+    )
+    await adapter.exec('PRAGMA user_version = 1')
+    failOn('INSERT INTO template_revisions')
+
+    await expect(initializeSchema(storage)).rejects.toThrow('injected migration failure')
+    expect(await adapter.queryOne('PRAGMA user_version')).toEqual({ user_version: 1 })
+    expect(
+      await adapter.queryOne(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='template_revisions'",
+      ),
+    ).toBeNull()
+    expect(
+      await adapter.queryOne('SELECT name FROM templates WHERE id=?', ['legacy-prescription']),
+    ).toEqual({ name: 'Preserved template' })
+
+    failOn(null)
+    await initializeSchema(storage)
+    await initializeSchema(storage)
+    expect(await adapter.queryOne('PRAGMA user_version')).toEqual({
+      user_version: HEPHAESTUS_SCHEMA.version,
+    })
+    expect(
+      await adapter.queryOne(
+        'SELECT COUNT(*) AS revision_count FROM template_revisions WHERE template_id=?',
+        ['legacy-prescription'],
+      ),
+    ).toEqual({ revision_count: 1 })
+  })
+
   it('replays the current schema without changing existing user data', async () => {
     const { storage, adapter } = await makeDatabase()
-    await initializeSchema(storage, adapter)
+    await initializeSchema(storage)
     await adapter.exec(
       "INSERT INTO exercises (id,name,slug,equipment,movement,created_at) VALUES ('current','Bench','bench','barbell','press','2026-01-01')",
     )
-    await initializeSchema(storage, adapter)
+    await initializeSchema(storage)
     expect(await adapter.queryOne('SELECT id FROM exercises WHERE id = ?', ['current'])).toEqual({
       id: 'current',
     })
@@ -226,7 +260,7 @@ describe('Palladium Hephaestus local database boundary', () => {
 
   it('rolls back every batch statement after a later failure', async () => {
     const { storage, adapter } = await makeDatabase()
-    await initializeSchema(storage, adapter)
+    await initializeSchema(storage)
     await adapter.exec(
       'CREATE TABLE batch_probe (id INTEGER PRIMARY KEY, value TEXT NOT NULL UNIQUE)',
     )
@@ -263,7 +297,7 @@ describe('Palladium Hephaestus local database boundary', () => {
 
   it('clears app tables transactionally while preserving Palladium metadata and rolling back failures', async () => {
     const { storage, adapter } = await makeDatabase()
-    await initializeSchema(storage, adapter)
+    await initializeSchema(storage)
     await adapter.exec('CREATE TABLE _palladium_private (value TEXT)')
     await adapter.exec(
       `INSERT INTO exercises (id,name,slug,equipment,movement,created_at) VALUES ('reset-me','Row','row','barbell','row','2026-01-01')`,

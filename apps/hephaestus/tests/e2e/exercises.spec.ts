@@ -190,12 +190,17 @@ test.describe('DB persistence — custom exercise flows', () => {
     await picker.getByRole('button', { name: /E2E Custom Lift/i }).click()
     const exercise = page.getByRole('region', { name: 'E2E Custom Lift' })
     await exercise.getByRole('button', { name: '+ Set' }).click()
-    const setDialog = page.getByRole('dialog', { name: /log set/i })
+    const setDialog = page.getByRole('dialog', { name: /edit set 1.*e2e custom lift/i })
     await expect(setDialog).toBeVisible()
     await setDialog.getByLabel('Weight', { exact: true }).fill('50')
     await setDialog.getByLabel('Reps', { exact: true }).fill('10')
-    await setDialog.getByRole('button', { name: /log set/i }).click()
+    await setDialog.getByRole('button', { name: 'Save Changes', exact: true }).click()
     await expect(setDialog).not.toBeVisible()
-    await expect(exercise.getByRole('button', { name: 'Edit set 1' })).toContainText('50')
+    await exercise
+      .getByRole('button', { name: 'Complete set 1 for E2E Custom Lift', exact: true })
+      .click()
+    await expect(
+      exercise.getByRole('button', { name: 'Edit set 1 for E2E Custom Lift' }),
+    ).toContainText('50')
   })
 })

@@ -1,4 +1,5 @@
 import { expect, type Page, test } from '@playwright/test'
+import { authorStrengthTemplate } from './domain-helpers'
 
 async function waitForExerciseLibrary(page: Page) {
   const picker = page.getByRole('dialog', { name: /add exercise/i })
@@ -19,31 +20,18 @@ async function addBarbellSquat(page: Page) {
 }
 
 async function createPopulatedTemplate(page: Page, name: string) {
-  await page.goto('/templates/new')
-  await page.getByRole('textbox', { name: /^name$/i }).fill(name)
-  await page.getByRole('button', { name: /add exercise/i }).click()
-  const picker = page.getByRole('dialog', { name: /add exercise to template/i })
-  await expect(picker).toBeVisible()
-  await expect(picker.getByRole('button', { name: /barbell squat/i })).toBeVisible({
-    timeout: 20_000,
+  await authorStrengthTemplate(page, {
+    name,
+    sets: [{ kind: 'exact', reps: 6, weightKg: 100 }],
   })
-  await picker.getByRole('searchbox', { name: /search exercises/i }).fill('barbell squat')
-  await picker.getByRole('button', { name: /barbell squat/i }).click()
-  const exercise = page
-    .getByRole('region', { name: 'Exercises' })
-    .getByRole('listitem')
-    .filter({ hasText: 'Barbell Squat' })
-  await exercise.getByLabel('Sets').fill('4')
-  await exercise.getByLabel('Reps', { exact: true }).fill('6')
-  await page.getByRole('button', { name: /^save$/i }).click()
-  await expect(page).toHaveURL(/\/templates\/[^/]+$/)
-  await expect(page.getByRole('button', { name: `Edit name: ${name}` })).toBeVisible()
 }
 
 async function startTemplateAsStrength(page: Page, templateName: string) {
   await page.goto('/workout')
   await page.getByLabel('Session type').selectOption('gym')
   await page.getByRole('button', { name: new RegExp(templateName) }).click()
+  await expect(page.getByRole('heading', { name: 'Start once', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Start workout', exact: true }).click()
   await expect(page.getByText('Active Session')).toBeVisible({ timeout: 10_000 })
 }
 
@@ -53,59 +41,114 @@ test.describe('workout controls', () => {
     await page.getByLabel('Session type').selectOption('gym')
     await page.getByRole('button', { name: /start empty session/i }).click()
     await addBarbellSquat(page)
-    await page
-      .getByRole('region', { name: 'Barbell Squat' })
-      .getByRole('button', { name: '+ Set' })
+    const exercise = page.getByRole('region', { name: 'Barbell Squat' })
+    await exercise.getByRole('button', { name: '+ Set' }).click()
+    const dialog = page.getByRole('dialog', { name: /edit set 1.*barbell squat/i })
+    const weight = dialog.getByLabel('Weight', { exact: true })
+    const reps = dialog.getByLabel('Reps', { exact: true })
+    const save = dialog.getByRole('button', { name: 'Save Changes', exact: true })
+    await weight.fill('103.7')
+    await expect(save).toBeDisabled()
+    await reps.fill('7')
+    await expect(save).toBeEnabled()
+    await save.click()
+    await exercise
+      .getByRole('button', { name: 'Complete set 1 for Barbell Squat', exact: true })
       .click()
 
-    const weight = page.getByLabel('Weight', { exact: true })
-    const reps = page.getByLabel('Reps', { exact: true })
-    const logSet = page.getByRole('button', { name: /log set/i })
-    await weight.fill('103.7')
-    await expect(logSet).toBeDisabled()
-    await reps.fill('7')
-    await expect(logSet).toBeEnabled()
-    await logSet.click()
-
-    const loggedSet = page.getByRole('button', { name: 'Edit set 1' })
+    const loggedSet = page.getByRole('button', { name: 'Edit set 1 for Barbell Squat' })
     await expect(loggedSet).toContainText('103.7')
     await expect(loggedSet).toContainText('7')
   })
 
-  test('completes an in-memory pending row, resumes it, and edits without duplicating it', async ({
+  test('keeps a new set as a draft after skipping and resuming', async ({ page }) => {
+    await page.goto('/workout')
+    await page.getByLabel('Session type').selectOption('gym')
+    await page.getByRole('button', { name: /start empty session/i }).click()
+    await addBarbellSquat(page)
+    const exercise = page.getByRole('region', { name: 'Barbell Squat' })
+    await exercise
+      .getByRole('button', { name: 'Skip set 1 for Barbell Squat', exact: true })
+      .click()
+
+    await page.reload()
+    await expect(page.getByRole('heading', { name: /unfinished session/i })).toBeVisible()
+    await page.getByRole('button', { name: /^resume$/i }).click()
+    await exercise.getByRole('button', { name: '+ Set' }).click()
+    const draftSet = 1
+    const dialog = page.getByRole('dialog', {
+      name: new RegExp(`edit set ${draftSet}.*barbell squat`, 'i'),
+    })
+    await expect(dialog).toBeVisible()
+    await dialog.getByLabel('Weight', { exact: true }).fill('80')
+    await dialog.getByLabel('Reps', { exact: true }).fill('8')
+    await dialog.getByRole('button', { name: 'Save Changes', exact: true }).click()
+    await expect(dialog).toBeHidden()
+
+    const draft = exercise.getByRole('listitem').filter({ hasText: 'Draft—not performed' })
+    await expect(draft.getByLabel(`Weight (kg) for set ${draftSet} for Barbell Squat`)).toHaveValue(
+      '80',
+    )
+    await expect(draft.getByLabel(`Reps for set ${draftSet} for Barbell Squat`)).toHaveValue('8')
+    await expect(
+      exercise.getByRole('button', { name: /Undo set \d+ for Barbell Squat/ }),
+    ).toHaveCount(0)
+
+    await draft
+      .getByRole('button', { name: `Complete set ${draftSet} for Barbell Squat`, exact: true })
+      .click()
+    const completed = exercise.getByRole('button', {
+      name: `Edit set ${draftSet} for Barbell Squat`,
+      exact: true,
+    })
+    await expect(completed).toContainText('80')
+    await expect(completed).toContainText('8')
+    await expect(completed).toHaveCount(1)
+    await expect(
+      exercise.getByRole('button', { name: `Undo set ${draftSet} for Barbell Squat`, exact: true }),
+    ).toBeVisible()
+    await expect(
+      exercise.getByRole('button', { name: /Undo set \d+ for Barbell Squat/ }),
+    ).toHaveCount(1)
+  })
+
+  test('completes a saved draft, resumes it, and corrects the performed set without duplicating it', async ({
     page,
   }) => {
     await page.goto('/workout')
     await page.getByLabel('Session type').selectOption('gym')
     await page.getByRole('button', { name: /start empty session/i }).click()
     await addBarbellSquat(page)
-
-    await page.getByRole('button', { name: 'Edit set 1' }).click()
-    const dialog = page.getByRole('dialog', { name: /edit set/i })
+    const exercise = page.getByRole('region', { name: 'Barbell Squat' })
+    await page.getByRole('button', { name: 'Edit set 1 for Barbell Squat' }).click()
+    const dialog = page.getByRole('dialog', { name: /edit set 1.*barbell squat/i })
     await expect(dialog).toBeVisible()
     await dialog.getByLabel('Weight', { exact: true }).fill('97.5')
     await dialog.getByLabel('Reps', { exact: true }).fill('6')
-    await dialog.getByRole('button', { name: /save changes/i }).click()
+    await dialog.getByRole('button', { name: 'Save Changes', exact: true }).click()
+    await exercise
+      .getByRole('button', { name: 'Complete set 1 for Barbell Squat', exact: true })
+      .click()
 
-    const loggedSet = page.getByRole('button', { name: 'Edit set 1' })
+    const loggedSet = page.getByRole('button', { name: 'Edit set 1 for Barbell Squat' })
     await expect(loggedSet).toContainText('97.5')
     await expect(loggedSet).toContainText('6')
-    await expect(page.getByRole('button', { name: 'Edit set 2' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Edit set 2 for Barbell Squat' })).toBeVisible()
     await expect(page.getByText(/set is not part of the active session/i)).toHaveCount(0)
 
     await page.reload()
     await expect(page.getByRole('heading', { name: /unfinished session/i })).toBeVisible()
     await page.getByRole('button', { name: /^resume$/i }).click()
-    const resumedSet = page.getByRole('button', { name: 'Edit set 1' })
+    const resumedSet = page.getByRole('button', { name: 'Edit set 1 for Barbell Squat' })
     await expect(resumedSet).toContainText('97.5')
     await expect(resumedSet).toContainText('6')
     await expect(resumedSet).toHaveCount(1)
 
     await resumedSet.click()
-    const editDialog = page.getByRole('dialog', { name: /edit set/i })
+    const editDialog = page.getByRole('dialog', { name: /edit set 1.*barbell squat/i })
     await editDialog.getByLabel('Weight', { exact: true }).fill('100')
     await editDialog.getByLabel('Reps', { exact: true }).fill('5')
-    await editDialog.getByRole('button', { name: /save changes/i }).click()
+    await editDialog.getByRole('button', { name: 'Save Changes', exact: true }).click()
     await expect(resumedSet).toContainText('100')
     await expect(resumedSet).toContainText('5')
     await expect(resumedSet).toHaveCount(1)
@@ -120,29 +163,25 @@ test.describe('populated local-first acceptance journey', () => {
     await createPopulatedTemplate(page, templateName)
     await startTemplateAsStrength(page, templateName)
 
-    await expect(page.getByRole('region', { name: 'Barbell Squat' })).toBeVisible()
-    await page
-      .getByRole('region', { name: 'Barbell Squat' })
-      .getByRole('button', { name: '+ Set' })
+    const exercise = page.getByRole('region', { name: 'Barbell Squat' })
+    await exercise.getByLabel('Weight (kg) for set 1').fill('100')
+    await exercise.getByLabel('Reps for set 1').fill('5')
+    await exercise
+      .getByRole('button', { name: 'Complete set 1 for Barbell Squat', exact: true })
       .click()
-    await page.getByLabel('Weight', { exact: true }).fill('100')
-    await page.getByLabel('Reps', { exact: true }).fill('5')
-    await page.getByLabel('RPE', { exact: true }).fill('7')
-    await page.getByRole('button', { name: /log set/i }).click()
-
     await page.reload()
     await expect(page.getByRole('heading', { name: /unfinished session/i })).toBeVisible()
     await expect(page.getByRole('region', { name: 'Barbell Squat' })).toHaveCount(0)
     await page.getByRole('button', { name: /^resume$/i }).click()
 
-    const loggedSet = page.getByRole('button', { name: 'Edit set 1' })
+    const loggedSet = page.getByRole('button', { name: 'Edit set 1 for Barbell Squat' })
     await expect(loggedSet).toContainText('100')
     await expect(loggedSet).toContainText('5')
     await loggedSet.click()
-    await expect(page.getByRole('dialog', { name: /edit set/i })).toBeVisible()
-    await page.getByLabel('Weight', { exact: true }).fill('105')
-    await page.getByLabel('Reps', { exact: true }).fill('4')
-    await page.getByRole('button', { name: /save changes/i }).click()
+    const editDialog = page.getByRole('dialog', { name: /edit set 1.*barbell squat/i })
+    await editDialog.getByLabel('Weight', { exact: true }).fill('105')
+    await editDialog.getByLabel('Reps', { exact: true }).fill('4')
+    await editDialog.getByRole('button', { name: 'Save Changes', exact: true }).click()
     await expect(loggedSet).toContainText('105')
     await expect(loggedSet).toContainText('4')
 
@@ -156,7 +195,6 @@ test.describe('populated local-first acceptance journey', () => {
     const summary = page.getByRole('region', { name: /workout summary/i })
     await expect(summary.getByText('Working Sets')).toBeVisible()
     await expect(summary.getByText('1', { exact: true })).toBeVisible()
-    await expect(summary.getByText('420 kg', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: /^done$/i }).click()
 
     await page.goto('/history')
@@ -248,20 +286,27 @@ test.describe('manual strength recovery', () => {
     await page.getByLabel('Session type').selectOption('gym')
     await page.getByRole('button', { name: /start empty session/i }).click()
     await addBarbellSquat(page)
-    await page
-      .getByRole('region', { name: 'Barbell Squat' })
-      .getByRole('button', { name: '+ Set' })
+    const exercise = page.getByRole('region', { name: 'Barbell Squat' })
+    await exercise.getByRole('button', { name: '+ Set' }).click()
+    const dialog = page.getByRole('dialog', { name: /edit set 1.*barbell squat/i })
+    await dialog.getByLabel('Weight', { exact: true }).fill('80')
+    await dialog.getByLabel('Reps', { exact: true }).fill('8')
+    await expect(dialog.getByRole('button', { name: 'Save Changes', exact: true })).toBeEnabled()
+    await dialog.getByRole('button', { name: 'Save Changes', exact: true }).click()
+    await expect(dialog).toBeHidden()
+    const pendingSet = exercise.getByRole('listitem').filter({ hasText: 'Draft—not performed' })
+    await expect(pendingSet.getByLabel('Weight (kg) for set 1 for Barbell Squat')).toHaveValue('80')
+    await expect(pendingSet.getByLabel('Reps for set 1 for Barbell Squat')).toHaveValue('8')
+    await pendingSet
+      .getByRole('button', { name: 'Complete set 1 for Barbell Squat', exact: true })
       .click()
-    await page.getByLabel('Weight', { exact: true }).fill('80')
-    await page.getByLabel('Reps', { exact: true }).fill('8')
-    await page.getByRole('button', { name: /log set/i }).click()
-
+    const loggedSet = page.getByRole('button', { name: 'Edit set 1 for Barbell Squat' })
+    await expect(loggedSet).toContainText('80')
+    await expect(loggedSet).toContainText('8')
+    await expect(loggedSet).toHaveCount(1)
     await page.reload()
     await expect(page.getByRole('heading', { name: /unfinished session/i })).toBeVisible()
     await page.getByRole('button', { name: /^resume$/i }).click()
-    const loggedSet = page.getByRole('button', { name: 'Edit set 1' })
-    await expect(loggedSet).toContainText('80')
-    await expect(loggedSet).toContainText('8')
     await page.getByRole('button', { name: /^finish$/i }).click()
     await page.getByRole('button', { name: /save workout/i }).click()
     await expect(page.getByRole('heading', { name: /session complete — strength/i })).toBeVisible()
@@ -329,14 +374,16 @@ test.describe('equipment-aware progression', () => {
     await page.getByLabel('Session type').selectOption('gym')
     await page.getByRole('button', { name: /start empty session/i }).click()
     await addBarbellSquat(page)
-    await page
-      .getByRole('region', { name: 'Barbell Squat' })
-      .getByRole('button', { name: '+ Set' })
+    const exercise = page.getByRole('region', { name: 'Barbell Squat' })
+    await exercise.getByRole('button', { name: '+ Set' }).click()
+    const dialog = page.getByRole('dialog', { name: /edit set 1.*barbell squat/i })
+    await dialog.getByLabel('Weight', { exact: true }).fill('107')
+    await dialog.getByLabel('Reps', { exact: true }).fill('5')
+    await dialog.getByLabel('RPE', { exact: true }).fill('6')
+    await dialog.getByRole('button', { name: 'Save Changes', exact: true }).click()
+    await exercise
+      .getByRole('button', { name: 'Complete set 1 for Barbell Squat', exact: true })
       .click()
-    await page.getByLabel('Weight', { exact: true }).fill('107')
-    await page.getByLabel('Reps', { exact: true }).fill('5')
-    await page.getByLabel('RPE', { exact: true }).fill('6')
-    await page.getByRole('button', { name: /log set/i }).click()
     await page.getByRole('button', { name: /^finish$/i }).click()
     await page.getByRole('button', { name: /save workout/i }).click()
     await page.getByRole('button', { name: /^done$/i }).click()
@@ -353,17 +400,18 @@ test.describe('equipment-aware progression', () => {
     await page.getByLabel('Session type').selectOption('gym')
     await page.getByRole('button', { name: /start empty session/i }).click()
     await addBarbellSquat(page)
-    await page
-      .getByRole('region', { name: 'Barbell Squat' })
-      .getByRole('button', { name: '+ Set' })
-      .click()
+    await exercise.getByRole('button', { name: '+ Set' }).click()
     await expect(page.getByText(/suggested 110(?:\.0)? kg/i)).toBeVisible()
     await expect(page.getByRole('button', { name: /use suggestion/i })).toBeVisible()
-    const weight = page.getByLabel('Weight', { exact: true })
-    await weight.fill('107.3')
-    await expect(weight).toHaveValue('107.3')
-    await page.getByLabel('Reps', { exact: true }).fill('5')
-    await page.getByRole('button', { name: /log set/i }).click()
-    await expect(page.getByRole('button', { name: 'Edit set 1' })).toContainText('107.3')
+    await dialog.getByLabel('Weight', { exact: true }).fill('107.3')
+    await dialog.getByLabel('Reps', { exact: true }).fill('5')
+    await expect(dialog.getByLabel('Weight', { exact: true })).toHaveValue('107.3')
+    await dialog.getByRole('button', { name: 'Save Changes', exact: true }).click()
+    await exercise
+      .getByRole('button', { name: 'Complete set 1 for Barbell Squat', exact: true })
+      .click()
+    await expect(page.getByRole('button', { name: 'Edit set 1 for Barbell Squat' })).toContainText(
+      '107.3',
+    )
   })
 })

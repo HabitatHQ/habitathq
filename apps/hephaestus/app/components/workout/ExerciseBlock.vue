@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { WorkoutActivityIntent, WorkoutSetIntent } from '~/lib/workout-storage'
 import type { ExerciseRow, SetRow, WorkoutExerciseRow } from '~/types/database'
 
 const props = defineProps<{
@@ -6,6 +7,10 @@ const props = defineProps<{
   exercise: ExerciseRow
   sets: SetRow[]
   unit?: 'kg' | 'lbs'
+  setIntents?: Readonly<Record<string, Readonly<WorkoutSetIntent>>>
+  activityIntent?: Readonly<WorkoutActivityIntent> | null
+  skippedSetIds?: ReadonlySet<string>
+  prescribed?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -14,6 +19,7 @@ const emit = defineEmits<{
 }>()
 
 const unit = computed(() => props.unit ?? 'kg')
+const loggingMode = computed(() => props.workoutExercise.logging_mode)
 const workingCount = computed(
   () => props.sets.filter((s) => s.completed === 1 && s.is_warmup === 0).length,
 )
@@ -41,7 +47,12 @@ const workingCount = computed(
           </span>
         </h3>
         <p class="text-xs text-(--ui-text-muted) capitalize">
-          {{ exercise.equipment }} · {{ workingCount }} working set{{ workingCount !== 1 ? 's' : '' }}
+          {{ exercise.equipment }} · {{ workingCount }} {{ loggingMode === 'strength' ? 'working sets' : 'completed entries' }}
+        </p>
+        <p v-if="activityIntent && (activityIntent.durationSec !== null || activityIntent.distanceM !== null)" class="mt-1 text-xs text-(--ui-text-muted)">
+          Activity target:
+          <span v-if="activityIntent.durationSec !== null">{{ activityIntent.durationSec }} sec</span>
+          <span v-if="activityIntent.distanceM !== null"> {{ activityIntent.distanceM }} m</span>
         </p>
       </div>
       <UButton
@@ -63,7 +74,11 @@ const workingCount = computed(
         :key="set.id"
         :set="set"
         :unit="unit"
-        :logging-mode="exercise.logging_mode"
+        :logging-mode="loggingMode"
+        :exercise-name="exercise.name"
+        :intent="setIntents?.[set.id] ?? null"
+        :skipped="skippedSetIds?.has(set.id) ?? false"
+        :prescribed="prescribed ?? false"
         @tap="emit('tapSet', $event)"
       />
     </ul>

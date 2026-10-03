@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { formatDuration, formatVolume, isoWeek, localDateString } from '~/lib/format'
+import { formatDuration, localDateString } from '~/lib/format'
 import type { ReadinessResult } from '~/lib/readiness'
 import type { WorkoutRow } from '~/types/database'
 
-const { settings } = useAppSettings()
 const db = useDatabase()
 const progress = useProgress()
-
+const workout = useWorkout()
+const organization = useOrganization()
 const today = new Date().toLocaleDateString('en-US', {
   weekday: 'long',
   month: 'long',
@@ -15,10 +15,12 @@ const today = new Date().toLocaleDateString('en-US', {
 
 const recentWorkouts = ref<WorkoutRow[]>([])
 const unfinishedWorkout = ref<WorkoutRow | null>(null)
-const thisWeekVolume = ref(0)
-const lastWeekVolume = ref(0)
 const streak = ref(0)
 const readiness = ref<ReadinessResult | null>(null)
+const priorityItems = ref<import('~/types/organization').OrganizationTodayItem[]>([])
+const startError = ref('')
+const starting = ref<string | null>(null)
+const routineNames = ref<Record<string, string>>({})
 
 // Watch at setup scope so the watcher is automatically stopped on unmount,
 // preventing stale async callbacks from touching unmounted component state.
@@ -40,22 +42,6 @@ async function loadData() {
   )
   recentWorkouts.value = rows
 
-  // Weekly volume comparison
-  const now = new Date()
-  const thisWeek = isoWeek(now)
-  const lastWeekDate = new Date(now)
-  lastWeekDate.setDate(lastWeekDate.getDate() - 7)
-  const lastWeek = isoWeek(lastWeekDate)
-
-  const loadRows = await db.query<{ week: string; gym_volume: number | null }>(
-    'SELECT week, gym_volume FROM weekly_training_load WHERE week IN (?, ?)',
-    [thisWeek, lastWeek],
-  )
-  for (const row of loadRows) {
-    if (row.week === thisWeek) thisWeekVolume.value = row.gym_volume ?? 0
-    else lastWeekVolume.value = row.gym_volume ?? 0
-  }
-
   // Calculate streak
   const workoutDates = await db.query<{ date: string }>(
     'SELECT DISTINCT date FROM workouts WHERE ended_at IS NOT NULL ORDER BY date DESC LIMIT 365',
@@ -76,13 +62,66 @@ async function loadData() {
   streak.value = currentStreak
 
   readiness.value = await progress.readinessData()
+  priorityItems.value = await organization.today(localDateString(new Date()))
+  const routineRows = await db.query<{ id: string; name: string }>(
+    'SELECT id,name FROM saved_routines ORDER BY name,id',
+  )
+  routineNames.value = Object.fromEntries(routineRows.map((row) => [row.id, row.name]))
 }
 
-const volumeDelta = computed(() => {
-  if (lastWeekVolume.value === 0) return null
-  const pct = ((thisWeekVolume.value - lastWeekVolume.value) / lastWeekVolume.value) * 100
-  return Math.round(pct)
-})
+async function startPriority(
+  item: import('~/types/organization').OrganizationTodayItem,
+  alternativeRoutineId?: string,
+) {
+  if (item.kind === 'recovery' || item.workoutId) {
+    await navigateTo('/workout')
+    return
+  }
+  const chosenRoutine = alternativeRoutineId ?? item.routineId
+  if (!chosenRoutine) return
+  starting.value = item.id
+  startError.value = ''
+  try {
+    await workout.startRoutineWorkout(chosenRoutine, {
+      ...(alternativeRoutineId === undefined && item.kind === 'appointment'
+        ? { appointmentId: item.id }
+        : {}),
+      ...(alternativeRoutineId === undefined &&
+      item.kind === 'rotation' &&
+      item.rotationId &&
+      item.generation !== null
+        ? { rotationId: item.rotationId, rotationGeneration: item.generation }
+        : {}),
+    })
+    await navigateTo('/workout')
+  } catch (cause) {
+    startError.value = cause instanceof Error ? cause.message : 'Could not start this selection.'
+  } finally {
+    starting.value = null
+  }
+}
+async function postponeAppointment(item: import('~/types/organization').OrganizationTodayItem) {
+  if (item.kind !== 'appointment' || item.workoutId) return
+  const proposed = window.prompt(
+    'Move this appointment to local date (YYYY-MM-DD):',
+    item.date ?? localDateString(new Date()),
+  )
+  if (!proposed) return
+  try {
+    const preview = await organization.previewPostpone(item.id, proposed)
+    const confirmed =
+      preview.collisionIds.length === 0 ||
+      window.confirm(
+        `This creates ${preview.collisionIds.length} same-routine collision(s). Move anyway?`,
+      )
+    if (!confirmed) return
+    await organization.postpone(item.id, proposed, preview.collisionIds.length > 0)
+    await loadData()
+  } catch (cause) {
+    startError.value =
+      cause instanceof Error ? cause.message : 'Could not postpone this appointment.'
+  }
+}
 
 function sessionLabel(w: WorkoutRow): string {
   if (w.session_type === 'run') return 'Run'
@@ -108,6 +147,32 @@ function sessionLabel(w: WorkoutRow): string {
       <h1 class="text-2xl font-bold">Today</h1>
       <time class="text-sm text-(--ui-text-muted)">{{ today }}</time>
     </header>
+    <section aria-labelledby="next-heading" class="space-y-3">
+      <h2 id="next-heading" class="text-sm font-semibold uppercase tracking-wider text-(--ui-text-muted)">Next up</h2>
+      <p v-if="startError" role="alert" class="rounded-lg bg-red-500/10 p-3 text-sm text-red-300">{{ startError }}</p>
+      <article v-for="item in priorityItems" :key="`${item.kind}-${item.id}`" class="rounded-xl bg-(--color-surface) p-4 space-y-3">
+        <div>
+          <p class="font-semibold">{{ item.title }}</p>
+          <p class="text-sm text-(--ui-text-muted)">{{ item.explanation }}</p>
+          <p v-if="item.planName" class="text-xs text-(--ui-text-muted)">{{ item.planName }}</p>
+          <p v-if="item.date" class="text-xs text-(--ui-text-muted)">{{ item.date }}{{ item.time ? ` · ${item.time}` : '' }}</p>
+        </div>
+        <UButton v-if="item.kind === 'recovery' || item.workoutId" class="w-full" color="primary" @click="startPriority(item)">Resume unfinished workout</UButton>
+        <UButton v-else-if="item.routineId" class="w-full" color="primary" :loading="starting === item.id" @click="startPriority(item)">
+          Start {{ item.kind === 'appointment' ? 'scheduled' : item.kind === 'rotation' ? 'rotation' : 'suggested' }} workout
+        </UButton>
+        <UButton v-if="item.kind === 'appointment' && !item.workoutId" class="w-full" variant="outline" @click="postponeAppointment(item)">Postpone</UButton>
+        <div v-if="item.alternatives.length" class="flex flex-wrap gap-2">
+          <UButton v-for="alternative in item.alternatives" :key="alternative" size="sm" variant="outline" @click="startPriority(item, alternative)">
+            {{ routineNames[alternative] ?? 'Alternative routine' }}
+          </UButton>
+        </div>
+      </article>
+      <div class="flex gap-2">
+        <UButton class="flex-1" to="/workout" variant="outline">Start ad-hoc</UButton>
+        <UButton class="flex-1" to="/plans" variant="outline">Plans &amp; schedules</UButton>
+      </div>
+    </section>
 
     <!-- Streak + Readiness -->
     <section class="grid grid-cols-2 gap-3">
@@ -133,15 +198,6 @@ function sessionLabel(w: WorkoutRow): string {
       <p class="col-span-2 text-xs text-(--ui-text-muted)">Readiness is an estimate from your recent training, not medical advice or a recovery prescription.</p>
     </section>
 
-    <!-- Weekly volume -->
-    <section v-if="thisWeekVolume > 0" aria-labelledby="volume-heading" class="grid grid-cols-2 gap-3">
-      <h2 id="volume-heading" class="sr-only">This week's training volume</h2>
-      <CommonStatCard
-        label="This Week"
-        :value="formatVolume(thisWeekVolume, settings.weightUnit)"
-        v-bind="volumeDelta !== null ? { sub: `${volumeDelta > 0 ? '+' : ''}${volumeDelta}% vs last week` } : {}"
-      />
-    </section>
 
     <!-- Quick start -->
     <section aria-label="Quick start">

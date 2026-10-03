@@ -1,6 +1,19 @@
 <script setup lang="ts">
-import { type ExportPayload, qrDataToPayload, validateImportPayload } from '~/lib/template-export'
+import type { PortableBundle } from '~/lib/data-transfer'
+import { type LegacyTemplatePayload, parseLegacyTemplatePayload } from '~/lib/template-export'
 
+type ImportPayload = PortableBundle | LegacyTemplatePayload
+function isPortableBundle(value: unknown): value is PortableBundle {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const candidate = value as Record<string, unknown>
+  return (
+    candidate['format'] === 'hephaestus-portable' &&
+    Number(candidate['version']) === 2 &&
+    typeof candidate['tables'] === 'object' &&
+    candidate['tables'] !== null &&
+    !Array.isArray(candidate['tables'])
+  )
+}
 interface Props {
   open: boolean
 }
@@ -9,42 +22,45 @@ const props = defineProps<Props>()
 const modalFocus = useModalFocus(() => props.open)
 const emit = defineEmits<{
   close: []
-  import: [payload: ExportPayload]
+  import: [payload: ImportPayload]
 }>()
 
 const jsonInput = ref('')
 const error = ref<string | null>(null)
-const parsed = ref<ExportPayload | null>(null)
+const parsed = ref<ImportPayload | null>(null)
+const templates = computed(() => {
+  const value = parsed.value
+  if (!value) return []
+  return 'tables' in value ? (value.tables['templates'] ?? []) : [value.template]
+})
+const exercises = computed(() => {
+  const value = parsed.value
+  if (!value) return []
+  return 'tables' in value ? (value.tables['template_exercises'] ?? []) : value.exercises
+})
 
 function handleParse() {
   error.value = null
   parsed.value = null
-  const text = jsonInput.value.trim()
-  if (!text) {
-    error.value = 'Please paste JSON or QR data.'
-    return
-  }
-
-  // Try JSON first
+  const input = jsonInput.value.trim()
+  let obj: unknown
   try {
-    const obj: unknown = JSON.parse(text)
-    if (!validateImportPayload(obj)) {
-      error.value = 'Invalid template format.'
+    obj = JSON.parse(input)
+  } catch {
+    try {
+      const bytes = Uint8Array.from(atob(input), (char) => char.charCodeAt(0))
+      obj = JSON.parse(new TextDecoder().decode(bytes))
+    } catch {
+      error.value = 'Could not parse input. Paste valid JSON or legacy QR data.'
       return
     }
-    parsed.value = obj
-    return
-  } catch {
-    // Not JSON — try QR base64
   }
-
-  const fromQr = qrDataToPayload(text)
-  if (fromQr) {
-    parsed.value = fromQr
-    return
+  if (isPortableBundle(obj)) parsed.value = obj
+  else {
+    const legacy = parseLegacyTemplatePayload(obj)
+    if (legacy) parsed.value = legacy
+    else error.value = 'Invalid or unsupported training export.'
   }
-
-  error.value = 'Could not parse input. Paste valid JSON or QR data.'
 }
 
 function handleImport() {
@@ -118,23 +134,11 @@ async function handleFileInput(e: Event) {
 
         <p v-if="error" class="text-xs text-red-400" role="alert">{{ error }}</p>
 
-        <!-- Preview -->
         <div v-if="parsed" class="rounded-xl bg-(--color-surface) p-4 space-y-2">
-          <p class="font-semibold">{{ parsed.template.name }}</p>
-          <p v-if="parsed.template.description" class="text-xs text-(--ui-text-muted)">
-            {{ parsed.template.description }}
-          </p>
+          <p class="font-semibold">{{ templates.length }} template{{ templates.length !== 1 ? 's' : '' }}</p>
           <p class="text-xs text-(--ui-text-muted)">
-            {{ parsed.exercises.length }} exercise{{ parsed.exercises.length !== 1 ? 's' : '' }}
+            {{ exercises.length }} template exercise{{ exercises.length !== 1 ? 's' : '' }}
           </p>
-          <ul class="text-xs text-(--ui-text-muted) space-y-0.5">
-            <li v-for="ex in parsed.exercises.slice(0, 5)" :key="ex.order_num">
-              {{ ex.order_num }}. {{ ex.exercise_name }}
-            </li>
-            <li v-if="parsed.exercises.length > 5" class="text-(--ui-text-muted)">
-              +{{ parsed.exercises.length - 5 }} more…
-            </li>
-          </ul>
         </div>
       </div>
 

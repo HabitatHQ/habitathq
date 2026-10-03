@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import type { MuscleFrequency, WeekDot } from '~/lib/analytics'
-import { formatVolume, formatWeight } from '~/lib/format'
+import { type ExerciseSessionStat, localDateKey } from '~/lib/analytics'
+import { formatWeight } from '~/lib/format'
 import type { ReadinessResult } from '~/lib/readiness'
-import { calculateAcuteLoad, calculateChronicLoad, getLoadRatio } from '~/lib/training-load'
-import type { PersonalRecordRow, WeeklyTrainingLoadRow } from '~/types/database'
+import type { ExerciseRow, PersonalRecordRow } from '~/types/database'
+import type { OrganizationReport } from '~/types/organization'
 
 type ProgressPersonalRecordRow = PersonalRecordRow & {
   exercise_name: string | null
@@ -12,15 +12,24 @@ type ProgressPersonalRecordRow = PersonalRecordRow & {
 const { settings } = useAppSettings()
 const db = useDatabase()
 const progress = useProgress()
+const organization = useOrganization()
+function dateOffset(offset: number): string {
+  const date = new Date()
+  date.setDate(date.getDate() + offset)
+  return localDateKey(date)
+}
+const reportStart = ref(dateOffset(-27))
+const reportEnd = ref(localDateKey())
 
 const prs = ref<ProgressPersonalRecordRow[]>([])
-const weeklyLoad = ref<WeeklyTrainingLoadRow[]>([])
 const loading = ref(true)
 
-const dotGrid = ref<WeekDot[][]>([])
-const muscleFreq = ref<MuscleFrequency[]>([])
-const weeklyVol = ref<{ week: string; volume: number; sets: number }[]>([])
 const readiness = ref<ReadinessResult | null>(null)
+const organizationReport = ref<OrganizationReport | null>(null)
+const exerciseChoices = ref<Pick<ExerciseRow, 'id' | 'name'>[]>([])
+const selectedExerciseId = ref('')
+const exerciseHistory = ref<ExerciseSessionStat[]>([])
+const effortByDate = ref<Record<string, number | null>>({})
 
 watch(
   db.status,
@@ -38,50 +47,42 @@ async function load() {
       `SELECT pr.*, e.name AS exercise_name
        FROM personal_records pr
        LEFT JOIN exercises e ON e.id = pr.exercise_id
-       ORDER BY pr.date DESC LIMIT 20`,
+       ORDER BY pr.date DESC, pr.id DESC LIMIT 20`,
     )
-    weeklyLoad.value = await db.query<WeeklyTrainingLoadRow>(
-      'SELECT * FROM weekly_training_load ORDER BY week DESC LIMIT 8',
+    exerciseChoices.value = await db.query<Pick<ExerciseRow, 'id' | 'name'>>(
+      'SELECT id,name FROM exercises ORDER BY name,id',
     )
-
-    const [grid, muscles, vol, ready] = await Promise.all([
-      progress.dotGrid(12),
-      progress.muscleFrequency(28),
-      progress.weeklyVolume(8),
-      progress.readinessData(),
-    ])
-    dotGrid.value = grid
-    muscleFreq.value = muscles
-    weeklyVol.value = vol
-    readiness.value = ready
+    if (!selectedExerciseId.value) selectedExerciseId.value = exerciseChoices.value[0]?.id ?? ''
+    readiness.value = await progress.readinessData()
+    await loadOrganizationReport()
+    await loadExerciseHistory()
   } finally {
     loading.value = false
   }
 }
 
-const weeklyVolumes = computed(() => [...weeklyLoad.value].reverse().map((w) => w.gym_volume ?? 0))
-
-const acuteLoad = computed(() => calculateAcuteLoad(weeklyVolumes.value))
-const chronicLoad = computed(() => calculateChronicLoad(weeklyVolumes.value))
-const acwr = computed(() => getLoadRatio(acuteLoad.value, chronicLoad.value))
-
-const acwrColor = computed(() => {
-  const r = acwr.value
-  if (r === 0) return 'text-(--ui-text-muted)'
-  if (r < 0.8) return 'text-blue-400'
-  if (r <= 1.3) return 'text-green-400'
-  return 'text-red-400'
-})
-
-const acwrLabel = computed(() => {
-  const r = acwr.value
-  if (r === 0) return 'No data'
-  if (r < 0.8) return 'Below previous weeks'
-  if (r <= 1.0) return 'Similar recent load'
-  if (r <= 1.3) return 'Higher recent load'
-  return 'Elevated recent load'
-})
-
+async function loadOrganizationReport() {
+  if (!reportStart.value || !reportEnd.value || reportStart.value > reportEnd.value) return
+  organizationReport.value = await organization.report(reportStart.value, reportEnd.value)
+}
+async function loadExerciseHistory() {
+  if (!selectedExerciseId.value) {
+    exerciseHistory.value = []
+    effortByDate.value = {}
+    return
+  }
+  exerciseHistory.value = await progress.exerciseHistory(selectedExerciseId.value)
+  const effort = await db.query<{ date: string; rpe: number | null }>(
+    `SELECT w.date,AVG(s.rpe) AS rpe
+     FROM sets s
+     JOIN workout_exercises we ON we.id=s.workout_exercise_id
+     JOIN workouts w ON w.id=we.workout_id
+       WHERE we.exercise_id = ? AND we.logging_mode='strength' AND w.ended_at IS NOT NULL AND s.completed=1 AND s.is_warmup=0 AND we.removed_at IS NULL AND s.removed_at IS NULL AND NOT EXISTS (SELECT 1 FROM workout_set_skips WHERE set_id=s.id)
+     GROUP BY w.id,w.date ORDER BY w.date DESC`,
+    [selectedExerciseId.value],
+  )
+  effortByDate.value = Object.fromEntries(effort.map((item) => [item.date, item.rpe]))
+}
 function formatPrValue(pr: ProgressPersonalRecordRow): string {
   return pr.record_type === 'reps'
     ? `${pr.value} reps`
@@ -101,53 +102,21 @@ const recentPRs = computed(() => prs.value.slice(0, 5))
     </div>
 
     <template v-else>
-      <!-- Training Load -->
-      <section aria-labelledby="load-heading">
-        <h2 id="load-heading" class="text-sm font-semibold uppercase tracking-wider text-(--ui-text-muted) mb-3">
-          Training Load
-        </h2>
-        <p class="text-xs text-(--ui-text-muted) mb-3">
-          Strength-session volume estimate (kg × reps). Acute is the latest recorded week; chronic is the prior four-week mean. Not a recovery or injury-risk measure.
-        </p>
-        <div class="grid grid-cols-3 gap-3">
-          <CommonStatCard
-            label="Acute"
-            :value="acuteLoad > 0 ? formatVolume(acuteLoad, settings.weightUnit) : '—'"
-            sub="most recent week"
-          />
-          <CommonStatCard
-            label="Chronic"
-            :value="chronicLoad > 0 ? formatVolume(chronicLoad, settings.weightUnit) : '—'"
-            sub="previous 4-week average"
-          />
-          <div class="rounded-xl bg-(--color-surface) p-4 space-y-1">
-            <p class="text-xs text-(--ui-text-muted) uppercase tracking-wider">ACWR</p>
-            <p class="text-2xl font-bold tabular-nums" :class="acwrColor">
-              {{ acwr > 0 ? acwr.toFixed(2) : '—' }}
-            </p>
-            <p class="text-xs" :class="acwrColor">{{ acwrLabel }}</p>
-          </div>
-        </div>
-
-        <!-- Weekly volume bars -->
-        <div v-if="weeklyLoad.length > 0" class="mt-4 rounded-xl bg-(--color-surface) p-4">
-          <p class="text-xs text-(--ui-text-muted) mb-3">Weekly Volume (last 8 weeks)</p>
-          <div class="flex items-end gap-1 h-20">
-            <div
-              v-for="(w, i) in [...weeklyLoad].reverse()"
-              :key="w.week"
-              class="flex-1 rounded-sm transition-all"
-              :class="i === weeklyLoad.length - 1 ? 'bg-(--color-accent)' : 'bg-(--color-surface-2)'"
-              :style="{
-                height: weeklyLoad.length ? `${((w.gym_volume ?? 0) / Math.max(...weeklyLoad.map(r => r.gym_volume ?? 0), 1)) * 100}%` : '0%',
-                minHeight: (w.gym_volume ?? 0) > 0 ? '4px' : '0',
-              }"
-              :title="w.week"
-              role="img"
-              :aria-label="`Week ${w.week}: ${Math.round(w.gym_volume ?? 0)} kg`"
-            />
-          </div>
-        </div>
+      <section aria-labelledby="exercise-history-heading" class="space-y-3">
+        <h2 id="exercise-history-heading" class="text-sm font-semibold uppercase tracking-wider text-(--ui-text-muted)">Comparable exercise / variant history</h2>
+        <label for="exercise-history-select" class="sr-only">Choose exercise variant</label>
+        <select id="exercise-history-select" v-model="selectedExerciseId" class="w-full rounded-lg bg-(--color-surface) p-3" @change="loadExerciseHistory">
+          <option v-for="exercise in exerciseChoices" :key="exercise.id" :value="exercise.id">{{ exercise.name }}</option>
+        </select>
+        <p class="text-xs text-(--ui-text-muted)">Completed strength sessions only. Loads use kg at rest and the selected display unit here. e1RM is a supporting estimate, not a measured max. Effort is the average recorded RPE; missing effort remains “Not recorded.”</p>
+        <ul v-if="exerciseHistory.length" class="space-y-2">
+          <li v-for="entry in exerciseHistory" :key="entry.date" class="rounded-xl bg-(--color-surface) p-3">
+            <p class="font-medium">{{ entry.date }}</p>
+            <p class="text-sm text-(--ui-text-muted)">Max completed load {{ entry.maxWeight === null ? '—' : formatWeight(entry.maxWeight, settings.weightUnit) }} · total reps {{ entry.totalReps }}</p>
+            <p class="text-xs text-(--ui-text-muted)">Supporting e1RM estimate {{ entry.e1rm === null ? '—' : formatWeight(entry.e1rm, settings.weightUnit) }} · average recorded RPE {{ effortByDate[entry.date] == null ? 'Not recorded' : effortByDate[entry.date]!.toFixed(1) }}</p>
+          </li>
+        </ul>
+        <p v-else class="rounded-xl bg-(--color-surface) p-4 text-sm text-(--ui-text-muted)">No completed strength history for this exercise variant.</p>
       </section>
 
       <!-- Personal Records -->
@@ -190,33 +159,29 @@ const recentPRs = computed(() => prs.value.slice(0, 5))
         <ProgressReadinessCard :readiness="readiness" />
       </section>
 
-      <!-- Volume Chart -->
-      <section aria-labelledby="volume-chart-heading">
-        <h2 id="volume-chart-heading" class="text-sm font-semibold uppercase tracking-wider text-(--ui-text-muted) mb-3">
-          Weekly Volume
-        </h2>
-        <div class="rounded-xl bg-(--color-surface) p-4">
-          <ProgressTrainingLoadChart :data="weeklyVol" />
+      <section v-if="organizationReport" aria-labelledby="organization-report-heading" class="space-y-3">
+        <h2 id="organization-report-heading" class="text-sm font-semibold uppercase tracking-wider text-(--ui-text-muted)">Training organization &amp; volume · {{ reportStart }}–{{ reportEnd }}</h2>
+        <div class="grid grid-cols-2 gap-2">
+          <label class="space-y-1 text-xs text-(--ui-text-muted)">From<input v-model="reportStart" type="date" class="block w-full rounded-lg bg-(--color-surface) p-3 text-sm text-(--ui-text)" /></label>
+          <label class="space-y-1 text-xs text-(--ui-text-muted)">Through<input v-model="reportEnd" type="date" class="block w-full rounded-lg bg-(--color-surface) p-3 text-sm text-(--ui-text)" /></label>
         </div>
-      </section>
-
-      <!-- Dot Grid -->
-      <section aria-labelledby="grid-heading">
-        <h2 id="grid-heading" class="text-sm font-semibold uppercase tracking-wider text-(--ui-text-muted) mb-3">
-          Training Calendar
-        </h2>
-        <div class="rounded-xl bg-(--color-surface) p-4">
-          <ProgressDotGrid :grid="dotGrid" />
+        <UButton class="w-full" variant="outline" :disabled="reportStart > reportEnd" @click="loadOrganizationReport">Update report period</UButton>
+        <div class="rounded-xl bg-(--color-surface) p-4 space-y-3">
+          <p class="text-xs text-(--ui-text-muted)">Commitments: open {{ organizationReport.commitments.open }}, fulfilled {{ organizationReport.commitments.fulfilled }}, skipped {{ organizationReport.commitments.skipped }}, postponed {{ organizationReport.commitments.postponed }}, overdue {{ organizationReport.commitments.overdue }}. No composite score.</p>
+          <ul v-if="organizationReport.commitmentTiming.length" class="space-y-1 text-xs text-(--ui-text-muted)">
+            <li v-for="item in organizationReport.commitmentTiming" :key="item.id">{{ item.status }} · original {{ item.originalDate }} · planned {{ item.plannedDate }}{{ item.performedDate ? ` · performed ${item.performedDate}` : '' }}{{ item.postponed ? ' · postponed' : '' }}{{ item.overdue ? ' · overdue' : '' }}</li>
+          </ul>
+          <div v-for="goal in organizationReport.weeklyGoals" :key="`${goal.id}-${goal.weekStart}`" class="flex justify-between gap-2 text-sm">
+            <span>{{ goal.name }} · week of {{ goal.weekStart }}</span><span class="tabular-nums">{{ goal.count }} / {{ goal.target }}</span>
+          </div>
         </div>
-      </section>
-
-      <!-- Muscle Heatmap -->
-      <section aria-labelledby="muscle-heading">
-        <h2 id="muscle-heading" class="text-sm font-semibold uppercase tracking-wider text-(--ui-text-muted) mb-3">
-          Muscle Frequency (28 days)
-        </h2>
-        <div class="rounded-xl bg-(--color-surface) p-4">
-          <ProgressMuscleHeatmap :muscles="muscleFreq" />
+        <div class="rounded-xl bg-(--color-surface) p-4 space-y-2">
+          <p class="font-medium">Strength working sets: {{ organizationReport.workingSets }}</p>
+          <p class="text-xs text-(--ui-text-muted)">Each eligible actual working set counts once overall. Warm-ups, pending/skipped rows, and unfinished workouts are excluded.</p>
+          <div><h3 class="text-sm font-medium">Comparable per-exercise external-load tonnage</h3><ul class="text-sm text-(--ui-text-muted)"><li v-for="item in organizationReport.exerciseTonnage" :key="`${item.exerciseId}-${item.equipment}`">{{ item.exerciseName }} · {{ item.equipment }}: {{ item.tonnageKgReps }} kg × reps across {{ item.sets }} sets</li></ul></div>
+          <div><h3 class="text-sm font-medium">Primary movement pattern · counts sum to working sets</h3><ul class="text-sm text-(--ui-text-muted)"><li v-for="item in organizationReport.movementPatterns" :key="item.pattern">{{ item.pattern }}: {{ item.sets }}</li></ul></div>
+          <div><h3 class="text-sm font-medium">Primary muscle credits · may overlap</h3><ul class="text-sm text-(--ui-text-muted)"><li v-for="item in organizationReport.primaryMuscles" :key="item.muscle">{{ item.muscle }}: {{ item.sets }}</li></ul><p class="text-xs text-(--ui-text-muted)">Secondary involvement is separate and is not a fractional share.</p><ul class="text-sm text-(--ui-text-muted)"><li v-for="item in organizationReport.secondaryMuscles" :key="item.muscle">{{ item.muscle }} secondary: {{ item.sets }}</li></ul><p class="text-xs text-(--ui-text-muted)">Unknown primary muscle classification: {{ organizationReport.unclassifiedSets }} sets.</p></div>
+          <div v-if="organizationReport.activities.length"><h3 class="text-sm font-medium">Non-strength measures · separate units</h3><p v-for="item in organizationReport.activities" :key="item.mode" class="text-sm text-(--ui-text-muted)">{{ item.mode }} · {{ item.items }} completed work items · {{ item.distanceM }} m · {{ item.durationSec }} sec</p></div>
         </div>
       </section>
     </template>

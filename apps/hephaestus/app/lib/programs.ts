@@ -1,6 +1,3 @@
-import { weekdayNumber } from '~/lib/schedule'
-import type { ProgramDayRow } from '~/types/database'
-
 export interface BuiltinProgram {
   name: string
   description: string
@@ -71,29 +68,3 @@ export const BUILTIN_PROGRAMS: BuiltinProgram[] = [
     })),
   },
 ]
-
-/** Calculate elapsed week (1-indexed); callers clamp it to a program's declared length. */
-export function calculateProgramWeek(startedAt: Date, refDate: Date): number {
-  const msPerWeek = 7 * 24 * 60 * 60 * 1000
-  const weeksPassed = Math.floor((refDate.getTime() - startedAt.getTime()) / msPerWeek)
-  return Math.max(1, weeksPassed + 1)
-}
-
-export function boundedProgramWeek(currentWeek: number, totalWeeks: number, advanceBy = 1): number {
-  if (
-    !Number.isInteger(totalWeeks) ||
-    totalWeeks < 1 ||
-    !Number.isInteger(currentWeek) ||
-    currentWeek < 1 ||
-    !Number.isInteger(advanceBy) ||
-    advanceBy < 0
-  ) {
-    throw new Error('Program week values must be valid positive integers')
-  }
-  return Math.min(totalWeeks, currentWeek + advanceBy)
-}
-
-export function getTodaysProgramDays(days: ProgramDayRow[], today: Date): ProgramDayRow[] {
-  const todayNum = weekdayNumber(today)
-  return days.filter((day) => day.day_num === todayNum)
-}

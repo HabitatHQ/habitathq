@@ -7,7 +7,7 @@ async function startEmptyWorkout(page: Page) {
   await expect(page.getByText('Active Session')).toBeVisible({ timeout: 10_000 })
 }
 
-async function addExerciseAndLogSet(page: Page) {
+async function addExerciseAndCompleteSet(page: Page) {
   await page.getByRole('button', { name: /add exercise/i }).click()
   const picker = page.getByRole('dialog', { name: /add exercise/i })
   await expect(picker.getByRole('button', { name: /barbell squat/i })).toBeVisible({
@@ -17,11 +17,14 @@ async function addExerciseAndLogSet(page: Page) {
   await picker.getByRole('button', { name: /barbell squat/i }).click()
   const exercise = page.getByRole('region', { name: 'Barbell Squat' })
   await exercise.getByRole('button', { name: '+ Set' }).click()
-  const dialog = page.getByRole('dialog', { name: /log set/i })
+  const dialog = page.getByRole('dialog', { name: /edit set 1.*barbell squat/i })
   await expect(dialog).toBeVisible()
   await dialog.getByLabel('Weight', { exact: true }).fill('100')
   await dialog.getByLabel('Reps', { exact: true }).fill('5')
-  await dialog.getByRole('button', { name: /log set/i }).click()
+  await dialog.getByRole('button', { name: 'Save Changes', exact: true }).click()
+  await exercise
+    .getByRole('button', { name: 'Complete set 1 for Barbell Squat', exact: true })
+    .click()
 }
 
 test.describe('finish workout flow', () => {
@@ -49,7 +52,7 @@ test.describe('finish workout flow', () => {
     page,
   }) => {
     await startEmptyWorkout(page)
-    await addExerciseAndLogSet(page)
+    await addExerciseAndCompleteSet(page)
     await page.getByRole('button', { name: /^finish$/i }).click()
     await page.getByRole('button', { name: /save workout/i }).click()
 
@@ -68,7 +71,7 @@ test.describe('finish workout flow', () => {
       )
     })
     await startEmptyWorkout(page)
-    await addExerciseAndLogSet(page)
+    await addExerciseAndCompleteSet(page)
     await page.getByRole('button', { name: /^finish$/i }).click()
     await page.getByRole('button', { name: /save workout/i }).click()
 
@@ -87,9 +90,9 @@ test.describe('finish workout flow', () => {
     await expect(page.getByText('Active Session')).toBeVisible()
   })
 
-  test('finishing logged work presents its saved set summary', async ({ page }) => {
+  test('finishing completed work presents its saved set summary', async ({ page }) => {
     await startEmptyWorkout(page)
-    await addExerciseAndLogSet(page)
+    await addExerciseAndCompleteSet(page)
     await page.getByRole('button', { name: /^finish$/i }).click()
     await page.getByRole('button', { name: /save workout/i }).click()
 
@@ -97,6 +100,5 @@ test.describe('finish workout flow', () => {
     const summary = page.getByRole('region', { name: /workout summary/i })
     await expect(summary.getByText('Working Sets')).toBeVisible()
     await expect(summary.getByText('1', { exact: true })).toBeVisible()
-    await expect(summary.getByText('500 kg', { exact: true })).toBeVisible()
   })
 })

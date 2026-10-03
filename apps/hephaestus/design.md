@@ -3,6 +3,20 @@
 > Named after the Greek god of the forge. Local-first PWA for tracking gym workouts and running.
 > **Current product contract (2026-10-02):** The supported release is a local-first installable PWA for independent lifters. It covers strength/hypertrophy, manual running/cardio, conditioning, and mobility/recovery; persistent workout recovery; programs; equipment-aware editable suggestions; progress estimates; and local data portability. Capacitor certification, GPS, health integrations, body metrics, fitted strength curves, concurrent cross-device active sessions, and account-backed Palladium sync are deferred. Detailed implementation and follow-on sync prerequisites are in [`../../docs/plans/hephaestus-completion-20261002.md`](../../docs/plans/hephaestus-completion-20261002.md). Older aspirational sections below are historical context, not shipped-feature commitments.
 
+### Configured training boundary
+
+The [UX/routines handoff](../../docs/plans/hephaestus-ux-routines-handoff-20261002.md) defines the current domain cutover:
+
+- Templates and reusable Programs own immutable design revisions; saved routines own configured prescription revisions. Personal Training Plans bind Program slots to compatible routines and own independent calendars.
+- Pages call typed composables through `useDatabase()` and the serialized database worker. Schema upgrades and domain writes use Palladium's existing SQLite adapter/transaction boundary; no second connection or direct OPFS writer is introduced.
+- Session creation captures source provenance and resolved intent. Valid draft edits persist separately from completion; undo retains drafts, and skipped or extra work never rewrites captured intent.
+- Restricted scalar CEL formulas use explicit stable bindings and bounded dependencies. Serialized rules contain source/version/bindings, not runtime ASTs; formula execution does not require JavaScript `unsafe-eval`.
+- Appointment fulfillment is explicit and limited to one appointment per qualifying finished workout. Activity-filtered Monday–Sunday frequency goals credit independently; rotations advance once on linked completion or explicit skip.
+- Future routine/template/Program changes and retrospective factual corrections require a revalidated preview. Corrections recompute metrics and credit atomically without rewinding rotations or changing captured intent.
+- Complete backups preserve local tables, revisions, drafts and relationships. Portable imports validate and remap their graph before one additive transaction; historical workout results are not manufactured from prescription targets.
+
+Acceptance on 2026-10-03: the package gate passed both typechecks and 534 unit/integration tests; the generated production PWA passed 110 Chromium tests. Isolated 390 × 844 walkthroughs verified offline draft/recovery/undo, shared-plan future-update review, explicit appointment fulfillment, independent goal credit and backup/restore. Empty or warm-up-only finished sessions release appointment protection without credit; correction provenance cannot reclaim an appointment linked to a newer workout. See the handoff's final acceptance section for commands, coverage and limits. This is browser/PWA evidence, not physical-device/native certification. The known workspace dedupe issue remains separate.
+
 ---
 
 ## 1. Overview

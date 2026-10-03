@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ExercisePreview } from '~/composables/useTemplates'
-import type { RestorePreview } from '~/lib/data-transfer'
-import type { ExportPayload } from '~/lib/template-export'
+import type { PortableBundle, RestorePreview } from '~/lib/data-transfer'
+import type { LegacyTemplatePayload } from '~/lib/template-export'
 import { filterTemplates, sortTemplates } from '~/lib/template-sort'
 import type { TemplateSortOrder } from '~/types/database'
 
@@ -106,24 +106,28 @@ async function handlePin(id: string, pinned: boolean) {
   if (pinned) await unpinTemplate(id)
   else await pinTemplate(id)
 }
-async function handleTemplateImport(payload: ExportPayload) {
+async function handleTemplateImport(payload: PortableBundle | LegacyTemplatePayload) {
   importError.value = ''
   importStatus.value = ''
   try {
-    const preview = await db.transfer<RestorePreview>('TRANSFER_PREVIEW_TEMPLATE_IMPORT', {
-      content: payload,
+    const preview = await db.transfer<RestorePreview>('TRANSFER_PREVIEW_PORTABLE_IMPORT', {
+      bundle: payload,
     })
-    if (!preview.valid) throw new Error(preview.error ?? 'Template export could not be validated.')
+    if (!preview.valid) throw new Error(preview.error ?? 'Portable bundle could not be validated.')
+    const names =
+      'tables' in payload
+        ? (payload.tables['templates']?.map((row) => String(row['name'])) ?? [])
+        : [payload.template.name]
+    const programCount = 'tables' in payload ? (payload.tables['programs']?.length ?? 0) : 0
     if (
       !window.confirm(
-        `Import "${payload.template.name}" with ${payload.exercises.length} exercises? Existing templates will not be overwritten.`,
+        `Import ${names.length} template(s), ${programCount} program(s), and their related training data?`,
       )
-    ) {
+    )
       return
-    }
-    await db.transfer('TRANSFER_IMPORT_TEMPLATE', { content: payload })
+    await db.transfer('TRANSFER_IMPORT_PORTABLE', { bundle: payload })
     showImport.value = false
-    importStatus.value = `Imported template "${payload.template.name}".`
+    importStatus.value = `Imported ${names.length} template(s).`
     await loadData()
   } catch (error) {
     importError.value = error instanceof Error ? error.message : String(error)
@@ -162,6 +166,7 @@ const sortOptions: Array<{ value: TemplateSortOrder; label: string }> = [
           <UIcon name="i-ph-plus" class="w-4 h-4" aria-hidden="true" />
           New
         </UButton>
+        <UButton size="sm" variant="outline" to="/routines">Routines</UButton>
       </div>
     </header>
     <p v-if="importError" role="alert" class="text-sm text-red-400">{{ importError }}</p>

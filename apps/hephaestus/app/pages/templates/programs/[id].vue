@@ -1,184 +1,145 @@
 <script setup lang="ts">
-import type { ProgramProgress } from '~/composables/usePrograms'
-import type { ProgramDayRow, ProgramRow, ProgramWeekRow, TemplateRow } from '~/types/database'
+import { toRaw } from 'vue'
+import type { ProgramRow } from '~/types/database'
+import type { ProgramDesign, ProgramRevision } from '~/types/prescription'
 
 const route = useRoute()
 const programId = computed(() => String(route.params['id'] ?? ''))
-const { load, setActive, advanceWeek, getProgress, addDay } = usePrograms()
-const workout = useWorkout()
 const db = useDatabase()
-const templatesApi = useTemplates()
-
+const programs = usePrograms()
+const templates = useTemplates()
+const templateRows = templates.templates
 const program = ref<ProgramRow | null>(null)
-const progress = ref<ProgramProgress | null>(null)
-const templates = ref<TemplateRow[]>([])
-const weekDays = ref<ProgramDayRow[]>([])
-const weekId = ref<string | null>(null)
+const revision = ref<ProgramRevision | null>(null)
+const draft = ref<ProgramDesign | null>(null)
+const name = ref('')
+const description = ref('')
+const selectedWeek = ref(1)
 const selectedDay = ref(1)
 const selectedTemplate = ref('')
-const loading = ref(true)
+const slotLabel = ref('')
+const error = ref('')
+const busy = ref(false)
+const week = computed(() =>
+  draft.value?.weekProgression.find((item) => item.week === selectedWeek.value),
+)
+const slots = computed(
+  () => draft.value?.slots.filter((item) => item.week === selectedWeek.value) ?? [],
+)
+const templateName = (id: string | null) =>
+  templateRows.value.find((item) => item.id === id)?.name ?? 'Unassigned template'
 
+async function load() {
+  busy.value = true
+  try {
+    await templates.load()
+    program.value = (await programs.load()).find((item) => item.id === programId.value) ?? null
+    if (!program.value) throw new Error('Program not found')
+    revision.value = await db.domain('PROGRAM_GET_REVISION', { programId: programId.value })
+    draft.value = structuredClone(toRaw(revision.value.design))
+    name.value = program.value.name
+    description.value = program.value.description ?? ''
+    error.value = ''
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : String(cause)
+  } finally {
+    busy.value = false
+  }
+}
 watch(
   db.status,
-  async (status) => {
-    if (status !== 'ready') return
-    loading.value = true
-    try {
-      const programs = await load()
-      program.value = programs.find((item) => item.id === programId.value) ?? null
-      if (program.value) {
-        progress.value = await getProgress(programId.value)
-        const weekRows = await db.query<ProgramWeekRow>(
-          'SELECT * FROM program_weeks WHERE program_id = ? AND week_num = ?',
-          [programId.value, program.value.current_week],
-        )
-        weekId.value = weekRows[0]?.id ?? null
-        weekDays.value = await db.query<ProgramDayRow>(
-          `SELECT pd.* FROM program_days pd JOIN program_weeks pw ON pw.id=pd.week_id
-           WHERE pw.program_id=? AND pw.week_num=? ORDER BY pd.day_num`,
-          [programId.value, program.value.current_week],
-        )
-        await templatesApi.load()
-        templates.value = [...templatesApi.templates.value]
-      }
-    } finally {
-      loading.value = false
-    }
+  (status) => {
+    if (status === 'ready') void load()
   },
   { immediate: true },
 )
 
-async function refresh() {
-  const rows = await load()
-  program.value = rows.find((item) => item.id === programId.value) ?? null
-  progress.value = await getProgress(programId.value)
-}
-
-async function handleSetActive() {
-  if (!program.value) return
-  await setActive(programId.value)
-  await refresh()
-}
-
-async function handleAdvanceWeek() {
-  await advanceWeek(programId.value)
-  await refresh()
-  if (program.value) {
-    const rows = await db.query<ProgramWeekRow>(
-      'SELECT * FROM program_weeks WHERE program_id = ? AND week_num = ?',
-      [programId.value, program.value.current_week],
-    )
-    weekId.value = rows[0]?.id ?? null
-    weekDays.value = await db.query<ProgramDayRow>(
-      `SELECT pd.* FROM program_days pd JOIN program_weeks pw ON pw.id=pd.week_id
-       WHERE pw.program_id=? AND pw.week_num=? ORDER BY pd.day_num`,
-      [programId.value, program.value.current_week],
-    )
+async function addSlot() {
+  if (!draft.value || !week.value) return
+  busy.value = true
+  try {
+    const source = selectedTemplate.value
+      ? await templates.getRevision(selectedTemplate.value)
+      : null
+    draft.value.slots.push({
+      id: crypto.randomUUID(),
+      templateId: source?.templateId ?? null,
+      templateRevisionId: source?.id ?? null,
+      assignmentResolved: source !== null,
+      week: selectedWeek.value,
+      day: selectedDay.value,
+      label: slotLabel.value.trim() || null,
+      progression: { ...week.value.progression },
+    })
+    slotLabel.value = ''
+    error.value = ''
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : String(cause)
+  } finally {
+    busy.value = false
   }
 }
-
-async function handleAssignDay() {
-  if (!weekId.value) return
-  await addDay(weekId.value, selectedDay.value, selectedTemplate.value || null)
-  weekDays.value = await db.query<ProgramDayRow>(
-    `SELECT pd.* FROM program_days pd JOIN program_weeks pw ON pw.id=pd.week_id
-     WHERE pw.program_id=? AND pw.week_num=? ORDER BY pd.day_num`,
-    [programId.value, program.value?.current_week],
-  )
-}
-
-async function startAssigned(day: ProgramDayRow) {
-  if (!day.template_id || !progress.value) return
-  await workout.startWorkout(day.template_id, {
-    sessionType: 'gym',
-    intensityModifier: progress.value.intensityModifier,
-    volumeModifier: progress.value.volumeModifier,
-  })
-  await navigateTo('/workout')
+async function save() {
+  if (!draft.value || !revision.value) return
+  busy.value = true
+  try {
+    const design = structuredClone(toRaw(draft.value))
+    for (const slot of design.slots) {
+      const progression = design.weekProgression.find((item) => item.week === slot.week)
+      const previous = revision.value.design.weekProgression.find((item) => item.week === slot.week)
+      if (
+        progression &&
+        JSON.stringify(progression.progression) !== JSON.stringify(previous?.progression)
+      )
+        slot.progression = { ...progression.progression }
+    }
+    await db.domain('PROGRAM_EDIT', {
+      programId: programId.value,
+      expectedRevisionId: revision.value.id,
+      name: name.value,
+      description: description.value.trim() || null,
+      design,
+    })
+    await load()
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : String(cause)
+  } finally {
+    busy.value = false
+  }
 }
 </script>
 
 <template>
-  <article class="p-4 space-y-5">
-    <header class="flex items-center gap-3 pt-2">
-      <NuxtLink to="/templates/programs" class="text-(--ui-text-muted)" aria-label="Back">
-        <UIcon name="i-ph-arrow-left" class="w-6 h-6" aria-hidden="true" />
-      </NuxtLink>
-      <h1 class="text-xl font-bold flex-1 truncate">{{ program?.name ?? 'Program' }}</h1>
+  <article class="space-y-5 p-4 pb-24">
+    <header class="flex items-center justify-between gap-3">
+      <NuxtLink to="/templates/programs">Back</NuxtLink>
+      <h1 class="text-xl font-semibold">Reusable Program</h1>
+      <UButton :loading="busy" :disabled="!draft" @click="save">Save revision</UButton>
     </header>
-
-    <div v-if="loading" class="text-center py-12 text-(--ui-text-muted)">
-      <p>Loading…</p>
-    </div>
-
-    <template v-else-if="program">
-      <!-- Status -->
-      <div class="rounded-xl bg-(--color-surface) p-4 space-y-3">
-        <div class="flex items-center justify-between">
-          <div>
-            <p class="text-sm font-semibold">
-              Week {{ program.current_week }} of {{ program.weeks }}
-            </p>
-            <p class="text-xs text-(--ui-text-muted)">
-              {{ Math.round(((program.current_week - 1) / program.weeks) * 100) }}% complete
-            </p>
-          </div>
-          <span
-            v-if="program.active"
-            class="text-xs font-bold px-2 py-1 rounded-full bg-(--color-accent)/15 text-(--color-accent)"
-          >
-            Active
-          </span>
-        </div>
-        <div class="h-2 bg-(--color-surface-2) rounded-full overflow-hidden">
-          <div
-            class="h-full bg-(--color-accent) rounded-full transition-all"
-            :style="{ width: `${Math.min(100, ((program.current_week - 1) / program.weeks) * 100)}%` }"
-          />
-        </div>
-      </div>
-
-      <section class="rounded-xl bg-(--color-surface) p-4 space-y-3" aria-label="Current week plan">
-        <div>
-          <h2 class="font-semibold">Week {{ program.current_week }} plan</h2>
-          <p class="text-xs text-(--ui-text-muted)">
-            {{ progress?.isDeload ? 'Deload week' : 'Training week' }} ·
-            intensity ×{{ progress?.intensityModifier }} · volume ×{{ progress?.volumeModifier }}
-          </p>
-        </div>
-        <ul v-if="weekDays.length" class="space-y-2">
-          <li v-for="day in weekDays" :key="day.id" class="flex items-center justify-between gap-2">
-            <span class="text-sm">{{ day.label ?? `Day ${day.day_num}` }} ({{ day.day_num }})</span>
-            <UButton v-if="day.template_id" size="xs" @click="startAssigned(day)">Start assigned workout</UButton>
-            <span v-else class="text-xs text-(--ui-text-muted)">No template assigned</span>
-          </li>
-        </ul>
-        <p v-else class="text-sm text-(--ui-text-muted)">No workouts assigned this week yet.</p>
-        <div v-if="weekId" class="grid grid-cols-2 gap-2">
-          <label class="text-xs">Weekday
-            <select v-model.number="selectedDay" class="block w-full rounded border p-2 bg-(--color-surface)">
-              <option v-for="day in 7" :key="day" :value="day">{{ ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][day - 1] }}</option>
-            </select>
-          </label>
-          <label class="text-xs">Template
-            <select v-model="selectedTemplate" class="block w-full rounded border p-2 bg-(--color-surface)">
-              <option value="">Select template</option>
-              <option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }}</option>
-            </select>
-          </label>
-          <UButton class="col-span-2" :disabled="!selectedTemplate" @click="handleAssignDay">Assign template to weekday</UButton>
-        </div>
+    <p v-if="error" role="alert" class="text-sm text-red-400">{{ error }} <button type="button" class="underline min-h-11" @click="load">Reload saved revision</button></p>
+    <template v-if="draft && revision">
+      <p class="text-sm text-(--ui-text-muted)">Design revision {{ revision.revisionNumber }}. Personal plans keep their adopted revision until reviewed. This design never contains personal working loads.</p>
+      <label class="block">Name<input v-model="name" required class="mt-1 min-h-11 w-full rounded bg-(--color-surface) p-2" /></label>
+      <label class="block">Description<textarea v-model="description" class="mt-1 w-full rounded bg-(--color-surface) p-2" /></label>
+      <UButton to="/plans" variant="outline">Follow in a personal Training Plan</UButton>
+      <label class="block">Design week<select v-model.number="selectedWeek" class="mt-1 min-h-11 w-full rounded bg-(--color-surface) p-2"><option v-for="number in draft.weeks" :key="number" :value="number">Week {{ number }}</option></select></label>
+      <section v-if="week" class="space-y-3 rounded-xl bg-(--color-surface) p-4">
+        <h2 class="font-semibold">Week {{ selectedWeek }} progression intent</h2>
+        <p class="text-xs text-(--ui-text-muted)">Suggestions only. Adopting this design does not silently recalculate saved routines. Accept changes through their configuration or workout review.</p>
+        <label class="block">Suggested load multiplier<input v-model.number="week.progression.intensityModifier" type="number" min="0" step="any" class="mt-1 min-h-11 w-full rounded bg-(--color-bg) p-2" /></label>
+        <label class="block">Suggested set-count multiplier<input v-model.number="week.progression.volumeModifier" type="number" min="0" step="any" class="mt-1 min-h-11 w-full rounded bg-(--color-bg) p-2" /></label>
+        <label class="flex min-h-11 items-center gap-2"><input v-model="week.progression.isDeload" type="checkbox" /> Deload</label>
+        <label class="block">Phase<select v-model="week.progression.phase" class="mt-1 min-h-11 w-full rounded bg-(--color-bg) p-2"><option :value="null">No phase</option><option value="accumulation">Accumulation</option><option value="intensification">Intensification</option><option value="deload">Deload</option><option value="peak">Peak</option></select></label>
       </section>
-
-      <div class="space-y-2">
-        <UButton v-if="!program.active && !progress?.complete" class="w-full" color="primary" @click="handleSetActive">
-          Set as Active Program
-        </UButton>
-        <p v-if="progress?.complete" class="text-sm text-green-500" role="status">Program complete</p>
-        <UButton v-else class="w-full" variant="outline" @click="handleAdvanceWeek">
-          {{ program.current_week >= program.weeks ? 'Complete program' : `Advance to Week ${program.current_week + 1}` }}
-        </UButton>
-      </div>
+      <section class="space-y-3">
+        <h2 class="font-semibold">Template-based slots</h2>
+        <p class="text-xs text-(--ui-text-muted)">Day 1 is the first local date of each seven-date program week. A Wednesday-start plan enters week two the next Wednesday. Several slots can share a day.</p>
+        <ul class="space-y-2"><li v-for="slot in slots" :key="slot.id" class="flex items-center justify-between gap-3 rounded-xl bg-(--color-surface) p-3"><div><p>Day {{ slot.day }} · {{ slot.label || templateName(slot.templateId) }}</p><p class="text-xs text-(--ui-text-muted)">{{ templateName(slot.templateId) }} · {{ slot.assignmentResolved ? 'Template revision captured' : 'Needs template assignment' }}</p></div><UButton variant="ghost" :aria-label="`Remove slot ${slot.label || templateName(slot.templateId)} on day ${slot.day}`" @click="draft.slots = draft.slots.filter(item => item.id !== slot.id)">Remove</UButton></li></ul>
+        <label class="block">Day in program week<select v-model.number="selectedDay" class="mt-1 min-h-11 w-full rounded bg-(--color-surface) p-2"><option v-for="day in 7" :key="day" :value="day">Day {{ day }}</option></select></label>
+        <label class="block">Template<select v-model="selectedTemplate" class="mt-1 min-h-11 w-full rounded bg-(--color-surface) p-2"><option value="">Leave unresolved</option><option v-for="template in templateRows" :key="template.id" :value="template.id">{{ template.name }}</option></select></label>
+        <label class="block">Slot label<input v-model="slotLabel" class="mt-1 min-h-11 w-full rounded bg-(--color-surface) p-2" /></label>
+        <UButton :loading="busy" variant="outline" @click="addSlot">Add template slot</UButton>
+      </section>
     </template>
   </article>
 </template>

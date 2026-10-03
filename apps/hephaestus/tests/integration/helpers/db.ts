@@ -7,6 +7,8 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import type { Database, SqlJsStatic } from 'sql.js'
 import initSqlJs from 'sql.js'
+import { ORGANIZATION_DDL } from '../../../app/lib/organization-schema'
+import { WORKOUT_DDL } from '../../../app/lib/workout-schema'
 
 const require = createRequire(import.meta.url)
 const wasmPath: string = require.resolve('sql.js/dist/sql-wasm.wasm')
@@ -134,16 +136,21 @@ const SCHEMA = `
     energy_rating     INTEGER,
     notes             TEXT,
     environment       TEXT,
-    created_at        TEXT NOT NULL
+    created_at        TEXT NOT NULL,
+    title             TEXT,
+    correction_version INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS workout_exercises (
     id             TEXT PRIMARY KEY,
     workout_id     TEXT NOT NULL REFERENCES workouts(id) ON DELETE CASCADE,
     exercise_id    TEXT NOT NULL REFERENCES exercises(id),
+    logging_mode   TEXT NOT NULL DEFAULT 'strength',
     order_num      INTEGER NOT NULL,
     superset_group TEXT,
-    rest_seconds   INTEGER DEFAULT 120
+    rest_seconds   INTEGER DEFAULT 120,
+    removed_at TEXT,
+    removed_by_correction_id TEXT
   );
 
   CREATE TABLE IF NOT EXISTS sets (
@@ -166,7 +173,9 @@ const SCHEMA = `
     body_feel           TEXT,
     failure_flag        INTEGER NOT NULL DEFAULT 0,
     failure_type        TEXT,
-    partial_reps        INTEGER
+    partial_reps        INTEGER,
+    removed_at TEXT,
+    removed_by_correction_id TEXT
   );
 
   CREATE TABLE IF NOT EXISTS runs (
@@ -356,9 +365,12 @@ export async function createTestDb(): Promise<TestDb> {
   const sql = await getSql()
   const db = new sql.Database()
   db.run(SCHEMA)
+  db.run(WORKOUT_DDL)
+  db.run(ORGANIZATION_DDL)
 
-  function exec(sqlStr: string, params: (string | number | null | Uint8Array)[] = []) {
-    db.run(sqlStr, params)
+  function exec(sqlStr: string, params?: (string | number | null | Uint8Array)[]) {
+    if (!params || params.length === 0) db.run(sqlStr)
+    else db.run(sqlStr, params)
   }
 
   function query<T = Record<string, unknown>>(

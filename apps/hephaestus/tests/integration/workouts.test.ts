@@ -1,6 +1,7 @@
 import type { DbAdapter } from '@palladium/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { isoWeek } from '~/lib/format'
+import { migratePrescriptionDomain } from '~/lib/prescription-storage'
 import { dispatchWorkout, type WorkoutSession, type WorkoutSummary } from '~/lib/workout-storage'
 import type { RunRow, SetRow, WorkoutExerciseRow } from '~/types/database'
 import type { TestDb } from './helpers/db'
@@ -18,7 +19,7 @@ afterEach(() => {
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 function insertExercise(slug: string, name: string, movement = 'press') {
-  const id = testId('ex')
+  const id = crypto.randomUUID()
   db.exec(
     `INSERT INTO exercises (id, name, slug, equipment, movement, muscles, muscles_sec, cues, icon, is_custom, created_at)
      VALUES (?, ?, ?, 'barbell', ?, '[]', '[]', NULL, 'i-ph-barbell', 0, ?)`,
@@ -380,6 +381,99 @@ function workoutSet(exerciseId: string, overrides: Partial<SetRow> = {}): SetRow
   }
 }
 
+describe('durable row drafts and completion transitions', () => {
+  async function pendingRow(): Promise<{ workoutId: string; set: SetRow }> {
+    const exerciseId = insertExercise('draft-strength', 'Draft Strength')
+    const started = await runWorkoutOperation<WorkoutSession>('WORKOUT_START', {
+      id: testId('workout'),
+      now: NOW,
+    })
+    const exercise: WorkoutExerciseRow = {
+      id: testId('workout-exercise'),
+      workout_id: started.workout.id,
+      exercise_id: exerciseId,
+      order_num: 1,
+      superset_group: null,
+      rest_seconds: 120,
+    }
+    await runWorkoutOperation('WORKOUT_ADD_EXERCISE', { exercise })
+    return {
+      workoutId: started.workout.id,
+      set: workoutSet(exercise.id, { completed: 0, logged_at: null }),
+    }
+  }
+
+  it('recovers a valid draft without performed work, then undoes completion without erasing its values', async () => {
+    const { workoutId, set } = await pendingRow()
+    await runWorkoutOperation('WORKOUT_SAVE_DRAFT', { set })
+    const draft = await runWorkoutOperation<WorkoutSession>('WORKOUT_ACTIVE', {})
+    expect(draft.sets).toEqual([
+      expect.objectContaining({
+        id: set.id,
+        weight_kg: 100,
+        reps: 5,
+        completed: 0,
+        logged_at: null,
+      }),
+    ])
+    expect(db.query('SELECT id FROM personal_records')).toEqual([])
+    await runWorkoutOperation('WORKOUT_LOG_SET', { set: { ...set, completed: 1, logged_at: NOW } })
+    await expect(
+      runWorkoutOperation('WORKOUT_SAVE_DRAFT', { set: { ...set, weight_kg: 80 } }),
+    ).rejects.toThrow(/completed/i)
+    const undone = await runWorkoutOperation<SetRow>('WORKOUT_UNDO_SET', { setId: set.id })
+    expect(undone).toMatchObject({
+      id: set.id,
+      weight_kg: 100,
+      reps: 5,
+      completed: 0,
+      logged_at: null,
+    })
+    const summary = await runWorkoutOperation<WorkoutSummary>('WORKOUT_FINISH', {
+      workoutId,
+      endedAt: NOW,
+    })
+    expect(summary).toMatchObject({ totalSets: 0, totalVolume: 0, newPRs: [] })
+    await expect(runWorkoutOperation('WORKOUT_UNDO_SET', { setId: set.id })).rejects.toThrow(
+      /not writable/i,
+    )
+  })
+
+  it('persists skips independently from intent/draft values and requires explicit restoration before completion', async () => {
+    const { set } = await pendingRow()
+    await runWorkoutOperation('WORKOUT_SKIP_SET', { set, skipped: true })
+    const recovered = await runWorkoutOperation<WorkoutSession>('WORKOUT_ACTIVE', {})
+    expect(recovered.skippedSetIds).toEqual([set.id])
+    expect(recovered.sets[0]).toMatchObject({ id: set.id, weight_kg: 100, reps: 5, completed: 0 })
+    await expect(
+      runWorkoutOperation('WORKOUT_LOG_SET', { set: { ...set, completed: 1, logged_at: NOW } }),
+    ).rejects.toThrow(/restore/i)
+    await runWorkoutOperation('WORKOUT_SKIP_SET', { set, skipped: false })
+    await runWorkoutOperation('WORKOUT_LOG_SET', { set: { ...set, completed: 1, logged_at: NOW } })
+    expect((await runWorkoutOperation<WorkoutSession>('WORKOUT_ACTIVE', {})).skippedSetIds).toEqual(
+      [],
+    )
+  })
+
+  it('rejects invalid numeric drafts atomically and retains the last valid pending values', async () => {
+    const { set } = await pendingRow()
+    await runWorkoutOperation('WORKOUT_SAVE_DRAFT', { set })
+    for (const partial of [
+      { weight_kg: -1 },
+      { reps: 1.5 },
+      { rpe: 11 },
+      { rir: Number.POSITIVE_INFINITY },
+    ]) {
+      await expect(
+        runWorkoutOperation('WORKOUT_SAVE_DRAFT', { set: { ...set, ...partial } }),
+      ).rejects.toThrow(/invalid|finite|range|integer|nonnegative/i)
+    }
+    expect((await runWorkoutOperation<WorkoutSession>('WORKOUT_ACTIVE', {})).sets[0]).toMatchObject(
+      { weight_kg: 100, reps: 5, completed: 0 },
+    )
+  })
+})
+
 describe('atomic workout lifecycle operations', () => {
   it('durably applies template exclusions and scaled/program volume, and hydrates planned sets', async () => {
     const included = insertExercise('scaled-exercise', 'Scaled Exercise')
@@ -395,6 +489,8 @@ describe('atomic workout lifecycle operations', () => {
         [testId('te'), templateId, exerciseId, order, count],
       )
     }
+
+    await migratePrescriptionDomain(workoutAdapter())
 
     const started = await runWorkoutOperation<WorkoutSession>('WORKOUT_START', {
       id: testId('workout'),
@@ -444,6 +540,7 @@ describe('atomic workout lifecycle operations', () => {
       'INSERT INTO template_exercises (id,template_id,exercise_id,order_num,sets_planned) VALUES (?,?,?,?,?)',
       [testId('te'), templateId, exerciseId, 1, 1],
     )
+    await migratePrescriptionDomain(workoutAdapter())
     const started = await runWorkoutOperation<WorkoutSession>('WORKOUT_START', {
       id: testId('workout'),
       now: NOW,

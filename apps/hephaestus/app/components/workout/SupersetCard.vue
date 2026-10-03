@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { WorkoutActivityIntent, WorkoutSetIntent } from '~/lib/workout-storage'
 import type { ExerciseRow, SetRow, WorkoutExerciseRow } from '~/types/database'
 
 const props = defineProps<{
@@ -13,6 +14,10 @@ const props = defineProps<{
     sets: SetRow[]
   }>
   unit?: 'kg' | 'lbs'
+  setIntents?: Readonly<Record<string, Readonly<WorkoutSetIntent>>>
+  activityIntents?: Readonly<Record<string, Readonly<WorkoutActivityIntent>>>
+  skippedSetIds?: ReadonlySet<string>
+  prescribed?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -102,32 +107,17 @@ const roundsCompleted = computed(() => {
               />
               <div class="flex-1 min-w-0">
                 <p class="text-sm font-semibold leading-tight truncate">{{ ex.exercise.name }}</p>
-                <!-- Completed set chips -->
-                <div class="flex flex-wrap gap-1 mt-1.5" role="list" :aria-label="`Completed sets for ${ex.exercise.name}`">
-                  <button
-                    v-for="s in workingSets(ex)"
-                    :key="s.id"
-                    role="listitem"
-                    type="button"
-                    :aria-label="`Edit set ${s.set_num} for ${ex.exercise.name}`"
-                    class="inline-block text-[11px] tabular-nums bg-(--color-surface-2) rounded px-1.5 py-0.5"
-                    @click="emit('tapSet', s)"
-                  >
-                    <template v-if="ex.exercise.logging_mode === 'strength'">
-                      {{ s.weight_kg !== null ? `${s.weight_kg}${unit}` : '—' }}
-                      <span class="text-(--ui-text-muted)">×</span>
-                      {{ s.reps ?? '—' }}
-                    </template>
-                    <template v-else>
-                      {{ s.distance_m == null ? '—' : `${(s.distance_m / 1000).toFixed(2)} km` }}
-                      <span v-if="s.duration_sec != null">· {{ s.duration_sec }} sec</span>
-                    </template>
-                  </button>
-                  <span
-                    v-if="workingSets(ex).length === 0"
-                    class="text-xs text-(--ui-text-muted)"
-                  >Not started</span>
-                </div>
+                <p class="mt-1 text-xs text-(--ui-text-muted)">
+                  {{ workingSets(ex).length }} working set{{ workingSets(ex).length === 1 ? '' : 's' }}
+                </p>
+                <p v-if="activityIntents?.[ex.we.id]" class="mt-1 text-xs text-(--ui-text-muted)">
+                  <span v-if="activityIntents[ex.we.id]?.durationSec !== null && activityIntents[ex.we.id]?.durationSec !== undefined">
+                    Activity target: {{ activityIntents[ex.we.id]?.durationSec }} sec
+                  </span>
+                  <span v-if="activityIntents[ex.we.id]?.distanceM !== null && activityIntents[ex.we.id]?.distanceM !== undefined">
+                    {{ activityIntents[ex.we.id]?.distanceM }} m
+                  </span>
+                </p>
               </div>
               <UButton
                 size="xs"
@@ -139,6 +129,20 @@ const roundsCompleted = computed(() => {
                 + Set
               </UButton>
             </div>
+            <ul class="divide-y divide-(--ui-border)/30" :aria-label="`Sets for ${ex.exercise.name}`">
+              <WorkoutSetRow
+                v-for="set in ex.sets"
+                :key="set.id"
+                :set="set"
+                :unit="unit"
+                :logging-mode="ex.we.logging_mode"
+                :exercise-name="ex.exercise.name"
+                :intent="setIntents?.[set.id] ?? null"
+                :skipped="skippedSetIds?.has(set.id) ?? false"
+                :prescribed="prescribed ?? false"
+                @tap="emit('tapSet', $event)"
+              />
+            </ul>
           </div>
         </div>
       </li>

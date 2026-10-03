@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ProgramRow } from '~/types/database'
 
-const { load, setActive } = usePrograms()
+const { load } = usePrograms()
 const db = useDatabase()
 
 const programs = ref<ProgramRow[]>([])
@@ -17,11 +17,6 @@ watch(
   },
   { immediate: true },
 )
-
-async function handleSetActive(id: string) {
-  await setActive(id)
-  programs.value = await load()
-}
 </script>
 
 <template>
@@ -38,6 +33,8 @@ async function handleSetActive(id: string) {
         New
       </UButton>
     </header>
+    <p class="text-sm text-(--ui-text-muted)">Follow an adopted Program revision in a personal Training Plan. Editing a design does not change existing plans or captured workouts.</p>
+    <UButton to="/plans" variant="outline">Personal Training Plans</UButton>
 
     <div v-if="loading" class="text-center py-12 text-(--ui-text-muted)">
       <p>Loading…</p>
@@ -51,12 +48,6 @@ async function handleSetActive(id: string) {
               <div class="flex items-center gap-2">
                 <p class="font-semibold text-sm">{{ p.name }}</p>
                 <span
-                  v-if="p.active"
-                  class="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-(--color-accent)/15 text-(--color-accent)"
-                >
-                  Active
-                </span>
-                <span
                   v-if="p.is_builtin"
                   class="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-zinc-500/15 text-zinc-400"
                 >
@@ -64,26 +55,11 @@ async function handleSetActive(id: string) {
                 </span>
               </div>
               <p class="text-xs text-(--ui-text-muted) mt-0.5">
-                {{ p.weeks }} weeks · Week {{ p.current_week }}
+                {{ p.weeks }} weeks · reusable template-based design
               </p>
             </NuxtLink>
-            <UButton
-              v-if="!p.active"
-              size="xs"
-              variant="ghost"
-              @click="handleSetActive(p.id)"
-            >
-              Set Active
-            </UButton>
           </div>
 
-          <!-- Progress bar -->
-          <div class="h-1.5 bg-(--color-surface-2) rounded-full overflow-hidden">
-            <div
-              class="h-full bg-(--color-accent) rounded-full transition-all"
-              :style="{ width: `${Math.min(100, ((p.current_week - 1) / p.weeks) * 100)}%` }"
-            />
-          </div>
         </div>
       </li>
     </ul>

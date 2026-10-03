@@ -108,11 +108,7 @@ export function aggregateMuscleFrequency(
 
   const workoutDateMap = new Map(
     workouts
-      .filter(
-        (w) =>
-          (w.ended_at === undefined || w.ended_at !== null) &&
-          (w.session_type === undefined || w.session_type === 'gym'),
-      )
+      .filter((w) => w.ended_at === undefined || w.ended_at !== null)
       .map((w) => [w.id, w.date]),
   )
   const exerciseMap = new Map(exercises.map((e) => [e.id, e]))
@@ -123,7 +119,7 @@ export function aggregateMuscleFrequency(
     const workoutDate = workoutDateMap.get(we.workout_id)
     if (!workoutDate || workoutDate < cutoffStr || workoutDate > referenceDate) continue
     const exercise = exerciseMap.get(we.exercise_id)
-    if (exercise?.logging_mode !== 'strength') continue
+    if (!exercise || we.logging_mode !== 'strength') continue
 
     let muscles: string[] = []
     try {
@@ -163,14 +159,12 @@ export function buildExerciseHistory(
 ): ExerciseSessionStat[] {
   const workoutDateMap = new Map(
     workouts
-      .filter(
-        (w) =>
-          (w.ended_at === undefined || w.ended_at !== null) &&
-          (w.session_type === undefined || w.session_type === 'gym'),
-      )
+      .filter((w) => w.ended_at === undefined || w.ended_at !== null)
       .map((w) => [w.id, w.date]),
   )
-  const relevantWEs = workoutExercises.filter((we) => we.exercise_id === exerciseId)
+  const relevantWEs = workoutExercises.filter(
+    (we) => we.exercise_id === exerciseId && we.logging_mode === 'strength',
+  )
   const weIds = new Set(relevantWEs.map((we) => we.id))
 
   const byWorkout = new Map<string, SetRow[]>()

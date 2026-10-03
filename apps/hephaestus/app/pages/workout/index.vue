@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import WorkoutRoutineReview from '~/components/routines/WorkoutRoutineReview.vue'
 import type { EquipmentProfile } from '~/lib/equipment'
 import { formatDuration, formatWeight } from '~/lib/format'
 import { sessionLabel } from '~/lib/history'
@@ -28,7 +29,11 @@ const moodRating = ref<number | null>(null)
 const energyRating = ref<number | null>(null)
 const workoutNotes = ref('')
 const summary = ref<WorkoutSummary | null>(null)
+const finishedRoutineId = ref<string | null>(null)
+const showRoutineReview = ref(false)
 const showExercisePicker = ref(false)
+const finishModalFocus = useModalFocus(() => showFinishSheet.value)
+const pickerModalFocus = useModalFocus(() => showExercisePicker.value)
 const exerciseSearch = ref('')
 const showFailureRestPrompt = ref(false)
 const showWarmupSuggestions = ref(false)
@@ -50,7 +55,7 @@ const recoveryLabel = computed(() => {
   const template = activeWorkout.template_id
     ? templates.value.find((item) => item.id === activeWorkout.template_id)
     : undefined
-  return template?.name ?? sessionLabel(activeWorkout)
+  return workout.routine.value?.name ?? template?.name ?? sessionLabel(activeWorkout)
 })
 
 const recoveryStartedAt = computed(() => {
@@ -113,6 +118,28 @@ watch(
   { immediate: true },
 )
 
+watch(
+  () => ({
+    workoutId: workout.activeWorkout.value?.id ?? null,
+    sets: [...workout.sets.value.values()].flat().filter((set) => set.completed === 1),
+  }),
+  (current, previous) => {
+    if (
+      !current.workoutId ||
+      current.workoutId !== previous.workoutId ||
+      !settings.value.showFailurePrompt
+    )
+      return
+    const completedIds = new Set(previous.sets.map((set) => set.id))
+    if (
+      current.sets.some(
+        (set) => !completedIds.has(set.id) && set.failure_flag === 1 && !set.is_warmup,
+      )
+    )
+      showFailureRestPrompt.value = true
+  },
+)
+
 const filteredExercises = computed(() => {
   const q = exerciseSearch.value.trim()
   if (!q) return exerciseLibrary.value
@@ -125,7 +152,9 @@ const addSetExtraProps = computed(() => ({
     ? {}
     : { exerciseMovement: activeExercise.value.movement }),
   ...(activeExercise.value?.icon == null ? {} : { exerciseIcon: activeExercise.value.icon }),
-  loggingMode: activeExercise.value?.logging_mode ?? 'strength',
+  loggingMode:
+    workout.workoutExercises.value.find((entry) => entry.id === activeWeId.value)?.logging_mode ??
+    'strength',
   equipmentProfile: currentEquipmentProfile.value,
   suggestedWeightKg: suggestedWeightKg.value,
   ...(suggestionReason.value == null ? {} : { suggestionReason: suggestionReason.value }),
@@ -174,29 +203,25 @@ function openEditSet(set: SetRow) {
   showAddSet.value = true
 }
 
-function openAddSet(weId: string) {
-  const currentSets = workout.sets.value.get(weId) ?? []
-  editingSet.value = null
-  lastSetForWe.value = [...currentSets].reverse().find((set) => set.completed === 1) ?? null
-  nextSetNum.value = currentSets.filter((set) => set.completed === 1).length + 1
-  activeWeId.value = weId
-  showAddSet.value = true
+async function openAddSet(weId: string) {
+  try {
+    const draft = await workout.createPendingSet(weId)
+    openEditSet(draft)
+    requestError.value = ''
+  } catch (error) {
+    requestError.value = error instanceof Error ? error.message : 'Could not create a set draft.'
+  }
 }
 
 async function handleSetConfirm(partial: Partial<SetRow>) {
   if (!activeWeId.value) return
   try {
-    if (partial.id) await workout.updateSet(partial.id, partial)
-    else await workout.logSet(activeWeId.value, partial)
+    const set = editingSet.value
+    if (!set) throw new Error('Set draft is unavailable.')
+    if (set.completed === 0) await workout.saveDraft(set.id, partial)
+    else await workout.updateSet(set.id, partial)
     showAddSet.value = false
     editingSet.value = null
-    if (
-      !partial.id &&
-      partial.failure_flag === 1 &&
-      !partial.is_warmup &&
-      settings.value.showFailurePrompt
-    )
-      showFailureRestPrompt.value = true
     if (!partial.is_warmup && partial.weight_kg != null)
       activeWorkingWeight.value = partial.weight_kg
     requestError.value = ''
@@ -234,8 +259,10 @@ async function handleStartEmpty() {
 async function handleStartFromTemplate(templateId: string) {
   requestError.value = ''
   try {
-    await workout.startWorkout(templateId, { sessionType: sessionType.value })
-    syncRunFields()
+    await navigateTo({
+      path: `/templates/${templateId}/start`,
+      query: { sessionType: sessionType.value },
+    })
   } catch (error) {
     requestError.value = error instanceof Error ? error.message : 'Could not start this session.'
   }
@@ -276,6 +303,7 @@ async function saveRunData(): Promise<boolean> {
 
 async function handleFinish() {
   try {
+    const routineId = workout.routine.value?.id ?? null
     if (workout.activeWorkout.value?.session_type === 'run' && !(await saveRunData())) return
     showFinishSheet.value = false
     summary.value = await workout.finishWorkout({
@@ -283,6 +311,7 @@ async function handleFinish() {
       ...(energyRating.value == null ? {} : { energyRating: energyRating.value }),
       ...(workoutNotes.value ? { notes: workoutNotes.value } : {}),
     })
+    finishedRoutineId.value = routineId
     syncRunFields()
     requestError.value = ''
   } catch (error) {
@@ -398,7 +427,7 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
         <h2 id="summary-heading" class="sr-only">Workout summary</h2>
         <CommonStatCard v-if="summary.sessionType === 'run'" label="Distance" :value="`${(summary.distanceM / 1000).toFixed(2)} km`" />
         <CommonStatCard v-else :label="summary.sessionType === 'gym' ? 'Working Sets' : 'Logged Sets'" :value="String(summary.totalSets)" />
-        <CommonStatCard v-if="summary.sessionType === 'gym'" label="Volume" :value="`${Math.round(summary.totalVolume)} kg`" />
+        <CommonStatCard label="Elapsed" :value="formatDuration(summary.durationSec)" />
         <CommonStatCard
           v-if="summary.sessionType === 'gym'"
           label="PRs"
@@ -415,7 +444,15 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
         </li>
       </ul>
 
-      <UButton color="primary" class="w-full" @click="summary = null">
+      <UButton v-if="finishedRoutineId && workout.lastFinishedWorkoutId.value && !showRoutineReview" variant="outline" class="w-full" @click="showRoutineReview = true">
+        Review future routine updates
+      </UButton>
+      <Suspense v-if="showRoutineReview && workout.lastFinishedWorkoutId.value">
+        <WorkoutRoutineReview :workout-id="workout.lastFinishedWorkoutId.value" @close="showRoutineReview = false" />
+        <template #fallback><p role="status">Loading future routine review…</p></template>
+      </Suspense>
+      <p v-if="finishedRoutineId" class="text-xs text-(--ui-text-muted)">Your completed workout is saved. Future routine changes are optional and require a separate review.</p>
+      <UButton color="primary" class="w-full" @click="summary = null; showRoutineReview = false">
         Done
       </UButton>
     </article>
@@ -439,6 +476,9 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
         <div>
           <p class="text-xs text-(--ui-text-muted)">Active Session</p>
           <p class="font-bold tabular-nums">⏱ {{ formatDuration(workout.elapsedSeconds.value) }}</p>
+          <p v-if="workout.routine.value" class="text-xs text-(--ui-text-muted)">
+            {{ workout.routine.value.name }} · revision {{ workout.routine.value.revisionNumber }}
+          </p>
         </div>
         <UButton
           color="primary"
@@ -470,6 +510,10 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
             :exercise="exerciseLibrary.find(e => e.id === block.we.exercise_id)!"
             :sets="[...(workout.sets.value.get(block.we.id) ?? [])]"
             :unit="settings.weightUnit"
+            :set-intents="workout.setIntents.value"
+            :activity-intent="workout.activityIntents.value[block.we.id] ?? null"
+            :skipped-set-ids="workout.skippedSetIds.value"
+            :prescribed="workout.prescription.value !== null"
             @add-set="openAddSet"
             @tap-set="openEditSet"
           />
@@ -482,6 +526,10 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
             :round-rest="block.group?.rest_after_round_sec ?? 120"
             :exercises="groupExercises(block.label)"
             :unit="settings.weightUnit"
+            :set-intents="workout.setIntents.value"
+            :activity-intents="workout.activityIntents.value"
+            :skipped-set-ids="workout.skippedSetIds.value"
+            :prescribed="workout.prescription.value !== null"
             @add-set="openAddSet"
             @tap-set="openEditSet"
           />
@@ -553,14 +601,9 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
     </Transition>
 
     <!-- ── Exercise Picker Sheet ──────────────────────────────────────── -->
-    <Transition name="slide-up">
-      <div
-        v-if="showExercisePicker"
-        class="fixed inset-0 z-50 bg-(--color-bg) flex flex-col"
-        role="dialog"
-        aria-label="Add exercise"
-        aria-modal="true"
-      >
+    <UModal v-model:open="showExercisePicker" :content="pickerModalFocus" title="Add exercise" description="Choose an actual activity to add to this session.">
+      <template #content>
+      <div class="flex flex-col max-h-[85dvh]">
         <header class="flex items-center gap-3 p-4 border-b border-(--ui-border)">
           <button
             class="text-(--ui-text-muted)"
@@ -595,22 +638,13 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
           </li>
         </ul>
       </div>
-    </Transition>
+      </template>
+    </UModal>
 
     <!-- ── Finish Sheet ───────────────────────────────────────────────── -->
-    <Transition name="slide-up">
-      <div
-        v-if="showFinishSheet"
-        class="fixed inset-0 z-[100] bg-black/50"
-        role="presentation"
-        @click.self="showFinishSheet = false"
-      >
-        <div
-          class="absolute bottom-0 left-0 right-0 bg-(--color-surface) rounded-t-2xl p-6 space-y-5 safe-area-bottom"
-          role="dialog"
-          aria-label="Finish workout"
-          aria-modal="true"
-        >
+    <UModal v-model:open="showFinishSheet" :content="finishModalFocus" title="Finish workout" description="Save this workout independently of any optional future routine updates.">
+      <template #content>
+        <div class="p-6 space-y-5 safe-area-bottom max-h-[85dvh] overflow-y-auto">
           <h2 class="text-xl font-bold">Finish Workout?</h2>
 
           <!-- Mood -->
@@ -620,7 +654,7 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
               <button
                 v-for="(icon, i) in ratingIcons"
                 :key="i"
-                class="text-2xl w-10 h-10 rounded-xl transition-all"
+                class="text-2xl w-11 h-11 rounded-xl transition-all"
                 :class="moodRating === i + 1 ? 'bg-(--color-accent)/20 scale-110' : 'opacity-50'"
                 :aria-pressed="moodRating === i + 1"
                 :aria-label="`Mood rating ${i + 1}`"
@@ -638,7 +672,7 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
               <button
                 v-for="(icon, i) in ratingIcons"
                 :key="i"
-                class="text-2xl w-10 h-10 rounded-xl transition-all"
+                class="text-2xl w-11 h-11 rounded-xl transition-all"
                 :class="energyRating === i + 1 ? 'bg-(--color-accent)/20 scale-110' : 'opacity-50'"
                 :aria-pressed="energyRating === i + 1"
                 :aria-label="`Energy rating ${i + 1}`"
@@ -668,18 +702,8 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
             </UButton>
           </div>
         </div>
-      </div>
-    </Transition>
+      </template>
+    </UModal>
   </div>
 </template>
 
-<style scoped>
-.slide-up-enter-active,
-.slide-up-leave-active {
-  transition: transform 0.25s ease;
-}
-.slide-up-enter-from,
-.slide-up-leave-to {
-  transform: translateY(100%);
-}
-</style>

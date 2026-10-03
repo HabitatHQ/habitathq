@@ -1,15 +1,50 @@
 <script setup lang="ts">
-import { formatDuration } from '~/lib/format'
+import { useHistoryCorrection } from '~/composables/useHistoryCorrection'
+import { formatDuration, formatWeight } from '~/lib/format'
 import { buildWorkoutCard } from '~/lib/workout-card'
 import type { ExerciseRow, SetRow, WorkoutExerciseRow, WorkoutRow } from '~/types/database'
+import type { FieldComparison, HistoryCorrectionDraft } from '~/types/history-correction'
 
 const route = useRoute()
 const workoutId = String(route.params['id'] ?? '')
 
 const db = useDatabase()
+const correction = useHistoryCorrection(workoutId)
+const editingCorrection = ref(false)
+const correctionPreview = computed(() => correction.preview.value)
+const { settings } = useAppSettings()
+const correctionFieldLabels = {
+  weightKg: 'Load',
+  reps: 'Reps',
+  rpe: 'RPE',
+  rir: 'RIR',
+  durationSec: 'Duration',
+  distanceM: 'Distance',
+}
+function comparisonValue(field: FieldComparison['field'], value: number | null) {
+  if (value === null) return 'Not recorded'
+  return field === 'weightKg'
+    ? formatWeight(value, settings.value.weightUnit)
+    : field === 'durationSec'
+      ? formatDuration(value)
+      : field === 'distanceM'
+        ? `${value} m`
+        : String(value)
+}
+function comparisonTarget(field: FieldComparison) {
+  const target = field.target
+  if (!target) return 'No captured target'
+  const minimum = comparisonValue(field.field, target.minimum)
+  return target.kind === 'range'
+    ? `${minimum}–${comparisonValue(field.field, target.maximum ?? target.minimum)}`
+    : target.kind === 'minimum'
+      ? `At least ${minimum}`
+      : minimum
+}
 
 const workout = ref<WorkoutRow | null>(null)
 const exercises = ref<Array<{ exercise: ExerciseRow; sets: SetRow[] }>>([])
+const runResult = ref<{ distance_m: number | null; duration_sec: number | null } | null>(null)
 const loading = ref(true)
 const notFound = ref(false)
 
@@ -54,7 +89,7 @@ async function loadData() {
                 e.logging_mode AS exercise_logging_mode
          FROM workout_exercises we
          JOIN exercises e ON e.id = we.exercise_id
-         WHERE we.workout_id = ?
+         WHERE we.workout_id = ? AND we.removed_at IS NULL
          ORDER BY we.order_num`,
         [workoutId],
       ),
@@ -65,13 +100,20 @@ async function loadData() {
       return
     }
     workout.value = workoutRows[0]
+    runResult.value =
+      (
+        await db.query<{ distance_m: number | null; duration_sec: number | null }>(
+          'SELECT distance_m,duration_sec FROM runs WHERE workout_id=?',
+          [workoutId],
+        )
+      )[0] ?? null
 
     // Single query for all sets — join back to workout_exercise_id to group them
     const allSets = await db.query<SetRow & { we_id: string }>(
       `SELECT s.*, we.id AS we_id
        FROM sets s
        JOIN workout_exercises we ON we.id = s.workout_exercise_id
-       WHERE we.workout_id = ?
+       WHERE we.workout_id = ? AND we.removed_at IS NULL AND s.removed_at IS NULL
        ORDER BY we.order_num, s.set_num`,
       [workoutId],
     )
@@ -115,17 +157,6 @@ const durationFormatted = computed(() => {
   return formatDuration(secs)
 })
 
-const totalVolume = computed(() =>
-  exercises.value.reduce(
-    (total, block) =>
-      total +
-      block.sets
-        .filter((s) => s.is_warmup === 0 && s.completed === 1)
-        .reduce((sum, s) => sum + (s.weight_kg ?? 0) * (s.reps ?? 0), 0),
-    0,
-  ),
-)
-
 const totalSets = computed(() =>
   exercises.value.reduce(
     (total, block) =>
@@ -145,10 +176,12 @@ const workoutDate = computed(() => {
 
 const workoutCard = computed(() => {
   if (!workout.value?.ended_at) return null
-  const distance = exercises.value
-    .flatMap((block) => block.sets)
-    .filter((set) => set.completed === 1)
-    .reduce((sum, set) => sum + (set.distance_m ?? 0), 0)
+  const distance =
+    runResult.value?.distance_m ??
+    exercises.value
+      .flatMap((block) => block.sets)
+      .filter((set) => set.completed === 1)
+      .reduce((sum, set) => sum + (set.distance_m ?? 0), 0)
   return buildWorkoutCard({
     date: workout.value.date,
     sessionType: workout.value.session_type,
@@ -159,7 +192,7 @@ const workoutCard = computed(() => {
     ),
     exerciseCount: exercises.value.length,
     workingSets: totalSets.value,
-    volumeKg: workout.value.session_type === 'gym' ? totalVolume.value : null,
+    volumeKg: null,
     distanceMeters: distance > 0 ? distance : null,
   })
 })
@@ -179,6 +212,37 @@ function downloadWorkoutCard() {
 function moodEmoji(rating: number | null): string {
   if (rating === null) return '—'
   return ['😞', '😕', '😐', '🙂', '😄'][rating - 1] ?? '—'
+}
+async function reviewCorrection(
+  draft: Omit<HistoryCorrectionDraft, 'workoutId' | 'expectedVersion'>,
+) {
+  try {
+    await correction.review(draft)
+  } catch (error) {
+    correction.error.value = error instanceof Error ? error.message : String(error)
+  }
+}
+
+async function applyCorrection() {
+  try {
+    const result = await correction.apply()
+    workout.value = result.detail.workout
+    editingCorrection.value = false
+    await loadData()
+  } catch (error) {
+    correction.error.value = error instanceof Error ? error.message : String(error)
+  }
+}
+
+function openCorrection() {
+  void correction
+    .load()
+    .then(() => {
+      editingCorrection.value = true
+    })
+    .catch((error: unknown) => {
+      correction.error.value = error instanceof Error ? error.message : String(error)
+    })
 }
 </script>
 
@@ -219,6 +283,33 @@ function moodEmoji(rating: number | null): string {
       </div>
 
       <div v-else-if="workout" class="px-4 py-4 space-y-4">
+        <UButton v-if="workout.ended_at" size="sm" variant="outline" @click="openCorrection">Correct workout</UButton>
+        <p v-if="correction.error.value" role="alert" class="text-red-500">{{ correction.error.value }}</p>
+        <HistoryCorrectionPanel
+          v-if="editingCorrection && correction.detail.value"
+          :workout-id="workoutId"
+          :detail="correction.detail.value"
+          @review="reviewCorrection"
+          @change="correction.preview.value = null"
+          @cancel="editingCorrection = false"
+        >
+          <template #preview>
+            <div v-if="correctionPreview" class="rounded-lg border border-(--ui-border) p-3 text-sm">
+              <p>Performed date: {{ correctionPreview.before.date }} → {{ correctionPreview.after.date }}</p>
+              <p v-if="correctionPreview.before.title !== correctionPreview.after.title">Title: {{ correctionPreview.before.title ?? 'Untitled' }} → {{ correctionPreview.after.title ?? 'Untitled' }}</p>
+              <p>Appointment credit: {{ correctionPreview.appointment.beforeId ?? 'none' }} → {{ correctionPreview.appointment.afterId ?? 'none' }}</p>
+              <p>Removed activities/sets: {{ correctionPreview.impact.removedActivities }}/{{ correctionPreview.impact.removedSets }}</p>
+              <p>Added activities/result rows: {{ correctionPreview.impact.addedActivities }}/{{ correctionPreview.impact.addedSets }}</p>
+              <p>Qualified workout credit: {{ correctionPreview.credit.before.qualifies ? 'yes' : 'no' }} → {{ correctionPreview.credit.after.qualifies ? 'yes' : 'no' }}; applicable frequency goals {{ correctionPreview.credit.before.goalIds.length }} → {{ correctionPreview.credit.after.goalIds.length }}. Rotation position is unchanged.</p>
+              <p v-if="correction.detail.value.run" >Manual run result: {{ correctionPreview.run.before?.distanceM ?? 'unknown' }} m/{{ correctionPreview.run.before?.durationSec ?? 'unknown' }} s → {{ correctionPreview.run.after?.distanceM ?? 'unknown' }} m/{{ correctionPreview.run.after?.durationSec ?? 'unknown' }} s</p>
+              <div v-for="comparison in correctionPreview.comparisons" :key="comparison.setId" class="mt-2 border-t border-(--ui-border) pt-2">
+                <p class="font-medium">{{ comparison.exerciseName }} · Set {{ comparison.setNumber }}</p>
+                <p v-for="field in comparison.fields" :key="field.field">{{ correctionFieldLabels[field.field] }}: {{ comparisonValue(field.field,field.actual) }} / {{ comparisonTarget(field) }} · {{ field.status }}</p>
+              </div>
+              <div class="mt-2 flex gap-2"><UButton :loading="correction.saving.value" @click="applyCorrection">Apply reviewed correction</UButton><UButton color="neutral" variant="outline" @click="correction.preview.value = null">Back</UButton></div>
+            </div>
+          </template>
+        </HistoryCorrectionPanel>
         <!-- Date -->
         <p class="text-xs text-(--ui-text-muted)">
           <time :datetime="workout.date">{{ workoutDate }}</time>
@@ -227,20 +318,14 @@ function moodEmoji(rating: number | null): string {
         <!-- Key stats -->
         <section aria-labelledby="stats-heading" class="bg-(--color-surface) rounded-xl p-4">
           <h2 id="stats-heading" class="text-xs text-(--ui-text-muted) uppercase tracking-wide mb-3">Summary</h2>
-          <div class="grid grid-cols-3 gap-3 text-center">
+          <div class="grid grid-cols-2 gap-3 text-center">
             <div>
               <p class="text-xl font-bold tabular-nums">{{ durationFormatted ?? '—' }}</p>
               <p class="text-xs text-(--ui-text-muted)">Duration</p>
             </div>
             <div>
               <p class="text-xl font-bold tabular-nums">{{ totalSets }}</p>
-              <p class="text-xs text-(--ui-text-muted)">Sets</p>
-            </div>
-            <div>
-              <p class="text-xl font-bold tabular-nums">
-                {{ totalVolume > 0 ? `${(totalVolume / 1000).toFixed(1)}t` : '—' }}
-              </p>
-              <p class="text-xs text-(--ui-text-muted)">Volume</p>
+              <p class="text-xs text-(--ui-text-muted)">Completed working sets</p>
             </div>
           </div>
 

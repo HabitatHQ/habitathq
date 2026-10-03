@@ -21,6 +21,7 @@ import type {
   WorkoutExerciseRow,
   WorkoutRow,
 } from '~/types/database'
+import type { OrganizationReport } from '~/types/organization'
 
 export function useProgress() {
   const db = useDatabase()
@@ -52,7 +53,7 @@ export function useProgress() {
         [cutoff, today],
       ),
       db.query<WorkoutExerciseRow>(
-        'SELECT we.* FROM workout_exercises we JOIN workouts w ON w.id = we.workout_id WHERE w.ended_at IS NOT NULL AND w.date >= ? AND w.date <= ?',
+        "SELECT we.* FROM workout_exercises we JOIN workouts w ON w.id = we.workout_id WHERE we.logging_mode='strength' AND w.ended_at IS NOT NULL AND w.date >= ? AND w.date <= ? AND we.removed_at IS NULL AND EXISTS (SELECT 1 FROM sets s WHERE s.workout_exercise_id=we.id AND s.removed_at IS NULL AND s.completed=1 AND s.is_warmup=0 AND s.reps IS NOT NULL AND NOT EXISTS (SELECT 1 FROM workout_set_skips WHERE set_id=s.id))",
         [cutoff, today],
       ),
       db.query<ExerciseRow>('SELECT * FROM exercises'),
@@ -63,20 +64,20 @@ export function useProgress() {
   async function exerciseHistory(exerciseId: string): Promise<ExerciseSessionStat[]> {
     const [workoutExercises, sets, workouts] = await Promise.all([
       db.query<WorkoutExerciseRow>(
-        'SELECT we.* FROM workout_exercises we WHERE we.exercise_id = ?',
+        "SELECT we.* FROM workout_exercises we WHERE we.exercise_id = ? AND we.logging_mode='strength' AND we.removed_at IS NULL",
         [exerciseId],
       ),
       db.query<SetRow>(
         `SELECT s.* FROM sets s
          JOIN workout_exercises we ON we.id = s.workout_exercise_id
          JOIN workouts w ON w.id = we.workout_id
-         WHERE we.exercise_id = ? AND w.ended_at IS NOT NULL`,
+         WHERE we.exercise_id = ? AND we.logging_mode='strength' AND w.ended_at IS NOT NULL AND we.removed_at IS NULL AND s.removed_at IS NULL AND NOT EXISTS (SELECT 1 FROM workout_set_skips WHERE set_id=s.id)`,
         [exerciseId],
       ),
       db.query<Pick<WorkoutRow, 'id' | 'date' | 'ended_at' | 'session_type'>>(
         `SELECT w.id, w.date, w.ended_at, w.session_type FROM workouts w
          JOIN workout_exercises we ON we.workout_id = w.id
-         WHERE we.exercise_id = ? AND w.ended_at IS NOT NULL
+         WHERE we.exercise_id = ? AND we.logging_mode='strength' AND w.ended_at IS NOT NULL AND we.removed_at IS NULL
          GROUP BY w.id`,
         [exerciseId],
       ),
@@ -99,8 +100,8 @@ export function useProgress() {
       `SELECT COALESCE(SUM(s.weight_kg * s.reps), 0) AS volume, COUNT(*) AS sets
        FROM sets s
        JOIN workout_exercises we ON we.id = s.workout_exercise_id
-       JOIN exercises e ON e.id = we.exercise_id AND e.logging_mode = 'strength'
-       WHERE we.workout_id = ? AND s.is_warmup = 0 AND s.completed = 1`,
+       JOIN exercises e ON e.id = we.exercise_id AND we.logging_mode = 'strength'
+       WHERE we.workout_id = ? AND s.is_warmup = 0 AND s.completed = 1 AND we.removed_at IS NULL AND s.removed_at IS NULL AND NOT EXISTS (SELECT 1 FROM workout_set_skips WHERE set_id=s.id)`,
       [workoutId],
     )
 
@@ -125,8 +126,8 @@ export function useProgress() {
         `SELECT COALESCE(SUM(s.weight_kg * s.reps), 0) AS volume, COUNT(*) AS sets
          FROM sets s
          JOIN workout_exercises we ON we.id = s.workout_exercise_id
-         JOIN exercises e ON e.id = we.exercise_id AND e.logging_mode = 'strength'
-         WHERE we.workout_id = ? AND s.is_warmup = 0 AND s.completed = 1`,
+         JOIN exercises e ON e.id = we.exercise_id AND we.logging_mode = 'strength'
+         WHERE we.workout_id = ? AND s.is_warmup = 0 AND s.completed = 1 AND we.removed_at IS NULL AND s.removed_at IS NULL AND NOT EXISTS (SELECT 1 FROM workout_set_skips WHERE set_id=s.id)`,
         [lastWorkout.id],
       )
       const currentDuration = current.ended_at
@@ -158,6 +159,7 @@ export function useProgress() {
          JOIN workouts w ON w.id = we.workout_id
          WHERE w.date >= ? AND w.date < ? AND w.ended_at IS NOT NULL
            AND w.session_type = 'gym' AND s.is_warmup = 0 AND s.completed = 1
+           AND we.removed_at IS NULL AND s.removed_at IS NULL AND NOT EXISTS (SELECT 1 FROM workout_set_skips WHERE set_id=s.id)
          GROUP BY we.workout_id
        )`,
       [thirtyDaysAgoStr, current.date],
@@ -231,6 +233,11 @@ export function useProgress() {
     }
     return db.query<PersonalRecordRow>('SELECT * FROM personal_records ORDER BY date DESC LIMIT 20')
   }
+  async function organizationReport(days = 28): Promise<OrganizationReport> {
+    const endDate = localDateKey()
+    const startDate = addCalendarDays(endDate, -Math.max(0, days - 1))
+    return db.organization('ORGANIZATION_REPORT', { startDate, endDate })
+  }
 
   return {
     dotGrid,
@@ -240,5 +247,6 @@ export function useProgress() {
     readinessData,
     weeklyVolume,
     recentPRs,
+    organizationReport,
   }
 }

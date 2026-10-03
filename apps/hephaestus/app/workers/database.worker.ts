@@ -3,7 +3,10 @@ import { dispatchTransfer } from '~/lib/data-transfer'
 import { createSerialQueue, executeBatch } from '~/lib/database-operations'
 import { resetAppDatabase } from '~/lib/database-reset'
 import { initializeSchema } from '~/lib/db-schema'
+import { dispatchHistory } from '~/lib/history-correction'
+import { dispatchOrganization, isOrganizationOperation } from '~/lib/organization-storage'
 import { toAppDbAdapter } from '~/lib/palladium-database'
+import { dispatchPrescriptionOperation, isDomainOperation } from '~/lib/prescription-storage'
 import { dispatchWorkout } from '~/lib/workout-storage'
 import type { DbAdapter, WorkerRequest, WorkerResponse } from '~/types/database'
 
@@ -40,7 +43,7 @@ await (async () => {
     try {
       await opened.open()
       const adapter = toAppDbAdapter(opened)
-      await initializeSchema(opened, adapter)
+      await initializeSchema(opened)
       storage = opened
       db = adapter
     } catch (error) {
@@ -113,6 +116,15 @@ await (async () => {
       const { key } = payload as { key: string }
       await adapter.exec('INSERT OR IGNORE INTO applied_defaults (key) VALUES (?)', [key])
       return null
+    }
+    if (isDomainOperation(type)) {
+      return adapter.transaction((tx) => dispatchPrescriptionOperation(tx, type, payload))
+    }
+    if (isOrganizationOperation(type)) {
+      return adapter.transaction((tx) => dispatchOrganization(tx, type, payload))
+    }
+    if (type.startsWith('HISTORY_')) {
+      return adapter.transaction((tx) => dispatchHistory(tx, type, payload))
     }
     if (type.startsWith('WORKOUT_')) {
       return adapter.transaction((tx) => dispatchWorkout(tx, type, payload))

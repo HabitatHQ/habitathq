@@ -5,8 +5,10 @@ import {
   type StorageAdapter,
 } from '@palladium/core'
 import { EQUIPMENT_DDL } from '~/lib/equipment-schema'
+import { migrateOrganization } from '~/lib/organization-schema'
 import { toAppDbAdapter } from '~/lib/palladium-database'
-import { migrateWorkout, WORKOUT_DDL } from '~/lib/workout-schema'
+import { migratePrescriptionDomain } from '~/lib/prescription-storage'
+import { migrateHistoryCorrection, migrateWorkout, WORKOUT_DDL } from '~/lib/workout-schema'
 import type { DbAdapter } from '~/types/database'
 
 export const SCHEMA_DDL = `
@@ -138,16 +140,21 @@ export const SCHEMA_DDL = `
     energy_rating     INTEGER,
     notes             TEXT,
     environment       TEXT,
-    created_at        TEXT NOT NULL
+    created_at        TEXT NOT NULL,
+    title             TEXT,
+    correction_version INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS workout_exercises (
     id             TEXT PRIMARY KEY,
     workout_id     TEXT NOT NULL REFERENCES workouts(id) ON DELETE CASCADE,
     exercise_id    TEXT NOT NULL REFERENCES exercises(id),
+    logging_mode   TEXT NOT NULL DEFAULT 'strength',
     order_num      INTEGER NOT NULL,
     superset_group TEXT,
-    rest_seconds   INTEGER DEFAULT 120
+    rest_seconds   INTEGER DEFAULT 120,
+    removed_at TEXT,
+    removed_by_correction_id TEXT
   );
 
   CREATE TABLE IF NOT EXISTS sets (
@@ -170,7 +177,9 @@ export const SCHEMA_DDL = `
     body_feel           TEXT,
     failure_flag        INTEGER NOT NULL DEFAULT 0,
     failure_type        TEXT,
-    partial_reps        INTEGER
+    partial_reps        INTEGER,
+    removed_at TEXT,
+    removed_by_correction_id TEXT
   );
 
   CREATE TABLE IF NOT EXISTS runs (
@@ -304,40 +313,22 @@ export const SCHEMA_DDL = `
 
 export const HEPHAESTUS_SCHEMA: SchemaConfig = {
   schema: SCHEMA_DDL,
-  version: 1,
+  version: 2,
 }
 
 /** Apply baseline DDL and legacy repair in the same transaction as the version stamp. */
-export async function initializeSchema(storage: StorageAdapter, db: DbAdapter): Promise<void> {
-  const versionRows = await storage.exec<{ user_version: number }>('PRAGMA user_version')
-  const version = versionRows[0]?.user_version ?? 0
-  const migrate = async (target: DbAdapter): Promise<void> => {
+export async function initializeSchema(storage: StorageAdapter): Promise<void> {
+  if (!isTransactable(storage)) {
+    throw new Error('Hephaestus schema initialization requires transaction support.')
+  }
+  await applySchema(storage, HEPHAESTUS_SCHEMA, async (transaction) => {
+    const target = toAppDbAdapter(transaction, false)
     await runMigrations(target)
     await migrateWorkout(target)
-  }
-
-  if (version === 0) {
-    if (!isTransactable(storage)) {
-      throw new Error('Hephaestus schema initialization requires transaction support.')
-    }
-    await storage.transaction(async (tx) => {
-      const schemaAdapter: StorageAdapter = {
-        open: () => tx.open(),
-        exec: <T>(sql: string, params?: readonly unknown[]) => tx.exec<T>(sql, params),
-        put: (table, id, data) => tx.put(table, id, data),
-        patch: (table, id, patch) => tx.patch(table, id, patch),
-        remove: (table, id) => tx.remove(table, id),
-        runMigrations: (migrations) => tx.runMigrations(migrations),
-        close: () => tx.close(),
-      }
-      await applySchema(schemaAdapter, HEPHAESTUS_SCHEMA)
-      await migrate(toAppDbAdapter(tx, false))
-    })
-    return
-  }
-
-  await applySchema(storage, HEPHAESTUS_SCHEMA)
-  await db.transaction(migrate)
+    await migrateHistoryCorrection(target)
+    await migratePrescriptionDomain(target)
+    await migrateOrganization(target)
+  })
 }
 
 /**
@@ -397,6 +388,8 @@ export async function runMigrations(db: DbAdapter): Promise<void> {
 
   // Workouts
   await addColumn('workouts', 'environment', 'TEXT')
+  await addColumn('workout_intents', 'inputs_json', "TEXT NOT NULL DEFAULT '{}'")
+  await addColumn('workout_intents', 'adjustments_json', 'TEXT')
 
   // Interval templates
   await addColumn('interval_templates', 'type', "TEXT DEFAULT 'custom'")

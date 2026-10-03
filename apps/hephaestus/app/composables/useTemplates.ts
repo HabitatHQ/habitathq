@@ -1,13 +1,89 @@
+import { parseSerializablePrescription } from '~/lib/prescription-domain'
 import type {
   CircuitRestMode,
-  DbStatement,
   GroupType,
   MovementPattern,
   TemplateExerciseRow,
-  TemplateGroupRow,
   TemplateRow,
   TemplateUpdatePayload,
 } from '~/types/database'
+import type {
+  PrescriptionActivity,
+  SerializablePrescription,
+  TemplateEditRequest,
+} from '~/types/prescription'
+
+type TemplateExerciseInput = {
+  exerciseId: string
+  orderNum: number
+  setsPlanned: number
+  repsPlanned: string
+  restSeconds: number
+  supersetGroup?: string
+  setRestSeconds?: string
+  setScheme?: string
+}
+
+function parsePlannedReps(value: string): PrescriptionActivity['sets'][number]['reps'] {
+  const planned = value.trim()
+  if (/^\d+$/.test(planned)) {
+    const reps = Number(planned)
+    return {
+      kind: 'exact',
+      value: {
+        id: crypto.randomUUID(),
+        rule: { kind: 'fixed', value: reps },
+        resolvedValue: reps,
+      },
+    }
+  }
+  if (/^\d+\s*[-–]\s*\d+$/.test(planned)) {
+    const parts = planned.split(/[-–]/)
+    return { kind: 'range', minimum: Number(parts[0]), maximum: Number(parts[1]) }
+  }
+  if (/^\d+\+$/.test(planned)) return { kind: 'minimum', minimum: Number(planned.slice(0, -1)) }
+  return null
+}
+
+function legacyTemplateActivity(
+  exercise: TemplateExerciseInput,
+  groupIds: Map<string, string>,
+): PrescriptionActivity {
+  const sets = Array.from({ length: exercise.setsPlanned }, (_, index) => {
+    const reps = parsePlannedReps(exercise.repsPlanned)
+    const rest = exercise.setRestSeconds
+      ? Number(JSON.parse(exercise.setRestSeconds)[index] ?? exercise.restSeconds)
+      : exercise.restSeconds
+    return {
+      id: crypto.randomUUID(),
+      order: index + 1,
+      role: 'working' as const,
+      reps,
+      weightKg: null,
+      restSec: {
+        id: crypto.randomUUID(),
+        rule: { kind: 'fixed' as const, value: rest },
+        resolvedValue: rest,
+      },
+      rpe: null,
+      rir: null,
+      notes: null,
+      legacyScheme: exercise.setScheme ?? null,
+    }
+  })
+  return {
+    id: crypto.randomUUID(),
+    exerciseId: exercise.exerciseId,
+    order: exercise.orderNum,
+    loggingMode: 'strength',
+    executionGroupId: exercise.supersetGroup
+      ? (groupIds.get(exercise.supersetGroup) ?? null)
+      : null,
+    sets,
+    targets: { durationSec: null, distanceM: null },
+    notes: null,
+  }
+}
 
 export interface ExercisePreview {
   movement: MovementPattern
@@ -57,84 +133,84 @@ export function useTemplates() {
     }
   }
 
+  async function getRevision(templateId: string, revisionId?: string) {
+    return db.domain('TEMPLATE_GET_REVISION', {
+      templateId,
+      ...(revisionId === undefined ? {} : { revisionId }),
+    })
+  }
+
+  async function createRevision(input: {
+    name: string
+    description: string | null
+    prescription: SerializablePrescription
+  }) {
+    return db.domain('TEMPLATE_CREATE', {
+      ...input,
+      prescription: parseSerializablePrescription(input.prescription),
+    })
+  }
+
+  async function editRevision(input: TemplateEditRequest) {
+    return db.domain('TEMPLATE_EDIT', {
+      ...input,
+      prescription: parseSerializablePrescription(input.prescription),
+    })
+  }
   async function create(
     name: string,
     description: string | null,
-    exercises: Array<{
-      exerciseId: string
-      orderNum: number
-      setsPlanned: number
-      repsPlanned: string
-      restSeconds: number
-      supersetGroup?: string
-      setRestSeconds?: string
-      setScheme?: string
-    }>,
+    exercises: TemplateExerciseInput[],
     groups: TemplateGroupInput[] = [],
   ): Promise<string> {
-    const id = crypto.randomUUID()
-    const now = new Date().toISOString()
-    const statements: DbStatement[] = [
-      {
-        sql: 'INSERT INTO templates (id, name, description, created_at) VALUES (?, ?, ?, ?)',
-        bind: [id, name, description, now],
+    const groupIds = new Map(groups.map((group) => [group.label, crypto.randomUUID()]))
+    const activities = exercises.map((exercise) => legacyTemplateActivity(exercise, groupIds))
+    const revision = await db.domain('TEMPLATE_CREATE', {
+      name,
+      description,
+      now: new Date().toISOString(),
+      prescription: {
+        schemaVersion: 1,
+        evaluatorVersion: 'cel-js-8.0.0-js-number-v1',
+        inputs: [],
+        defaults: { incrementKg: 2.5, restSec: 120 },
+        groups: groups.map((group) => {
+          const id = groupIds.get(group.label)
+          if (!id) throw new Error(`Template group ${group.label} has no generated identity`)
+          return {
+            id,
+            label: group.label,
+            name: group.name ?? group.displayName ?? null,
+            type: group.groupType,
+            activityIds: activities
+              .filter((activity) => activity.executionGroupId === id)
+              .map((activity) => activity.id),
+            transitionRestSec: group.transitionRestSec ?? 0,
+            restAfterRoundSec: group.restAfterRoundSec ?? 120,
+            circuitRestMode: group.circuitRestMode ?? 'after_round',
+            rounds: group.rounds ?? 1,
+            amrap: group.amrap ?? false,
+            timeCapSec: group.timeCapSec ?? null,
+          }
+        }),
+        activities,
+        provenance: {
+          kind: 'authored',
+          migratedAt: null,
+          legacyTemplateId: null,
+          unresolvedFields: [],
+        },
       },
-    ]
-    for (const ex of exercises) {
-      statements.push({
-        sql: `INSERT INTO template_exercises
-          (id, template_id, exercise_id, order_num, superset_group, sets_planned, reps_planned,
-           rpe_target, increment_kg, rest_seconds, set_rest_seconds, set_scheme)
-          VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 2.5, ?, ?, ?)`,
-        bind: [
-          crypto.randomUUID(),
-          id,
-          ex.exerciseId,
-          ex.orderNum,
-          ex.supersetGroup ?? null,
-          ex.setsPlanned,
-          ex.repsPlanned,
-          ex.restSeconds,
-          ex.setRestSeconds ?? null,
-          ex.setScheme ?? null,
-        ],
-      })
-    }
-    for (const group of groups) {
-      statements.push({
-        sql: `INSERT INTO template_groups
-          (id, template_id, label, name, group_type, transition_rest_sec, rest_after_round_sec,
-           circuit_rest_mode, sort_order, display_name, rounds, amrap, time_cap_sec)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        bind: [
-          crypto.randomUUID(),
-          id,
-          group.label,
-          group.name ?? null,
-          group.groupType,
-          group.transitionRestSec ?? 0,
-          group.restAfterRoundSec ?? 120,
-          group.circuitRestMode ?? 'after_round',
-          group.sortOrder ?? 0,
-          group.displayName ?? null,
-          group.rounds ?? 1,
-          group.amrap ? 1 : 0,
-          group.timeCapSec ?? null,
-        ],
-      })
-    }
-    await db.batch(statements)
+    })
     await load()
-    return id
+    return revision.templateId
   }
 
   async function update(id: string, payload: TemplateUpdatePayload): Promise<void> {
-    const entries = Object.entries(payload).filter(([, v]) => v !== undefined)
-    if (entries.length === 0) return
-    const sets = entries.map(([k]) => `${k} = ?`).join(', ')
-    const values = entries.map(([, v]) => v)
-    await db.exec(`UPDATE templates SET ${sets} WHERE id = ?`, [...values, id])
-    // Refresh the in-memory list
+    await db.domain('TEMPLATE_UPDATE_METADATA', {
+      templateId: id,
+      changes: Object.fromEntries(Object.entries(payload)),
+    })
     const idx = templates.value.findIndex((t) => t.id === id)
     if (idx !== -1) {
       const updated = await getById(id)
@@ -143,73 +219,12 @@ export function useTemplates() {
   }
 
   async function cloneTemplate(id: string, newName?: string): Promise<string> {
-    const src = await getById(id)
-    if (!src) throw new Error(`Template ${id} not found`)
-    const [srcExercises, srcGroups] = await Promise.all([
-      getExercises(id),
-      db.query<TemplateGroupRow>(
-        'SELECT * FROM template_groups WHERE template_id = ? ORDER BY sort_order',
-        [id],
-      ),
-    ])
-
-    const cloneId = crypto.randomUUID()
-    const now = new Date().toISOString()
-    const name = newName ?? `Copy of ${src.name}`
-    const statements: DbStatement[] = [
-      {
-        sql: 'INSERT INTO templates (id, name, description, cover_emoji, created_at) VALUES (?, ?, ?, ?, ?)',
-        bind: [cloneId, name, src.description, src.cover_emoji, now],
-      },
-    ]
-    for (const ex of srcExercises) {
-      statements.push({
-        sql: `INSERT INTO template_exercises
-          (id, template_id, exercise_id, order_num, superset_group, sets_planned, reps_planned,
-           rpe_target, increment_kg, rest_seconds, set_rest_seconds, set_scheme)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        bind: [
-          crypto.randomUUID(),
-          cloneId,
-          ex.exercise_id,
-          ex.order_num,
-          ex.superset_group,
-          ex.sets_planned,
-          ex.reps_planned,
-          ex.rpe_target,
-          ex.increment_kg,
-          ex.rest_seconds,
-          ex.set_rest_seconds,
-          ex.set_scheme,
-        ],
-      })
-    }
-    for (const group of srcGroups) {
-      statements.push({
-        sql: `INSERT INTO template_groups
-          (id, template_id, label, name, group_type, transition_rest_sec, rest_after_round_sec,
-           circuit_rest_mode, sort_order, display_name, rounds, amrap, time_cap_sec)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        bind: [
-          crypto.randomUUID(),
-          cloneId,
-          group.label,
-          group.name,
-          group.group_type,
-          group.transition_rest_sec,
-          group.rest_after_round_sec,
-          group.circuit_rest_mode,
-          group.sort_order,
-          group.display_name,
-          group.rounds,
-          group.amrap,
-          group.time_cap_sec,
-        ],
-      })
-    }
-    await db.batch(statements)
+    const revision = await db.domain('TEMPLATE_DUPLICATE', {
+      templateId: id,
+      ...(newName === undefined ? {} : { name: newName }),
+    })
     await load()
-    return cloneId
+    return revision.templateId
   }
 
   async function archiveTemplate(id: string): Promise<void> {
@@ -318,7 +333,7 @@ export function useTemplates() {
       rest_seconds: number
       superset_group: string | null
     }>(
-      'SELECT exercise_id, order_num, rest_seconds, superset_group FROM workout_exercises WHERE workout_id = ? ORDER BY order_num',
+      'SELECT exercise_id, order_num, rest_seconds, superset_group FROM workout_exercises WHERE workout_id = ? AND removed_at IS NULL ORDER BY order_num',
       [workoutId],
     )
     const id = await create(
@@ -341,6 +356,9 @@ export function useTemplates() {
     loading: readonly(loadingTemplates),
     load,
     create,
+    createRevision,
+    editRevision,
+    getRevision,
     update,
     cloneTemplate,
     archiveTemplate,

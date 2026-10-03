@@ -307,6 +307,7 @@ export interface WorkoutExerciseRow {
   id: string
   workout_id: string
   exercise_id: string
+  logging_mode: LoggingMode
   order_num: number
   superset_group: string | null
   rest_seconds: number

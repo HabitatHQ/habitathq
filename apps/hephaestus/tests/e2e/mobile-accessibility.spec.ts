@@ -14,6 +14,9 @@ const mobileRoutes = [
   '/templates/new',
   '/templates/programs',
   '/templates/intervals',
+  '/routines',
+  '/routines/new',
+  '/plans',
 ]
 
 for (const route of mobileRoutes) {

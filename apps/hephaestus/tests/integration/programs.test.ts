@@ -64,33 +64,6 @@ describe('programs — CRUD', () => {
     expect(rows[0].name).toBe('5/3/1')
     expect(rows[0].weeks).toBe(4)
   })
-
-  it('current_week defaults to 1', () => {
-    const id = insertProgram('PPL')
-    const rows = db.query<{ current_week: number }>(
-      'SELECT current_week FROM programs WHERE id = ?',
-      [id],
-    )
-    expect(rows[0].current_week).toBe(1)
-  })
-
-  it('active defaults to 0', () => {
-    const id = insertProgram('GZCLP')
-    const rows = db.query<{ active: number }>('SELECT active FROM programs WHERE id = ?', [id])
-    expect(rows[0].active).toBe(0)
-  })
-
-  it('only one program can be active', () => {
-    const p1 = insertProgram('PPL')
-    const p2 = insertProgram('PHUL')
-    db.exec('UPDATE programs SET active = 0')
-    db.exec('UPDATE programs SET active = 1 WHERE id = ?', [p1])
-    db.exec('UPDATE programs SET active = 0')
-    db.exec('UPDATE programs SET active = 1 WHERE id = ?', [p2])
-    const active = db.query<{ id: string }>('SELECT id FROM programs WHERE active = 1')
-    expect(active).toHaveLength(1)
-    expect(active[0].id).toBe(p2)
-  })
 })
 
 describe('program_weeks', () => {
@@ -104,16 +77,6 @@ describe('program_weeks', () => {
     )
     expect(rows[0].is_deload).toBe(0)
     expect(rows[1].is_deload).toBe(1)
-  })
-
-  it('intensity_modifier defaults to 1.0', () => {
-    const progId = insertProgram('Test')
-    const weekId = insertProgramWeek(progId, 1)
-    const rows = db.query<{ intensity_modifier: number }>(
-      'SELECT intensity_modifier FROM program_weeks WHERE id = ?',
-      [weekId],
-    )
-    expect(rows[0].intensity_modifier).toBe(1.0)
   })
 
   it('cascades delete weeks when program is deleted', () => {

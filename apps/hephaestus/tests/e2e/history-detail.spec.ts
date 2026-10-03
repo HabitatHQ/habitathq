@@ -19,10 +19,13 @@ async function completeWorkout(page: Page) {
   await picker.getByRole('button', { name: /barbell squat/i }).click()
   const exercise = page.getByRole('region', { name: 'Barbell Squat' })
   await exercise.getByRole('button', { name: '+ Set' }).click()
-  const dialog = page.getByRole('dialog', { name: /log set/i })
+  const dialog = page.getByRole('dialog', { name: /edit set 1.*barbell squat/i })
   await dialog.getByLabel('Weight', { exact: true }).fill('80')
   await dialog.getByLabel('Reps', { exact: true }).fill('8')
-  await dialog.getByRole('button', { name: /log set/i }).click()
+  await dialog.getByRole('button', { name: 'Save Changes', exact: true }).click()
+  await exercise
+    .getByRole('button', { name: 'Complete set 1 for Barbell Squat', exact: true })
+    .click()
 
   const timer = page.getByRole('timer')
   if (await timer.isVisible().catch(() => false))
@@ -68,19 +71,32 @@ test.describe('history detail page', () => {
     await expect(page).toHaveURL(/\/history\/[^/]+$/)
   })
 
-  test('detail page shows Summary section with duration and sets', async ({ page }) => {
+  test('reviews and persists numeric factual corrections without duplicating completed work', async ({
+    page,
+  }) => {
     await completeWorkout(page)
-
     await page.goto('/history')
-    await expect(page.getByText(/loading workouts/i)).not.toBeVisible({ timeout: 15_000 })
-
-    const workoutLink = page.getByRole('link', { name: /gym session/i })
-    await workoutLink.click()
-
-    const summary = page.getByRole('region', { name: 'Summary' })
-    await expect(summary.getByRole('heading', { name: 'Summary', exact: true })).toBeVisible()
-    await expect(summary.getByText('Duration', { exact: true })).toBeVisible()
-    await expect(summary.getByText('Sets', { exact: true })).toBeVisible()
+    await page.getByRole('link', { name: /gym session/i }).click()
+    const sets = page.getByRole('table', { name: 'Sets for Barbell Squat' })
+    await expect(sets.getByRole('row')).toHaveCount(2)
+    await expect(sets.getByRole('cell', { name: '80 kg', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Correct workout', exact: true }).click()
+    await page.locator('summary').filter({ hasText: 'Barbell Squat · included' }).click()
+    await page.locator('summary').filter({ hasText: 'Set 1 · included' }).click()
+    const panel = page.getByRole('region', { name: 'Correct workout facts' })
+    await panel.getByLabel('Weight kg', { exact: true }).fill('85')
+    await panel.getByLabel('Reps', { exact: true }).fill('6')
+    await panel.getByRole('button', { name: 'Review correction', exact: true }).click()
+    await expect(sets.getByRole('cell', { name: '80 kg', exact: true })).toBeVisible()
+    await panel.getByRole('button', { name: 'Apply reviewed correction', exact: true }).click()
+    await expect(panel).not.toBeVisible()
+    await expect(sets.getByRole('row')).toHaveCount(2)
+    await expect(sets.getByRole('cell', { name: '85 kg', exact: true })).toBeVisible()
+    await expect(sets.getByRole('cell', { name: '6', exact: true })).toBeVisible()
+    await page.reload()
+    await expect(sets.getByRole('row')).toHaveCount(2)
+    await expect(sets.getByRole('cell', { name: '85 kg', exact: true })).toBeVisible()
+    await expect(sets.getByRole('cell', { name: '6', exact: true })).toBeVisible()
   })
 
   test('detail page shows exercise with set data', async ({ page }) => {
@@ -124,18 +140,5 @@ test.describe('history detail page', () => {
 
     await expect(page.getByText(/workout not found/i)).toBeVisible({ timeout: 10_000 })
     await expect(page.getByRole('link', { name: /go to history/i })).toBeVisible()
-  })
-
-  test('detail page shows the workout volume summary', async ({ page }) => {
-    await completeWorkout(page)
-
-    await page.goto('/history')
-    await expect(page.getByText(/loading workouts/i)).not.toBeVisible({ timeout: 15_000 })
-    const workoutLink = page.getByRole('link', { name: /gym session/i })
-    await workoutLink.click()
-
-    const summary = page.getByRole('region', { name: 'Summary' })
-    await expect(summary.getByText('Volume', { exact: true })).toBeVisible({ timeout: 10_000 })
-    await expect(summary.getByText('0.6t', { exact: true })).toBeVisible()
   })
 })

@@ -4,7 +4,6 @@ import { estimateTemplateDuration } from '~/lib/template-stats'
 import type { SessionType, TemplateRow } from '~/types/database'
 
 const route = useRoute()
-const workout = useWorkout()
 const {
   getById,
   getExercises,
@@ -13,7 +12,6 @@ const {
   pinTemplate,
   unpinTemplate,
   archiveTemplate,
-  markUsed,
 } = useTemplates()
 const db = useDatabase()
 
@@ -58,28 +56,12 @@ async function handleStartConfirm(opts: {
   sessionType: SessionType
 }) {
   showPreview.value = false
-  starting.value = true
-  startError.value = ''
-  try {
-    const remaining = exercises.value.filter(
-      (exercise) => !opts.excludedExerciseIds.includes(exercise.exercise_id),
-    )
-    if (remaining.length === 0) {
-      startError.value = 'Include at least one exercise to start this template.'
-      return
-    }
-    await markUsed(templateId.value)
-    await workout.startWorkout(templateId.value, {
-      scale: opts.scaleFactor,
-      excludedExerciseIds: opts.excludedExerciseIds,
-      sessionType: opts.sessionType,
-    })
-    await navigateTo('/workout')
-  } catch (error) {
-    startError.value = error instanceof Error ? error.message : 'Unable to start this workout.'
-  } finally {
-    starting.value = false
-  }
+  const query = new URLSearchParams({
+    scale: String(opts.scaleFactor),
+    exclude: opts.excludedExerciseIds.join(','),
+    sessionType: opts.sessionType,
+  })
+  await navigateTo(`/templates/${templateId.value}/start?${query.toString()}`)
 }
 
 async function handleDelete() {

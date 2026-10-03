@@ -74,6 +74,7 @@ describe('aggregateMuscleFrequency', () => {
       id: 'we1',
       workout_id: 'w1',
       exercise_id: 'e1',
+      logging_mode: 'strength',
       order_num: 1,
       superset_group: null,
       rest_seconds: 180,
@@ -99,6 +100,7 @@ describe('aggregateMuscleFrequency', () => {
         id: 'we2',
         workout_id: 'w2',
         exercise_id: 'e1',
+        logging_mode: 'strength',
         order_num: 1,
         superset_group: null,
         rest_seconds: 180,
@@ -125,7 +127,12 @@ describe('aggregateMuscleFrequency', () => {
       ...workoutExercises,
       { ...workoutExercise, id: 'incomplete-we', workout_id: 'unfinished' },
       { ...workoutExercise, id: 'future-we', workout_id: 'future' },
-      { ...workoutExercise, id: 'cardio-we', exercise_id: 'cardio' },
+      {
+        ...workoutExercise,
+        id: 'cardio-we',
+        exercise_id: 'cardio',
+        logging_mode: 'cardio' as const,
+      },
     ]
     expect(aggregateMuscleFrequency(mixedRows, mixedExercises, mixedWorkouts, 7, REF_DATE)).toEqual(
       [
@@ -133,6 +140,30 @@ describe('aggregateMuscleFrequency', () => {
         { muscle: 'glutes', count: 1, lastTrained: REF_DATE },
       ],
     )
+  })
+
+  it('attributes performed lifting in mixed sessions even after reference mode changes', () => {
+    const reference = exercises[0]
+    if (!reference) throw new Error('Missing exercise fixture')
+    expect(
+      aggregateMuscleFrequency(
+        workoutExercises,
+        [{ ...reference, logging_mode: 'cardio' }],
+        [
+          {
+            id: 'w1',
+            date: REF_DATE,
+            ended_at: `${REF_DATE}T12:00:00Z`,
+            session_type: 'conditioning',
+          },
+        ],
+        7,
+        REF_DATE,
+      ),
+    ).toEqual([
+      { muscle: 'quads', count: 1, lastTrained: REF_DATE },
+      { muscle: 'glutes', count: 1, lastTrained: REF_DATE },
+    ])
   })
 })
 
@@ -143,6 +174,7 @@ describe('buildExerciseHistory', () => {
       id: 'we1',
       workout_id: 'w1',
       exercise_id: 'e1',
+      logging_mode: 'strength',
       order_num: 1,
       superset_group: null,
       rest_seconds: 180,
@@ -213,5 +245,31 @@ describe('buildExerciseHistory', () => {
   it('calculates e1rm', () => {
     const history = buildExerciseHistory('e1', workoutExercises, sets, workouts)
     expect(history[0]?.e1rm).toBeGreaterThan(100) // Epley formula > 1RM for 5 reps
+  })
+
+  it('measures actual lifting in mixed sessions without counting non-strength rows', () => {
+    const actual = workoutExercises[0]
+    const set = sets[0]
+    if (!actual || !set) throw new Error('Missing lifting fixture')
+    expect(
+      buildExerciseHistory(
+        'e1',
+        [...workoutExercises, { ...actual, id: 'cardio', logging_mode: 'cardio' }],
+        [
+          ...sets,
+          { ...set, id: 'cardio-set', workout_exercise_id: 'cardio', weight_kg: 500, reps: 99 },
+        ],
+        [
+          {
+            id: 'w1',
+            date: REF_DATE,
+            ended_at: `${REF_DATE}T12:00:00Z`,
+            session_type: 'conditioning',
+          },
+        ],
+      ),
+    ).toEqual([
+      { date: REF_DATE, e1rm: 100 * (1 + 5 / 30), volume: 1000, maxWeight: 100, totalReps: 10 },
+    ])
   })
 })

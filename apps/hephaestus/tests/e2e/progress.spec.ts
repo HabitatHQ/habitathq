@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 test.describe('DB persistence — PR tracking', () => {
-  /** Helper: start a workout, add Barbell Squat, log a set, finish. */
+  /** Helper: start a workout, add Barbell Squat, complete a set, then finish. */
   async function completeWorkoutWithSet(
     page: import('@playwright/test').Page,
     weight: string,
@@ -21,10 +21,13 @@ test.describe('DB persistence — PR tracking', () => {
     await picker.getByRole('button', { name: /barbell squat/i }).click()
     const exercise = page.getByRole('region', { name: 'Barbell Squat' })
     await exercise.getByRole('button', { name: '+ Set' }).click()
-    const dialog = page.getByRole('dialog', { name: /log set/i })
+    const dialog = page.getByRole('dialog', { name: /edit set 1.*barbell squat/i })
     await dialog.getByLabel('Weight', { exact: true }).fill(weight)
     await dialog.getByLabel('Reps', { exact: true }).fill(reps)
-    await dialog.getByRole('button', { name: /log set/i }).click()
+    await dialog.getByRole('button', { name: 'Save Changes', exact: true }).click()
+    await exercise
+      .getByRole('button', { name: 'Complete set 1 for Barbell Squat', exact: true })
+      .click()
 
     await page.getByRole('button', { name: /finish/i }).click()
     await expect(page.getByRole('dialog', { name: /finish workout/i })).toBeVisible()
@@ -33,7 +36,9 @@ test.describe('DB persistence — PR tracking', () => {
     await page.getByRole('button', { name: /done/i }).click()
   }
 
-  test('summary announces the new weight record after the first logged set', async ({ page }) => {
+  test('summary announces the new weight record after completing the first set', async ({
+    page,
+  }) => {
     await page.goto('/workout')
     await page.getByLabel('Session type').selectOption('gym')
     await page.getByRole('button', { name: /start empty session/i }).click()
@@ -48,10 +53,13 @@ test.describe('DB persistence — PR tracking', () => {
     await picker.getByRole('button', { name: /barbell squat/i }).click()
     const exercise = page.getByRole('region', { name: 'Barbell Squat' })
     await exercise.getByRole('button', { name: '+ Set' }).click()
-    const dialog = page.getByRole('dialog', { name: /log set/i })
+    const dialog = page.getByRole('dialog', { name: /edit set 1.*barbell squat/i })
     await dialog.getByLabel('Weight', { exact: true }).fill('140')
     await dialog.getByLabel('Reps', { exact: true }).fill('5')
-    await dialog.getByRole('button', { name: /log set/i }).click()
+    await dialog.getByRole('button', { name: 'Save Changes', exact: true }).click()
+    await exercise
+      .getByRole('button', { name: 'Complete set 1 for Barbell Squat', exact: true })
+      .click()
     await page.getByRole('button', { name: /finish/i }).click()
     await page.getByRole('button', { name: /save workout/i }).click()
     await expect(page.locator('h1')).toContainText('Session Complete')
@@ -101,12 +109,22 @@ test.describe('DB persistence — PR tracking', () => {
     await expect(page.getByRole('table', { name: /sets for barbell squat/i })).toContainText('8')
   })
 
-  test('training load section updates after logging workout', async ({ page }) => {
+  test('training organization reports performed sets and per-exercise tonnage', async ({
+    page,
+  }) => {
     await completeWorkoutWithSet(page, '100', '5')
     await page.goto('/progress')
     await expect(page.getByText(/loading analytics/i)).not.toBeVisible({ timeout: 15_000 })
-    // Training load stats should be visible
-    const load = page.getByRole('region', { name: 'Training Load' })
-    await expect(load.getByText('500 kg', { exact: true })).toBeVisible()
+    const organization = page.getByRole('region', {
+      name: /Training organization & volume/,
+    })
+    await expect(organization.getByText('Strength working sets: 1', { exact: true })).toBeVisible()
+    const tonnage = organization
+      .getByRole('heading', { name: 'Comparable per-exercise external-load tonnage' })
+      .locator('..')
+      .getByRole('listitem')
+      .filter({ hasText: 'Barbell Squat' })
+    await expect(tonnage).toContainText('500 kg × reps')
+    await expect(tonnage).toContainText(/1 sets/)
   })
 })

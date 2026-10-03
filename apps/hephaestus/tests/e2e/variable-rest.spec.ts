@@ -15,9 +15,11 @@ async function startEmptyWorkout(page: Page) {
   return page.getByRole('region', { name: 'Barbell Squat' })
 }
 
-async function logSet(page: Page, exercise: Locator, failure = false) {
+async function completeSet(page: Page, exercise: Locator, setNum: number, failure = false) {
   await exercise.getByRole('button', { name: '+ Set' }).click()
-  const dialog = page.getByRole('dialog', { name: /log set/i })
+  const dialog = page.getByRole('dialog', {
+    name: new RegExp(`edit set ${setNum}.*barbell squat`, 'i'),
+  })
   await expect(dialog).toBeVisible()
   if (failure) {
     await dialog.getByRole('button', { name: 'Toggle failure set' }).click()
@@ -28,15 +30,16 @@ async function logSet(page: Page, exercise: Locator, failure = false) {
   }
   await dialog.getByLabel('Weight', { exact: true }).fill('100')
   await dialog.getByLabel('Reps', { exact: true }).fill('5')
-  await dialog.getByRole('button', { name: /log set/i }).click()
-  await expect(dialog).not.toBeVisible()
+  await dialog.getByRole('button', { name: 'Save Changes', exact: true }).click()
+  await exercise
+    .getByRole('button', { name: `Complete set ${setNum} for Barbell Squat`, exact: true })
+    .click()
 }
-
 test.describe('rest timer behavior', () => {
-  test('logging a working set starts rest and skip ends it', async ({ page }) => {
+  test('completing a working set starts rest and skip ends it', async ({ page }) => {
     const exercise = await startEmptyWorkout(page)
     await expect(page.getByRole('timer')).toHaveCount(0)
-    await logSet(page, exercise)
+    await completeSet(page, exercise, 1)
 
     const timer = page.getByRole('timer')
     await expect(timer).toBeVisible()
@@ -46,22 +49,22 @@ test.describe('rest timer behavior', () => {
     await expect(timer).toHaveCount(0)
   })
 
-  test('logging another working set starts a new rest period', async ({ page }) => {
+  test('completing another working set starts a new rest period', async ({ page }) => {
     const exercise = await startEmptyWorkout(page)
-    await logSet(page, exercise)
+    await completeSet(page, exercise, 1)
     const timer = page.getByRole('timer')
     await expect(timer).toBeVisible()
     await timer.getByRole('button', { name: 'Skip' }).click()
     await expect(timer).toHaveCount(0)
 
-    await logSet(page, exercise)
+    await completeSet(page, exercise, 2)
     await expect(timer).toBeVisible()
     await expect(exercise.getByText(/2 working sets/i)).toBeVisible()
   })
 
   test('failure rest prompt adds time to an active rest period', async ({ page }) => {
     const exercise = await startEmptyWorkout(page)
-    await logSet(page, exercise, true)
+    await completeSet(page, exercise, 1, true)
     const timer = page.getByRole('timer')
     await expect(timer).toBeVisible()
     const initial = await timer.getAttribute('aria-label')

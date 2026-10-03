@@ -14,7 +14,9 @@ export function detectPRs(
   exerciseId: string,
   date: string,
 ): PersonalRecordRow[] {
-  const workingSets = sets.filter((s) => s.is_warmup === 0 && s.completed === 1)
+  const workingSets = sets.filter(
+    (s) => s.is_warmup === 0 && s.completed === 1 && s.reps !== null && s.reps > 0,
+  )
   if (workingSets.length === 0) return []
 
   function existingBest(type: RecordType): number {

@@ -1,29 +1,27 @@
 <script setup lang="ts">
-import type { TemplateExerciseWithName } from '~/composables/useTemplates'
-import { buildExportPayload, payloadToQrData } from '~/lib/template-export'
-import type { TemplateGroupRow, TemplateRow } from '~/types/database'
+import type { PortableBundle } from '~/lib/data-transfer'
 
 const route = useRoute()
-const { getById, getExercises } = useTemplates()
-const { getForTemplate } = useTemplateGroups()
 const db = useDatabase()
 const templateId = computed(() => String(route.params['id'] ?? ''))
-const template = ref<TemplateRow | null>(null)
-const exercises = ref<TemplateExerciseWithName[]>([])
-const groups = ref<TemplateGroupRow[]>([])
+const templateName = ref('Template')
+const exportPayload = ref<PortableBundle | null>(null)
 const loading = ref(true)
 const copied = ref(false)
 const qrData = ref<string | null>(null)
 
 watch(
   db.status,
-  async (s) => {
-    if (s !== 'ready') return
+  async (status) => {
+    if (status !== 'ready') return
     loading.value = true
     try {
-      template.value = await getById(templateId.value)
-      exercises.value = await getExercises(templateId.value)
-      groups.value = await getForTemplate(templateId.value)
+      exportPayload.value = await db.transfer<PortableBundle>('TRANSFER_EXPORT_PORTABLE', {
+        templateId: templateId.value,
+      })
+      templateName.value = String(
+        exportPayload.value.tables['templates']?.[0]?.['name'] ?? 'Template',
+      )
     } finally {
       loading.value = false
     }
@@ -31,16 +29,9 @@ watch(
   { immediate: true },
 )
 
-const exportPayload = computed(() => {
-  if (!template.value) return null
-  return buildExportPayload(template.value, exercises.value, groups.value)
-})
-
-const exportJson = computed(() => {
-  if (!exportPayload.value) return ''
-  return JSON.stringify(exportPayload.value, null, 2)
-})
-
+const exportJson = computed(() =>
+  exportPayload.value ? JSON.stringify(exportPayload.value, null, 2) : '',
+)
 async function handleCopyJson() {
   if (!exportJson.value) return
   await navigator.clipboard.writeText(exportJson.value)
@@ -49,28 +40,28 @@ async function handleCopyJson() {
     copied.value = false
   }, 2000)
 }
-
-async function handleDownload() {
-  if (!exportJson.value || !template.value) return
+function handleDownload() {
+  if (!exportJson.value) return
   const blob = new Blob([exportJson.value], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `${template.value.name.replace(/\s+/g, '-').toLowerCase()}.json`
-  a.click()
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `${templateName.value.replace(/\s+/g, '-').toLowerCase()}.json`
+  anchor.click()
   URL.revokeObjectURL(url)
 }
-
 function handleShowQr() {
-  if (!exportPayload.value) return
-  qrData.value = payloadToQrData(exportPayload.value)
+  if (!exportJson.value) return
+  const bytes = new TextEncoder().encode(exportJson.value)
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  qrData.value = btoa(binary)
 }
-
-const payloadSizeKb = computed(() => {
-  if (!exportJson.value) return 0
-  return (new Blob([exportJson.value]).size / 1024).toFixed(1)
-})
+const payloadSizeKb = computed(() =>
+  exportJson.value ? (new Blob([exportJson.value]).size / 1024).toFixed(1) : '0.0',
+)
 </script>
+
 
 <template>
   <article class="p-4 pb-24 space-y-5">
@@ -85,14 +76,14 @@ const payloadSizeKb = computed(() => {
       <p>Loading…</p>
     </div>
 
-    <template v-else-if="template">
+    <template v-else-if="exportPayload">
       <div class="rounded-xl bg-(--color-surface) p-4 space-y-2">
-        <p class="font-semibold">{{ template.name }}</p>
+        <p class="font-semibold">{{ templateName }}</p>
         <p class="text-xs text-(--ui-text-muted)">
-          {{ exercises.length }} exercise{{ exercises.length !== 1 ? 's' : '' }} · {{ payloadSizeKb }}KB
+          {{ exportPayload.tables['template_exercises']?.length ?? 0 }} exercises · {{ payloadSizeKb }}KB
         </p>
         <p v-if="Number(payloadSizeKb) > 3" class="text-xs text-amber-400">
-          ⚠ Payload exceeds 3KB — QR code may not be scannable.
+          Bundle exceeds 3KB; QR text may be difficult to transfer.
         </p>
       </div>
 

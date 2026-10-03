@@ -1,5 +1,5 @@
 import { buildPendingSet } from '~/lib/workout-helpers'
-import type { WorkoutSession, WorkoutSummary } from '~/lib/workout-storage'
+import type { WorkoutSession, WorkoutSetIntent, WorkoutSummary } from '~/lib/workout-storage'
 import type {
   RunRow,
   SessionType,
@@ -8,22 +8,31 @@ import type {
   WorkoutExerciseRow,
   WorkoutRow,
 } from '~/types/database'
+import type { RoutineInputValue, SerializablePrescription } from '~/types/prescription'
 
 const activeWorkout = ref<WorkoutRow | null>(null)
 const workoutExercises = ref<WorkoutExerciseRow[]>([])
 const sets = ref<Map<string, SetRow[]>>(new Map())
 const templateGroups = ref<Map<string, TemplateGroupRow>>(new Map())
+const setIntents = ref<Record<string, WorkoutSetIntent>>({})
+const activityIntents = ref<WorkoutSession['activityIntents']>({})
+const skippedSetIds = ref<Set<string>>(new Set())
+const prescription = ref<SerializablePrescription | null>(null)
+const routine = ref<WorkoutSession['routine']>(null)
+const lastFinishedWorkoutId = ref<string | null>(null)
 const elapsedSeconds = ref(0)
 const restTimer = ref<{
   active: boolean
   remaining: number
   total: number
   exerciseId: string | null
+  setId: string | null
 }>({
   active: false,
   remaining: 0,
   total: 0,
   exerciseId: null,
+  setId: null,
 })
 const recoverySession = ref(false)
 const writerUnavailable = ref(false)
@@ -63,10 +72,15 @@ function installSession(data: WorkoutSession) {
   runData.value = data.run
   sessionIntensityModifier.value = data.options?.intensity_modifier ?? 1
   sessionVolumeModifier.value = data.options?.volume_modifier ?? 1
+  setIntents.value = data.setIntents
+  activityIntents.value = data.activityIntents
+  skippedSetIds.value = new Set(data.skippedSetIds)
+  prescription.value = data.prescription
+  routine.value = data.routine
   const byExercise = new Map<string, SetRow[]>()
   for (const exercise of data.exercises) {
     const exerciseSets = data.sets.filter((set) => set.workout_exercise_id === exercise.id)
-    if (!exerciseSets.some((set) => set.completed === 0)) {
+    if (!exerciseSets.some((set) => set.completed === 0 && !skippedSetIds.value.has(set.id))) {
       const lastCompleted = [...exerciseSets].reverse().find((set) => set.completed === 1) ?? null
       const nextSetNum = exerciseSets.reduce((max, set) => Math.max(max, set.set_num), 0) + 1
       exerciseSets.push(buildPendingSet(exercise.id, lastCompleted, nextSetNum))
@@ -128,7 +142,7 @@ export function useWorkout() {
        FROM sets s
        JOIN workout_exercises we ON we.id = s.workout_exercise_id
        JOIN workouts w ON w.id = we.workout_id
-       WHERE we.exercise_id = ? AND w.ended_at IS NOT NULL AND s.completed = 1 AND s.is_warmup = 0
+       WHERE we.exercise_id = ? AND we.logging_mode = 'strength' AND w.ended_at IS NOT NULL AND s.completed = 1 AND s.is_warmup = 0 AND we.removed_at IS NULL AND s.removed_at IS NULL AND NOT EXISTS (SELECT 1 FROM workout_set_skips WHERE set_id=s.id)
        ORDER BY w.ended_at DESC, s.set_num ASC`,
       [exerciseId],
     )
@@ -160,7 +174,7 @@ export function useWorkout() {
 
   async function hydrateActiveWorkout(): Promise<boolean> {
     try {
-      const data = await db.workout<WorkoutSession | null>('WORKOUT_ACTIVE')
+      const data = await db.workout('WORKOUT_ACTIVE', {})
       writerUnavailable.value = false
       if (!data) {
         stopElapsedClock()
@@ -168,10 +182,19 @@ export function useWorkout() {
         workoutExercises.value = []
         sets.value = new Map()
         templateGroups.value = new Map()
+        setIntents.value = {}
+        activityIntents.value = {}
+        skippedSetIds.value = new Set()
+        prescription.value = null
+        routine.value = null
         runData.value = null
         recoverySession.value = false
         sessionIntensityModifier.value = 1
         sessionVolumeModifier.value = 1
+        setIntents.value = {}
+        skippedSetIds.value = new Set()
+        prescription.value = null
+        routine.value = null
         return false
       }
       const requiresResume = activeWorkout.value?.id !== data.workout.id || recoverySession.value
@@ -187,6 +210,7 @@ export function useWorkout() {
   async function resumeWorkout(): Promise<void> {
     recoverySession.value = false
     startElapsedClock()
+    restoreRestTimer()
   }
 
   async function discardWorkout(): Promise<void> {
@@ -196,6 +220,11 @@ export function useWorkout() {
     stopRestTimer()
     activeWorkout.value = null
     workoutExercises.value = []
+    setIntents.value = {}
+    activityIntents.value = {}
+    skippedSetIds.value = new Set()
+    prescription.value = null
+    routine.value = null
     sets.value = new Map()
     runData.value = null
     await hydrateActiveWorkout()
@@ -209,15 +238,30 @@ export function useWorkout() {
       sessionType?: SessionType
       intensityModifier?: number
       volumeModifier?: number
+      inputs?: Record<string, RoutineInputValue>
+      fixedTargetValues?: Record<string, number>
+      expectedTemplateRevisionId?: string
+      expectedRoutineRevisionId?: string
+      appointmentId?: string
+      rotationId?: string
+      rotationGeneration?: number
     } = {},
+    routineId?: string,
   ): Promise<void> {
     if (activeWorkout.value) throw new Error('An active workout already exists')
     try {
-      const data = await db.workout<WorkoutSession>('WORKOUT_START', {
+      const data = await db.workout('WORKOUT_START', {
         id: crypto.randomUUID(),
         now: new Date().toISOString(),
         templateId: templateId ?? null,
-        options,
+        routineId: routineId ?? null,
+        options: {
+          ...options,
+          ...(options.inputs === undefined ? {} : { inputs: { ...options.inputs } }),
+          ...(options.fixedTargetValues === undefined
+            ? {}
+            : { fixedTargetValues: { ...options.fixedTargetValues } }),
+        },
       })
       installSession(data)
       recoverySession.value = false
@@ -227,6 +271,22 @@ export function useWorkout() {
       writerUnavailable.value = db.status.value === 'lock_unavailable'
       throw error
     }
+  }
+
+  async function startRoutineWorkout(
+    routineId: string,
+    options: {
+      sessionType?: SessionType
+      intensityModifier?: number
+      volumeModifier?: number
+      expectedRoutineRevisionId?: string
+      appointmentId?: string
+      rotationId?: string
+      rotationGeneration?: number
+    } = {},
+  ): Promise<void> {
+    if (!routineId.trim()) throw new Error('Routine identity is required')
+    await startWorkout(undefined, options, routineId)
   }
 
   async function addExercise(
@@ -239,7 +299,7 @@ export function useWorkout() {
     } = {},
   ): Promise<WorkoutExerciseRow> {
     if (!activeWorkout.value) throw new Error('No active workout')
-    const row: WorkoutExerciseRow = {
+    const row: Omit<WorkoutExerciseRow, 'logging_mode'> = {
       id: crypto.randomUUID(),
       workout_id: activeWorkout.value.id,
       exercise_id: exerciseId,
@@ -247,21 +307,35 @@ export function useWorkout() {
       superset_group: opts.supersetGroup ?? null,
       rest_seconds: opts.restSeconds ?? 120,
     }
-    await db.workout('WORKOUT_ADD_EXERCISE', { exercise: row })
-    workoutExercises.value = [...workoutExercises.value, row]
     const planned = Math.max(0, opts.setsPlanned ?? 0)
     const pending = Array.from({ length: planned }, (_, index) =>
       buildPendingSet(row.id, null, index + 1),
     )
     if (!pending.length) pending.push(buildPendingSet(row.id, null, 1))
+    const saved = await db.workout('WORKOUT_ADD_EXERCISE', { exercise: row, pendingSets: pending })
+    workoutExercises.value = [...workoutExercises.value, saved]
     sets.value = new Map(sets.value).set(row.id, pending)
-    return row
+    return saved
+  }
+
+  async function createPendingSet(workoutExerciseId: string): Promise<SetRow> {
+    if (!activeWorkout.value) throw new Error('No active workout')
+    const current = sets.value.get(workoutExerciseId) ?? []
+    const pending = current.find((set) => set.completed === 0 && !skippedSetIds.value.has(set.id))
+    if (pending) return pending
+    const previous = [...current].reverse().find((set) => set.completed === 1) ?? null
+    const draft = buildPendingSet(workoutExerciseId, previous, nextSetNumber(current))
+    const committed = await db.workout('WORKOUT_SAVE_DRAFT', { set: draft })
+    sets.value = new Map(sets.value).set(workoutExerciseId, [...current, committed])
+    return committed
   }
 
   async function logSet(workoutExerciseId: string, partial: Partial<SetRow>): Promise<SetRow> {
     if (!activeWorkout.value) throw new Error('No active workout')
     const current = sets.value.get(workoutExerciseId) ?? []
-    const pendingIdx = current.findIndex((set) => set.completed === 0)
+    const pendingIdx = current.findIndex(
+      (set) => set.completed === 0 && !skippedSetIds.value.has(set.id),
+    )
     const setNum =
       pendingIdx >= 0
         ? (current[pendingIdx]?.set_num ?? nextSetNumber(current))
@@ -289,9 +363,36 @@ export function useWorkout() {
       partial_reps: null,
       ...partial,
     }
-    const committed = await db.workout<SetRow>('WORKOUT_LOG_SET', { set })
+    const committed = await db.workout('WORKOUT_LOG_SET', { set })
     replaceSetInState(workoutExerciseId, pendingIdx, committed)
     startRestForSet(workoutExerciseId, committed)
+    return committed
+  }
+
+  async function completeSet(setId: string, partial: Partial<SetRow> = {}): Promise<SetRow> {
+    if (!activeWorkout.value) throw new Error('No active workout')
+    const entry = findSet(setId)
+    if (entry.set.completed) throw new Error('This set is already completed')
+    const workoutExercise = workoutExercises.value.find(
+      (exercise) => exercise.id === entry.exerciseId,
+    )
+    const set: SetRow = {
+      ...entry.set,
+      ...partial,
+      id: entry.set.id,
+      workout_exercise_id: entry.exerciseId,
+      set_num: entry.set.set_num,
+      completed: 1,
+      logged_at: new Date().toISOString(),
+    }
+    if (
+      workoutExercise?.logging_mode === 'strength' &&
+      (set.reps === null || (set.reps < 1 && !set.failure_flag))
+    )
+      throw new Error('Enter achieved reps before completing this set.')
+    const committed = await db.workout('WORKOUT_LOG_SET', { set })
+    replaceSetInState(entry.exerciseId, entry.index, committed)
+    startRestForSet(entry.exerciseId, committed)
     return committed
   }
 
@@ -302,29 +403,70 @@ export function useWorkout() {
       )
       .find((item) => item.set.id === setId)
     if (!entry || !activeWorkout.value) throw new Error('Set is not part of the active session')
-    if (entry.set.completed === 0) {
-      const committed = await db.workout<SetRow>('WORKOUT_LOG_SET', {
-        set: {
-          ...entry.set,
-          ...partial,
-          id: entry.set.id,
-          workout_exercise_id: entry.exerciseId,
-          set_num: entry.set.set_num,
-          completed: 1,
-          logged_at: new Date().toISOString(),
-        },
-      })
-      replaceSetInState(entry.exerciseId, entry.index, committed)
-      startRestForSet(entry.exerciseId, committed)
-      return committed
-    }
-    const committed = await db.workout<SetRow>('WORKOUT_UPDATE_SET', {
+    if (entry.set.completed === 0)
+      throw new Error('A pending set must be saved as a draft or completed explicitly.')
+    const committed = await db.workout('WORKOUT_UPDATE_SET', {
       set: { ...entry.set, ...partial, id: setId },
     })
     const next = [...entry.values]
     next[entry.index] = committed
     sets.value = new Map(sets.value).set(entry.exerciseId, next)
     return committed
+  }
+
+  function findSet(setId: string) {
+    for (const [exerciseId, values] of sets.value) {
+      const index = values.findIndex((set) => set.id === setId)
+      const set = values[index]
+      if (set) return { exerciseId, values, index, set }
+    }
+    throw new Error('Set is not part of the active session')
+  }
+
+  async function saveDraft(setId: string, partial: Partial<SetRow> = {}): Promise<SetRow> {
+    if (!activeWorkout.value) throw new Error('No active workout')
+    const entry = findSet(setId)
+    if (entry.set.completed) throw new Error('A completed set cannot be edited as a draft')
+    const committed = await db.workout('WORKOUT_SAVE_DRAFT', {
+      set: {
+        ...entry.set,
+        ...partial,
+        id: entry.set.id,
+        workout_exercise_id: entry.exerciseId,
+        set_num: entry.set.set_num,
+        completed: 0,
+        logged_at: null,
+      },
+    })
+    const next = [...(sets.value.get(entry.exerciseId) ?? [])]
+    const index = next.findIndex((set) => set.id === entry.set.id)
+    if (index >= 0) next[index] = committed
+    sets.value = new Map(sets.value).set(entry.exerciseId, next)
+    return committed
+  }
+
+  async function undoSet(setId: string): Promise<void> {
+    const entry = findSet(setId)
+    const committed = await db.workout('WORKOUT_UNDO_SET', { setId })
+    const next = [...(sets.value.get(entry.exerciseId) ?? [])]
+    next[entry.index] = committed
+    sets.value = new Map(sets.value).set(entry.exerciseId, next)
+    if (restTimer.value.setId === setId) stopRestTimer()
+  }
+
+  async function skipSet(setId: string, skipped: boolean): Promise<void> {
+    const entry = findSet(setId)
+    const committed = await db.workout('WORKOUT_SKIP_SET', { set: { ...entry.set }, skipped })
+    const current = [...(sets.value.get(entry.exerciseId) ?? [])]
+    current[entry.index] = committed
+    const nextSkipped = new Set(skippedSetIds.value)
+    if (skipped) nextSkipped.add(committed.id)
+    else nextSkipped.delete(committed.id)
+    skippedSetIds.value = nextSkipped
+    if (!current.some((set) => set.completed === 0 && !nextSkipped.has(set.id))) {
+      current.push(buildPendingSet(entry.exerciseId, null, nextSetNumber(current)))
+    }
+    sets.value = new Map(sets.value).set(entry.exerciseId, current)
   }
 
   function nextSetNumber(current: SetRow[]): number {
@@ -335,7 +477,7 @@ export function useWorkout() {
     const updated = [...(sets.value.get(workoutExerciseId) ?? [])]
     if (pendingIdx >= 0) updated[pendingIdx] = set
     else updated.push(set)
-    if (!updated.some((item) => item.completed === 0)) {
+    if (!updated.some((item) => item.completed === 0 && !skippedSetIds.value.has(item.id))) {
       updated.push(buildPendingSet(workoutExerciseId, set, nextSetNumber(updated)))
     }
     sets.value = new Map(sets.value).set(workoutExerciseId, updated)
@@ -344,31 +486,56 @@ export function useWorkout() {
   async function saveRunData(partial: Partial<RunRow>): Promise<void> {
     if (!activeWorkout.value) throw new Error('No active workout')
     const run = buildRunRow(activeWorkout.value.id, runData.value, partial)
-    runData.value = await db.workout<RunRow>('WORKOUT_RUN_DATA', { run })
+    runData.value = await db.workout('WORKOUT_RUN_DATA', { run })
+  }
+
+  function restSecondsForSet(workoutExerciseId: string, set: SetRow): number {
+    const we = workoutExercises.value.find((exercise) => exercise.id === workoutExerciseId)
+    if (!we || set.is_warmup) return 0
+    const group = we.superset_group ? templateGroups.value.get(we.superset_group) : null
+    if (!group) return setIntents.value[set.id]?.restSec ?? we.rest_seconds
+    if (group.group_type === 'circuit' && group.circuit_rest_mode === 'after_each')
+      return group.rest_after_round_sec
+    const groupExercises = workoutExercises.value.filter(
+      (exercise) => exercise.superset_group === we.superset_group,
+    )
+    const counts = groupExercises.map(
+      (exercise) =>
+        (sets.value.get(exercise.id) ?? []).filter(
+          (item) =>
+            item.is_warmup === 0 && (item.completed === 1 || skippedSetIds.value.has(item.id)),
+        ).length,
+    )
+    const minimum = Math.min(...counts)
+    const complete = minimum > 0 && counts.every((count) => count === minimum)
+    return complete ? group.rest_after_round_sec : group.transition_rest_sec
   }
 
   function startRestForSet(workoutExerciseId: string, set: SetRow) {
-    const we = workoutExercises.value.find((exercise) => exercise.id === workoutExerciseId)
-    if (!we || set.is_warmup) return
-    const group = we.superset_group ? templateGroups.value.get(we.superset_group) : null
-    if (group) {
-      const groupExercises = workoutExercises.value.filter(
-        (exercise) => exercise.superset_group === we.superset_group,
-      )
-      const counts = groupExercises.map(
-        (exercise) =>
-          (sets.value.get(exercise.id) ?? []).filter((item) => item.completed === 1).length,
-      )
-      const minimum = Math.min(...counts)
-      const complete = minimum > 0 && counts.every((count) => count === minimum)
-      const seconds = complete ? group.rest_after_round_sec : group.transition_rest_sec
-      if (seconds > 0) startRestTimer(seconds, workoutExerciseId)
-    } else startRestTimer(we.rest_seconds, workoutExerciseId)
+    if (set.is_warmup) return
+    stopRestTimer()
+    const seconds = restSecondsForSet(workoutExerciseId, set)
+    if (seconds > 0) startRestTimer(seconds, workoutExerciseId, set.id)
   }
 
-  function startRestTimer(seconds: number, exerciseId: string) {
+  function restoreRestTimer() {
+    const completed = [...sets.value.values()]
+      .flat()
+      .filter((set) => set.completed === 1 && set.is_warmup === 0 && set.logged_at !== null)
+      .sort((a, b) => (b.logged_at ?? '').localeCompare(a.logged_at ?? ''))
+    const last = completed[0]
+    if (!last?.logged_at) return
+    const seconds = restSecondsForSet(last.workout_exercise_id, last)
+    const elapsed = Math.floor((Date.now() - new Date(last.logged_at).getTime()) / 1000)
+    if (Number.isFinite(elapsed) && elapsed >= 0 && elapsed < seconds) {
+      startRestTimer(seconds - elapsed, last.workout_exercise_id, last.id)
+      restTimer.value.total = seconds
+    }
+  }
+
+  function startRestTimer(seconds: number, exerciseId: string, setId: string | null = null) {
     window.clearInterval(restInterval ?? undefined)
-    restTimer.value = { active: true, remaining: seconds, total: seconds, exerciseId }
+    restTimer.value = { active: true, remaining: seconds, total: seconds, exerciseId, setId }
     restInterval = window.setInterval(() => {
       restTimer.value.remaining--
       if (restTimer.value.remaining <= 0) stopRestTimer()
@@ -378,7 +545,7 @@ export function useWorkout() {
   function stopRestTimer() {
     window.clearInterval(restInterval ?? undefined)
     restInterval = null
-    restTimer.value = { active: false, remaining: 0, total: 0, exerciseId: null }
+    restTimer.value = { active: false, remaining: 0, total: 0, exerciseId: null, setId: null }
   }
 
   function addRestTime(seconds: number) {
@@ -398,11 +565,13 @@ export function useWorkout() {
     opts: { moodRating?: number; energyRating?: number; notes?: string } = {},
   ): Promise<WorkoutSummary> {
     if (!activeWorkout.value) throw new Error('No active workout')
-    const summary = await db.workout<WorkoutSummary>('WORKOUT_FINISH', {
+    const finishedId = activeWorkout.value.id
+    const summary = await db.workout('WORKOUT_FINISH', {
       workoutId: activeWorkout.value.id,
       endedAt: new Date().toISOString(),
       options: opts,
     })
+    lastFinishedWorkoutId.value = finishedId
     stopElapsedClock()
     stopRestTimer()
     activeWorkout.value = null
@@ -410,6 +579,11 @@ export function useWorkout() {
     sets.value = new Map()
     templateGroups.value = new Map()
     runData.value = null
+    setIntents.value = {}
+    activityIntents.value = {}
+    skippedSetIds.value = new Set()
+    prescription.value = null
+    routine.value = null
     sessionIntensityModifier.value = 1
     sessionVolumeModifier.value = 1
     return summary
@@ -421,6 +595,12 @@ export function useWorkout() {
     workoutExercises: readonly(workoutExercises),
     sets: readonly(sets),
     templateGroups: readonly(templateGroups),
+    setIntents: readonly(setIntents),
+    activityIntents: readonly(activityIntents),
+    skippedSetIds: readonly(skippedSetIds),
+    prescription: readonly(prescription),
+    routine: readonly(routine),
+    lastFinishedWorkoutId: readonly(lastFinishedWorkoutId),
     elapsedSeconds: readonly(elapsedSeconds),
     restTimer: readonly(restTimer),
     recoverySession: readonly(recoverySession),
@@ -432,10 +612,16 @@ export function useWorkout() {
     resumeWorkout,
     discardWorkout,
     startWorkout,
+    startRoutineWorkout,
     addExercise,
     logSet,
     updateSet,
+    completeSet,
+    saveDraft,
+    undoSet,
+    skipSet,
     saveRunData,
+    createPendingSet,
     loadProgressionHistory,
     finishWorkout,
     stopRestTimer,
