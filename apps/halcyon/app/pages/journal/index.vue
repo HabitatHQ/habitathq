@@ -29,7 +29,7 @@ watch(activeVaultId, load)
   <div class="max-w-2xl mx-auto px-4 py-6 space-y-4">
     <div class="flex items-center justify-between">
       <h1 class="text-2xl font-semibold text-zinc-100">Journal</h1>
-      <UButton :to="`/journal/${today}`" icon="i-heroicons-plus" color="violet" variant="soft" size="sm">
+      <UButton :to="`/journal/${today}`" icon="i-heroicons-plus" color="primary" variant="soft" size="sm">
         Today
       </UButton>
     </div>
@@ -58,7 +58,7 @@ watch(activeVaultId, load)
         <UIcon name="i-heroicons-book-open" class="size-12 text-zinc-700" />
       </template>
       <template #actions>
-        <UButton :to="`/journal/${today}`" color="violet" variant="soft">
+        <UButton :to="`/journal/${today}`" color="primary" variant="soft">
           Write today's entry
         </UButton>
       </template>

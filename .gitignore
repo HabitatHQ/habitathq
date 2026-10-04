@@ -10,7 +10,7 @@ mutants.out/
 mutants.out.old/
 
 # Reports (Rust workflow)
-reports/
+/reports/
 
 # Nuxt / Nitro
 .nuxt/

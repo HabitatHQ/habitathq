@@ -87,13 +87,13 @@ async function save() {
       </UFormField>
 
       <UFormField label="How we met">
-        <UTextarea v-model="form.how_we_met" placeholder="We met at…" class="w-full" rows="2" />
+        <UTextarea v-model="form.how_we_met" placeholder="We met at…" class="w-full" :rows="2" />
       </UFormField>
 
       <div class="pt-2">
         <UButton
           type="submit"
-          color="violet"
+          color="primary"
           class="w-full"
           :loading="saving"
           :disabled="!form.first_name.trim()"

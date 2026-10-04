@@ -2,7 +2,7 @@
 import { useDatabase } from '~/composables/useDatabase'
 import { useVault } from '~/composables/useVault'
 
-const { dbError } = useNuxtApp().$dbError ? useNuxtApp() : { dbError: ref(null) }
+const dbError = useNuxtApp().$dbError
 
 const db = useDatabase()
 const { activeVaultId, setActiveVaultId } = useVault()
@@ -11,15 +11,16 @@ const { activeVaultId, setActiveVaultId } = useVault()
 onMounted(async () => {
   if (!activeVaultId.value) {
     const vaults = await db.getVaults()
-    if (vaults.length > 0) {
-      setActiveVaultId(vaults[0]?.id)
+    const firstVault = vaults[0]
+    if (firstVault) {
+      setActiveVaultId(firstVault.id)
     }
   }
 })
 </script>
 
 <template>
-  <div>
+  <UApp>
     <!-- DB error banner -->
     <div
       v-if="dbError"
@@ -28,10 +29,9 @@ onMounted(async () => {
       {{ dbError }}
     </div>
 
-    <UNotifications />
 
     <NuxtLayout>
       <NuxtPage />
     </NuxtLayout>
-  </div>
+  </UApp>
 </template>

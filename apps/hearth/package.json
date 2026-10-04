@@ -34,8 +34,8 @@
     "test:e2e": "playwright test",
     "test:a11y": "playwright test --config playwright.a11y.config.ts",
     "test": "vitest run && playwright test",
-    "ci": "pnpm check && pnpm typecheck && pnpm test:unit",
-    "verify": "pnpm ci"
+    "ci": "pnpm run check && pnpm run typecheck:all && pnpm run test:unit",
+    "verify": "pnpm run ci"
   },
   "dependencies": {
     "@capacitor-community/speech-recognition": "^7.0.1",

@@ -2,7 +2,6 @@
 import { SUPPORTED_CURRENCIES } from '~/lib/currency/convert'
 import { getIouSplitEditError, getTransferDestinationError } from '~/lib/transaction-edit-rules'
 import type { Account, Category, User } from '~/types/database'
-import { formatCurrency } from '~/utils/format'
 
 const currencies = SUPPORTED_CURRENCIES
 
@@ -12,7 +11,8 @@ const route = useRoute()
 const { settings } = useAppSettings()
 const homeCurrency = computed(() => settings.value.currency)
 
-const id = route.params.id as string
+const routeId = route.params['id']
+const id = typeof routeId === 'string' ? routeId : (routeId?.[0] ?? '')
 
 type TxType = 'expense' | 'income' | 'transfer'
 
@@ -92,11 +92,6 @@ const categoryOptions = computed(() => {
 const amountNum = computed(() => {
   const n = Number.parseFloat(form.amountStr)
   return Number.isNaN(n) ? 0 : n
-})
-
-const amountFormatted = computed(() => {
-  const n = form.amountStr ? Number.parseFloat(form.amountStr) : 0
-  return formatCurrency(Number.isNaN(n) ? 0 : n, form.currency)
 })
 
 const { getRate, computeHomeAmount } = useExchangeRates()

@@ -64,7 +64,7 @@ function birthdaySoon(contact: Contact): boolean {
         <h1 class="text-2xl font-semibold text-zinc-100">Contacts</h1>
         <div class="flex items-center gap-2">
           <UButton to="/groups" icon="i-heroicons-user-group" color="neutral" variant="ghost" size="sm" />
-          <UButton to="/contacts/new" icon="i-heroicons-plus" color="violet" variant="soft" size="sm">
+          <UButton to="/contacts/new" icon="i-heroicons-plus" color="primary" variant="soft" size="sm">
             Add
           </UButton>
         </div>
@@ -128,7 +128,7 @@ function birthdaySoon(contact: Contact): boolean {
           <UIcon name="i-heroicons-users" class="size-7 text-zinc-600" />
         </template>
         <template v-if="!query" #actions>
-          <UButton to="/contacts/new" color="violet" variant="soft" icon="i-heroicons-plus">
+          <UButton to="/contacts/new" color="primary" variant="soft" icon="i-heroicons-plus">
             Add your first contact
           </UButton>
         </template>

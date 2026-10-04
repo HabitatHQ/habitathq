@@ -49,7 +49,8 @@ const showChannel = computed(() => form.type === 'conversation')
 const showDuration = computed(() => form.type === 'call' || form.type === 'meeting')
 
 async function load() {
-  const id = route.params.id as string
+  const id = route.params['id']
+  if (typeof id !== 'string') return
   contact.value = await db.getContact(id)
   if (activeVaultId.value) {
     allContacts.value = await db.getContacts(activeVaultId.value)
@@ -59,7 +60,8 @@ async function load() {
 onMounted(load)
 
 const filteredAdd = computed(() => {
-  const id = route.params.id as string
+  const id = route.params['id']
+  if (typeof id !== 'string') return []
   const q = searchAdd.value.toLowerCase()
   return allContacts.value
     .filter(
@@ -127,7 +129,7 @@ async function save() {
             v-for="opt in typeOptions"
             :key="opt.value"
             :variant="form.type === opt.value ? 'solid' : 'soft'"
-            :color="form.type === opt.value ? 'violet' : 'neutral'"
+            :color="form.type === opt.value ? 'primary' : 'neutral'"
             size="sm"
             @click="form.type = opt.value"
           >
@@ -148,7 +150,7 @@ async function save() {
 
       <!-- Notes -->
       <UFormField label="Notes">
-        <UTextarea v-model="form.notes" placeholder="What happened?" class="w-full" rows="4" />
+        <UTextarea v-model="form.notes" placeholder="What happened?" class="w-full" :rows="4" />
       </UFormField>
 
       <!-- When -->
@@ -169,7 +171,7 @@ async function save() {
               v-for="c in additionalContacts"
               :key="c.id"
               variant="soft"
-              color="violet"
+              color="primary"
               class="cursor-pointer"
               @click="removeAdditional(c)"
             >
@@ -191,7 +193,7 @@ async function save() {
       </UFormField>
 
       <div class="pt-2">
-        <UButton type="submit" color="violet" class="w-full" :loading="saving">
+        <UButton type="submit" color="primary" class="w-full" :loading="saving">
           Save
         </UButton>
       </div>

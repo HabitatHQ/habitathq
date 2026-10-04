@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useDebounceFn } from '@vueuse/core'
 import { useDatabase } from '~/composables/useDatabase'
 import { useVault } from '~/composables/useVault'
 import type { Contact, Group } from '~/types/database'
@@ -23,7 +24,8 @@ const searchResults = ref<Contact[]>([])
 const adding = ref(false)
 
 async function load() {
-  const id = route.params.id as string
+  const id = route.params['id']
+  if (typeof id !== 'string') return
   loading.value = true
   try {
     const [g, ms] = await Promise.all([db.getGroup(id), db.getGroupContacts(id)])
@@ -95,7 +97,7 @@ async function addMember(contact: Contact) {
 
   <div v-else-if="!group" class="max-w-2xl mx-auto px-4 py-16 text-center">
     <p class="text-zinc-500">Group not found</p>
-    <UButton to="/groups" class="mt-4" variant="soft" color="violet">Back to groups</UButton>
+    <UButton to="/groups" class="mt-4" variant="soft" color="primary">Back to groups</UButton>
   </div>
 
   <div v-else class="max-w-2xl mx-auto pb-6">
@@ -104,7 +106,7 @@ async function addMember(contact: Contact) {
       <UButton icon="i-heroicons-arrow-left" variant="ghost" color="neutral" to="/groups" />
       <h1 class="font-semibold text-zinc-100 flex-1 truncate">{{ group.name }}</h1>
       <UButton icon="i-heroicons-pencil" variant="ghost" color="neutral" @click="editing = !editing" />
-      <UButton icon="i-heroicons-trash" variant="ghost" color="red" @click="deleteGroup" />
+      <UButton icon="i-heroicons-trash" variant="ghost" color="error" @click="deleteGroup" />
     </div>
 
     <div class="px-4 space-y-4">
@@ -117,7 +119,7 @@ async function addMember(contact: Contact) {
           <UInput v-model="form.description" placeholder="Optional" />
         </UFormField>
         <div class="flex gap-2">
-          <UButton color="violet" :loading="saving" @click="save">Save</UButton>
+          <UButton color="primary" :loading="saving" @click="save">Save</UButton>
           <UButton variant="ghost" color="neutral" @click="editing = false">Cancel</UButton>
         </div>
       </div>
@@ -159,7 +161,7 @@ async function addMember(contact: Contact) {
             <NuxtLink :to="`/contacts/${member.id}`" class="flex-1 min-w-0 hover:text-violet-300 transition-colors">
               <p class="text-zinc-100 font-medium truncate">{{ contactDisplayName(member) }}</p>
             </NuxtLink>
-            <UButton size="xs" variant="ghost" color="red" icon="i-heroicons-x-mark" @click="removeMember(member.id)" />
+            <UButton size="xs" variant="ghost" color="error" icon="i-heroicons-x-mark" @click="removeMember(member.id)" />
           </div>
         </div>
       </div>

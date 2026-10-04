@@ -50,7 +50,7 @@ async function create() {
   <div class="max-w-2xl mx-auto">
     <div class="flex items-center gap-3 px-4 pt-6 pb-4 sticky top-0 bg-zinc-950/90 backdrop-blur z-10">
       <h1 class="font-semibold text-zinc-100 flex-1 text-lg">Groups</h1>
-      <UButton icon="i-heroicons-plus" color="violet" variant="soft" size="sm" @click="showNew = !showNew">New</UButton>
+      <UButton icon="i-heroicons-plus" color="primary" variant="soft" size="sm" @click="showNew = !showNew">New</UButton>
     </div>
 
     <!-- New group form -->
@@ -63,7 +63,7 @@ async function create() {
           <UInput v-model="newDescription" placeholder="Optional description" />
         </UFormField>
         <div class="flex gap-2">
-          <UButton color="violet" :loading="creating" :disabled="!newName.trim()" @click="create">Create</UButton>
+          <UButton color="primary" :loading="creating" :disabled="!newName.trim()" @click="create">Create</UButton>
           <UButton variant="ghost" color="neutral" @click="showNew = false">Cancel</UButton>
         </div>
       </div>

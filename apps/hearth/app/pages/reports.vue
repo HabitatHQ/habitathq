@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import VChart from 'vue-echarts'
-import { getHearthTheme } from '~/lib/echarts-theme'
+import { getHearthTheme, type HearthChartTheme } from '~/lib/echarts-theme'
 import { homeCurrencyAmount } from '~/lib/reports/amounts'
 import type { EnvelopeWithSpending, MonthlyTotal, TransactionWithDetails } from '~/types/database'
 import { formatCompact } from '~/utils/format'
@@ -9,7 +9,7 @@ const db = useDatabase()
 const router = useRouter()
 const { settings } = useAppSettings()
 const homeCurrency = computed(() => settings.value.currency)
-const { ensureLoaded, loaded: chartsLoaded } = useCharts()
+const { ensureLoaded } = useCharts()
 const { period, isCurrentPeriod, prevPeriod, nextPeriod } = usePeriod()
 
 const transactions = ref<TransactionWithDetails[]>([])
@@ -19,7 +19,7 @@ const loading = ref(true)
 const chartsReady = ref(false)
 
 // ── Theme ─────────────────────────────────────────────────────────────────
-const chartTheme = ref<Record<string, unknown>>({})
+const chartTheme = ref<HearthChartTheme>({})
 
 function refreshTheme() {
   if (import.meta.client) chartTheme.value = getHearthTheme()
@@ -169,7 +169,7 @@ const categoryDonutOptions = computed(() => {
             total: {
               fontSize: 18,
               fontWeight: 'bold',
-              color: (chartTheme.value?.textStyle as Record<string, unknown>)?.color || '#e2e8f0',
+              color: chartTheme.value.textStyle?.color ?? '#e2e8f0',
               lineHeight: 28,
             },
             label: { fontSize: 11, color: '#94a3b8', lineHeight: 18 },
@@ -214,7 +214,7 @@ const personDonutOptions = computed(() => {
             total: {
               fontSize: 18,
               fontWeight: 'bold',
-              color: (chartTheme.value?.textStyle as Record<string, unknown>)?.color || '#e2e8f0',
+              color: chartTheme.value.textStyle?.color ?? '#e2e8f0',
               lineHeight: 28,
             },
             label: { fontSize: 11, color: '#94a3b8', lineHeight: 18 },
@@ -251,7 +251,8 @@ const monthLabels = computed(() =>
       'Nov',
       'Dec',
     ]
-    return MONTHS[Number.parseInt(month!, 10) - 1]
+    const monthIndex = Number.parseInt(month ?? '', 10) - 1
+    return MONTHS[monthIndex] ?? ''
   }),
 )
 
@@ -448,11 +449,11 @@ function onPersonDonutClick(params: any) {
   }
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: ECharts event params have dynamic shape
-function onTrendClick(params: any) {
-  if (params?.dataIndex != null && monthlyTotals.value[params.dataIndex]) {
-    period.value = monthlyTotals.value[params.dataIndex]?.period
-  }
+function onTrendClick(params?: { dataIndex?: number }) {
+  const index = params?.dataIndex
+  if (index === undefined) return
+  const total = monthlyTotals.value[index]
+  if (total) period.value = total.period
 }
 </script>
 

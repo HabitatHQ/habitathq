@@ -24,7 +24,7 @@ function queryValue(value: unknown): string {
 }
 
 const drilldown = computed(() => {
-  const periodQuery = route.query.period
+  const periodQuery = route.query['period']
   const rawPeriod = queryValue(periodQuery)
   return {
     period:
@@ -33,9 +33,9 @@ const drilldown = computed(() => {
         : /^\d{4}-(0[1-9]|1[0-2])$/.test(rawPeriod)
           ? rawPeriod
           : '__invalid_period__',
-    category: queryValue(route.query.category),
-    user: queryValue(route.query.user),
-    expenseOnly: queryValue(route.query.type) === 'expense',
+    category: queryValue(route.query['category']),
+    user: queryValue(route.query['user']),
+    expenseOnly: queryValue(route.query['type']) === 'expense',
   }
 })
 const hasDrilldown = computed(() =>

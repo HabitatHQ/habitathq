@@ -186,6 +186,9 @@ importers:
       '@sqlite.org/sqlite-wasm':
         specifier: 3.51.2-build6
         version: 3.51.2-build6
+      '@vueuse/core':
+        specifier: 14.4.0
+        version: 14.4.0(vue@3.5.43(typescript@6.0.3))
       fflate:
         specifier: ^0.8.3
         version: 0.8.3

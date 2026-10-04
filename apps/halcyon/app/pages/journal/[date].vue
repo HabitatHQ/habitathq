@@ -8,7 +8,10 @@ const route = useRoute()
 const db = useDatabase()
 const { activeVaultId } = useVault()
 
-const date = computed(() => route.params.date as string)
+const date = computed(() => {
+  const dateParam = route.params['date']
+  return typeof dateParam === 'string' ? dateParam : ''
+})
 const entry = ref<JournalEntry | null>(null)
 const form = reactive({ title: '', body: '' })
 const saving = ref(false)
@@ -56,7 +59,7 @@ async function save() {
       </div>
       <UButton
         variant="soft"
-        color="violet"
+        color="primary"
         :loading="saving"
         :icon="saved ? 'i-heroicons-check' : 'i-heroicons-cloud-arrow-up'"
         @click="save"

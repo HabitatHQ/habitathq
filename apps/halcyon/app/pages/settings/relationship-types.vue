@@ -66,7 +66,10 @@ async function saveEdit(rt: RelationshipType) {
     is_symmetric: editForm.is_symmetric,
   })
   const idx = relTypes.value.findIndex((r) => r.id === rt.id)
-  if (idx !== -1) relTypes.value[idx] = { ...relTypes.value[idx], ...editForm }
+  if (idx !== -1) {
+    const relType = relTypes.value[idx]
+    if (relType) relTypes.value[idx] = { ...relType, ...editForm }
+  }
   editingId.value = null
   toast.add({ title: 'Relationship type updated', color: 'success' })
 }
@@ -83,7 +86,7 @@ async function deleteRelType(id: string) {
     <div class="flex items-center gap-3 px-4 pt-6 pb-4 sticky top-0 bg-zinc-950/90 backdrop-blur z-10">
       <UButton icon="i-heroicons-arrow-left" variant="ghost" color="neutral" to="/settings" />
       <h1 class="font-semibold text-zinc-100 flex-1">Relationship types</h1>
-      <UButton icon="i-heroicons-plus" color="violet" variant="soft" size="sm" @click="showNew = !showNew">New</UButton>
+      <UButton icon="i-heroicons-plus" color="primary" variant="soft" size="sm" @click="showNew = !showNew">New</UButton>
     </div>
 
     <!-- New form -->
@@ -99,7 +102,7 @@ async function deleteRelType(id: string) {
           <UInput v-model="newForm.name_reverse" placeholder="e.g. child of" />
         </UFormField>
         <div class="flex gap-2">
-          <UButton color="violet" :loading="saving" :disabled="!newForm.name" @click="create">Create</UButton>
+          <UButton color="primary" :loading="saving" :disabled="!newForm.name" @click="create">Create</UButton>
           <UButton variant="ghost" color="neutral" @click="showNew = false">Cancel</UButton>
         </div>
       </div>
@@ -121,7 +124,7 @@ async function deleteRelType(id: string) {
             <UCheckbox v-model="editForm.is_symmetric" label="Symmetric" />
             <UInput v-if="!editForm.is_symmetric" v-model="editForm.name_reverse" placeholder="Label B → A" />
             <div class="flex gap-2">
-              <UButton size="xs" color="violet" @click="saveEdit(rt)">Save</UButton>
+              <UButton size="xs" color="primary" @click="saveEdit(rt)">Save</UButton>
               <UButton size="xs" variant="ghost" color="neutral" @click="editingId = null">Cancel</UButton>
             </div>
           </div>
@@ -132,7 +135,7 @@ async function deleteRelType(id: string) {
               <p class="font-medium text-zinc-100">{{ rt.name }}</p>
               <p class="text-sm text-zinc-500">
                 <template v-if="rt.is_symmetric">
-                  <UBadge label="symmetric" variant="subtle" color="violet" />
+                  <UBadge label="symmetric" variant="subtle" color="primary" />
                 </template>
                 <template v-else>
                   reverse: {{ rt.name_reverse }}
@@ -141,7 +144,7 @@ async function deleteRelType(id: string) {
             </div>
             <div class="flex gap-1">
               <UButton size="xs" variant="ghost" icon="i-heroicons-pencil" @click="startEdit(rt)" />
-              <UButton size="xs" variant="ghost" color="red" icon="i-heroicons-trash" @click="deleteRelType(rt.id)" />
+              <UButton size="xs" variant="ghost" color="error" icon="i-heroicons-trash" @click="deleteRelType(rt.id)" />
             </div>
           </div>
         </template>

@@ -4,7 +4,7 @@ import { autoMapCategories } from '~/lib/import/category-mapper'
 import { autoMapColumns, type HearthField } from '~/lib/import/column-mapper'
 import { parseCSV } from '~/lib/import/csv-parser'
 import { findDuplicates } from '~/lib/import/dedup'
-import type { ImportPreset } from '~/lib/import/presets'
+import { type ImportPreset, MINT_PRESET, YNAB_PRESET } from '~/lib/import/presets'
 import { buildImportRecord } from '~/lib/import/record-builder'
 import type { Transaction } from '~/types/database'
 
@@ -43,7 +43,8 @@ const categoryMap = ref<Map<string, { hearthId: string | null; action: 'mapped' 
 const hearthCategories = ref<Array<{ id: string; name: string }>>([])
 
 // Step 4: Preview
-const importReady = ref<Array<Omit<Transaction, 'id' | 'created_at' | 'updated_at'>>>([])
+// Replace batches atomically; keep records plain for the worker's structured-clone boundary.
+const importReady = shallowRef<Array<Omit<Transaction, 'id' | 'created_at' | 'updated_at'>>>([])
 const duplicateIndices = ref<Set<number>>(new Set())
 const errorRows = ref<Array<{ index: number; reason: string }>>([])
 const importing = ref(false)
@@ -176,8 +177,11 @@ async function preparePreview() {
       currentUserId.value,
       categoryId,
     )
-    if (result.reason) {
-      errors.push({ index: parsedRowIndices.value[i] ?? i + 2, reason: result.reason })
+    if (!result.record) {
+      errors.push({
+        index: parsedRowIndices.value[i] ?? i + 2,
+        reason: result.reason ?? 'Could not build transaction record',
+      })
       continue
     }
     txns.push(result.record)

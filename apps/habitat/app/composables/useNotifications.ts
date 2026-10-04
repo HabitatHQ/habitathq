@@ -1,6 +1,35 @@
 import { Capacitor } from '@capacitor/core'
+import type {
+  LocalNotificationSchema,
+  LocalNotificationsPlugin,
+} from '@capacitor/local-notifications'
 import { resolveIcon } from '@habitathq/utils'
 import { reactive, readonly, ref } from 'vue'
+
+interface BatteryOptimPlugin {
+  isIgnoringOptimizations(): Promise<{ ignoring: boolean }>
+  requestIgnore(): Promise<void>
+}
+
+interface PeriodicSyncManager {
+  register(tag: string, options: { minInterval: number }): Promise<void>
+}
+
+function isPeriodicSyncManager(value: unknown): value is PeriodicSyncManager {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'register' in value &&
+    typeof value.register === 'function'
+  )
+}
+
+function getPeriodicSyncManager(
+  registration: ServiceWorkerRegistration,
+): PeriodicSyncManager | null {
+  if (!('periodicSync' in registration)) return null
+  return isPeriodicSyncManager(registration.periodicSync) ? registration.periodicSync : null
+}
 
 // ─── Module-level singletons ──────────────────────────────────────────────────
 // Persists across composable calls so permission state stays in sync and timers
@@ -116,8 +145,7 @@ export function useNotifications() {
     return result
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async function _checkExactAlarm(LocalNotifications: any): Promise<void> {
+  async function _checkExactAlarm(LocalNotifications: LocalNotificationsPlugin): Promise<void> {
     try {
       const { exact_alarm } = await LocalNotifications.checkExactNotificationSetting()
       _exactAlarm.value = exact_alarm === 'granted' ? 'granted' : 'denied'
@@ -143,11 +171,10 @@ export function useNotifications() {
   async function _checkBatteryOptim(): Promise<void> {
     if (!isNative) return
     try {
+      // Load only when native battery settings are queried.
       const { registerPlugin } = await import('@capacitor/core')
-      const BatteryOptim = registerPlugin('BatteryOptim')
-      const result = await (
-        BatteryOptim as { isIgnoringOptimizations(): Promise<{ ignoring: boolean }> }
-      ).isIgnoringOptimizations()
+      const batteryOptim = registerPlugin<BatteryOptimPlugin>('BatteryOptim')
+      const result = await batteryOptim.isIgnoringOptimizations()
       _batteryOptim.value = result.ignoring ? 'exempt' : 'optimized'
       notifLog('battery', 'optimization checked', { status: _batteryOptim.value })
     } catch (err) {
@@ -158,10 +185,11 @@ export function useNotifications() {
   async function requestBatteryExemption(): Promise<void> {
     if (!isNative) return
     try {
+      // Load only when native battery settings are changed.
       const { registerPlugin } = await import('@capacitor/core')
-      const BatteryOptim = registerPlugin('BatteryOptim')
+      const batteryOptim = registerPlugin<BatteryOptimPlugin>('BatteryOptim')
       notifLog('battery', 'requesting exemption')
-      await (BatteryOptim as { requestIgnore(): Promise<void> }).requestIgnore()
+      await batteryOptim.requestIgnore()
       await _checkBatteryOptim()
     } catch (err) {
       notifLog('battery', `request failed: ${err}`)
@@ -316,8 +344,7 @@ export function useNotifications() {
     const habitMap = new Map(habits.map((h) => [h.id, h.name]))
     const templateMap = new Map(templates.map((t) => [t.id, t.title]))
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const toSchedule: any[] = []
+    const toSchedule: LocalNotificationSchema[] = []
 
     for (const reminder of reminders) {
       const [hhStr, mmStr] = reminder.trigger_time.split(':')
@@ -546,10 +573,10 @@ export function useNotifications() {
     if (swReg?.active) {
       swReg.active.postMessage({ type: 'SCHEDULE_REMINDERS', reminders: swSchedule })
       notifLog('webSchedule', 'posted SCHEDULE_REMINDERS to SW')
-      if ('periodicSync' in swReg) {
+      const periodicSync = getPeriodicSyncManager(swReg)
+      if (periodicSync) {
         try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (swReg as any).periodicSync.register('check-reminders', { minInterval: 55_000 })
+          await periodicSync.register('check-reminders', { minInterval: 55_000 })
           notifLog('webSchedule', 'periodicSync registered')
         } catch (err) {
           notifLog('webSchedule', `periodicSync unavailable: ${err}`)
@@ -726,10 +753,7 @@ export function useNotifications() {
 
     const CAP_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] // Capacitor 1-indexed
     const result: ScheduledNotification[] = notifications.map((n) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const on = (n.schedule as any)?.on as
-        | { weekday?: number; hour?: number; minute?: number }
-        | undefined
+      const on = n.schedule?.on
       let when = '?'
       if (on) {
         const hh = String(on.hour ?? 0).padStart(2, '0')

@@ -33,7 +33,7 @@ const filtered = computed(() => {
   <div class="max-w-2xl mx-auto">
     <div class="flex items-center gap-3 px-4 pt-6 pb-4 sticky top-0 bg-zinc-950/90 backdrop-blur z-10">
       <h1 class="font-semibold text-zinc-100 flex-1 text-lg">Companies</h1>
-      <UButton to="/companies/new" icon="i-heroicons-plus" color="violet" variant="soft" size="sm">New</UButton>
+      <UButton to="/companies/new" icon="i-heroicons-plus" color="primary" variant="soft" size="sm">New</UButton>
     </div>
 
     <div class="px-4 pb-4">

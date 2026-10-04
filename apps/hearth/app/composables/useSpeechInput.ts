@@ -1,5 +1,50 @@
 import { Capacitor } from '@capacitor/core'
-import { onUnmounted, ref } from 'vue'
+import { onUnmounted, type Ref, ref } from 'vue'
+
+interface SpeechRecognitionAlternative {
+  transcript: string
+  confidence?: number
+}
+
+interface SpeechRecognitionResult {
+  isFinal: boolean
+  readonly 0: SpeechRecognitionAlternative
+}
+
+interface SpeechRecognitionResultList {
+  length: number
+  readonly [index: number]: SpeechRecognitionResult
+}
+
+interface SpeechRecognitionResultEvent extends Event {
+  resultIndex: number
+  results: SpeechRecognitionResultList
+}
+
+interface SpeechRecognitionErrorEvent extends Event {
+  error: string
+}
+
+interface SpeechRecognitionInstance {
+  continuous: boolean
+  interimResults: boolean
+  lang: string
+  onstart: (() => void) | null
+  onresult: ((event: SpeechRecognitionResultEvent) => void) | null
+  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null
+  onend: (() => void) | null
+  start(): void
+  stop(): void
+}
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance
+
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionConstructor
+    webkitSpeechRecognition?: SpeechRecognitionConstructor
+  }
+}
 
 interface SpeechInputReturn {
   isSupported: Ref<boolean>
@@ -11,14 +56,11 @@ interface SpeechInputReturn {
   stop: () => void
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let recognition: any = null
+let recognition: SpeechRecognitionInstance | null = null
 
-function getSpeechRecognitionClass(): (new () => any) | null {
+function getSpeechRecognitionClass(): SpeechRecognitionConstructor | null {
   if (typeof window === 'undefined') return null
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const w = window as any
-  return w.SpeechRecognition || w.webkitSpeechRecognition || null
+  return window.SpeechRecognition ?? window.webkitSpeechRecognition ?? null
 }
 
 export function useSpeechInput(): SpeechInputReturn {
@@ -63,12 +105,12 @@ export function useSpeechInput(): SpeechInputReturn {
     recognition.onstart = () => {
       isListening.value = true
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    recognition.onresult = (e: any) => {
+    recognition.onresult = (e) => {
       let finalTranscript = ''
       let interimTranscript = ''
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const result = e.results[i]
+        if (!result) continue
         if (result.isFinal) {
           finalTranscript += result[0].transcript
           confidence.value = result[0].confidence ?? 1
@@ -78,8 +120,7 @@ export function useSpeechInput(): SpeechInputReturn {
       }
       transcript.value = finalTranscript || interimTranscript
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    recognition.onerror = (e: any) => {
+    recognition.onerror = (e) => {
       error.value =
         e.error === 'not-allowed'
           ? 'Microphone permission denied'
@@ -114,7 +155,8 @@ export function useSpeechInput(): SpeechInputReturn {
 
       isListening.value = true
       SR.addListener('partialResults', (data: { matches: string[] }) => {
-        if (data.matches.length) transcript.value = data.matches[0]!
+        const match = data.matches[0]
+        if (match !== undefined) transcript.value = match
       })
 
       await SR.start({

@@ -30,7 +30,12 @@ async function create() {
   if (!newName.value.trim()) return
   creating.value = true
   try {
-    const v = await db.createVault({ name: newName.value.trim(), description: '' })
+    const v = await db.createVault({
+      name: newName.value.trim(),
+      description: '',
+      color: '#7c3aed',
+      icon: 'i-heroicons-user',
+    })
     vaults.value.push(v)
     if (!activeVaultId.value) await setActiveVaultId(v.id)
     newName.value = ''
@@ -45,7 +50,10 @@ async function saveEdit(vault: Vault) {
   if (!editName.value.trim()) return
   await db.updateVault({ id: vault.id, name: editName.value.trim() })
   const idx = vaults.value.findIndex((v) => v.id === vault.id)
-  if (idx !== -1) vaults.value[idx] = { ...vaults.value[idx], name: editName.value.trim() }
+  if (idx !== -1) {
+    const existingVault = vaults.value[idx]
+    if (existingVault) vaults.value[idx] = { ...existingVault, name: editName.value.trim() }
+  }
   editingId.value = null
   toast.add({ title: 'Vault updated', color: 'success' })
 }
@@ -55,7 +63,8 @@ async function deleteVault(vault: Vault) {
   await db.deleteVault(vault.id)
   vaults.value = vaults.value.filter((v) => v.id !== vault.id)
   if (activeVaultId.value === vault.id) {
-    await setActiveVaultId(vaults.value[0]?.id ?? null)
+    const nextVault = vaults.value[0]
+    if (nextVault) await setActiveVaultId(nextVault.id)
   }
   toast.add({ title: 'Vault deleted', color: 'success' })
 }
@@ -71,14 +80,14 @@ function startEdit(vault: Vault) {
     <div class="flex items-center gap-3 px-4 pt-6 pb-4 sticky top-0 bg-zinc-950/90 backdrop-blur z-10">
       <UButton icon="i-heroicons-arrow-left" variant="ghost" color="neutral" to="/settings" />
       <h1 class="font-semibold text-zinc-100 flex-1">Vaults</h1>
-      <UButton icon="i-heroicons-plus" color="violet" variant="soft" size="sm" @click="showNew = !showNew">New</UButton>
+      <UButton icon="i-heroicons-plus" color="primary" variant="soft" size="sm" @click="showNew = !showNew">New</UButton>
     </div>
 
     <!-- New vault form -->
     <div v-if="showNew" class="px-4 pb-4">
       <div class="bg-zinc-900 rounded-xl p-4 flex gap-2">
         <UInput v-model="newName" placeholder="Vault name (e.g. Personal)" class="flex-1" autofocus @keydown.enter="create" />
-        <UButton color="violet" :loading="creating" :disabled="!newName.trim()" @click="create">Create</UButton>
+        <UButton color="primary" :loading="creating" :disabled="!newName.trim()" @click="create">Create</UButton>
         <UButton variant="ghost" color="neutral" @click="showNew = false">Cancel</UButton>
       </div>
     </div>
@@ -97,7 +106,7 @@ function startEdit(vault: Vault) {
           <template v-if="editingId === vault.id">
             <UInput v-model="editName" class="mb-1" @keydown.enter="saveEdit(vault)" />
             <div class="flex gap-2 mt-1">
-              <UButton size="xs" color="violet" @click="saveEdit(vault)">Save</UButton>
+              <UButton size="xs" color="primary" @click="saveEdit(vault)">Save</UButton>
               <UButton size="xs" variant="ghost" color="neutral" @click="editingId = null">Cancel</UButton>
             </div>
           </template>
@@ -111,7 +120,7 @@ function startEdit(vault: Vault) {
             v-if="activeVaultId !== vault.id"
             size="xs"
             variant="soft"
-            color="violet"
+            color="primary"
             @click="setActiveVaultId(vault.id)"
           >
             Switch
@@ -121,7 +130,7 @@ function startEdit(vault: Vault) {
             v-if="vaults.length > 1"
             size="xs"
             variant="ghost"
-            color="red"
+            color="error"
             icon="i-heroicons-trash"
             @click="deleteVault(vault)"
           />

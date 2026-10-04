@@ -4,7 +4,10 @@ import { readStoredSettings, writeStoredSettings } from '@habitathq/utils'
  * Factory for creating a localStorage-backed reactive settings composable.
  * Apps own their defaults and normalization; this factory only shares persistence.
  */
-export function createAppSettings<T extends object>(storageKey: string, defaults: T) {
+export function createAppSettings<T extends Record<string, unknown>>(
+  storageKey: string,
+  defaults: T,
+) {
   const freshDefaults = () => ({ ...defaults }) as T
   const raw = ref<T>(
     import.meta.client

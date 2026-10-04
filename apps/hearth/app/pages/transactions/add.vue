@@ -3,7 +3,6 @@ import { getCreditCardPaymentSuggestion } from '~/lib/credit-card-payments'
 import { SUPPORTED_CURRENCIES } from '~/lib/currency/convert'
 import { getTransferDestinationError } from '~/lib/transaction-edit-rules'
 import type { Account, Category, User } from '~/types/database'
-import { formatCurrency } from '~/utils/format'
 
 const currencies = SUPPORTED_CURRENCIES
 
@@ -132,11 +131,6 @@ const otherUsers = computed(() => users.value.filter((u) => !u.is_current))
 const amountNum = computed(() => {
   const n = Number.parseFloat(form.amountStr)
   return Number.isNaN(n) ? 0 : n
-})
-
-const amountFormatted = computed(() => {
-  const n = form.amountStr ? Number.parseFloat(form.amountStr) : 0
-  return formatCurrency(Number.isNaN(n) ? 0 : n, form.currency)
 })
 
 // ── Exchange rate for foreign currencies ──────────────────────────────────

@@ -1,6 +1,6 @@
 import type { DbAdapter } from '~/types/database'
 
-export const CURRENT_USER_VERSION = 1
+export const CURRENT_USER_VERSION = 2
 
 export const SCHEMA_DDL = `
   CREATE TABLE IF NOT EXISTS vaults (
@@ -291,7 +291,7 @@ export const SCHEMA_DDL = `
     key TEXT PRIMARY KEY
   );
 
-  -- FTS5 virtual table for full-text search
+  -- FTS5 external-content indexes use the source tables' integer rowids.
   CREATE VIRTUAL TABLE IF NOT EXISTS contacts_fts USING fts5(
     id UNINDEXED,
     first_name,
@@ -308,15 +308,67 @@ export const SCHEMA_DDL = `
     content=notes,
     content_rowid=rowid
   );
+
+`
+
+const REBUILD_FTS = `
+  INSERT INTO contacts_fts(contacts_fts) VALUES ('rebuild');
+  INSERT INTO notes_fts(notes_fts) VALUES ('rebuild');
+`
+
+const INSTALL_FTS_TRIGGERS = `
+  CREATE TRIGGER IF NOT EXISTS contacts_fts_ai AFTER INSERT ON contacts BEGIN
+    INSERT INTO contacts_fts(rowid, id, first_name, last_name, nickname)
+    VALUES (new.rowid, new.id, new.first_name, new.last_name, new.nickname);
+  END;
+  CREATE TRIGGER IF NOT EXISTS contacts_fts_ad AFTER DELETE ON contacts BEGIN
+    INSERT INTO contacts_fts(contacts_fts, rowid, id, first_name, last_name, nickname)
+    VALUES ('delete', old.rowid, old.id, old.first_name, old.last_name, old.nickname);
+  END;
+  CREATE TRIGGER IF NOT EXISTS contacts_fts_au AFTER UPDATE ON contacts BEGIN
+    INSERT INTO contacts_fts(contacts_fts, rowid, id, first_name, last_name, nickname)
+    VALUES ('delete', old.rowid, old.id, old.first_name, old.last_name, old.nickname);
+    INSERT INTO contacts_fts(rowid, id, first_name, last_name, nickname)
+    VALUES (new.rowid, new.id, new.first_name, new.last_name, new.nickname);
+  END;
+  CREATE TRIGGER IF NOT EXISTS notes_fts_ai AFTER INSERT ON notes BEGIN
+    INSERT INTO notes_fts(rowid, id, contact_id, body)
+    VALUES (new.rowid, new.id, new.contact_id, new.body);
+  END;
+  CREATE TRIGGER IF NOT EXISTS notes_fts_ad AFTER DELETE ON notes BEGIN
+    INSERT INTO notes_fts(notes_fts, rowid, id, contact_id, body)
+    VALUES ('delete', old.rowid, old.id, old.contact_id, old.body);
+  END;
+  CREATE TRIGGER IF NOT EXISTS notes_fts_au AFTER UPDATE ON notes BEGIN
+    INSERT INTO notes_fts(notes_fts, rowid, id, contact_id, body)
+    VALUES ('delete', old.rowid, old.id, old.contact_id, old.body);
+    INSERT INTO notes_fts(rowid, id, contact_id, body)
+    VALUES (new.rowid, new.id, new.contact_id, new.body);
+  END;
 `
 
 export async function runMigrations(db: DbAdapter): Promise<void> {
   const rows = await db.queryAll<{ user_version: number }>('PRAGMA user_version')
-  const version = rows[0]?.user_version ?? 0
+  let version = rows[0]?.user_version ?? 0
+  if (version >= CURRENT_USER_VERSION) return
 
-  if (version < 1) {
-    await db.exec("INSERT OR IGNORE INTO applied_defaults (key) VALUES ('schema_v1')")
-    await db.exec('PRAGMA user_version = 1')
+  await db.exec('BEGIN')
+  try {
+    if (version < 1) {
+      await db.exec("INSERT OR IGNORE INTO applied_defaults (key) VALUES ('schema_v1')")
+      await db.exec('PRAGMA user_version = 1')
+      version = 1
+    }
+
+    if (version < 2) {
+      await db.exec(INSTALL_FTS_TRIGGERS)
+      await db.exec(REBUILD_FTS)
+      await db.exec('PRAGMA user_version = 2')
+    }
+    await db.exec('COMMIT')
+  } catch (error) {
+    await db.exec('ROLLBACK')
+    throw error
   }
 }
 

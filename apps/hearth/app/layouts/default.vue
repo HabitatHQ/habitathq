@@ -22,7 +22,6 @@ function isActive(to: string) {
 
 // ── Logo flame animation ───────────────────────────────────────────────────
 
-const logoRef = ref<SVGElement | null>(null)
 const logoAnimating = ref(false)
 
 function isMotionReduced() {
@@ -81,7 +80,6 @@ function toggleColorMode() {
       <!-- Logo + wordmark -->
       <div class="flex items-center gap-2 shrink-0">
         <svg
-          ref="logoRef"
           class="hearth-logo w-6 h-7"
           :class="{ 'flame-anim': logoAnimating }"
           viewBox="0 0 40 48"
