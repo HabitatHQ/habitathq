@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { DatabaseSync } from 'node:sqlite'
+import { DatabaseSync, type SQLInputValue } from 'node:sqlite'
 import { describe, expect, it, vi } from 'vitest'
 import { SCHEMA_DDL } from '~/lib/db-schema'
 import type { DbAdapter } from '~/types/database'
@@ -13,16 +13,31 @@ import {
 } from '~/lib/db-shared'
 import { localDateString } from '@habitathq/utils'
 
+function sqliteBindings(bind?: unknown[]): SQLInputValue[] {
+  return (bind ?? []).map((value, index) => {
+    if (
+      value === null ||
+      typeof value === 'number' ||
+      typeof value === 'bigint' ||
+      typeof value === 'string' ||
+      ArrayBuffer.isView(value)
+    ) {
+      return value
+    }
+    throw new TypeError(`Unsupported SQLite binding at index ${index}`)
+  })
+}
+
 function createDb(): { db: DatabaseSync; adapter: DbAdapter } {
   const db = new DatabaseSync(':memory:')
   db.exec(SCHEMA_DDL)
   const adapter: DbAdapter = {
     queryAll: async <T>(sql: string, bind?: unknown[]) =>
-      db.prepare(sql).all(...((bind ?? []) as never[])) as T[],
+      db.prepare(sql).all(...sqliteBindings(bind)) as T[],
     queryOne: async <T>(sql: string, bind?: unknown[]) =>
-      (db.prepare(sql).get(...((bind ?? []) as never[])) as T) ?? null,
+      (db.prepare(sql).get(...sqliteBindings(bind)) as T) ?? null,
     exec: async (sql: string, bind?: unknown[]) => {
-      if (bind?.length) db.prepare(sql).run(...(bind as never[]))
+      if (bind?.length) db.prepare(sql).run(...sqliteBindings(bind))
       else db.exec(sql)
     },
   }
@@ -45,6 +60,14 @@ function seedLog(db: DatabaseSync, habitId: string, value: number): void {
 }
 
 describe('replaceHabitLogsForDate', () => {
+  it('rejects unsupported SQLite bindings at the adapter boundary', async () => {
+    const { db, adapter } = createDb()
+    await expect(adapter.queryAll('SELECT ?', [{}])).rejects.toThrow('Unsupported SQLite binding at index 0')
+    await expect(adapter.queryOne('SELECT ?', [undefined])).rejects.toThrow('Unsupported SQLite binding at index 0')
+    await expect(adapter.exec('SELECT ?', [true])).rejects.toThrow('Unsupported SQLite binding at index 0')
+    db.close()
+  })
+
   it.each(['steps', 'water', 'sleep', 'meals'])(
     'rolls back the prior %s value when replacement insertion fails',
     async (habitId) => {
