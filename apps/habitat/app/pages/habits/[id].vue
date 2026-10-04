@@ -1,9 +1,5 @@
 <script setup lang="ts">
-import {
-  addCalendarDays,
-  differenceInCalendarDays,
-  localCalendarDate,
-} from '@habitathq/utils'
+import { addCalendarDays, differenceInCalendarDays, localCalendarDate } from '@habitathq/utils'
 import {
   computeStreak,
   isStruggling,

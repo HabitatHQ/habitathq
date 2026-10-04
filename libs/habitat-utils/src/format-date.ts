@@ -139,7 +139,6 @@ export function localCalendarDate(date: Date = new Date()): string {
   })
 }
 
-
 /**
  * Parse a strict YYYY-MM-DD key into local time without the Date constructor's
  * special remapping of years 0000 through 0099.

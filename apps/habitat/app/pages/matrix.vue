@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { addCalendarDays, localCalendarDate } from '@habitathq/utils'
+import { addCalendarDays, formatCalendarDate, localCalendarDate } from '@habitathq/utils'
 import type { Completion, HabitLog, HabitWithSchedule } from '~/types/database'
 
 const db = useDatabase()
