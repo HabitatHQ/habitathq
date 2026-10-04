@@ -1,7 +1,29 @@
 <script setup lang="ts">
+import {
+  isValidPomodoroSettingValue,
+  POMODORO_SETTING_RULES,
+  type PomodoroSettingKey,
+} from '~/composables/useAppSettings'
+
 const db = useDatabase()
 const toast = useToast()
 const { settings: appSettings, set: setAppSetting } = useAppSettings()
+
+function updatePomodoroSetting(key: PomodoroSettingKey, event: Event): void {
+  const input = event.target as HTMLInputElement
+  const value = Number(input.value)
+  if (input.value.trim() === '' || !isValidPomodoroSettingValue(key, value)) {
+    input.value = String(appSettings.value[key])
+    const { min, max } = POMODORO_SETTING_RULES[key]
+    toast.add({
+      title: `Enter a whole number from ${min} to ${max}.`,
+      color: 'warning',
+      duration: 4000,
+    })
+    return
+  }
+  setAppSetting(key, value)
+}
 
 function toggleFeature(key: Parameters<typeof setAppSetting>[0], value: boolean) {
   setAppSetting(key, value)
@@ -236,7 +258,7 @@ async function confirmHealthSetup() {
               max="90"
               :value="appSettings.pomodoroWorkMinutes"
               class="w-14 px-2 py-1 text-sm bg-(--ui-bg-elevated) border border-(--ui-border) rounded-lg text-center"
-              @change="setAppSetting('pomodoroWorkMinutes', +($event.target as HTMLInputElement).value)"
+              @change="updatePomodoroSetting('pomodoroWorkMinutes', $event)"
             />
             <span class="text-xs text-(--ui-text-dimmed)">min</span>
           </div>
@@ -251,7 +273,7 @@ async function confirmHealthSetup() {
               max="60"
               :value="appSettings.pomodoroShortBreakMinutes"
               class="w-14 px-2 py-1 text-sm bg-(--ui-bg-elevated) border border-(--ui-border) rounded-lg text-center"
-              @change="setAppSetting('pomodoroShortBreakMinutes', +($event.target as HTMLInputElement).value)"
+              @change="updatePomodoroSetting('pomodoroShortBreakMinutes', $event)"
             />
             <span class="text-xs text-(--ui-text-dimmed)">min</span>
           </div>
@@ -266,7 +288,7 @@ async function confirmHealthSetup() {
               max="60"
               :value="appSettings.pomodoroLongBreakMinutes"
               class="w-14 px-2 py-1 text-sm bg-(--ui-bg-elevated) border border-(--ui-border) rounded-lg text-center"
-              @change="setAppSetting('pomodoroLongBreakMinutes', +($event.target as HTMLInputElement).value)"
+              @change="updatePomodoroSetting('pomodoroLongBreakMinutes', $event)"
             />
             <span class="text-xs text-(--ui-text-dimmed)">min</span>
           </div>
@@ -281,7 +303,7 @@ async function confirmHealthSetup() {
               max="10"
               :value="appSettings.pomodoroCyclesBeforeLong"
               class="w-14 px-2 py-1 text-sm bg-(--ui-bg-elevated) border border-(--ui-border) rounded-lg text-center"
-              @change="setAppSetting('pomodoroCyclesBeforeLong', +($event.target as HTMLInputElement).value)"
+              @change="updatePomodoroSetting('pomodoroCyclesBeforeLong', $event)"
             />
           </div>
         </div>

@@ -5,7 +5,9 @@
  * ring, TEXT reflection counts, plus reflection consistency + a gentle streak.
  */
 
+import { localDateString } from '@habitathq/utils'
 import type { CheckinHistoryRow, CheckinTemplate } from '~/types/database'
+import { addDateKeyDays } from '~/utils/calendar-dates'
 import {
   computeCheckinInsights,
   type QuestionInsight,
@@ -17,18 +19,14 @@ const db = useDatabase()
 
 const PERIODS = [7, 30, 90] as const
 const windowDays = ref(30)
-const today = new Date().toISOString().slice(0, 10)
+const today = localDateString(new Date())
 
 const templates = ref<CheckinTemplate[]>([])
 const rows = ref<CheckinHistoryRow[]>([])
 const loading = ref(true)
 
 async function load() {
-  const from = (() => {
-    const d = new Date(`${today}T00:00:00Z`)
-    d.setUTCDate(d.getUTCDate() - 179) // covers up to 2× the 90-day window
-    return d.toISOString().slice(0, 10)
-  })()
+  const from = addDateKeyDays(today, -179)
   const [tpls, hist] = await Promise.all([
     db.getCheckinTemplates(),
     db.getCheckinHistory(from, today),

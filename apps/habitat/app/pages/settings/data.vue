@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { zipSync } from 'fflate'
 import type { ExportSelection, HabitatExport } from '~/types/database'
+import { buildJotsExportZip } from '~/utils/jots-export'
 
 const db = useDatabase()
 const toast = useToast()
@@ -260,55 +260,20 @@ const showJotsExportModal = ref(false)
 const exportingJots = ref(false)
 const jotsExportSel = reactive({ text: true, voice: true, images: true })
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: sequential export pipeline
 async function exportJotsZip() {
   // Dynamic import avoids IDBBlobAdapter init-order crash in SSR (see e64a6cf)
   const { getBlobAdapter } = await import('~/composables/useJotsStore')
   const blobAdapter = getBlobAdapter()
   exportingJots.value = true
   try {
-    const files: Record<string, Uint8Array> = {}
+    const zipped = await buildJotsExportZip({
+      ...(jotsExportSel.text && { textJots: await db.getScribbles() }),
+      ...(jotsExportSel.voice && { voiceNotes: await db.getVoiceNotes() }),
+      ...(jotsExportSel.images && { imageNotes: await db.getImageNotes() }),
+      getBlob: (id) => blobAdapter.get(id),
+    })
+    if (!zipped) return
 
-    if (jotsExportSel.text) {
-      const textJots = await db.getScribbles()
-      const json = JSON.stringify(
-        { version: 1, exported_at: new Date().toISOString(), text: textJots },
-        null,
-        2,
-      )
-      files['jots.json'] = new TextEncoder().encode(json)
-      for (const jot of textJots) {
-        const body = jot.title ? `${jot.title}\n\n${jot.content}` : jot.content
-        const ts = jot.updated_at.slice(0, 19).replace(/[:.]/g, '-')
-        files[`text/${ts}.txt`] = new TextEncoder().encode(body)
-      }
-    }
-
-    if (jotsExportSel.voice) {
-      const rows = await db.getVoiceNotes()
-      for (const row of rows) {
-        const bytes = await blobAdapter.get(row.id)
-        if (!bytes) continue
-        const ext = row.mime_type.split('/')[1]?.split(';')[0] ?? 'audio'
-        const ts = row.created_at.slice(0, 19).replace(/[:.]/g, '-')
-        files[`voice/${ts}.${ext}`] = bytes
-      }
-    }
-
-    if (jotsExportSel.images) {
-      const rows = await db.getImageNotes()
-      for (const row of rows) {
-        const bytes = await blobAdapter.get(row.id)
-        if (!bytes) continue
-        const ext = row.mime_type.split('/')[1] ?? 'jpg'
-        const ts = row.created_at.slice(0, 19).replace(/[:.]/g, '-')
-        files[`images/${ts}.${ext}`] = bytes
-      }
-    }
-
-    if (Object.keys(files).length === 0) return
-
-    const zipped = zipSync(files)
     const url = URL.createObjectURL(
       new Blob([zipped.buffer as ArrayBuffer], { type: 'application/zip' }),
     )

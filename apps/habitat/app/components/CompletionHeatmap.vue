@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { addDateKeyDays } from '~/utils/calendar-dates'
+
 /**
  * CompletionHeatmap — a GitHub-style activity grid shared by the Insights
  * surfaces (habits + check-ins). Caller supplies a date→count map and the
@@ -27,30 +29,26 @@ interface HeatmapDay {
   isFuture: boolean
 }
 
-function buildWeek(start: Date, weekOffset: number): HeatmapDay[] {
-  const week: HeatmapDay[] = []
-  for (let dow = 0; dow < 7; dow++) {
-    const d = new Date(start)
-    d.setDate(start.getDate() + weekOffset * 7 + dow)
-    const date = d.toISOString().slice(0, 10)
+function buildWeek(start: string, weekOffset: number): HeatmapDay[] {
+  return Array.from({ length: 7 }, (_, dow) => {
+    const date = addDateKeyDays(start, weekOffset * 7 + dow)
     const isFuture = date > props.today
     const doneCount = !isFuture && props.total > 0 ? (props.counts.get(date) ?? 0) : 0
-    week.push({
+    return {
       date,
       doneCount,
       total: props.total,
       rate: props.total && !isFuture ? Math.round((doneCount / props.total) * 100) : 0,
       isToday: date === props.today,
       isFuture,
-    })
-  }
-  return week
+    }
+  })
 }
 
 const heatmapWeeks = computed((): HeatmapDay[][] => {
-  // Align start to the Sunday `weeks` weeks before today
-  const start = new Date(props.today)
-  start.setDate(start.getDate() - (props.weeks * 7 - 1) - start.getDay())
+  const todayDate = new Date(`${props.today}T00:00:00Z`)
+  const daysBeforeToday = (props.weeks - 1) * 7 + todayDate.getUTCDay()
+  const start = addDateKeyDays(props.today, -daysBeforeToday)
   return Array.from({ length: props.weeks }, (_, wi) => buildWeek(start, wi))
 })
 

@@ -1,3 +1,4 @@
+import { localDateString } from '@habitathq/utils'
 import type {
   CheckinQuestion,
   CheckinResponse,
@@ -20,7 +21,7 @@ function dateAt(offset: number): string {
   const date = new Date()
   date.setHours(12, 0, 0, 0)
   date.setDate(date.getDate() + offset)
-  return date.toISOString().slice(0, 10)
+  return localDateString(date)
 }
 
 function timestamp(date: string, time = '09:00:00'): string {

@@ -1,3 +1,4 @@
+import { localDateString } from '@habitathq/utils'
 import type {
   CheckinQuestion,
   CheckinResponse,
@@ -47,24 +48,19 @@ function hashSeed(key: string): number {
 }
 
 // ─── Date helpers ────────────────────────────────────────────────────────────────
-
-function isoDate(d: Date): string {
-  return d.toISOString().slice(0, 10)
-}
-
 /** Descending list of YYYY-MM-DD from today back `days` days (inclusive). */
 function recentDates(days: number): string[] {
   const out: string[] = []
   const d = new Date()
   for (let i = 0; i < days; i++) {
-    out.push(isoDate(d))
+    out.push(localDateString(d))
     d.setDate(d.getDate() - 1)
   }
   return out
 }
 
 function dowOf(date: string): number {
-  return new Date(`${date}T00:00:00`).getDay()
+  return new Date(`${date}T12:00:00`).getDay()
 }
 
 // ─── Habit definitions ────────────────────────────────────────────────────────────

@@ -4,8 +4,11 @@
  * completions/logs and renders summary stats, the garden, a daily-completion
  * heatmap, monthly rate, and per-habit completion bars. Mirrors CheckinInsights.
  */
+
+import { localDateString } from '@habitathq/utils'
 import { computeStreak, growthStage, type StreakInput } from '~/lib/streak-engine'
 import type { Completion, HabitLog, HabitWithSchedule } from '~/types/database'
+import { addDateKeyDays } from '~/utils/calendar-dates'
 
 const db = useDatabase()
 
@@ -14,13 +17,17 @@ const completions = ref<Completion[]>([])
 const habitLogs = ref<HabitLog[]>([])
 const loading = ref(true)
 
-const today = new Date().toISOString().slice(0, 10)
+const today = localDateString(new Date())
 
 // Six months covers both the monthly chart and the heatmap
 const sixMonthsAgo = (() => {
   const d = new Date()
+  const anchorDay = d.getDate()
+  d.setDate(1)
   d.setMonth(d.getMonth() - 6)
-  return d.toISOString().slice(0, 10)
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+  d.setDate(Math.min(anchorDay, lastDay))
+  return localDateString(d)
 })()
 
 async function load() {
@@ -73,11 +80,8 @@ function isHabitDone(habit: HabitWithSchedule, date: string): boolean {
 
 const allDateStrings = (() => {
   const dates: string[] = []
-  const d = new Date(today)
-  const start = new Date(sixMonthsAgo)
-  while (d >= start) {
-    dates.push(d.toISOString().slice(0, 10))
-    d.setDate(d.getDate() - 1)
+  for (let date = today; date >= sixMonthsAgo; date = addDateKeyDays(date, -1)) {
+    dates.push(date)
   }
   return dates
 })()

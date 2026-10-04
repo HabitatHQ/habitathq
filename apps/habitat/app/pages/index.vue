@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { localDateString } from '@habitathq/utils'
 import { isStruggling, type StreakInput } from '~/lib/streak-engine'
 import type {
   BoredOracleResult,
@@ -10,6 +11,11 @@ import type {
   Todo,
 } from '~/types/database'
 import { hasCalendarNoteTag } from '~/utils/jots-helpers'
+import {
+  getTodayRowsWithLegacyUtcKeys,
+  legacyUtcKeysForLocalDay,
+  mergeTodayIntoHistory,
+} from '~/utils/today-legacy-records'
 
 const db = useDatabase()
 const { impact } = useHaptics()
@@ -22,7 +28,8 @@ watchEffect(() => {
 })
 
 const _now = new Date()
-const today = _now.toISOString().slice(0, 10)
+const today = localDateString(_now)
+const legacyUtcTodayKeys = legacyUtcKeysForLocalDay(_now)
 const todayDayOfWeek = _now.getDay()
 const dayName = _now.toLocaleDateString('en-US', { weekday: 'long' })
 const dateStr = _now.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })
@@ -31,14 +38,14 @@ const dateStr = _now.toLocaleDateString('en-US', { month: 'long', day: 'numeric'
 const weekStart = (() => {
   const d = new Date()
   d.setDate(d.getDate() - d.getDay())
-  return d.toISOString().slice(0, 10)
+  return localDateString(d)
 })()
 
 // 15-day window for the struggling-habit detector (needs ~2 weeks of history).
 const histStart = (() => {
   const d = new Date()
   d.setDate(d.getDate() - 15)
-  return d.toISOString().slice(0, 10)
+  return localDateString(d)
 })()
 
 const habits = ref<HabitWithSchedule[]>([])
@@ -253,18 +260,60 @@ const hasTodayActivity = computed(
 async function loadVoiceCount() {
   try {
     const rows = await db.getVoiceNotes()
-    todayVoiceCount.value = rows.filter((n) => n.created_at.slice(0, 10) === today).length
+    todayVoiceCount.value = rows.filter(
+      (n) => localDateString(new Date(n.created_at)) === today,
+    ).length
   } catch {
     todayVoiceCount.value = 0
   }
+}
+
+function getTodayCompletions(): Promise<Completion[]> {
+  return getTodayRowsWithLegacyUtcKeys(
+    db.getCompletionsForDate,
+    today,
+    legacyUtcTodayKeys,
+    (completion) => completion.completed_at,
+  )
+}
+
+function getTodayLogs(): Promise<HabitLog[]> {
+  return getTodayRowsWithLegacyUtcKeys(
+    db.getHabitLogsForDate,
+    today,
+    legacyUtcTodayKeys,
+    (log) => log.logged_at,
+  )
+}
+
+async function refreshCompletions() {
+  const [todayRows, weekRows, histRows] = await Promise.all([
+    getTodayCompletions(),
+    db.getCompletionsForDateRange(weekStart, today),
+    db.getCompletionsForDateRange(histStart, today),
+  ])
+  completions.value = todayRows
+  weekCompletions.value = mergeTodayIntoHistory(weekRows, todayRows, today)
+  histCompletions.value = mergeTodayIntoHistory(histRows, todayRows, today)
+}
+
+async function refreshLogs() {
+  const [todayRows, weekRows, histRows] = await Promise.all([
+    getTodayLogs(),
+    db.getHabitLogsForDateRange(weekStart, today),
+    db.getHabitLogsForDateRange(histStart, today),
+  ])
+  logs.value = todayRows
+  weekLogs.value = mergeTodayIntoHistory(weekRows, todayRows, today)
+  histLogs.value = mergeTodayIntoHistory(histRows, todayRows, today)
 }
 
 async function load() {
   try {
     const [h, c, l, wc, wl, hc, hl, ci, sc, td] = await Promise.all([
       db.getHabits(),
-      db.getCompletionsForDate(today),
-      db.getHabitLogsForDate(today),
+      getTodayCompletions(),
+      getTodayLogs(),
       db.getCompletionsForDateRange(weekStart, today),
       db.getHabitLogsForDateRange(weekStart, today),
       db.getCompletionsForDateRange(histStart, today),
@@ -276,10 +325,10 @@ async function load() {
     habits.value = h
     completions.value = c
     logs.value = l
-    weekCompletions.value = wc
-    weekLogs.value = wl
-    histCompletions.value = hc
-    histLogs.value = hl
+    weekCompletions.value = mergeTodayIntoHistory(wc, c, today)
+    weekLogs.value = mergeTodayIntoHistory(wl, l, today)
+    histCompletions.value = mergeTodayIntoHistory(hc, c, today)
+    histLogs.value = mergeTodayIntoHistory(hl, l, today)
     todayCheckins.value = ci.filter((s) => s.response_count > 0 || s.is_completed)
     todayScribbles.value = sc
     todos.value = td
@@ -341,7 +390,7 @@ async function pauseStrugglingToday(h: HabitWithSchedule) {
   try {
     const until = new Date()
     until.setDate(until.getDate() + 7)
-    await db.pauseHabit(h.id, until.toISOString().slice(0, 10))
+    await db.pauseHabit(h.id, localDateString(until))
     await load()
     toast.add({ title: `"${h.name}" paused for a week`, color: 'success', duration: 3000 })
   } catch (e) {
@@ -406,7 +455,10 @@ function weeklyInfo(habit: HabitWithSchedule): { done: number; target: number } 
   if (habit.schedule?.schedule_type !== 'WEEKLY_FLEX') return null
   const target = habit.schedule.frequency_count ?? 7
   if (habit.type === 'BOOLEAN') {
-    return { done: weekCompletions.value.filter((c) => c.habit_id === habit.id).length, target }
+    const days = new Set(
+      weekCompletions.value.filter((c) => c.habit_id === habit.id).map((c) => c.date),
+    )
+    return { done: days.size, target }
   }
   const days = new Set(weekLogs.value.filter((l) => l.habit_id === habit.id).map((l) => l.date))
   return { done: days.size, target }
@@ -431,15 +483,23 @@ async function toggle(habit: HabitWithSchedule) {
   toggling.add(habit.id)
   const wasCompleted = isHabitDone(habit)
   try {
-    await db.toggleCompletion(habit.id, today)
-    completions.value = await db.getCompletionsForDate(today)
-    weekCompletions.value = await db.getCompletionsForDateRange(weekStart, today)
+    let completion: Completion | null = null
+    if (wasCompleted) {
+      await Promise.all(
+        completions.value
+          .filter((row) => row.habit_id === habit.id)
+          .map((row) => db.deleteCompletion(row.id)),
+      )
+    } else {
+      completion = await db.toggleCompletion(habit.id, today)
+    }
+    await refreshCompletions()
     await impact(wasCompleted ? 'light' : 'medium')
     if (!wasCompleted && !isMotionReduced()) {
       flashing.add(habit.id)
       setTimeout(() => flashing.delete(habit.id), 400)
     }
-    if (!wasCompleted) {
+    if (!wasCompleted && completion) {
       toast.add({
         title: `"${habit.name}" completed`,
         color: 'success',
@@ -448,9 +508,17 @@ async function toggle(habit: HabitWithSchedule) {
           {
             label: 'Undo',
             onClick: async () => {
-              await db.toggleCompletion(habit.id, today)
-              completions.value = await db.getCompletionsForDate(today)
-              weekCompletions.value = await db.getCompletionsForDateRange(weekStart, today)
+              if (toggling.has(habit.id)) return
+              toggling.add(habit.id)
+              try {
+                await db.deleteCompletion(completion.id)
+                await refreshCompletions()
+              } catch (e) {
+                logError('[today/undoCompletion]', e)
+                toast.add({ title: "Couldn't undo — try again", color: 'error', duration: 3000 })
+              } finally {
+                toggling.delete(habit.id)
+              }
             },
           },
         ],
@@ -495,8 +563,7 @@ async function submitLogSheet(value: number) {
     } else {
       await db.logHabitValue(habit.id, today, value)
     }
-    logs.value = await db.getHabitLogsForDate(today)
-    weekLogs.value = await db.getHabitLogsForDateRange(weekStart, today)
+    await refreshLogs()
     logSheetHabit.value = null
     await impact('medium')
   } finally {

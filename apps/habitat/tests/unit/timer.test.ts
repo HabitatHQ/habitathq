@@ -237,6 +237,56 @@ describe('buildPomodoroConfig', () => {
     })
   })
 
+  it('uses supported defaults when malformed settings reach timer configuration', () => {
+    const config = buildPomodoroConfig({
+      pomodoroWorkMinutes: 0,
+      pomodoroShortBreakMinutes: Number.NaN,
+      pomodoroLongBreakMinutes: 61,
+      pomodoroCyclesBeforeLong: 0,
+    })
+
+    expect(config).toEqual({
+      workSeconds: 1500,
+      shortBreakSeconds: 300,
+      longBreakSeconds: 900,
+      cyclesBeforeLong: 4,
+    })
+  })
+
+  it('uses valid custom durations and cycle modulo for each configured phase', () => {
+    const config = buildPomodoroConfig({
+      pomodoroWorkMinutes: 45,
+      pomodoroShortBreakMinutes: 7,
+      pomodoroLongBreakMinutes: 20,
+      pomodoroCyclesBeforeLong: 2,
+    })
+    let phase: PomodoroPhase = 'work'
+    let workBlock = 0
+
+    const phases: Array<{ phase: PomodoroPhase; durationSeconds: number }> = []
+    for (let index = 0; index < 4; index++) {
+      const next = nextPomodoroPhase(
+        phase,
+        workBlock,
+        config.cyclesBeforeLong,
+        config.workSeconds,
+        config.shortBreakSeconds,
+        config.longBreakSeconds,
+      )
+      phases.push({ phase: next.phase, durationSeconds: next.durationSeconds })
+      phase = next.phase
+      workBlock = next.workBlock
+    }
+
+    expect(phases).toEqual([
+      { phase: 'short-break', durationSeconds: 420 },
+      { phase: 'work', durationSeconds: 2700 },
+      { phase: 'long-break', durationSeconds: 1200 },
+      { phase: 'work', durationSeconds: 2700 },
+    ])
+  })
+
+
   it('handles non-default values', () => {
     const config = buildPomodoroConfig({
       pomodoroWorkMinutes: 50,

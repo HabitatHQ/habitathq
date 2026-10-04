@@ -50,6 +50,8 @@ export function useDatabase() {
       sendToWorker({ type: 'GET_COMPLETIONS_FOR_HABIT', payload: { habit_id, from, to } }),
     toggleCompletion: (habit_id: string, date: string): Promise<Completion | null> =>
       sendToWorker({ type: 'TOGGLE_COMPLETION', payload: { habit_id, date } }),
+    deleteCompletion: (id: string): Promise<null> =>
+      sendToWorker({ type: 'DELETE_COMPLETION', payload: { id } }),
     getStreak: (habit_id: string): Promise<StreakResult> =>
       sendToWorker({ type: 'GET_STREAK', payload: { habit_id } }),
     getAllCompletions: (): Promise<Completion[]> => sendToWorker({ type: 'GET_ALL_COMPLETIONS' }),
@@ -77,6 +79,16 @@ export function useDatabase() {
       sendToWorker({ type: 'LOG_HABIT_VALUE', payload: { habit_id, date, value, notes } }),
     deleteHabitLog: (id: string): Promise<null> =>
       sendToWorker({ type: 'DELETE_HABIT_LOG', payload: { id } }),
+    replaceHabitLogsForDate: (
+      habit_id: string,
+      date: string,
+      value: number,
+      notes = '',
+    ): Promise<null> =>
+      sendToWorker({
+        type: 'REPLACE_HABIT_LOGS_FOR_DATE',
+        payload: { habit_id, date, value, notes },
+      }),
     getScheduleForHabit: (habit_id: string): Promise<HabitSchedule | null> =>
       sendToWorker({ type: 'GET_SCHEDULE_FOR_HABIT', payload: { habit_id } }),
     updateHabitSchedule: (p: Partial<HabitSchedule> & { id: string }): Promise<HabitSchedule> =>

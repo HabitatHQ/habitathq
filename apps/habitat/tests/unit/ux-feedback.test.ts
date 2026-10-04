@@ -18,6 +18,7 @@ vi.mock('@capacitor/core', () => ({
 // Must be set before component imports; setup() reads them at mount time.
 
 const mockToastAdd = vi.fn()
+const mockAppSettingSet = vi.fn()
 const g = globalThis as Record<string, unknown>
 
 g['useToast'] = () => ({ add: mockToastAdd })
@@ -35,7 +36,7 @@ g['useAppSettings'] = () => ({
     pomodoroCyclesBeforeLong: 4,
     enableTimer: false,
   }),
-  set: vi.fn(),
+  set: mockAppSettingSet,
 })
 g['useHaptics'] = () => ({ impact: vi.fn(), notification: vi.fn(), selectionChanged: vi.fn() })
 g['useContextFilter'] = () => ({
@@ -223,6 +224,7 @@ function ss(wrapper: ReturnType<typeof shallowMount>) {
 
 // ── Global beforeEach: reset all DB mocks to safe defaults ────────────────────
 beforeEach(() => {
+  mockAppSettingSet.mockClear()
   mockToastAdd.mockClear()
   // Shared load stubs (return empty by default)
   mockDb.getBoredCategories.mockResolvedValue([])
@@ -595,5 +597,43 @@ describe('settings/features.vue — toggleFeature (issue 10)', () => {
     expect(mockToastAdd).not.toHaveBeenCalledWith(
       expect.objectContaining({ title: expect.stringContaining('also hides') }),
     )
+  })
+})
+
+describe('settings/features.vue — Pomodoro preference edits', () => {
+  it.each(['', '0', '91', '1.5'])(
+    'rejects invalid work-minute edit %j and restores the last valid value',
+    async (value) => {
+      const wrapper = shallowMount(SettingsFeaturesPage)
+      await flushPromises()
+      const state = ss(wrapper)
+      const input = { value }
+
+      ;(state['updatePomodoroSetting'] as (key: string, event: Event) => void)(
+        'pomodoroWorkMinutes',
+        { target: input } as unknown as Event,
+      )
+
+      expect(input.value).toBe('25')
+      expect(mockAppSettingSet).not.toHaveBeenCalled()
+      expect(mockToastAdd).toHaveBeenCalledWith(
+        expect.objectContaining({ color: 'warning', title: expect.stringContaining('whole number') }),
+      )
+      wrapper.unmount()
+    },
+  )
+
+  it('persists a valid configured work duration', async () => {
+    const wrapper = shallowMount(SettingsFeaturesPage)
+    await flushPromises()
+    const state = ss(wrapper)
+
+    ;(state['updatePomodoroSetting'] as (key: string, event: Event) => void)(
+      'pomodoroWorkMinutes',
+      { target: { value: '90' } } as unknown as Event,
+    )
+
+    expect(mockAppSettingSet).toHaveBeenCalledWith('pomodoroWorkMinutes', 90)
+    wrapper.unmount()
   })
 })
