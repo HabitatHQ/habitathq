@@ -45,6 +45,7 @@ export const MINT_PRESET: ImportPreset = {
     Amount: 'amount',
     Category: 'category',
     'Account Name': 'account',
+    'Transaction Type': 'type',
   },
   dateFormat: 'M/D/YYYY',
   amountRules: {

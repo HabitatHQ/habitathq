@@ -199,15 +199,71 @@ export async function deleteUser(db: DbAdapter, payload: { id: string }) {
 
 // ─── Accounts ─────────────────────────────────────────────────────────────────
 
+const ACCOUNT_BALANCE_SELECT = `SELECT
+  a.id, a.user_id, a.name, a.type,
+  a.opening_balance
+    + COALESCE((SELECT SUM(CASE WHEN t.type = 'transfer' THEN -ABS(t.amount) ELSE t.amount END)
+                FROM transactions t WHERE t.account_id = a.id), 0)
+    + COALESCE((SELECT SUM(ABS(t.amount)) FROM transactions t
+                WHERE t.transfer_to_account_id = a.id AND t.type = 'transfer'), 0) AS balance,
+  a.opening_balance, a.currency, a.color, a.icon, a.is_active, a.created_at
+  FROM accounts a`
+
 export async function getAccounts(db: DbAdapter) {
-  return db.queryAll('SELECT * FROM accounts WHERE is_active = 1 ORDER BY created_at')
+  return db.queryAll(`${ACCOUNT_BALANCE_SELECT} WHERE a.is_active = 1 ORDER BY a.created_at`)
 }
 
 export async function getAccountsForUser(db: DbAdapter, payload: { user_id: string }) {
   return db.queryAll(
-    'SELECT * FROM accounts WHERE user_id = ? AND is_active = 1 ORDER BY created_at',
+    `${ACCOUNT_BALANCE_SELECT} WHERE a.user_id = ? AND a.is_active = 1 ORDER BY a.created_at`,
     [payload.user_id],
   )
+}
+export async function exportJson(db: DbAdapter): Promise<HearthExport> {
+  return {
+    version: '1.0',
+    exported_at: now(),
+    users: await db.queryAll<HearthExport['users'][number]>('SELECT * FROM users'),
+    accounts: await db.queryAll<HearthExport['accounts'][number]>(
+      `${ACCOUNT_BALANCE_SELECT} ORDER BY a.created_at`,
+    ),
+    categories: await db.queryAll<HearthExport['categories'][number]>('SELECT * FROM categories'),
+    transactions: await db.queryAll<HearthExport['transactions'][number]>(
+      'SELECT * FROM transactions',
+    ),
+    envelopes: await db.queryAll<HearthExport['envelopes'][number]>('SELECT * FROM envelopes'),
+    envelope_periods: await db.queryAll<HearthExport['envelope_periods'][number]>(
+      'SELECT * FROM envelope_periods',
+    ),
+    iou_splits: await db.queryAll<HearthExport['iou_splits'][number]>('SELECT * FROM iou_splits'),
+    savings_goals: await db.queryAll<HearthExport['savings_goals'][number]>(
+      'SELECT * FROM savings_goals',
+    ),
+    chores: await db.queryAll<HearthExport['chores'][number]>('SELECT * FROM chores'),
+  }
+}
+
+export async function reconcileAccount(
+  db: DbAdapter,
+  payload: { id: string; actual_balance: number },
+) {
+  if (!Number.isFinite(payload.actual_balance)) throw new Error('Actual balance must be finite')
+  const result = await db.queryOne<{ id: string }>('SELECT id FROM accounts WHERE id = ?', [
+    payload.id,
+  ])
+  if (!result) throw new Error('Account not found')
+  const impacts = await db.queryOne<{ amount: number }>(
+    `SELECT COALESCE((SELECT SUM(CASE WHEN type = 'transfer' THEN -ABS(amount) ELSE amount END)
+                      FROM transactions WHERE account_id = ?), 0)
+       + COALESCE((SELECT SUM(ABS(amount)) FROM transactions
+                   WHERE transfer_to_account_id = ? AND type = 'transfer'), 0) AS amount`,
+    [payload.id, payload.id],
+  )
+  await db.exec('UPDATE accounts SET opening_balance = ? WHERE id = ?', [
+    payload.actual_balance - (impacts?.amount ?? 0),
+    payload.id,
+  ])
+  return db.queryOne(`${ACCOUNT_BALANCE_SELECT} WHERE a.id = ?`, [payload.id])
 }
 
 export async function createAccount(
@@ -217,32 +273,40 @@ export async function createAccount(
     name: string
     type: string
     balance: number
+    opening_balance?: number
     currency: string
     color: string
     icon: string
   },
 ) {
   const id = uuid()
-  await db.exec('INSERT INTO accounts VALUES (?,?,?,?,?,?,?,?,?,?)', [
-    id,
-    p.user_id,
-    p.name,
-    p.type,
-    p.balance,
-    p.currency,
-    p.color,
-    p.icon,
-    1,
-    now(),
-  ])
-  return db.queryOne('SELECT * FROM accounts WHERE id = ?', [id])
+  await db.exec(
+    `INSERT INTO accounts
+      (id,user_id,name,type,balance,opening_balance,currency,color,icon,is_active,created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      id,
+      p.user_id,
+      p.name,
+      p.type,
+      p.balance,
+      p.opening_balance ?? p.balance,
+      p.currency,
+      p.color,
+      p.icon,
+      1,
+      now(),
+    ],
+  )
+  return db.queryOne(`${ACCOUNT_BALANCE_SELECT} WHERE a.id = ?`, [id])
 }
 
 export async function updateAccount(
   db: DbAdapter,
   payload: { id: string; [key: string]: unknown },
 ) {
-  return genericUpdate(db, 'accounts', payload)
+  await genericUpdate(db, 'accounts', payload)
+  return db.queryOne(`${ACCOUNT_BALANCE_SELECT} WHERE a.id = ?`, [payload.id])
 }
 
 export async function deleteAccount(db: DbAdapter, payload: { id: string }) {
@@ -1161,17 +1225,22 @@ export async function importJson(db: DbAdapter, data: HearthExport): Promise<nul
         ],
       )
     }
+    const legacyAccountIds: string[] = []
     for (const a of data.accounts ?? []) {
+      const existing = await db.queryOne<{ id: string }>('SELECT id FROM accounts WHERE id = ?', [
+        a.id,
+      ])
       await db.exec(
         `INSERT OR IGNORE INTO accounts
-         (id,user_id,name,type,balance,currency,color,icon,is_active,created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?)`,
+         (id,user_id,name,type,balance,opening_balance,currency,color,icon,is_active,created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
         [
           a.id,
           a.user_id,
           a.name,
           a.type,
           a.balance,
+          a.opening_balance ?? a.balance,
           a.currency,
           a.color,
           a.icon,
@@ -1179,6 +1248,7 @@ export async function importJson(db: DbAdapter, data: HearthExport): Promise<nul
           a.created_at,
         ],
       )
+      if (!existing && a.opening_balance === undefined) legacyAccountIds.push(a.id)
     }
     for (const c of data.categories ?? []) {
       await db.exec(
@@ -1297,6 +1367,25 @@ export async function importJson(db: DbAdapter, data: HearthExport): Promise<nul
         ],
       )
     }
+    for (const id of legacyAccountIds) {
+      const impact = await db.queryOne<{ amount: number }>(
+        `SELECT COALESCE((SELECT SUM(CASE WHEN type = 'transfer' THEN -ABS(amount) ELSE amount END)
+                          FROM transactions WHERE account_id = ?), 0)
+           + COALESCE((SELECT SUM(ABS(amount)) FROM transactions
+                       WHERE transfer_to_account_id = ? AND type = 'transfer'), 0) AS amount`,
+        [id, id],
+      )
+      const account = await db.queryOne<{ balance: number }>(
+        'SELECT balance FROM accounts WHERE id = ?',
+        [id],
+      )
+      if (account) {
+        await db.exec('UPDATE accounts SET opening_balance = ? WHERE id = ?', [
+          account.balance - (impact?.amount ?? 0),
+          id,
+        ])
+      }
+    }
     await db.exec('COMMIT')
     return null
   } catch (err) {
@@ -1323,6 +1412,7 @@ export async function dispatch(db: DbAdapter, req: WorkerRequestBody): Promise<u
 
     // Accounts
     case 'GET_ACCOUNTS':
+    case 'GET_ACCOUNTS_WITH_BALANCES':
       return getAccounts(db)
     case 'GET_ACCOUNTS_FOR_USER':
       return getAccountsForUser(db, req.payload)
@@ -1330,6 +1420,8 @@ export async function dispatch(db: DbAdapter, req: WorkerRequestBody): Promise<u
       return createAccount(db, req.payload)
     case 'UPDATE_ACCOUNT':
       return updateAccount(db, req.payload)
+    case 'RECONCILE_ACCOUNT':
+      return reconcileAccount(db, req.payload)
     case 'DELETE_ACCOUNT':
       return deleteAccount(db, req.payload)
 

@@ -71,9 +71,9 @@ test.describe('Settings page', () => {
 
   test('color mode selection persists to localStorage', async ({ page }) => {
     // Toggle dark/light/system mode
-    const colorButtons = page.getByRole('button').filter({ hasText: /dark|light|system/i })
-    const darkBtn = page.getByRole('button', { name: /dark/i })
-    const lightBtn = page.getByRole('button', { name: /light/i })
+    const colorModeGroup = page.getByRole('group', { name: 'Select color mode' })
+    const darkBtn = colorModeGroup.getByRole('button', { name: 'Dark', exact: true })
+    const lightBtn = colorModeGroup.getByRole('button', { name: 'Light', exact: true })
 
     if (await darkBtn.isVisible()) {
       await darkBtn.click()
@@ -184,6 +184,32 @@ test.describe('Settings page', () => {
         expect(filename).toMatch(/hearth|export/i)
       }
     }
+  })
+
+  test('reconciles and restores the displayed account balance', async ({ page }) => {
+    const balanceRegion = page.getByRole('region', { name: 'Account balances' })
+    const openReconcile = page.getByRole('button', { name: /^Reconcile .+/ }).first()
+    await openReconcile.click()
+
+    const dialog = page.getByRole('dialog')
+    const amount = dialog.locator('#reconcile-balance')
+    const originalBalance = await amount.inputValue()
+    expect(originalBalance).not.toBe('')
+    await amount.fill('')
+    await expect(dialog.getByRole('button', { name: 'Reconcile' })).toBeDisabled()
+
+    await amount.fill('9876.54')
+    await expect(dialog).toContainText('no transaction is added')
+    await dialog.getByRole('button', { name: 'Reconcile' }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(balanceRegion).toContainText('9,876.54')
+
+    await openReconcile.click()
+    const restoreDialog = page.getByRole('dialog')
+    const restoreAmount = restoreDialog.locator('#reconcile-balance')
+    await restoreAmount.fill(originalBalance)
+    await restoreDialog.getByRole('button', { name: 'Reconcile' }).click()
+    await expect(restoreDialog).toHaveCount(0)
   })
 
   // ── Database info ──────────────────────────────────────────────────────

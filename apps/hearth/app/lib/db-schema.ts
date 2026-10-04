@@ -17,10 +17,11 @@ export const SCHEMA_DDL = `
   CREATE TABLE IF NOT EXISTS accounts (
     id         TEXT PRIMARY KEY,
     user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name       TEXT NOT NULL,
-    type       TEXT NOT NULL DEFAULT 'checking',
-    balance    REAL NOT NULL DEFAULT 0,
-    currency   TEXT NOT NULL DEFAULT 'USD',
+    name            TEXT NOT NULL,
+    type            TEXT NOT NULL DEFAULT 'checking',
+    balance         REAL NOT NULL DEFAULT 0,
+    opening_balance REAL NOT NULL DEFAULT 0,
+    currency        TEXT NOT NULL DEFAULT 'USD',
     color      TEXT NOT NULL DEFAULT '#f59e0b',
     icon       TEXT NOT NULL DEFAULT 'i-lucide-landmark',
     is_active  INTEGER NOT NULL DEFAULT 1,
@@ -223,7 +224,7 @@ const SEEDS: Seed[] = [
 
 export const SCHEMA_CONFIG: SchemaConfig = {
   schema: SCHEMA_DDL,
-  version: 9,
+  version: 10,
   migrations: {
     7: MIGRATION_V7_SQL,
     8: MIGRATION_V8_SQL,
@@ -239,6 +240,22 @@ export const SCHEMA_CONFIG: SchemaConfig = {
             new Date().toISOString(),
           ])
         }
+      },
+    ],
+    10: [
+      async (exec: MigrationExec) => {
+        await exec('ALTER TABLE accounts ADD COLUMN opening_balance REAL NOT NULL DEFAULT 0')
+        await exec(
+          `UPDATE accounts
+           SET opening_balance = balance
+             - COALESCE((SELECT SUM(CASE WHEN type = 'transfer' THEN -ABS(amount) ELSE amount END)
+                         FROM transactions WHERE account_id = accounts.id), 0)
+             - COALESCE((SELECT SUM(ABS(amount)) FROM transactions
+                         WHERE transfer_to_account_id = accounts.id AND type = 'transfer'), 0)`,
+        )
+        await exec(
+          'CREATE INDEX IF NOT EXISTS idx_transactions_transfer_to ON transactions(transfer_to_account_id)',
+        )
       },
     ],
   },

@@ -16,7 +16,7 @@ export function detectDelimiter(text: string): ',' | ';' | '\t' {
 export function parseCSV(
   text: string,
   delimiter?: ',' | ';' | '\t',
-): { headers: string[]; rows: string[][] } {
+): { headers: string[]; rows: string[][]; rowIndices: number[] } {
   // Strip BOM
   let input = text.startsWith('\uFEFF') ? text.slice(1) : text
   // Normalize line endings
@@ -25,11 +25,16 @@ export function parseCSV(
   const delim = delimiter ?? detectDelimiter(input)
   const lines = parseLine(input, delim)
 
-  if (lines.length === 0) return { headers: [], rows: [] }
+  if (lines.length === 0) return { headers: [], rows: [], rowIndices: [] }
 
+  const dataRows = lines
+    .slice(1)
+    .map((row, index) => ({ row, index: index + 2 }))
+    .filter(({ row }) => row.some((cell) => cell.length > 0))
   return {
     headers: lines[0]!,
-    rows: lines.slice(1).filter((row) => row.some((cell) => cell.length > 0)),
+    rows: dataRows.map(({ row }) => row),
+    rowIndices: dataRows.map(({ index }) => index),
   }
 }
 

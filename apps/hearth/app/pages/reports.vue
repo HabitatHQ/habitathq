@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import VChart from 'vue-echarts'
 import { getHearthTheme } from '~/lib/echarts-theme'
+import { homeCurrencyAmount } from '~/lib/reports/amounts'
 import type { EnvelopeWithSpending, MonthlyTotal, TransactionWithDetails } from '~/types/database'
 import { formatCompact } from '~/utils/format'
 
@@ -58,8 +60,15 @@ watch(
 const expenseTxns = computed(() => transactions.value.filter((t) => t.type === 'expense'))
 const incomeTxns = computed(() => transactions.value.filter((t) => t.type === 'income'))
 
-const totalExpenses = computed(() => expenseTxns.value.reduce((s, t) => s + Math.abs(t.amount), 0))
-const totalIncome = computed(() => incomeTxns.value.reduce((s, t) => s + t.amount, 0))
+const totalExpenses = computed(() =>
+  expenseTxns.value.reduce(
+    (sum, transaction) => sum + Math.abs(homeCurrencyAmount(transaction)),
+    0,
+  ),
+)
+const totalIncome = computed(() =>
+  incomeTxns.value.reduce((sum, transaction) => sum + homeCurrencyAmount(transaction), 0),
+)
 const netSavings = computed(() => totalIncome.value - totalExpenses.value)
 
 // ── By category ──────────────────────────────────────────────────────────
@@ -80,7 +89,7 @@ const byCategory = computed(() => {
         count: 0,
       })
     const entry = map.get(key)!
-    entry.total += Math.abs(t.amount)
+    entry.total += Math.abs(homeCurrencyAmount(t))
     entry.count++
   }
   return Array.from(map.values()).sort((a, b) => b.total - a.total)
@@ -102,7 +111,7 @@ const byPerson = computed(() => {
         count: 0,
       })
     const entry = map.get(t.user_id)!
-    entry.total += Math.abs(t.amount)
+    entry.total += Math.abs(homeCurrencyAmount(t))
     entry.count++
   }
   return Array.from(map.values()).sort((a, b) => b.total - a.total)
@@ -421,7 +430,10 @@ const savingsOptions = computed(() => ({
 function onDonutClick(params: any) {
   const categoryId = params?.data?.categoryId
   if (categoryId && categoryId !== 'other') {
-    router.push(`/transactions?category=${categoryId}&period=${period.value}`)
+    router.push({
+      path: '/transactions',
+      query: { category: categoryId, period: period.value, type: 'expense' },
+    })
   }
 }
 
@@ -429,7 +441,10 @@ function onDonutClick(params: any) {
 function onPersonDonutClick(params: any) {
   const userId = params?.data?.userId
   if (userId) {
-    router.push(`/transactions?user=${userId}&period=${period.value}`)
+    router.push({
+      path: '/transactions',
+      query: { user: userId, period: period.value, type: 'expense' },
+    })
   }
 }
 
@@ -558,10 +573,14 @@ function onTrendClick(params: any) {
       <ul v-else class="space-y-2">
         <li
           v-for="cat in byCategory"
-          :key="cat.name"
-          class="flex items-center gap-3 rounded-xl bg-(--ui-bg-muted) border border-(--ui-border) p-3 min-h-[56px]"
+          :key="cat.id"
+          class="rounded-xl bg-(--ui-bg-muted) border border-(--ui-border) min-h-[56px]"
         >
-          <span class="text-xl w-8 text-center shrink-0" aria-hidden="true">{{ cat.icon }}</span>
+          <NuxtLink
+            :to="{ path: '/transactions', query: { category: cat.id, period, type: 'expense' } }"
+            class="flex items-center gap-3 p-3 min-h-[56px]"
+          >
+            <span class="text-xl w-8 text-center shrink-0" aria-hidden="true">{{ cat.icon }}</span>
           <div class="flex-1 min-w-0 space-y-1">
             <div class="flex justify-between items-center">
               <span class="text-sm font-medium text-(--ui-text) truncate">{{ cat.name }}</span>
@@ -579,6 +598,7 @@ function onTrendClick(params: any) {
               </span>
             </div>
           </div>
+          </NuxtLink>
         </li>
       </ul>
     </section>
@@ -593,10 +613,14 @@ function onTrendClick(params: any) {
       <ul v-else class="space-y-3">
         <li
           v-for="person in byPerson"
-          :key="person.name"
-          class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) p-4 space-y-3"
+          :key="person.id"
+          class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border)"
         >
-          <div class="flex items-center gap-3">
+          <NuxtLink
+            :to="{ path: '/transactions', query: { user: person.id, period, type: 'expense' } }"
+            class="block p-4 space-y-3"
+          >
+            <div class="flex items-center gap-3">
             <span class="text-2xl" aria-hidden="true">{{ person.avatar }}</span>
             <div class="flex-1">
               <p class="font-semibold text-(--ui-text)">{{ person.name }}</p>
@@ -620,6 +644,7 @@ function onTrendClick(params: any) {
           <p class="text-xs text-(--ui-text-muted) text-right font-mono">
             {{ totalExpenses > 0 ? Math.round((person.total / totalExpenses) * 100) : 0 }}% of household spending
           </p>
+          </NuxtLink>
         </li>
       </ul>
     </section>

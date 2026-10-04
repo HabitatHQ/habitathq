@@ -128,13 +128,13 @@ describe('SCHEMA_CONFIG seeds — fresh install', () => {
 // ─── Schema config structure ─────────────────────────────────────────────────
 
 describe('SCHEMA_CONFIG structure', () => {
-  it('has version 9', () => {
-    expect(SCHEMA_CONFIG.version).toBe(9)
+  it('has version 10', () => {
+    expect(SCHEMA_CONFIG.version).toBe(10)
   })
 
-  it('defines migrations for versions 7, 8, and 9', () => {
+  it('defines migrations for versions 7 through 10', () => {
     const keys = Object.keys(SCHEMA_CONFIG.migrations ?? {}).map(Number).sort((a, b) => a - b)
-    expect(keys).toEqual([7, 8, 9])
+    expect(keys).toEqual([7, 8, 9, 10])
   })
 
   it('migration 9 (palladium seeds backfill) is a callback', () => {

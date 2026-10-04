@@ -6,6 +6,7 @@ export type HearthField =
   | 'description'
   | 'account'
   | 'type'
+  | 'currency'
   | 'skip'
 
 const KNOWN_MAPPINGS: Record<string, HearthField> = {
@@ -29,6 +30,8 @@ const KNOWN_MAPPINGS: Record<string, HearthField> = {
   'account name': 'account',
   type: 'type',
   'transaction type': 'type',
+  currency: 'currency',
+  'currency code': 'currency',
 }
 
 /**

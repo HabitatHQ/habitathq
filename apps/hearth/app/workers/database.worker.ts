@@ -4,6 +4,13 @@ import { SCHEMA_CONFIG } from '~/lib/db-schema'
 import * as shared from '~/lib/db-shared'
 import type { WorkerRequest, WorkerResponse } from '~/types/database'
 
+export const OPFS_DIR = 'hearth'
+
+export async function removeHearthOpfs(): Promise<void> {
+  const root = await navigator.storage.getDirectory()
+  await root.removeEntry(OPFS_DIR, { recursive: true }).catch(() => {})
+}
+
 await (async () => {
   async function tryAcquireDbLock(): Promise<boolean> {
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -41,7 +48,7 @@ await (async () => {
   try {
     dbg('hearth-worker', 'init start')
     const storage = new BrowserSqliteAdapter({
-      vfs: { type: 'opfs-sah-pool', directory: '/hearth', filename: '/hearth.db' },
+      vfs: { type: 'opfs-sah-pool', directory: `/${OPFS_DIR}`, filename: '/hearth.db' },
     })
     await storage.open()
 
@@ -62,33 +69,12 @@ await (async () => {
             result = storage.serialize()
             break
           case 'EXPORT_JSON':
-            result = {
-              version: '1.0',
-              exported_at: new Date().toISOString(),
-              users: await adapter.queryAll('SELECT * FROM users'),
-              accounts: await adapter.queryAll('SELECT * FROM accounts'),
-              categories: await adapter.queryAll('SELECT * FROM categories'),
-              transactions: await adapter.queryAll('SELECT * FROM transactions'),
-              envelopes: await adapter.queryAll('SELECT * FROM envelopes'),
-              envelope_periods: await adapter.queryAll('SELECT * FROM envelope_periods'),
-              iou_splits: await adapter.queryAll('SELECT * FROM iou_splits'),
-              savings_goals: await adapter.queryAll('SELECT * FROM savings_goals'),
-              chores: await adapter.queryAll('SELECT * FROM chores'),
-            }
+            result = await shared.exportJson(adapter)
             break
           case 'NUKE_OPFS': {
-            // TODO(sync/opfs): DATA-LOSS bug — this iterates the origin OPFS
-            // root and deletes EVERY app's data. All suite apps share one
-            // origin (/habitat, /hearth, /halcyon, /hephaestus), so Hearth's
-            // "reset data" also wipes the siblings. Scope the delete to
-            // '/hearth' only, mirroring habitat's fix (commit 24811e7, PR #33).
-            // See libs/palladium/docs/plans/habitat-sync-integration.md follow-ups.
-            const root = await navigator.storage.getDirectory()
-            // biome-ignore lint/suspicious/noTsIgnore: tsgo and vue-tsc disagree on FileSystemDirectoryHandle iterability
-            // @ts-ignore — async-iterable at runtime but not in all lib.dom typings
-            for await (const [name] of root) {
-              await root.removeEntry(name, { recursive: true }).catch(() => {})
-            }
+            // The origin's OPFS root is shared by every suite app. Remove only
+            // Hearth's directory so resetting Hearth cannot delete sibling data.
+            await removeHearthOpfs()
             result = null
             break
           }

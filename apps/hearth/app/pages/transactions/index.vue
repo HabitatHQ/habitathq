@@ -3,6 +3,9 @@ import type { TransactionWithDetails } from '~/types/database'
 import { formatDateRelative } from '~/utils/format'
 
 const db = useDatabase()
+
+const router = useRouter()
+const route = useRoute()
 const { settings } = useAppSettings()
 const homeCurrency = computed(() => settings.value.currency)
 
@@ -13,8 +16,40 @@ const filterType = ref<'all' | 'expense' | 'income' | 'transfer'>('all')
 const page = ref(0)
 const PAGE_SIZE = 50
 const hasMore = ref(true)
+let loadGeneration = 0
+
+function queryValue(value: unknown): string {
+  if (value === undefined) return ''
+  return typeof value === 'string' ? value.trim() : '__invalid_query_value__'
+}
+
+const drilldown = computed(() => {
+  const periodQuery = route.query.period
+  const rawPeriod = queryValue(periodQuery)
+  return {
+    period:
+      periodQuery === undefined
+        ? ''
+        : /^\d{4}-(0[1-9]|1[0-2])$/.test(rawPeriod)
+          ? rawPeriod
+          : '__invalid_period__',
+    category: queryValue(route.query.category),
+    user: queryValue(route.query.user),
+    expenseOnly: queryValue(route.query.type) === 'expense',
+  }
+})
+const hasDrilldown = computed(() =>
+  Boolean(
+    drilldown.value.period ||
+      drilldown.value.category ||
+      drilldown.value.user ||
+      drilldown.value.expenseOnly,
+  ),
+)
 
 async function loadMore(reset = false) {
+  if (loading.value && !reset) return
+  const generation = reset ? ++loadGeneration : loadGeneration
   if (reset) {
     page.value = 0
     transactions.value = []
@@ -22,23 +57,39 @@ async function loadMore(reset = false) {
   }
   if (!hasMore.value) return
   loading.value = true
+  const exhaustive = Boolean(searchQuery.value.trim() || hasDrilldown.value)
+  let replaceResults = reset
   try {
-    const batch = await db.getTransactions(PAGE_SIZE, page.value * PAGE_SIZE)
-    if (batch.length < PAGE_SIZE) hasMore.value = false
-    transactions.value = reset ? batch : [...transactions.value, ...batch]
-    page.value++
+    do {
+      const batch = await db.getTransactions(PAGE_SIZE, page.value * PAGE_SIZE)
+      if (generation !== loadGeneration) return
+      transactions.value = replaceResults ? batch : [...transactions.value, ...batch]
+      replaceResults = false
+      page.value++
+      hasMore.value = batch.length === PAGE_SIZE
+    } while (exhaustive && hasMore.value)
   } finally {
-    loading.value = false
+    if (generation === loadGeneration) loading.value = false
   }
 }
 
 onMounted(() => loadMore(true))
+watch([searchQuery, drilldown], () => loadMore(true))
 
 const filtered = computed(() => {
   let txns = transactions.value
   if (filterType.value !== 'all') txns = txns.filter((t) => t.type === filterType.value)
+  if (drilldown.value.expenseOnly) txns = txns.filter((t) => t.type === 'expense')
+  const { period, category, user } = drilldown.value
+  if (period) txns = txns.filter((t) => t.date.startsWith(`${period}-`))
+  if (category) {
+    txns = txns.filter((t) =>
+      category === 'uncategorized' ? t.category_id === null : t.category_id === category,
+    )
+  }
+  if (user) txns = txns.filter((t) => t.user_id === user)
   if (searchQuery.value.trim()) {
-    const q = searchQuery.value.toLowerCase()
+    const q = searchQuery.value.trim().toLowerCase()
     txns = txns.filter(
       (t) =>
         t.merchant.toLowerCase().includes(q) ||
@@ -49,7 +100,6 @@ const filtered = computed(() => {
   return txns
 })
 
-// Group by date
 const grouped = computed(() => {
   const groups = new Map<string, TransactionWithDetails[]>()
   for (const tx of filtered.value) {
@@ -121,6 +171,22 @@ const FILTER_OPTIONS = [
           {{ opt.label }}
         </button>
       </div>
+      <div v-if="hasDrilldown" class="flex items-center justify-between text-xs text-(--ui-text-muted)">
+        <span>
+          Showing
+          {{ drilldown.period || 'all dates' }}
+          {{ drilldown.category ? ' · selected category' : '' }}
+          {{ drilldown.user ? ' · selected person' : '' }}
+        </span>
+        <button
+          type="button"
+          class="underline min-h-[44px] px-2"
+          @click="router.replace({ path: '/transactions', query: {} })"
+        >
+          Clear report filters
+        </button>
+      </div>
+
     </div>
 
     <!-- ── Transaction list ───────────────────────────────────────────────── -->
@@ -160,6 +226,10 @@ const FILTER_OPTIONS = [
               data-testid="transaction-row"
               class="group flex items-center gap-3 py-3 px-3 rounded-xl hover:bg-(--ui-bg-muted) transition-colors min-h-[56px]"
               :class="transactionStripeClass(tx.type)"
+              :data-category-id="tx.category_id ?? 'uncategorized'"
+              :data-user-id="tx.user_id"
+              :data-date="tx.date"
+              :data-type="tx.type"
             >
               <!-- Category icon -->
               <span class="text-xl shrink-0 w-8 text-center" aria-hidden="true">

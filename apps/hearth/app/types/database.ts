@@ -24,6 +24,7 @@ export interface Account {
   name: string
   type: AccountType
   balance: number
+  opening_balance?: number
   currency: string
   color: string
   icon: string
@@ -261,9 +262,11 @@ export type WorkerRequestBody =
   | { type: 'UPDATE_USER'; payload: Partial<User> & { id: string } }
   | { type: 'DELETE_USER'; payload: { id: string } }
   | { type: 'GET_ACCOUNTS' }
+  | { type: 'GET_ACCOUNTS_WITH_BALANCES' }
   | { type: 'GET_ACCOUNTS_FOR_USER'; payload: { user_id: string } }
   | { type: 'CREATE_ACCOUNT'; payload: Omit<Account, 'id' | 'created_at'> }
   | { type: 'UPDATE_ACCOUNT'; payload: Partial<Account> & { id: string } }
+  | { type: 'RECONCILE_ACCOUNT'; payload: { id: string; actual_balance: number } }
   | { type: 'DELETE_ACCOUNT'; payload: { id: string } }
   | { type: 'GET_CATEGORIES' }
   | { type: 'GET_CATEGORY_TREE' }

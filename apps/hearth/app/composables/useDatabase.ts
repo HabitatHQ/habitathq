@@ -38,15 +38,18 @@ export function useDatabase() {
 
     // ── Accounts ───────────────────────────────────────────────────────────
     getAccounts: (): Promise<Account[]> => sendToWorker({ type: 'GET_ACCOUNTS' }),
+    getAccountsWithBalances: (): Promise<Account[]> =>
+      sendToWorker({ type: 'GET_ACCOUNTS_WITH_BALANCES' }),
     getAccountsForUser: (user_id: string): Promise<Account[]> =>
       sendToWorker({ type: 'GET_ACCOUNTS_FOR_USER', payload: { user_id } }),
     createAccount: (p: Omit<Account, 'id' | 'created_at'>): Promise<Account> =>
       sendToWorker({ type: 'CREATE_ACCOUNT', payload: p }),
     updateAccount: (p: Partial<Account> & { id: string }): Promise<Account> =>
       sendToWorker({ type: 'UPDATE_ACCOUNT', payload: p }),
+    reconcileAccount: (id: string, actual_balance: number): Promise<Account> =>
+      sendToWorker({ type: 'RECONCILE_ACCOUNT', payload: { id, actual_balance } }),
     deleteAccount: (id: string): Promise<null> =>
       sendToWorker({ type: 'DELETE_ACCOUNT', payload: { id } }),
-
     // ── Categories ─────────────────────────────────────────────────────────
     getCategories: (): Promise<Category[]> => sendToWorker({ type: 'GET_CATEGORIES' }),
     getCategoryTree: (): Promise<Array<Category & { children: Category[] }>> =>

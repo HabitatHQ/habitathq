@@ -111,3 +111,66 @@ test.describe('Reports — spending breakdown chart', () => {
     expect(typeof isVisible).toBe('boolean')
   })
 })
+
+test.describe('Reports — transaction drilldown', () => {
+  test('category links show only that category within the report period', async ({ page }) => {
+    await page.goto('/transactions/add')
+    await page.locator('input[aria-label="Amount"]').fill('12.50')
+    await page.getByLabel('Merchant').fill('Reports category drilldown')
+    await page.getByRole('button', { name: 'Save transaction' }).click()
+    await expect(page).not.toHaveURL(/\/transactions\/add$/)
+
+    await page.goto('/reports')
+    await page.waitForLoadState('networkidle')
+    const firstCategory = page.getByRole('region', { name: 'Spending by category' }).getByRole('link').first()
+    await expect(firstCategory).toBeVisible()
+    const target = new URL(await firstCategory.getAttribute('href') ?? '', page.url())
+    const categoryId = target.searchParams.get('category')
+    const period = target.searchParams.get('period')
+    expect(categoryId).toBeTruthy()
+    expect(period).toMatch(/^\d{4}-\d{2}$/)
+
+    await firstCategory.click()
+    await expect(page).toHaveURL(/\/transactions\?/)
+    const rows = page.locator('[data-testid="transaction-row"]')
+    await expect(rows.first()).toBeVisible()
+    const count = await rows.count()
+    for (let i = 0; i < count; i++) {
+      const row = rows.nth(i)
+      await expect(row).toHaveAttribute('data-category-id', categoryId!)
+      await expect(row).toHaveAttribute('data-date', new RegExp(`^${period}-`))
+      await expect(row).toHaveAttribute('data-type', 'expense')
+    }
+  })
+
+  test('person links show only that person within the report period', async ({ page }) => {
+    await page.goto('/transactions/add')
+    await page.locator('input[aria-label="Amount"]').fill('12.50')
+    await page.getByLabel('Merchant').fill('Reports person drilldown')
+    await page.getByRole('button', { name: 'Save transaction' }).click()
+    await expect(page).not.toHaveURL(/\/transactions\/add$/)
+
+    await page.goto('/reports')
+    await page.waitForLoadState('networkidle')
+    await page.getByRole('group', { name: 'View breakdown by' }).getByRole('button', { name: /people/i }).click()
+    const firstPerson = page.getByRole('region', { name: 'Spending by person' }).getByRole('link').first()
+    await expect(firstPerson).toBeVisible()
+    const target = new URL(await firstPerson.getAttribute('href') ?? '', page.url())
+    const userId = target.searchParams.get('user')
+    const period = target.searchParams.get('period')
+    expect(userId).toBeTruthy()
+    expect(period).toMatch(/^\d{4}-\d{2}$/)
+
+    await firstPerson.click()
+    await expect(page).toHaveURL(/\/transactions\?/)
+    const rows = page.locator('[data-testid="transaction-row"]')
+    await expect(rows.first()).toBeVisible()
+    const count = await rows.count()
+    for (let i = 0; i < count; i++) {
+      const row = rows.nth(i)
+      await expect(row).toHaveAttribute('data-user-id', userId!)
+      await expect(row).toHaveAttribute('data-date', new RegExp(`^${period}-`))
+      await expect(row).toHaveAttribute('data-type', 'expense')
+    }
+  })
+})

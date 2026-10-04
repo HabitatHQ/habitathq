@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test'
+const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://127.0.0.1:3100'
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -8,7 +9,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
   use: {
-    baseURL: 'http://127.0.0.1:3100',
+    baseURL,
     trace: 'on-first-retry',
   },
   projects: [
@@ -26,8 +27,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'pnpm dev',
-    url: 'http://127.0.0.1:3100',
+    command: `pnpm dev --port ${new URL(baseURL).port || '3100'}`,
+    url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,
   },
