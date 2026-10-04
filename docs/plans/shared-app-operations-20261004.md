@@ -62,7 +62,7 @@ Implementation base: default branch `cde2a24`, isolated worktree `.worktrees/sha
 - [x] Centralise physical/logical reset and media lifecycle; verify SQLite rollback, namespace isolation and byte preservation.
 - [x] Adopt shared operation, confirmation, feature-toggle and download primitives across all four apps.
 - [x] Complete final package gates and production-browser export/import/reset/offline scenarios.
-- [ ] Rebase onto latest `main`, resolve conflicts, rerun affected verification and publish the PR.
+- [x] Rebase onto latest `main`, resolve conflicts, rerun affected verification and publish the PR: [#64](https://github.com/HabitatHQ/habitathq/pull/64). No merge performed.
 
 ## Completed verification
 
