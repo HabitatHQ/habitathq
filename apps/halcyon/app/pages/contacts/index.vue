@@ -1,10 +1,10 @@
 <script setup lang="ts">
+import { localDateString } from '@habitathq/utils'
 import { useDatabase } from '~/composables/useDatabase'
 import { useVault } from '~/composables/useVault'
 import type { Contact } from '~/types/database'
 import { contactDisplayName, contactSortKey } from '~/utils/contact-helpers'
 import { daysUntilBirthday } from '~/utils/dashboard-helpers'
-import { localDateString } from '~/utils/format'
 
 const db = useDatabase()
 const { activeVaultId } = useVault()
@@ -64,7 +64,7 @@ function birthdaySoon(contact: Contact): boolean {
         <h1 class="text-2xl font-semibold text-zinc-100">Contacts</h1>
         <div class="flex items-center gap-2">
           <UButton to="/groups" icon="i-heroicons-user-group" color="neutral" variant="ghost" size="sm" />
-          <UButton to="/contacts/new" icon="i-heroicons-plus" color="violet" variant="soft" size="sm">
+          <UButton to="/contacts/new" icon="i-heroicons-plus" color="primary" variant="soft" size="sm">
             Add
           </UButton>
         </div>
@@ -79,8 +79,8 @@ function birthdaySoon(contact: Contact): boolean {
     </div>
 
     <div class="px-4 pb-6">
-      <div v-if="loading" class="space-y-2 mt-4">
-        <USkeleton v-for="i in 5" :key="i" class="h-14 rounded-xl" />
+      <div v-if="loading" class="mt-4">
+        <AppSkeleton variant="row" :count="5" />
       </div>
 
       <template v-else-if="grouped.length > 0">
@@ -123,17 +123,16 @@ function birthdaySoon(contact: Contact): boolean {
         </div>
       </template>
 
-      <div v-else class="text-center py-16 space-y-3">
-        <div class="size-14 rounded-full bg-zinc-900 flex items-center justify-center mx-auto">
+      <AppEmptyState v-else :title="query ? 'No contacts match your search' : 'No contacts yet'">
+        <template #icon>
           <UIcon name="i-heroicons-users" class="size-7 text-zinc-600" />
-        </div>
-        <p class="text-zinc-500">
-          {{ query ? 'No contacts match your search' : 'No contacts yet' }}
-        </p>
-        <UButton v-if="!query" to="/contacts/new" color="violet" variant="soft" icon="i-heroicons-plus">
-          Add your first contact
-        </UButton>
-      </div>
+        </template>
+        <template v-if="!query" #actions>
+          <UButton to="/contacts/new" color="primary" variant="soft" icon="i-heroicons-plus">
+            Add your first contact
+          </UButton>
+        </template>
+      </AppEmptyState>
     </div>
   </div>
 </template>

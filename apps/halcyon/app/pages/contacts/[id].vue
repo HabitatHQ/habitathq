@@ -1,4 +1,10 @@
 <script setup lang="ts">
+import {
+  formatDate,
+  formatDateRelative,
+  formatRelativeTime,
+  localDateString,
+} from '@habitathq/utils'
 import { useDatabase } from '~/composables/useDatabase'
 import type {
   ContactDetail,
@@ -9,7 +15,6 @@ import type {
   Reminder,
   Task,
 } from '~/types/database'
-import { localDateString } from '~/utils/format'
 
 const route = useRoute()
 const db = useDatabase()
@@ -30,7 +35,8 @@ const newNote = ref('')
 const savingNote = ref(false)
 
 async function loadAll() {
-  const id = route.params.id as string
+  const id = route.params['id']
+  if (typeof id !== 'string') return
   loading.value = true
   try {
     const detail = await db.getContactDetail(id)
@@ -112,7 +118,10 @@ async function toggleTask(task: Task) {
 async function markGiftGiven(gift: GiftNote) {
   await db.markGiftGiven(gift.id)
   const idx = giftNotes.value.findIndex((g) => g.id === gift.id)
-  if (idx !== -1) giftNotes.value[idx] = { ...giftNotes.value[idx], is_given: true }
+  if (idx !== -1) {
+    const giftNote = giftNotes.value[idx]
+    if (giftNote) giftNotes.value[idx] = { ...giftNote, is_given: true }
+  }
   toast.add({ title: 'Gift marked as given', color: 'success' })
 }
 
@@ -158,7 +167,7 @@ const pinnedNotes = computed(() => notes.value.filter((n) => n.is_pinned))
 
   <div v-else-if="!contact" class="max-w-2xl mx-auto px-4 py-6 text-center py-16">
     <p class="text-zinc-500">Contact not found</p>
-    <UButton to="/contacts" class="mt-4" variant="soft" color="violet">Back to contacts</UButton>
+    <UButton to="/contacts" class="mt-4" variant="soft" color="primary">Back to contacts</UButton>
   </div>
 
   <div v-else class="max-w-2xl mx-auto pb-6">
@@ -169,7 +178,7 @@ const pinnedNotes = computed(() => notes.value.filter((n) => n.is_pinned))
         <div class="flex-1" />
         <UButton
           :icon="contact.is_starred ? 'i-heroicons-star-solid' : 'i-heroicons-star'"
-          :color="contact.is_starred ? 'violet' : 'neutral'"
+          :color="contact.is_starred ? 'primary' : 'neutral'"
           variant="ghost"
           @click="toggleStar"
         />
@@ -258,7 +267,7 @@ const pinnedNotes = computed(() => notes.value.filter((n) => n.is_pinned))
             </span>
           </p>
         </div>
-        <UButton size="xs" variant="soft" color="violet" @click="markContacted">
+        <UButton size="xs" variant="soft" color="primary" @click="markContacted">
           I reached out
         </UButton>
       </div>
@@ -285,13 +294,13 @@ const pinnedNotes = computed(() => notes.value.filter((n) => n.is_pinned))
             v-model="newNote"
             placeholder="Add a note…"
             class="flex-1"
-            rows="2"
+            :rows="2"
             @keydown.meta.enter="addNote"
           />
           <UButton
             icon="i-heroicons-paper-airplane"
             variant="soft"
-            color="violet"
+            color="primary"
             :loading="savingNote"
             :disabled="!newNote.trim()"
             @click="addNote"
@@ -310,8 +319,8 @@ const pinnedNotes = computed(() => notes.value.filter((n) => n.is_pinned))
           <p class="text-sm text-zinc-200 whitespace-pre-wrap">{{ note.body }}</p>
           <div class="flex items-center gap-2 mt-2">
             <p class="text-xs text-zinc-600 flex-1">{{ formatRelativeTime(note.updated_at) }}</p>
-            <UButton size="xs" variant="ghost" icon="i-heroicons-pin-slash" @click="togglePin(note)" />
-            <UButton size="xs" variant="ghost" color="red" icon="i-heroicons-trash" @click="deleteNote(note)" />
+            <UButton size="xs" variant="ghost" icon="i-lucide-pin-off" @click="togglePin(note)" />
+            <UButton size="xs" variant="ghost" color="error" icon="i-heroicons-trash" @click="deleteNote(note)" />
           </div>
         </div>
       </div>
@@ -427,7 +436,7 @@ const pinnedNotes = computed(() => notes.value.filter((n) => n.is_pinned))
               v-if="!g.is_given"
               size="xs"
               variant="ghost"
-              color="violet"
+              color="primary"
               icon="i-heroicons-check"
               @click="markGiftGiven(g)"
             />
@@ -438,7 +447,7 @@ const pinnedNotes = computed(() => notes.value.filter((n) => n.is_pinned))
       <!-- Log interaction button -->
       <UButton
         :to="`/contacts/${contact.id}/interactions/new`"
-        color="violet"
+        color="primary"
         variant="soft"
         icon="i-heroicons-plus"
         class="w-full"
@@ -483,8 +492,8 @@ const pinnedNotes = computed(() => notes.value.filter((n) => n.is_pinned))
                 <p class="text-sm text-zinc-300 whitespace-pre-wrap">{{ item.data.body }}</p>
                 <div class="flex items-center gap-2 mt-1">
                   <p class="text-xs text-zinc-600 flex-1">{{ formatRelativeTime(item.data.updated_at) }}</p>
-                  <UButton size="xs" variant="ghost" icon="i-heroicons-pin" @click="togglePin(item.data)" />
-                  <UButton size="xs" variant="ghost" color="red" icon="i-heroicons-trash" @click="deleteNote(item.data)" />
+                  <UButton size="xs" variant="ghost" icon="i-lucide-pin" @click="togglePin(item.data)" />
+                  <UButton size="xs" variant="ghost" color="error" icon="i-heroicons-trash" @click="deleteNote(item.data)" />
                 </div>
               </div>
             </div>

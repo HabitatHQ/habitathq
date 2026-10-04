@@ -34,15 +34,14 @@
     "test:e2e": "playwright test",
     "test:a11y": "playwright test --config playwright.a11y.config.ts",
     "test": "vitest run && playwright test",
-    "ci": "pnpm check && pnpm typecheck && pnpm test:unit",
-    "verify": "pnpm ci"
+    "ci": "pnpm run check && pnpm run typecheck:all && pnpm run test:unit",
+    "verify": "pnpm run ci"
   },
   "dependencies": {
     "@capacitor-community/speech-recognition": "^7.0.1",
     "@capacitor-community/sqlite": "^8.1.1",
     "@capacitor/camera": "^8.2.4",
     "@capacitor/local-notifications": "^8.3.1",
-    "@habitathq/db": "workspace:*",
     "@habitathq/shared": "workspace:*",
     "@habitathq/utils": "workspace:*",
     "@huggingface/transformers": "^4.3.0",

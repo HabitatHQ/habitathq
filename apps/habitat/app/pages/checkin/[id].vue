@@ -551,8 +551,8 @@ onMounted(async () => {
     </template>
 
     <!-- ── Delete confirm ─────────────────────────────────────────────────── -->
-    <ConfirmDialog
-      :open="showDeleteConfirm"
+    <AppConfirmDialog
+      :model-value="showDeleteConfirm"
       icon="trash"
       icon-color="red"
       :title="`Delete &quot;${template?.title}&quot;?`"
@@ -561,7 +561,7 @@ onMounted(async () => {
       confirm-color="error"
       @confirm="deleteTemplate"
       @cancel="showDeleteConfirm = false"
-      @update:open="(open) => !open && (showDeleteConfirm = false)"
+      @update:model-value="(open) => !open && (showDeleteConfirm = false)"
     />
 
   </div>

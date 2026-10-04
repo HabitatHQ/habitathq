@@ -3,6 +3,8 @@
  * and db-native.ts (Capacitor SQLite). Every parser is a pure function that
  * maps a raw DB row to a typed domain object.
  */
+import { safeJsonParse } from '@habitathq/utils'
+
 import type {
   Address,
   AddressType,
@@ -35,19 +37,6 @@ import type {
 // under noPropertyAccessFromIndexSignature.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SqlRow = any
-
-/**
- * Parse a JSON string from a DB column, returning `fallback` on null, undefined,
- * or a parse error.
- */
-export function safeJsonParse<T>(str: string | null | undefined, fallback: T): T {
-  if (str == null) return fallback
-  try {
-    return JSON.parse(str) as T
-  } catch {
-    return fallback
-  }
-}
 
 // ─── Row Parsers ─────────────────────────────────────────────────────────────
 

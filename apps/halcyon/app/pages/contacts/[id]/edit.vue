@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { formatDate } from '@habitathq/utils'
+import { useDebounceFn } from '@vueuse/core'
 import { useDatabase } from '~/composables/useDatabase'
 import type {
   Address,
@@ -18,7 +20,6 @@ import type {
   StayInTouch,
   Task,
 } from '~/types/database'
-import { localDateString } from '~/utils/format'
 
 const route = useRoute()
 const router = useRouter()
@@ -71,7 +72,7 @@ const newAddress = reactive({
 const addingAddress = ref(false)
 
 // Pet form
-const newPet = reactive({ name: '', species: '', breed: '', notes: '' })
+const newPet = reactive({ name: '', species: '', breed: '' })
 const addingPet = ref(false)
 
 // Reminder form
@@ -118,7 +119,8 @@ const sitFrequency = ref(30)
 const editingSit = ref(false)
 
 async function load() {
-  const id = route.params.id as string
+  const id = route.params['id']
+  if (typeof id !== 'string') return
   loading.value = true
   try {
     const detail = await db.getContactDetail(id)
@@ -261,10 +263,9 @@ async function addPet() {
       name: newPet.name,
       species: newPet.species,
       breed: newPet.breed,
-      notes: newPet.notes,
     })
     pets.value.push(p)
-    Object.assign(newPet, { name: '', species: '', breed: '', notes: '' })
+    Object.assign(newPet, { name: '', species: '', breed: '' })
     toast.add({ title: 'Pet added', color: 'success' })
   } finally {
     addingPet.value = false
@@ -469,8 +470,6 @@ async function removeOccupation(id: string) {
   occupations.value = occupations.value.filter((o) => o.id !== id)
   toast.add({ title: 'Position removed', color: 'success' })
 }
-
-const today = localDateString(new Date())
 </script>
 
 <template>
@@ -481,7 +480,7 @@ const today = localDateString(new Date())
 
   <div v-else-if="!contact" class="max-w-2xl mx-auto px-4 py-16 text-center">
     <p class="text-zinc-500">Contact not found</p>
-    <UButton to="/contacts" class="mt-4" variant="soft" color="violet">Back to contacts</UButton>
+    <UButton to="/contacts" class="mt-4" variant="soft" color="primary">Back to contacts</UButton>
   </div>
 
   <div v-else class="max-w-2xl mx-auto pb-24">
@@ -489,7 +488,7 @@ const today = localDateString(new Date())
     <div class="flex items-center gap-3 px-4 pt-6 pb-4 sticky top-0 bg-zinc-950/90 backdrop-blur z-10">
       <UButton icon="i-heroicons-arrow-left" variant="ghost" color="neutral" :to="`/contacts/${contact.id}`" />
       <h1 class="font-semibold text-zinc-100 flex-1">Edit contact</h1>
-      <UButton color="violet" :loading="saving" @click="save">Save</UButton>
+      <UButton color="primary" :loading="saving" @click="save">Save</UButton>
     </div>
 
     <div class="space-y-4 px-4">
@@ -525,7 +524,7 @@ const today = localDateString(new Date())
           <UInput v-model="form.birthday" type="date" />
         </UFormField>
         <UFormField label="How we met">
-          <UTextarea v-model="form.how_we_met" placeholder="How did you meet?" rows="2" />
+          <UTextarea v-model="form.how_we_met" placeholder="How did you meet?" :rows="2" />
         </UFormField>
         <div class="flex items-center gap-3">
           <UCheckbox v-model="form.is_deceased" label="Deceased" />
@@ -544,12 +543,12 @@ const today = localDateString(new Date())
         <p class="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Contact info</p>
         <div v-for="field in fields" :key="field.id" class="flex items-center gap-2">
           <span class="text-zinc-400 text-sm flex-1">{{ field.value }}</span>
-          <UButton size="xs" variant="ghost" color="red" icon="i-heroicons-trash" @click="removeField(field.id)" />
+          <UButton size="xs" variant="ghost" color="error" icon="i-heroicons-trash" @click="removeField(field.id)" />
         </div>
         <div class="grid grid-cols-[1fr_2fr_auto] gap-2 items-end">
           <USelect v-model="newField.type_id" :options="fieldTypes.map(ft => ({ label: ft.name, value: ft.id }))" placeholder="Type" />
           <UInput v-model="newField.value" placeholder="Value" />
-          <UButton icon="i-heroicons-plus" color="violet" variant="soft" :loading="addingField" :disabled="!newField.type_id || !newField.value" @click="addField" />
+          <UButton icon="i-heroicons-plus" color="primary" variant="soft" :loading="addingField" :disabled="!newField.type_id || !newField.value" @click="addField" />
         </div>
       </div>
 
@@ -562,7 +561,7 @@ const today = localDateString(new Date())
             <p>{{ [addr.city, addr.province, addr.postal_code].filter(Boolean).join(', ') }}</p>
             <p v-if="addr.country" class="text-zinc-500">{{ addr.country }}</p>
           </div>
-          <UButton size="xs" variant="ghost" color="red" icon="i-heroicons-trash" @click="removeAddress(addr.id)" />
+          <UButton size="xs" variant="ghost" color="error" icon="i-heroicons-trash" @click="removeAddress(addr.id)" />
         </div>
         <div class="space-y-2">
           <UInput v-model="newAddress.street" placeholder="Street" />
@@ -574,7 +573,7 @@ const today = localDateString(new Date())
             <UInput v-model="newAddress.postal_code" placeholder="Postal code" />
             <UInput v-model="newAddress.country" placeholder="Country" />
           </div>
-          <UButton size="sm" variant="soft" color="violet" icon="i-heroicons-plus" :loading="addingAddress" @click="addAddress">
+          <UButton size="sm" variant="soft" color="primary" icon="i-heroicons-plus" :loading="addingAddress" @click="addAddress">
             Add address
           </UButton>
         </div>
@@ -587,12 +586,12 @@ const today = localDateString(new Date())
           <span class="text-zinc-300 text-sm flex-1">
             {{ pet.name }}{{ pet.species ? ` (${pet.species})` : '' }}
           </span>
-          <UButton size="xs" variant="ghost" color="red" icon="i-heroicons-trash" @click="removePet(pet.id)" />
+          <UButton size="xs" variant="ghost" color="error" icon="i-heroicons-trash" @click="removePet(pet.id)" />
         </div>
         <div class="grid grid-cols-[2fr_1fr_auto] gap-2 items-end">
           <UInput v-model="newPet.name" placeholder="Name" />
           <UInput v-model="newPet.species" placeholder="Species" />
-          <UButton icon="i-heroicons-plus" color="violet" variant="soft" :loading="addingPet" :disabled="!newPet.name" @click="addPet" />
+          <UButton icon="i-heroicons-plus" color="primary" variant="soft" :loading="addingPet" :disabled="!newPet.name" @click="addPet" />
         </div>
       </div>
 
@@ -602,7 +601,7 @@ const today = localDateString(new Date())
           <p class="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Stay in touch</p>
           <div class="flex gap-2">
             <UButton v-if="stayInTouch && !editingSit" size="xs" variant="ghost" icon="i-heroicons-pencil" @click="editingSit = true" />
-            <UButton v-if="stayInTouch && !editingSit" size="xs" variant="ghost" color="red" icon="i-heroicons-trash" @click="removeSit" />
+            <UButton v-if="stayInTouch && !editingSit" size="xs" variant="ghost" color="error" icon="i-heroicons-trash" @click="removeSit" />
           </div>
         </div>
         <div v-if="stayInTouch && !editingSit" class="text-sm text-zinc-300">
@@ -612,7 +611,7 @@ const today = localDateString(new Date())
           <UFormField label="Every N days" class="flex-1">
             <UInput v-model.number="sitFrequency" type="number" min="1" max="365" />
           </UFormField>
-          <UButton color="violet" variant="soft" @click="saveSit">Save</UButton>
+          <UButton color="primary" variant="soft" @click="saveSit">Save</UButton>
           <UButton v-if="editingSit" variant="ghost" color="neutral" @click="editingSit = false">Cancel</UButton>
         </div>
       </div>
@@ -628,7 +627,7 @@ const today = localDateString(new Date())
               {{ le.happened_at ? formatDate(le.happened_at) : 'No date' }}{{ le.yearly_reminder ? ' · yearly' : '' }}
             </p>
           </div>
-          <UButton size="xs" variant="ghost" color="red" icon="i-heroicons-trash" @click="removeLifeEvent(le.id)" />
+          <UButton size="xs" variant="ghost" color="error" icon="i-heroicons-trash" @click="removeLifeEvent(le.id)" />
         </div>
         <div class="space-y-2">
           <UInput v-model="newEvent.label" placeholder="e.g. Wedding anniversary" />
@@ -638,7 +637,7 @@ const today = localDateString(new Date())
               <UCheckbox v-model="newEvent.yearly_reminder" />
               Yearly
             </label>
-            <UButton icon="i-heroicons-plus" color="violet" variant="soft" :loading="addingEvent" :disabled="!newEvent.label.trim()" @click="addLifeEvent" />
+            <UButton icon="i-heroicons-plus" color="primary" variant="soft" :loading="addingEvent" :disabled="!newEvent.label.trim()" @click="addLifeEvent" />
           </div>
         </div>
       </div>
@@ -653,7 +652,7 @@ const today = localDateString(new Date())
               {{ formatDate(r.remind_at) }}{{ r.is_yearly ? ' · yearly' : '' }}
             </p>
           </div>
-          <UButton size="xs" variant="ghost" color="red" icon="i-heroicons-trash" @click="removeReminder(r.id)" />
+          <UButton size="xs" variant="ghost" color="error" icon="i-heroicons-trash" @click="removeReminder(r.id)" />
         </div>
         <div class="space-y-2">
           <UInput v-model="newReminder.title" placeholder="Reminder title" />
@@ -663,7 +662,7 @@ const today = localDateString(new Date())
               <UCheckbox v-model="newReminder.is_yearly" />
               Yearly
             </label>
-            <UButton icon="i-heroicons-plus" color="violet" variant="soft" :loading="addingReminder" :disabled="!newReminder.title || !newReminder.remind_at" @click="addReminder" />
+            <UButton icon="i-heroicons-plus" color="primary" variant="soft" :loading="addingReminder" :disabled="!newReminder.title || !newReminder.remind_at" @click="addReminder" />
           </div>
         </div>
       </div>
@@ -677,12 +676,12 @@ const today = localDateString(new Date())
             {{ t.title }}
           </span>
           <span v-if="t.due_at" class="text-xs text-zinc-500">{{ formatDate(t.due_at) }}</span>
-          <UButton size="xs" variant="ghost" color="red" icon="i-heroicons-trash" @click="removeTask(t.id)" />
+          <UButton size="xs" variant="ghost" color="error" icon="i-heroicons-trash" @click="removeTask(t.id)" />
         </div>
         <div class="flex gap-2 items-end">
           <UInput v-model="newTask.title" placeholder="Task title" class="flex-1" />
           <UInput v-model="newTask.due_at" type="date" class="w-36" />
-          <UButton icon="i-heroicons-plus" color="violet" variant="soft" :loading="addingTask" :disabled="!newTask.title" @click="addTask" />
+          <UButton icon="i-heroicons-plus" color="primary" variant="soft" :loading="addingTask" :disabled="!newTask.title" @click="addTask" />
         </div>
       </div>
 
@@ -694,13 +693,13 @@ const today = localDateString(new Date())
           <span class="text-sm flex-1" :class="g.is_given ? 'line-through text-zinc-600' : 'text-zinc-200'">
             {{ g.idea }}<span v-if="g.occasion" class="text-zinc-500"> · {{ g.occasion }}</span>
           </span>
-          <UButton size="xs" variant="ghost" color="red" icon="i-heroicons-trash" @click="removeGiftNote(g.id)" />
+          <UButton size="xs" variant="ghost" color="error" icon="i-heroicons-trash" @click="removeGiftNote(g.id)" />
         </div>
         <div class="space-y-2">
           <div class="flex gap-2">
             <UInput v-model="newGift.idea" placeholder="Gift idea" class="flex-1" />
             <UInput v-model="newGift.occasion" placeholder="Occasion (opt.)" class="w-36" />
-            <UButton icon="i-heroicons-plus" color="violet" variant="soft" :loading="addingGift" :disabled="!newGift.idea" @click="addGiftNote" />
+            <UButton icon="i-heroicons-plus" color="primary" variant="soft" :loading="addingGift" :disabled="!newGift.idea" @click="addGiftNote" />
           </div>
         </div>
       </div>
@@ -713,7 +712,7 @@ const today = localDateString(new Date())
             <span>{{ relTypes.find(t => t.id === rel.type_id)?.name ?? 'Related' }}</span>
             <span v-if="rel.notes" class="text-zinc-500 ml-1">· {{ rel.notes }}</span>
           </div>
-          <UButton size="xs" variant="ghost" color="red" icon="i-heroicons-trash" @click="removeRelationship(rel.id)" />
+          <UButton size="xs" variant="ghost" color="error" icon="i-heroicons-trash" @click="removeRelationship(rel.id)" />
         </div>
         <div class="space-y-2">
           <div class="relative">
@@ -738,7 +737,7 @@ const today = localDateString(new Date())
             />
             <UButton
               icon="i-heroicons-plus"
-              color="violet"
+              color="primary"
               variant="soft"
               :loading="addingRel"
               :disabled="!newRel.related_id || !newRel.type_id"
@@ -759,7 +758,7 @@ const today = localDateString(new Date())
               {{ occ.started_at ? `· From ${occ.started_at.slice(0, 4)}` : '' }}
             </p>
           </div>
-          <UButton size="xs" variant="ghost" color="red" icon="i-heroicons-trash" @click="removeOccupation(occ.id)" />
+          <UButton size="xs" variant="ghost" color="error" icon="i-heroicons-trash" @click="removeOccupation(occ.id)" />
         </div>
         <div class="space-y-2">
           <div class="grid grid-cols-2 gap-2">
@@ -775,7 +774,7 @@ const today = localDateString(new Date())
           </div>
           <div class="flex items-center justify-between">
             <UCheckbox v-model="newOcc.is_current" label="Current position" />
-            <UButton size="sm" variant="soft" color="violet" :loading="addingOcc" @click="addOccupation">
+            <UButton size="sm" variant="soft" color="primary" :loading="addingOcc" @click="addOccupation">
               Add position
             </UButton>
           </div>

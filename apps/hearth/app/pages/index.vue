@@ -46,9 +46,6 @@ const budgetBarPercent = computed(() => {
 const spentParts = computed(() =>
   splitCurrencyParts(summary.value?.spent_this_month ?? 0, homeCurrency.value),
 )
-const remainingParts = computed(() =>
-  splitCurrencyParts(summary.value?.budget_remaining ?? 0, homeCurrency.value),
-)
 
 // Group transactions by date label
 const groupedTransactions = computed(() => {
@@ -61,8 +58,6 @@ const groupedTransactions = computed(() => {
   }
   return Array.from(groups.entries())
 })
-
-const router = useRouter()
 
 // ── Recurring widget ──────────────────────────────────────────────────────
 const upcomingRecurring = ref<RecurringPatternRow[]>([])

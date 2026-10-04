@@ -96,22 +96,6 @@ test.describe('Reports — view mode toggle', () => {
   })
 })
 
-test.describe('Reports — spending breakdown chart', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/reports')
-    await page.waitForLoadState('networkidle')
-    await page.waitForTimeout(1500)
-  })
-
-  test('spending breakdown chart is visible when there are expenses', async ({ page }) => {
-    // Seed data includes expenses, so chart should appear
-    const chart = page.getByRole('region', { name: 'Spending breakdown chart' })
-    const isVisible = await chart.isVisible().catch(() => false)
-    // Chart may not show if navigated to an empty period — just check no error
-    expect(typeof isVisible).toBe('boolean')
-  })
-})
-
 test.describe('Reports — transaction drilldown', () => {
   test('category links show only that category within the report period', async ({ page }) => {
     await page.goto('/transactions/add')

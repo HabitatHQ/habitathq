@@ -38,5 +38,5 @@ These actions are blocked across all agents working in this repo. If a workflow 
 - `console.error` outside `utils/error.ts` — use `logError(context, err)` instead.
 - `db.queryOne` in `db-shared.ts` (habitat) — use `db.queryAll`; tests override `queryOne` with call counters.
 - `<UIcon name="i-…">` in hearth — use `<AppIcon name="semantic-key">`.
-- Manual `Teleport` + fixed overlay — use `<AppModal>` instead.
+- Manual `Teleport` + fixed overlay—use shared `<AppBottomSheet>` in layer consumers; standalone apps retain their existing modal primitive.
 - Stray `console.log` (warning) — remove before commit.

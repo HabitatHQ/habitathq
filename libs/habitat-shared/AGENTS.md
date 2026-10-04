@@ -6,7 +6,7 @@ last_verified: 2026-05-26
 
 # @habitathq/shared — Agent Guide
 
-Nuxt layer shared by all Habitat apps. Provides: app-level Nuxt config, shared CSS, composables, and the icon registry (`<AppIcon>` + `resolveIcon`).
+Nuxt layer consumed by Habitat, Hearth and Halcyon. Provides app-level Nuxt config, shared CSS, composables, UI primitives and the icon registry (`<AppIcon>` + `resolveIcon`). Hephaestus deliberately retains its standalone Phosphor-based layer boundary.
 
 ## Layout
 
@@ -20,6 +20,10 @@ Nuxt layer shared by all Habitat apps. Provides: app-level Nuxt config, shared C
 - Icon registry lives in `libs/habitat-utils/src/icons.ts`. Add new entries there; this layer just re-exports.
 - No app-specific code — anything specific to one app belongs in that app.
 - No verify script (Nuxt layer has no buildable surface of its own). Verification happens transitively when consuming apps run their `verify`.
+- Use `AppEmptyState`, `AppSkeleton`, `AppCollapsible`, `AppBottomSheet` and `AppConfirmDialog` directly. Modal callers choose their closeability/variant and retain domain content in slots; app wrappers that only rename these APIs are not needed.
+- `usePlatform` caches Capacitor platform detection for the app lifetime. `useHaptics` owns native plugin calls and browser no-op behavior, with an optional reactive `enabled` policy. Habitat intentionally overrides the auto-import with a thin preference-binding wrapper that explicitly imports the shared implementation as `useSharedHaptics`; shared component calls consequently respect Habitat's `enableHaptics`.
+- `createAppSettings` delegates storage reads/writes to `@habitathq/utils`. Apps retain their own state model, defaults, storage key and normalization; do not substitute this factory for app-specific migration or import ordering.
+- Consumers load `@nuxt/ui` CSS so shared Tailwind classes and semantic UI tokens are generated. Halcyon retains its Heroicons markup and adds offline Heroicons plus Lucide bundling without changing the shared registry.
 
 ## Motion design system
 

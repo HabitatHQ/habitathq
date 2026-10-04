@@ -6,6 +6,10 @@ describe('report transaction amounts', () => {
     expect(homeCurrencyAmount({ amount: -90, home_amount: -63.5 })).toBe(-63.5)
   })
 
+  it('preserves a zero-valued home-currency conversion', () => {
+    expect(homeCurrencyAmount({ amount: -90, home_amount: 0 })).toBe(0)
+  })
+
   it('uses the transaction amount when no home-currency conversion is stored', () => {
     expect(homeCurrencyAmount({ amount: -90, home_amount: null })).toBe(-90)
   })

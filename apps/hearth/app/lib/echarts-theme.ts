@@ -1,5 +1,9 @@
 /** Build an ECharts theme from Hearth CSS custom properties */
-export function getHearthTheme(): Record<string, unknown> {
+export interface HearthChartTheme extends Record<string, unknown> {
+  textStyle?: { color?: string; fontFamily?: string }
+}
+
+export function getHearthTheme(): HearthChartTheme {
   const style = getComputedStyle(document.documentElement)
   const get = (prop: string) => style.getPropertyValue(prop).trim()
 

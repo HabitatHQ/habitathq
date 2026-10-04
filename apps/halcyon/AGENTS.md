@@ -25,13 +25,14 @@ pnpm --filter halcyon verify
 | `app/utils/interaction-helpers.ts` | Channel labels, interaction-type icons. |
 | `app/utils/reminder-helpers.ts` | Date math for reminders + stay-in-touch. |
 
-## Schema (`user_version = 1`)
+## Schema (`user_version = 2`)
 
 vaults, contacts, contact_field_types, contact_fields, address_types, addresses, relationship_types, relationships, companies, occupations, pets, tags, contact_tags, groups, group_contacts, interactions, interaction_contacts, notes, life_event_types, life_events, reminders, stay_in_touch, tasks, gift_notes, journal_entries, applied_defaults.
 
 - All PKs: TEXT UUID (`crypto.randomUUID()`).
 - `PRAGMA foreign_keys = ON`.
 - Tags/annotations stored as JSON in TEXT columns.
+- FTS5 contact/note indexes use source integer rowids and SQLite triggers. Version 2 transactionally rebuilds legacy indexes without deleting contacts or notes; never manually write UUID-keyed FTS rows.
 
 ## Routes
 

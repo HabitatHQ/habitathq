@@ -1,3 +1,4 @@
+import { localDateString } from '@habitathq/utils'
 import type {
   ExerciseSessionStat,
   MuscleFrequency,
@@ -9,7 +10,6 @@ import {
   aggregateMuscleFrequency,
   buildExerciseHistory,
   buildWeekGrid,
-  localDateKey,
 } from '~/lib/analytics'
 import type { ReadinessResult } from '~/lib/readiness'
 import { calculateReadiness } from '~/lib/readiness'
@@ -27,15 +27,15 @@ export function useProgress() {
   const db = useDatabase()
 
   async function getRecentWorkouts(days: number): Promise<WorkoutRow[]> {
-    const cutoff = addCalendarDays(localDateKey(), -days)
+    const cutoff = addCalendarDays(localDateString(new Date()), -days)
     return db.query<WorkoutRow>(
       'SELECT * FROM workouts WHERE ended_at IS NOT NULL AND date >= ? AND date <= ? ORDER BY date DESC',
-      [cutoff, localDateKey()],
+      [cutoff, localDateString(new Date())],
     )
   }
 
   async function dotGrid(weeks: number = 12): Promise<WeekDot[][]> {
-    const today = localDateKey()
+    const today = localDateString(new Date())
     const workouts = await getRecentWorkouts(weeks * 7)
     return buildWeekGrid(
       workouts.map((w) => w.date),
@@ -45,7 +45,7 @@ export function useProgress() {
   }
 
   async function muscleFrequency(days: 7 | 28 | 90 = 28): Promise<MuscleFrequency[]> {
-    const today = localDateKey()
+    const today = localDateString(new Date())
     const cutoff = addCalendarDays(today, -days)
     const [workouts, workoutExercises, exercises] = await Promise.all([
       db.query<Pick<WorkoutRow, 'id' | 'date' | 'ended_at'>>(
@@ -175,7 +175,7 @@ export function useProgress() {
   }
 
   async function readinessData(): Promise<ReadinessResult> {
-    const today = localDateKey()
+    const today = localDateString(new Date())
     const recentWorkouts = await db.query<WorkoutRow>(
       "SELECT * FROM workouts WHERE ended_at IS NOT NULL AND date <= ? AND session_type = 'gym' ORDER BY date DESC LIMIT 28",
       [today],
@@ -234,7 +234,7 @@ export function useProgress() {
     return db.query<PersonalRecordRow>('SELECT * FROM personal_records ORDER BY date DESC LIMIT 20')
   }
   async function organizationReport(days = 28): Promise<OrganizationReport> {
-    const endDate = localDateKey()
+    const endDate = localDateString(new Date())
     const startDate = addCalendarDays(endDate, -Math.max(0, days - 1))
     return db.organization('ORGANIZATION_REPORT', { startDate, endDate })
   }

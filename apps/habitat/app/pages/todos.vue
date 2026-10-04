@@ -1,7 +1,7 @@
 <script setup lang="ts">
+import { localDateString } from '@habitathq/utils'
 import { buildPomodoroConfig, type TimerMode } from '~/composables/useTimer'
 import type { BoredCategory, Todo } from '~/types/database'
-import { toLocalDateKey } from '~/utils/format'
 import { sortByPriority } from '~/utils/todos-helpers'
 
 const db = useDatabase()
@@ -239,7 +239,7 @@ onMounted(async () => {
 })
 
 // Use local calendar date (not UTC) so "today" matches the device's clock
-const today = toLocalDateKey()
+const today = localDateString(new Date())
 
 const overdue = computed(() =>
   sortByPriority(
@@ -254,7 +254,7 @@ const dueToday = computed(() =>
 const upcoming = computed(() => {
   const in30 = new Date()
   in30.setDate(in30.getDate() + 30)
-  const limit = toLocalDateKey(in30)
+  const limit = localDateString(in30)
   return sortByPriority(
     processedTodos.value.filter(
       (t) => !t.is_done && t.due_date !== null && t.due_date > today && t.due_date <= limit,
@@ -537,7 +537,7 @@ async function deleteAndClose(t: Todo) {
     </div>
 
     <!-- Error -->
-    <EmptyState
+    <AppEmptyState
       v-else-if="loadError"
       icon="exclamation-triangle"
       title="Couldn't load todos"
@@ -546,7 +546,7 @@ async function deleteAndClose(t: Todo) {
       <template #actions>
         <UButton @click="loading = true; load()">Try again</UButton>
       </template>
-    </EmptyState>
+    </AppEmptyState>
 
     <!-- Sections (list view) -->
     <template v-if="!loading && !loadError">
@@ -762,8 +762,8 @@ async function deleteAndClose(t: Todo) {
     />
 
     <!-- Archive confirm -->
-    <ConfirmDialog
-      :open="!!confirmArchiveTodo"
+    <AppConfirmDialog
+      :model-value="!!confirmArchiveTodo"
       icon="archive-box"
       icon-color="amber"
       :title="`Archive &quot;${confirmArchiveTodo?.title}&quot;?`"
@@ -772,12 +772,12 @@ async function deleteAndClose(t: Todo) {
       confirm-color="warning"
       @confirm="confirmArchiveTodo && archiveTodo(confirmArchiveTodo)"
       @cancel="confirmArchiveTodo = null"
-      @update:open="(open) => !open && (confirmArchiveTodo = null)"
+      @update:model-value="(open) => !open && (confirmArchiveTodo = null)"
     />
 
     <!-- Delete confirm -->
-    <ConfirmDialog
-      :open="!!confirmDeleteTodo"
+    <AppConfirmDialog
+      :model-value="!!confirmDeleteTodo"
       icon="trash"
       icon-color="red"
       :title="`Delete &quot;${confirmDeleteTodo?.title}&quot;?`"
@@ -786,7 +786,7 @@ async function deleteAndClose(t: Todo) {
       confirm-color="error"
       @confirm="confirmDeleteTodo && deleteAndClose(confirmDeleteTodo)"
       @cancel="confirmDeleteTodo = null"
-      @update:open="(open) => !open && (confirmDeleteTodo = null)"
+      @update:model-value="(open) => !open && (confirmDeleteTodo = null)"
     />
 
   </div>

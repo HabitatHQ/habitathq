@@ -1,18 +1,12 @@
+import { localDateString } from '@habitathq/utils'
 import type { ExerciseRow, SetRow, WorkoutExerciseRow, WorkoutRow } from '~/types/database'
 import { calculateE1RM } from './e1rm'
-/** Return an ISO calendar date in the local timezone; YYYY-MM-DD is parsed as local. */
-export function localDateKey(date: Date = new Date()): string {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
 
 /** Add calendar days without converting through UTC. */
 export function addCalendarDays(dateKey: string, days: number): string {
   const date = parseCalendarDate(dateKey)
   date.setDate(date.getDate() + days)
-  return localDateKey(date)
+  return localDateString(date)
 }
 function parseCalendarDate(dateKey: string): Date {
   return new Date(
@@ -83,7 +77,7 @@ export function buildWeekGrid(
     for (let d = 0; d < 7; d++) {
       const current = new Date(startDate)
       current.setDate(startDate.getDate() + w * 7 + d)
-      const dateStr = localDateKey(current)
+      const dateStr = localDateString(current)
       week.push({ date: dateStr, hasWorkout: dateSet.has(dateStr) })
     }
     grid.push(week)

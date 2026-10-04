@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   formatDate,
   formatDateRelative,
-  formatDuration,
+  formatDurationMinutes as formatDuration,
   formatRelativeTime,
   localDateString,
   parseDateString,
-} from '~/utils/format'
+} from '@habitathq/utils'
 
 // ─── localDateString ──────────────────────────────────────────────────────────
 

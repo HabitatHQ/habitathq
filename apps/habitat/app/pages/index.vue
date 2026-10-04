@@ -557,7 +557,7 @@ onMounted(async () => {
     </div>
 
     <!-- ── Load error ────────────────────────────────────────────────────────── -->
-    <EmptyState
+    <AppEmptyState
       v-else-if="loadError"
       icon="exclamation-triangle"
       title="Couldn't load your day"
@@ -566,7 +566,7 @@ onMounted(async () => {
       <template #actions>
         <UButton @click="loading = true; load()">Try again</UButton>
       </template>
-    </EmptyState>
+    </AppEmptyState>
 
     <!-- ── Welcome / empty state ────────────────────────────────────────────── -->
     <template v-else-if="habits.length === 0">

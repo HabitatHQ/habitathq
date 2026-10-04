@@ -1,7 +1,7 @@
 <script setup lang="ts">
+import { localDateString } from '@habitathq/utils'
 import type { ImageNote, JotItem, VoiceNote } from '~/composables/useJotsStore'
 import type { Scribble } from '~/types/database'
-import { toLocalDateKey } from '~/utils/format'
 import type { JotSection } from '~/utils/jots-helpers'
 import { groupJotsByDate, groupJotsByTags, isCalendarNote } from '~/utils/jots-helpers'
 
@@ -168,7 +168,7 @@ function onJotLinkClick(item: JotItem) {
 
 // ─── Create TODO from jot ─────────────────────────────────────────────────────
 
-const today = toLocalDateKey()
+const today = localDateString(new Date())
 
 const showCreateTodoModal = ref(false)
 const createTodoForJot = ref<JotItem | null>(null)
@@ -984,7 +984,7 @@ onUnmounted(() => {
     </template>
 
     <!-- ── Rename voice / image jot modal ─────────────────────────────────── -->
-    <AppModal v-model="showRenameModal" :title="renameIsImage ? 'Rename photo' : 'Rename voice note'">
+    <AppBottomSheet v-model="showRenameModal" :closeable="false" :title="renameIsImage ? 'Rename photo' : 'Rename voice note'">
       <div class="space-y-3">
         <UFormField label="Title">
           <AppTextField
@@ -1001,7 +1001,7 @@ onUnmounted(() => {
           <UButton color="primary" class="flex-1" :loading="renamingJot" @click="saveRename">Save</UButton>
         </div>
       </template>
-    </AppModal>
+    </AppBottomSheet>
 
     <!-- ── Image lightbox ─────────────────────────────────────────────────── -->
     <Teleport to="body">
@@ -1030,7 +1030,7 @@ onUnmounted(() => {
     </Teleport>
 
     <!-- ── Create TODO from jot modal ────────────────────────────────────── -->
-    <AppModal v-model="showCreateTodoModal" title="Create TODO">
+    <AppBottomSheet v-model="showCreateTodoModal" :closeable="false" title="Create TODO">
       <p class="text-xs text-(--ui-text-dimmed) -mt-2">A TODO will be created and linked to this jot.</p>
       <div class="space-y-3">
         <UFormField label="Title" required>
@@ -1052,7 +1052,7 @@ onUnmounted(() => {
           >Create</UButton>
         </div>
       </template>
-    </AppModal>
+    </AppBottomSheet>
 
     <!-- ── Bottom Sheets ─────────────────────────────────────────────────── -->
 

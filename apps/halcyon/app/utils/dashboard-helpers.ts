@@ -1,5 +1,5 @@
+import { parseDateString } from '@habitathq/utils'
 import type { Contact } from '~/types/database'
-import { parseDateString } from '~/utils/format'
 import { nextBirthdayDate } from '~/utils/reminder-helpers'
 
 export function daysUntilBirthday(birthday: string | null, today: string): number {

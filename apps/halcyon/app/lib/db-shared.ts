@@ -1,3 +1,4 @@
+import { safeJsonParse } from '@habitathq/utils'
 import * as parse from '~/lib/db-parsers'
 import type {
   Address,
@@ -76,23 +77,6 @@ async function touchContacts(db: DbAdapter, contactIds: string[]): Promise<void>
       )
     }
   }
-}
-
-async function syncContactFts(db: DbAdapter, contact: Contact): Promise<void> {
-  await db.exec('DELETE FROM contacts_fts WHERE id = ?', [contact.id])
-  await db.exec(
-    'INSERT INTO contacts_fts (id, first_name, last_name, nickname) VALUES (?, ?, ?, ?)',
-    [contact.id, contact.first_name, contact.last_name, contact.nickname],
-  )
-}
-
-async function syncNoteFts(db: DbAdapter, note: Note): Promise<void> {
-  await db.exec('DELETE FROM notes_fts WHERE id = ?', [note.id])
-  await db.exec('INSERT INTO notes_fts (id, contact_id, body) VALUES (?, ?, ?)', [
-    note.id,
-    note.contact_id,
-    note.body,
-  ])
 }
 
 // ─── VAULTS ──────────────────────────────────────────────────────────────────
@@ -231,7 +215,7 @@ export async function getContactDetail(db: DbAdapter, id: string): Promise<Conta
           name: r['company_name'] as string,
           website: r['company_website'] as string,
           description: r['company_desc'] as string,
-          tags: parse.safeJsonParse(r['company_tags'] as string, []),
+          tags: safeJsonParse(r['company_tags'] as string, []),
           created_at: r['company_created_at'] as string,
           updated_at: r['company_updated_at'] as string,
         } as Company)
@@ -297,7 +281,6 @@ export async function createContact(
     ],
   )
   const contact = await getContact(db, id)
-  await syncContactFts(db, contact)
   return contact
 }
 
@@ -335,7 +318,6 @@ export async function updateContact(
   vals.push(p.id)
   await db.exec(`UPDATE contacts SET ${fields.join(', ')} WHERE id = ?`, vals)
   const contact = await getContact(db, p.id)
-  await syncContactFts(db, contact)
   return contact
 }
 
@@ -667,7 +649,7 @@ export async function getOccupations(
           name: r['company_name'] as string,
           website: r['company_website'] as string,
           description: r['company_desc'] as string,
-          tags: parse.safeJsonParse(r['company_tags'] as string, []),
+          tags: safeJsonParse(r['company_tags'] as string, []),
           created_at: r['company_created_at'] as string,
           updated_at: r['company_updated_at'] as string,
         } as Company)
@@ -1036,7 +1018,6 @@ export async function createNote(
   )
   const rows = await db.queryAll('SELECT * FROM notes WHERE id = ?', [id])
   const note = parse.rowToNote(rows[0]!)
-  await syncNoteFts(db, note)
   return note
 }
 
@@ -1056,14 +1037,11 @@ export async function updateNote(db: DbAdapter, p: Partial<Note> & { id: string 
   await db.exec(`UPDATE notes SET ${fields.join(', ')} WHERE id = ?`, vals)
   const rows = await db.queryAll('SELECT * FROM notes WHERE id = ?', [p.id])
   const note = parse.rowToNote(rows[0]!)
-  await syncNoteFts(db, note)
   return note
 }
 
 export async function deleteNote(db: DbAdapter, id: string): Promise<void> {
   await db.exec('DELETE FROM notes WHERE id = ?', [id])
-  // Clean up FTS — note is already deleted so we pass a minimal object
-  await db.exec('DELETE FROM notes_fts WHERE id = ?', [id])
 }
 
 export async function togglePinNote(db: DbAdapter, id: string): Promise<Note> {
@@ -1506,7 +1484,7 @@ export async function search(
 
   const contactRows = await db.queryAll(
     `SELECT c.* FROM contacts_fts fts
-     JOIN contacts c ON c.id = fts.id
+     JOIN contacts c ON c.rowid = fts.rowid
      WHERE c.vault_id = ? AND c.archived_at IS NULL AND contacts_fts MATCH ?
      ORDER BY rank LIMIT 20`,
     [vault_id, q],
@@ -1523,7 +1501,7 @@ export async function search(
             c.deceased_at, c.maiden_name, c.middle_name, c.pronouns,
             c.gender, c.how_we_met
      FROM notes_fts fts
-     JOIN notes n ON n.id = fts.id
+     JOIN notes n ON n.rowid = fts.rowid
      JOIN contacts c ON c.id = n.contact_id
      WHERE c.vault_id = ? AND notes_fts MATCH ?
      ORDER BY rank LIMIT 20`,

@@ -6,7 +6,7 @@ const props = withDefaults(
     title: string
     message: string
     confirmLabel?: string
-    confirmColor?: string
+    confirmColor?: 'primary' | 'secondary' | 'success' | 'info' | 'warning' | 'error' | 'neutral'
     cancelLabel?: string
   }>(),
   {
@@ -50,7 +50,7 @@ function handleCancel() {
 </script>
 
 <template>
-  <AppBottomSheet v-model="modelValue" variant="centered" max-width="sm" :closeable="false">
+  <AppBottomSheet v-model="modelValue" variant="centered" max-width="sm" :closeable="false" :aria-label="title">
     <div class="space-y-4">
       <div class="flex items-start gap-3">
         <div
@@ -68,7 +68,7 @@ function handleCancel() {
         <UButton variant="ghost" color="neutral" class="min-h-[44px]" @click="handleCancel">
           {{ cancelLabel }}
         </UButton>
-        <UButton :color="(confirmColor as any)" class="min-h-[44px] btn-press" @click="handleConfirm">
+        <UButton :color="confirmColor" class="min-h-[44px] btn-press" @click="handleConfirm">
           {{ confirmLabel }}
         </UButton>
       </div>

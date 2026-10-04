@@ -233,7 +233,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <AppModal v-model="open" :title="mode === 'create' ? 'New Habit' : 'Edit Habit'">
+  <AppBottomSheet v-model="open" :closeable="false" :title="mode === 'create' ? 'New Habit' : 'Edit Habit'">
     <!-- Name -->
     <UFormField label="Name" required>
       <AppTextField v-model="form.name" placeholder="e.g. Morning run" class="w-full" autofocus />
@@ -394,5 +394,5 @@ onMounted(() => {
         </UButton>
       </div>
     </template>
-  </AppModal>
+  </AppBottomSheet>
 </template>

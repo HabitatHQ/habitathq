@@ -50,7 +50,7 @@ async function create() {
   <div class="max-w-2xl mx-auto">
     <div class="flex items-center gap-3 px-4 pt-6 pb-4 sticky top-0 bg-zinc-950/90 backdrop-blur z-10">
       <h1 class="font-semibold text-zinc-100 flex-1 text-lg">Groups</h1>
-      <UButton icon="i-heroicons-plus" color="violet" variant="soft" size="sm" @click="showNew = !showNew">New</UButton>
+      <UButton icon="i-heroicons-plus" color="primary" variant="soft" size="sm" @click="showNew = !showNew">New</UButton>
     </div>
 
     <!-- New group form -->
@@ -63,19 +63,22 @@ async function create() {
           <UInput v-model="newDescription" placeholder="Optional description" />
         </UFormField>
         <div class="flex gap-2">
-          <UButton color="violet" :loading="creating" :disabled="!newName.trim()" @click="create">Create</UButton>
+          <UButton color="primary" :loading="creating" :disabled="!newName.trim()" @click="create">Create</UButton>
           <UButton variant="ghost" color="neutral" @click="showNew = false">Cancel</UButton>
         </div>
       </div>
     </div>
 
-    <div v-if="loading" class="px-4 space-y-2">
-      <USkeleton v-for="i in 3" :key="i" class="h-14 rounded-xl" />
+    <div v-if="loading" class="px-4">
+      <AppSkeleton variant="row" :count="3" />
     </div>
 
-    <div v-else-if="groups.length === 0 && !showNew" class="px-4 py-16 text-center text-zinc-500">
-      No groups yet. Create one to organize your contacts.
-    </div>
+    <AppEmptyState
+      v-else-if="groups.length === 0 && !showNew"
+      class="px-4"
+      title="No groups yet."
+      description="Create one to organize your contacts."
+    />
 
     <div v-else class="px-4 space-y-2">
       <NuxtLink

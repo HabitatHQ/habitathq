@@ -46,7 +46,7 @@ rules:
     severity: WARNING
     languages: [generic]
     metadata:
-      fix_hint: "Replace <UIcon name=\"i-foo\" /> with <AppIcon name=\"semantic-key\" />; add the key to libs/habitat-utils/src/icons.ts if missing"
+      fix_hint: 'Replace <UIcon name="i-foo" /> with <AppIcon name="semantic-key" />; add the key to libs/habitat-utils/src/icons.ts if missing'
       docs: "apps/hearth/AGENTS.md#icons-offline-safe"
       category: "icons"
     paths:
@@ -158,14 +158,15 @@ rules:
 
   # ── Modal pattern (Habitat) ────────────────────────────────────────────────
 
-  - id: prefer-AppModal-over-manual-teleport
+  - id: prefer-modal-primitive-over-manual-teleport
     message: >-
-      Use <AppModal v-model title="…"> instead of manual Teleport + fixed overlay
-      (see apps/habitat/AGENTS.md → Modals).
+      Use shared <AppBottomSheet v-model title="…"> instead of manual Teleport +
+      fixed overlay in layer consumers; standalone apps retain their existing
+      modal primitive (see apps/habitat/AGENTS.md).
     severity: WARNING
     languages: [generic]
     metadata:
-      fix_hint: "Replace <Teleport>...<div fixed inset-0> with <AppModal v-model=\"show\" title=\"…\"> + #footer slot"
+      fix_hint: 'Replace <Teleport>...<div fixed inset-0> with <AppBottomSheet v-model="show" title="…"> + #footer slot'
       docs: "apps/habitat/AGENTS.md#habitat-specific-conventions"
       category: "habitat"
     paths:

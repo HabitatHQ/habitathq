@@ -16,7 +16,8 @@ const saving = ref(false)
 const form = reactive({ name: '', website: '', description: '' })
 
 async function load() {
-  const id = route.params.id as string
+  const id = route.params['id']
+  if (typeof id !== 'string') return
   loading.value = true
   try {
     const [co, cs] = await Promise.all([db.getCompany(id), db.getCompanyContacts(id)])
@@ -64,7 +65,7 @@ async function deleteCompany() {
 
   <div v-else-if="!company" class="max-w-2xl mx-auto px-4 py-16 text-center">
     <p class="text-zinc-500">Company not found</p>
-    <UButton to="/companies" class="mt-4" variant="soft" color="violet">Back to companies</UButton>
+    <UButton to="/companies" class="mt-4" variant="soft" color="primary">Back to companies</UButton>
   </div>
 
   <div v-else class="max-w-2xl mx-auto pb-6">
@@ -73,7 +74,7 @@ async function deleteCompany() {
       <UButton icon="i-heroicons-arrow-left" variant="ghost" color="neutral" to="/companies" />
       <h1 class="font-semibold text-zinc-100 flex-1 truncate">{{ company.name }}</h1>
       <UButton icon="i-heroicons-pencil" variant="ghost" color="neutral" @click="editing = !editing" />
-      <UButton icon="i-heroicons-trash" variant="ghost" color="red" @click="deleteCompany" />
+      <UButton icon="i-heroicons-trash" variant="ghost" color="error" @click="deleteCompany" />
     </div>
 
     <div class="px-4 space-y-4">
@@ -86,10 +87,10 @@ async function deleteCompany() {
           <UInput v-model="form.website" placeholder="https://example.com" />
         </UFormField>
         <UFormField label="Description">
-          <UTextarea v-model="form.description" rows="3" />
+          <UTextarea v-model="form.description" :rows="3" />
         </UFormField>
         <div class="flex gap-2">
-          <UButton color="violet" :loading="saving" @click="save">Save</UButton>
+          <UButton color="primary" :loading="saving" @click="save">Save</UButton>
           <UButton variant="ghost" color="neutral" @click="editing = false">Cancel</UButton>
         </div>
       </div>

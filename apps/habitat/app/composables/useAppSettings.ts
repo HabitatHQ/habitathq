@@ -1,3 +1,4 @@
+import { readStoredSettings, writeStoredSettings } from '@habitathq/utils'
 export type AppTheme = 'habitat' | 'forest' | 'ocean'
 export type AppProfile = 'minimalist' | 'journaler' | 'productivity' | 'mindful'
 
@@ -68,6 +69,10 @@ const DEFAULTS: AppSettings = {
   tabOrder: [],
 }
 
+function freshDefaults(): AppSettings {
+  return { ...DEFAULTS, tabOrder: [...DEFAULTS.tabOrder] }
+}
+
 /**
  * Feature profile definitions for onboarding and debugging.
  * Each profile specifies which top-level modules are active.
@@ -122,6 +127,7 @@ export function formatTime(date: Date, use24h: boolean): string {
 export function normalizeAppSettings(
   parsed: Record<string, unknown>,
   isExistingUser = false,
+  defaults: AppSettings = freshDefaults(),
 ): AppSettings {
   const {
     enablePlanner: _enablePlanner,
@@ -129,40 +135,43 @@ export function normalizeAppSettings(
     todoCalendarGrain: _todoCalendarGrain,
     ...currentSettings
   } = parsed
-  const stored = { ...DEFAULTS, ...currentSettings } as AppSettings
+  const stored = { ...defaults, ...currentSettings } as AppSettings
 
   if (isExistingUser && typeof parsed['hasCompletedOnboarding'] === 'undefined') {
     stored.hasCompletedOnboarding = true
   }
 
-  if (!Number.isFinite(stored.weekDays) || stored.weekDays < 3 || stored.weekDays > 7)
+  if (!Number.isFinite(stored.weekDays) || stored.weekDays < 3 || stored.weekDays > 7) {
     stored.weekDays = 3
+  }
+  stored.tabOrder = Array.isArray(stored.tabOrder) ? [...stored.tabOrder] : [...defaults.tabOrder]
   return stored
 }
 
 function readFromStorage(): AppSettings {
-  try {
-    const raw = localStorage.getItem(KEY)
-
-    // Auto-migrate existing users who don't have the onboarding flag
-    const isExistingUser = !!raw || localStorage.getItem('habitat-has-data') === '1'
-    const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {}
-    return normalizeAppSettings(parsed, isExistingUser)
-  } catch (err) {
-    console.warn('[useAppSettings] Failed to parse stored settings, using defaults:', err)
-    return { ...DEFAULTS }
-  }
+  return readStoredSettings<AppSettings>(KEY, {
+    defaults: freshDefaults,
+    normalize: (parsed, defaults, raw) => {
+      let existingData = false
+      try {
+        existingData = localStorage.getItem('habitat-has-data') === '1'
+      } catch {
+        // Storage access failure falls back to the safe defaults.
+      }
+      return normalizeAppSettings(parsed, !!raw || existingData, defaults)
+    },
+  })
 }
 
 export function useAppSettings() {
   // useState gives a singleton ref shared across all composable calls (key-deduplicated)
   const settings = useState<AppSettings>('app-settings', () =>
-    import.meta.client ? readFromStorage() : { ...DEFAULTS },
+    import.meta.client ? readFromStorage() : freshDefaults(),
   )
 
   function set<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
     settings.value = { ...settings.value, [key]: value }
-    if (import.meta.client) localStorage.setItem(KEY, JSON.stringify(settings.value))
+    if (import.meta.client) writeStoredSettings(KEY, settings.value)
   }
 
   /**
@@ -171,7 +180,7 @@ export function useAppSettings() {
    */
   function patch(patch: Partial<AppSettings>) {
     settings.value = { ...settings.value, ...patch }
-    if (import.meta.client) localStorage.setItem(KEY, JSON.stringify(settings.value))
+    if (import.meta.client) writeStoredSettings(KEY, settings.value)
   }
 
   function applyProfile(id: AppProfile) {

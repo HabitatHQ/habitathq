@@ -1,10 +1,10 @@
 <script setup lang="ts">
 // New text jot — full page editor
-import { plannerDateKey } from '~/utils/planner'
+import { localDateString } from '@habitathq/utils'
 
 const store = useJotsStore()
 const saving = ref(false)
-const entryDate = plannerDateKey(new Date())
+const entryDate = localDateString(new Date())
 
 const textForm = reactive({
   title: '',

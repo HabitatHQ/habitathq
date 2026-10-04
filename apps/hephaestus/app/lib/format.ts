@@ -23,22 +23,6 @@ export function formatWeight(kg: number, unit: WeightUnit): string {
 }
 
 /**
- * Format a duration in seconds as a human-readable string.
- * < 60s  → "45s"
- * < 1h   → "1m 30s"
- * ≥ 1h   → "1h 5m"
- */
-export function formatDuration(totalSeconds: number): string {
-  if (totalSeconds < 60) return `${totalSeconds}s`
-  const h = Math.floor(totalSeconds / 3600)
-  const m = Math.floor((totalSeconds % 3600) / 60)
-  const s = totalSeconds % 60
-  if (h > 0) return `${h}h ${m}m`
-  if (s === 0) return `${m}m`
-  return `${m}m ${s}s`
-}
-
-/**
  * Format a countdown duration in MM:SS or M:SS format.
  * Used for rest timers where precision matters.
  * 120 → "2:00", 90 → "1:30", 45 → "0:45"
@@ -59,17 +43,6 @@ export function formatVolume(kg: number, unit: WeightUnit = 'kg'): string {
     return `${k}k ${unit}`
   }
   return `${Math.round(value)} ${unit}`
-}
-
-/**
- * Format a local Date as a YYYY-MM-DD string using local time zone.
- * Use instead of `.toISOString().slice(0,10)` which returns UTC.
- */
-export function localDateString(date: Date): string {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
 }
 
 /**

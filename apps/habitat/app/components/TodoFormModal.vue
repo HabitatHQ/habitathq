@@ -188,7 +188,7 @@ function jotKindIcon(kind: string | undefined): string {
 </script>
 
 <template>
-  <AppModal :model-value="open" @update:model-value="emit('update:open', $event)">
+  <AppBottomSheet :model-value="open" :closeable="false" @update:model-value="emit('update:open', $event)">
     <h2 class="text-lg font-semibold">{{ editingTodo ? 'Edit TODO' : 'New TODO' }}</h2>
 
     <div class="space-y-3">
@@ -347,5 +347,5 @@ function jotKindIcon(kind: string | undefined): string {
       <UButton color="primary" class="flex-1 min-h-[44px]" @click="handleSave">Save</UButton>
     </div>
     <div class="safe-area-bottom" aria-hidden="true" />
-  </AppModal>
+  </AppBottomSheet>
 </template>

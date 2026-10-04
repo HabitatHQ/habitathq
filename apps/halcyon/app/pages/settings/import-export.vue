@@ -199,7 +199,7 @@ async function importJSContact() {
         </div>
         <p class="text-sm text-zinc-400">Download a copy of all your data.</p>
         <div class="flex flex-wrap gap-2">
-          <UButton color="violet" variant="soft" :loading="exporting" icon="i-heroicons-document-text" @click="exportJSON">
+          <UButton color="primary" variant="soft" :loading="exporting" icon="i-heroicons-document-text" @click="exportJSON">
             JSON (full backup)
           </UButton>
           <UButton color="neutral" variant="soft" :loading="exporting" icon="i-heroicons-user-group" @click="exportVCard">
@@ -231,7 +231,7 @@ async function importJSContact() {
         <div v-if="importFile" class="flex gap-2 flex-wrap">
           <UButton
             v-if="importFile.name.endsWith('.vcf') || importFile.name.endsWith('.vcard')"
-            color="violet"
+            color="primary"
             variant="soft"
             :loading="importing"
             icon="i-heroicons-arrow-up-tray"
@@ -241,7 +241,7 @@ async function importJSContact() {
           </UButton>
           <UButton
             v-else-if="importFile.name.endsWith('.json')"
-            color="violet"
+            color="primary"
             variant="soft"
             :loading="importing"
             icon="i-heroicons-arrow-up-tray"
@@ -250,7 +250,7 @@ async function importJSContact() {
             Import JSContact
           </UButton>
           <template v-else>
-            <UButton color="violet" variant="soft" :loading="importing" @click="importVCard">
+            <UButton color="primary" variant="soft" :loading="importing" @click="importVCard">
               Import as vCard
             </UButton>
             <UButton color="neutral" variant="soft" :loading="importing" @click="importJSContact">

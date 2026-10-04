@@ -19,6 +19,7 @@ async function save() {
       name: form.name.trim(),
       website: form.website,
       description: form.description,
+      tags: [],
     })
     toast.add({ title: 'Company created', color: 'success' })
     router.push(`/companies/${c.id}`)
@@ -33,7 +34,7 @@ async function save() {
     <div class="flex items-center gap-3 px-4 pt-6 pb-4 sticky top-0 bg-zinc-950/90 backdrop-blur z-10">
       <UButton icon="i-heroicons-arrow-left" variant="ghost" color="neutral" to="/companies" />
       <h1 class="font-semibold text-zinc-100 flex-1">New company</h1>
-      <UButton color="violet" :loading="saving" :disabled="!form.name.trim()" @click="save">Create</UButton>
+      <UButton color="primary" :loading="saving" :disabled="!form.name.trim()" @click="save">Create</UButton>
     </div>
 
     <div class="px-4 space-y-3">
@@ -45,7 +46,7 @@ async function save() {
           <UInput v-model="form.website" placeholder="https://example.com" />
         </UFormField>
         <UFormField label="Description">
-          <UTextarea v-model="form.description" rows="3" placeholder="What do they do?" />
+          <UTextarea v-model="form.description" :rows="3" placeholder="What do they do?" />
         </UFormField>
       </div>
     </div>

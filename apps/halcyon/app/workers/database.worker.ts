@@ -1,4 +1,4 @@
-import { toDbAdapter } from '@habitathq/db'
+import { toDbAdapter } from '@palladium/core'
 import { BrowserSqliteAdapter } from '@palladium/sqlite-browser'
 import * as schema from '~/lib/db-schema'
 import * as shared from '~/lib/db-shared'

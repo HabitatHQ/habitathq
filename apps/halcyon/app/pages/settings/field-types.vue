@@ -71,7 +71,10 @@ async function saveEdit(ft: ContactFieldType) {
     protocol: editForm.protocol,
   })
   const idx = fieldTypes.value.findIndex((f) => f.id === ft.id)
-  if (idx !== -1) fieldTypes.value[idx] = { ...fieldTypes.value[idx], ...editForm }
+  if (idx !== -1) {
+    const fieldType = fieldTypes.value[idx]
+    if (fieldType) fieldTypes.value[idx] = { ...fieldType, ...editForm }
+  }
   editingId.value = null
   toast.add({ title: 'Field type updated', color: 'success' })
 }
@@ -88,7 +91,7 @@ async function deleteFieldType(id: string) {
     <div class="flex items-center gap-3 px-4 pt-6 pb-4 sticky top-0 bg-zinc-950/90 backdrop-blur z-10">
       <UButton icon="i-heroicons-arrow-left" variant="ghost" color="neutral" to="/settings" />
       <h1 class="font-semibold text-zinc-100 flex-1">Contact field types</h1>
-      <UButton icon="i-heroicons-plus" color="violet" variant="soft" size="sm" @click="showNew = !showNew">New</UButton>
+      <UButton icon="i-heroicons-plus" color="primary" variant="soft" size="sm" @click="showNew = !showNew">New</UButton>
     </div>
 
     <!-- New form -->
@@ -104,7 +107,7 @@ async function deleteFieldType(id: string) {
           <UInput v-model="newForm.protocol" placeholder="e.g. https://linkedin.com/in/" />
         </UFormField>
         <div class="flex gap-2">
-          <UButton color="violet" :loading="saving" :disabled="!newForm.name" @click="create">Create</UButton>
+          <UButton color="primary" :loading="saving" :disabled="!newForm.name" @click="create">Create</UButton>
           <UButton variant="ghost" color="neutral" @click="showNew = false">Cancel</UButton>
         </div>
       </div>
@@ -126,7 +129,7 @@ async function deleteFieldType(id: string) {
             <USelect v-model="editForm.icon" :options="iconOptions" />
             <UInput v-model="editForm.protocol" placeholder="Protocol" />
             <div class="flex gap-2">
-              <UButton size="xs" color="violet" @click="saveEdit(ft)">Save</UButton>
+              <UButton size="xs" color="primary" @click="saveEdit(ft)">Save</UButton>
               <UButton size="xs" variant="ghost" color="neutral" @click="editingId = null">Cancel</UButton>
             </div>
           </div>
@@ -139,9 +142,9 @@ async function deleteFieldType(id: string) {
               <p v-if="ft.protocol" class="text-xs text-zinc-500 truncate">{{ ft.protocol }}</p>
             </div>
             <div class="flex gap-1">
-              <UBadge v-if="ft.is_default" label="default" variant="subtle" color="violet" />
+              <UBadge v-if="ft.is_default" label="default" variant="subtle" color="primary" />
               <UButton size="xs" variant="ghost" icon="i-heroicons-pencil" @click="startEdit(ft)" />
-              <UButton v-if="!ft.is_default" size="xs" variant="ghost" color="red" icon="i-heroicons-trash" @click="deleteFieldType(ft.id)" />
+              <UButton v-if="!ft.is_default" size="xs" variant="ghost" color="error" icon="i-heroicons-trash" @click="deleteFieldType(ft.id)" />
             </div>
           </div>
         </template>

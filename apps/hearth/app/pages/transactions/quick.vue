@@ -387,13 +387,6 @@ async function scanReceipt() {
     scanningReceipt.value = false
   }
 }
-
-// Category name lookup
-function categoryLabel(id: string | null): string {
-  if (!id) return 'Uncategorized'
-  const cat = flatCategories.value.find((c) => c.id === id)
-  return cat ? `${cat.icon} ${cat.label}` : 'Uncategorized'
-}
 </script>
 
 <template>

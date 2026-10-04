@@ -1,8 +1,8 @@
 <script setup lang="ts">
+import { formatDate, localDateString } from '@habitathq/utils'
 import { useDatabase } from '~/composables/useDatabase'
 import { useVault } from '~/composables/useVault'
 import type { JournalEntry } from '~/types/database'
-import { localDateString } from '~/utils/format'
 
 const db = useDatabase()
 const { activeVaultId } = useVault()
@@ -29,13 +29,13 @@ watch(activeVaultId, load)
   <div class="max-w-2xl mx-auto px-4 py-6 space-y-4">
     <div class="flex items-center justify-between">
       <h1 class="text-2xl font-semibold text-zinc-100">Journal</h1>
-      <UButton :to="`/journal/${today}`" icon="i-heroicons-plus" color="violet" variant="soft" size="sm">
+      <UButton :to="`/journal/${today}`" icon="i-heroicons-plus" color="primary" variant="soft" size="sm">
         Today
       </UButton>
     </div>
 
-    <div v-if="loading" class="space-y-2">
-      <USkeleton v-for="i in 4" :key="i" class="h-16 rounded-xl" />
+    <div v-if="loading">
+      <AppSkeleton variant="row" :count="4" />
     </div>
 
     <template v-else-if="entries.length > 0">
@@ -53,12 +53,15 @@ watch(activeVaultId, load)
       </ul>
     </template>
 
-    <div v-else class="text-center py-16">
-      <UIcon name="i-heroicons-book-open" class="size-12 text-zinc-700 mx-auto mb-3" />
-      <p class="text-zinc-500 mb-4">No journal entries yet</p>
-      <UButton :to="`/journal/${today}`" color="violet" variant="soft">
-        Write today's entry
-      </UButton>
-    </div>
+    <AppEmptyState v-else title="No journal entries yet">
+      <template #icon>
+        <UIcon name="i-heroicons-book-open" class="size-12 text-zinc-700" />
+      </template>
+      <template #actions>
+        <UButton :to="`/journal/${today}`" color="primary" variant="soft">
+          Write today's entry
+        </UButton>
+      </template>
+    </AppEmptyState>
   </div>
 </template>

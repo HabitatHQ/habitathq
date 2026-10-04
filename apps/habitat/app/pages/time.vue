@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { localDateString } from '@habitathq/utils'
 import type { FocusSession, FocusSessionSummary, Todo } from '~/types/database'
 
 const db = useDatabase()
@@ -6,9 +7,11 @@ const timer = reactive(useTimer())
 const sessions = ref<FocusSession[]>([])
 const todos = ref<Todo[]>([])
 const summary = ref<FocusSessionSummary>({ session_count: 0, total_seconds: 0 })
-const today = ref(localDateKey(new Date()))
+const today = ref(localDateString(new Date()))
 const todaySessions = computed(() =>
-  sessions.value.filter((session) => localDateKey(new Date(session.completed_at)) === today.value),
+  sessions.value.filter(
+    (session) => localDateString(new Date(session.completed_at)) === today.value,
+  ),
 )
 const totalMinutes = computed(() =>
   Math.round(todaySessions.value.reduce((sum, session) => sum + session.duration_seconds, 0) / 60),
@@ -23,14 +26,8 @@ const averageMinutes = computed(() =>
     ? Math.round(summary.value.total_seconds / summary.value.session_count / 60)
     : 0,
 )
-function localDateKey(date: Date) {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
 function refreshToday() {
-  today.value = localDateKey(new Date())
+  today.value = localDateString(new Date())
 }
 const titleFor = (session: FocusSession) =>
   todos.value.find((todo) => todo.id === session.todo_id)?.title ?? 'Completed task'
@@ -117,7 +114,7 @@ onBeforeUnmount(() => {
           sessions.length
         }}</span>
       </div>
-      <EmptyState
+      <AppEmptyState
         v-if="!sessions.length"
         icon="timer"
         title="No completed focus sessions"

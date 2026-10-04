@@ -110,12 +110,16 @@ async function onImportFile(event: Event) {
     const data = JSON.parse(text) as HearthExport
     await db.importJson(data)
     importSuccess.value = true
-    importError.value = ''
-    setTimeout(() => location.reload(), 1000)
+    setTimeout(() => window.location.reload(), 1000)
   } catch (e) {
     importError.value = `Import failed: ${String(e)}`
   }
   if (importFileRef.value) importFileRef.value.value = ''
+}
+
+function resetSettings() {
+  reset()
+  window.location.reload()
 }
 
 function requestResetDatabase() {
@@ -124,7 +128,7 @@ function requestResetDatabase() {
 
 async function confirmResetDatabase() {
   await db.nukeOpfs()
-  location.reload()
+  window.location.reload()
 }
 
 // ─── Here be dragons ─────────────────────────────────────────────────────────
@@ -560,7 +564,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
         <!-- Reset settings -->
         <button
           class="flex items-center gap-3 w-full px-4 py-3.5 text-left hover:bg-(--ui-bg-elevated) transition-colors min-h-[44px]"
-          @click="reset(); location.reload()"
+          @click="resetSettings"
         >
           <AppIcon name="cog-6-tooth" class="w-5 h-5 text-(--ui-text-muted) shrink-0" />
           <div class="space-y-0.5">

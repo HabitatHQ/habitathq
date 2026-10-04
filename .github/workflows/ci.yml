@@ -55,8 +55,8 @@ jobs:
       - name: Lint & format check
         run: pnpm --filter ${{ matrix.app }} check
 
-      - name: Typecheck
-        run: pnpm --filter ${{ matrix.app }} typecheck
+      - name: Typecheck TypeScript and Vue
+        run: pnpm --filter ${{ matrix.app }} typecheck:all
 
       - name: Unit tests
         run: pnpm --filter ${{ matrix.app }} test:unit

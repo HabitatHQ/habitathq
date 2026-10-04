@@ -1,3 +1,4 @@
+import { readStoredSettings, writeStoredSettings } from '@habitathq/utils'
 import { readonly, ref } from 'vue'
 
 export type AppTheme = 'hearth' | 'forest' | 'ocean'
@@ -18,7 +19,7 @@ export interface AppSettings {
   voiceAutoSubmitTimeout: 0 | 1 | 2 | 3
 }
 
-const DEFAULTS: AppSettings = {
+const DEFAULTS = (): AppSettings => ({
   theme: 'hearth',
   colorMode: 'dark',
   reduceMotion: false,
@@ -30,24 +31,18 @@ const DEFAULTS: AppSettings = {
   defaultExpenseAccount: null,
   defaultIncomeAccount: null,
   voiceAutoSubmitTimeout: 2,
-}
+})
 
 const STORAGE_KEY = 'hearth-settings'
 
 function load(): AppSettings {
-  if (!import.meta.client) return { ...DEFAULTS }
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return { ...DEFAULTS }
-    return { ...DEFAULTS, ...JSON.parse(raw) }
-  } catch {
-    return { ...DEFAULTS }
-  }
+  if (!import.meta.client) return DEFAULTS()
+  return readStoredSettings<AppSettings>(STORAGE_KEY, { defaults: DEFAULTS })
 }
 
-function save(s: AppSettings) {
+function save(settings: AppSettings) {
   if (!import.meta.client) return
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(s))
+  writeStoredSettings(STORAGE_KEY, settings)
 }
 
 // Module-level reactive state — shared across all composable calls
@@ -60,7 +55,7 @@ export function useAppSettings() {
   }
 
   function reset() {
-    settings.value = { ...DEFAULTS }
+    settings.value = DEFAULTS()
     save(settings.value)
   }
 

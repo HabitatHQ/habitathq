@@ -386,7 +386,7 @@ test.describe('Issue #12 — modal card padding is p-5 (20px) on all pages', () 
     }
     if (!(await card.isVisible().catch(() => false))) { test.skip(); return }
 
-    // AppModal applies padding on inner children (title: px-5 pt-5, content: px-5 py-4),
+    // AppBottomSheet applies padding on inner children (title: px-5 pt-5, content: px-5 py-4),
     // not on the card wrapper. Check the scrollable content area's horizontal padding.
     const contentArea = card.locator('.overflow-y-auto').first()
     if (!(await contentArea.isVisible().catch(() => false))) { test.skip(); return }

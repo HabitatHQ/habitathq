@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { formatDuration, localDateString } from '~/lib/format'
+import { formatDurationSeconds as formatDuration, localDateString } from '@habitathq/utils'
 import type { ReadinessResult } from '~/lib/readiness'
 import type { WorkoutRow } from '~/types/database'
 

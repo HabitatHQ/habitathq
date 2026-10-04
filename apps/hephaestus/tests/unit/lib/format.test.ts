@@ -1,5 +1,6 @@
+import { formatDurationSeconds as formatDuration } from '@habitathq/utils'
 import { describe, expect, it } from 'vitest'
-import { formatDuration, formatVolume, formatWeight, isoWeek, kgToLbs, lbsToKg } from '~/lib/format'
+import { formatVolume, formatWeight, isoWeek, kgToLbs, lbsToKg } from '~/lib/format'
 
 describe('kgToLbs', () => {
   it('converts 100kg to 220.46 lbs', () => {

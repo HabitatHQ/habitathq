@@ -1,39 +1,12 @@
+import { useHaptics as useSharedHaptics } from '@habitathq/shared/app/composables/useHaptics'
+import { computed } from 'vue'
+
 /**
- * Habitat-specific haptics — respects the app's enableHaptics setting.
- * Uses usePlatform from the shared layer for native detection.
+ * Habitat binds the shared haptic implementation to its enableHaptics setting.
  */
 export function useHaptics() {
   const { settings } = useAppSettings()
-  const { isNative } = usePlatform()
-
-  function isDisabled(): boolean {
-    if (!isNative.value) return true
-    return settings.value.enableHaptics === false
-  }
-
-  async function impact(style: 'light' | 'medium' | 'heavy' = 'medium') {
-    if (isDisabled()) return
-    const { Haptics, ImpactStyle } = await import('@capacitor/haptics')
-    const map = { light: ImpactStyle.Light, medium: ImpactStyle.Medium, heavy: ImpactStyle.Heavy }
-    await Haptics.impact({ style: map[style] })
-  }
-
-  async function notification(type: 'success' | 'warning' | 'error' = 'success') {
-    if (isDisabled()) return
-    const { Haptics, NotificationType } = await import('@capacitor/haptics')
-    const map = {
-      success: NotificationType.Success,
-      warning: NotificationType.Warning,
-      error: NotificationType.Error,
-    }
-    await Haptics.notification({ type: map[type] })
-  }
-
-  async function selectionChanged() {
-    if (isDisabled()) return
-    const { Haptics } = await import('@capacitor/haptics')
-    await Haptics.selectionChanged()
-  }
-
-  return { impact, notification, selectionChanged }
+  return useSharedHaptics({
+    enabled: computed(() => settings.value.enableHaptics !== false),
+  })
 }

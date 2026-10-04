@@ -1,6 +1,6 @@
 <script setup lang="ts">
+import { localDateString } from '@habitathq/utils'
 import type { CheckinTemplate } from '~/types/database'
-import { toLocalDateKey } from '~/utils/format'
 
 const db = useDatabase()
 const toast = useToast()
@@ -18,7 +18,7 @@ const loadError = ref<string | null>(null)
 async function loadTemplates() {
   try {
     templates.value = await db.getCheckinTemplates()
-    const today = toLocalDateKey(new Date())
+    const today = localDateString(new Date())
     const summary = await db.getCheckinSummaryForDate(today)
     todaySummary.value = new Map(
       summary.map((s) => [s.template_id, { count: s.response_count, completed: s.is_completed }]),
@@ -142,7 +142,7 @@ async function openCreate() {
         </AppCard>
       </ul>
 
-      <EmptyState
+      <AppEmptyState
         v-if="templates.length === 0"
         icon="pencil-square"
         title="No check-ins yet"
@@ -153,7 +153,7 @@ async function openCreate() {
             Create Check-in
           </UButton>
         </template>
-      </EmptyState>
+      </AppEmptyState>
     </div>
 
   </div>

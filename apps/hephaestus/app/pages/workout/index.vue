@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { formatDurationSeconds as formatDuration } from '@habitathq/utils'
 import WorkoutRoutineReview from '~/components/routines/WorkoutRoutineReview.vue'
 import type { EquipmentProfile } from '~/lib/equipment'
-import { formatDuration, formatWeight } from '~/lib/format'
+import { formatWeight } from '~/lib/format'
 import { sessionLabel } from '~/lib/history'
 import { historicalWeightSuggestion } from '~/lib/progression'
 import type { WorkoutSummary } from '~/lib/workout-storage'

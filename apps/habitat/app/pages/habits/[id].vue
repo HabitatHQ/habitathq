@@ -866,8 +866,8 @@ onMounted(() => {
     </AppBottomSheet>
 
     <!-- ── Archive confirm ─────────────────────────────────────────────────────── -->
-    <ConfirmDialog
-      :open="showArchiveConfirm"
+    <AppConfirmDialog
+      :model-value="showArchiveConfirm"
       icon="archive-box"
       icon-color="amber"
       :title="`Archive &quot;${habit?.name}&quot;?`"
@@ -876,7 +876,7 @@ onMounted(() => {
       confirm-color="warning"
       @confirm="archiveHabit"
       @cancel="showArchiveConfirm = false"
-      @update:open="(v) => (showArchiveConfirm = v)"
+      @update:model-value="(v) => (showArchiveConfirm = v)"
     />
 
     <!-- ── Log sheet for NUMERIC / LIMIT habits ──────────────────────────────── -->

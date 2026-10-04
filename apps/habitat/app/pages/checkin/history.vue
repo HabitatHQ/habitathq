@@ -1,7 +1,7 @@
 <script setup lang="ts">
+import { localDateString } from '@habitathq/utils'
 import { computed, onMounted, ref, watch } from 'vue'
 import type { CheckinEntry, CheckinHistoryRow } from '~/types/database'
-import { toLocalDateKey } from '~/utils/format'
 
 const { getCheckinHistory, getCheckinEntries, getCheckinResponseDates } = useDatabase()
 const { impact } = useHaptics()
@@ -10,7 +10,7 @@ const { impact } = useHaptics()
 
 const loading = ref(true)
 const viewMode = ref<'calendar' | 'timeline'>('calendar')
-const todayKey = toLocalDateKey(new Date())
+const todayKey = localDateString(new Date())
 
 // Dates that have *any* check-in data
 const activeDates = ref<Set<string>>(new Set())
@@ -283,7 +283,7 @@ function toggleText(id: string) {
           <AppIcon name="arrow-path" class="w-5 h-5 animate-spin" />
         </div>
         <div v-else-if="!selectedDayData || (selectedDayData.templates.size === 0 && selectedDayData.entries.length === 0)">
-          <EmptyState icon="calendar" title="No check-ins" description="There are no check-ins recorded for this date." />
+          <AppEmptyState icon="calendar" title="No check-ins" description="There are no check-ins recorded for this date." />
         </div>
         <div v-else class="space-y-4">
           <!-- Template Cards -->
@@ -377,7 +377,7 @@ function toggleText(id: string) {
         <AppIcon name="arrow-path" class="w-6 h-6 animate-spin text-(--ui-text-dimmed)" />
       </div>
       <div v-else-if="timelineDays.length === 0">
-        <EmptyState icon="list-bullet" title="No history found" description="No check-ins were found in the past 90 days." />
+        <AppEmptyState icon="list-bullet" title="No history found" description="No check-ins were found in the past 90 days." />
       </div>
       
       <div v-else class="space-y-8">

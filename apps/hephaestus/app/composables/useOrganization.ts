@@ -1,4 +1,4 @@
-import { localDateKey } from '~/lib/analytics'
+import { localDateString } from '@habitathq/utils'
 import type {
   OrganizationFilter,
   OrganizationOperation,
@@ -22,7 +22,7 @@ export function useOrganization() {
   }
   return {
     plans: () => request('ORGANIZATION_PLAN_LIST', {}),
-    savePlan: (name: string, active = true, startDate = localDateKey(), id?: string) =>
+    savePlan: (name: string, active = true, startDate = localDateString(new Date()), id?: string) =>
       request('ORGANIZATION_PLAN_SAVE', { ...(id ? { id } : {}), name, active, startDate }),
     appointments: (planId?: string) =>
       request('ORGANIZATION_APPOINTMENT_LIST', planId ? { planId } : {}),
@@ -50,14 +50,14 @@ export function useOrganization() {
     previewSchedule: (
       planId: string,
       dates: { appointmentId: string; date: string; time?: string | null }[],
-      today = localDateKey(),
+      today = localDateString(new Date()),
     ) =>
       request('ORGANIZATION_SCHEDULE_PREVIEW', {
         planId,
         dates: dates.map((item) => ({ ...item })),
         today,
       }),
-    applySchedule: (previewId: string, fingerprint: string, today = localDateKey()) =>
+    applySchedule: (previewId: string, fingerprint: string, today = localDateString(new Date())) =>
       request('ORGANIZATION_SCHEDULE_APPLY', { previewId, fingerprint, today }),
     rotations: (planId?: string) => request('ORGANIZATION_ROTATION_LIST', planId ? { planId } : {}),
     saveRotation: (planId: string, name: string, routineIds: string[], id?: string) =>
@@ -90,7 +90,7 @@ export function useOrganization() {
     creditPreview: (workoutId: string) => request('ORGANIZATION_CREDIT_PREVIEW', { workoutId }),
     programWeek: (planId: string, date: string) =>
       request('ORGANIZATION_PROGRAM_WEEK', { planId, date }),
-    report: (startDate: string, endDate: string, today = localDateKey()) =>
+    report: (startDate: string, endDate: string, today = localDateString(new Date())) =>
       request('ORGANIZATION_REPORT', { startDate, endDate, today }),
   }
 }

@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+afterEach(() => vi.restoreAllMocks())
 
 // ── useAppSettings ────────────────────────────────────────────────────────
 // Import fresh module state via vi.resetModules() + dynamic import so each
@@ -160,15 +162,30 @@ describe('useAppSettings — localStorage', () => {
     localStorage.clear()
   })
 
-  it('merges partial stored values with defaults', async () => {
-    // Pre-populate localStorage with a partial settings object
+  it('hydrates partial object records over defaults', async () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ theme: 'forest' }))
-    // Since module state is shared, use reset() path instead of re-import.
-    // We test the merge logic directly.
-    const { useAppSettings } = await import('~/composables/useAppSettings')
-    const { settings, reset } = useAppSettings()
-    reset() // resets to DEFAULTS, not localStorage — this verifies reset() ignores storage
-    expect(settings.value.theme).toBe('hearth') // reset always goes to DEFAULTS
+    vi.resetModules()
+    const { useAppSettings } = await import('../../app/composables/useAppSettings')
+    const { settings } = useAppSettings()
+    expect(settings.value.theme).toBe('forest')
+    expect(settings.value.currency).toBe('USD')
+  })
+
+  it.each(['{', 'null', '[]', '42'])('defaults malformed or non-record stored JSON (%s)', async (raw) => {
+    localStorage.setItem(STORAGE_KEY, raw)
+    vi.resetModules()
+    const { useAppSettings } = await import('../../app/composables/useAppSettings')
+    expect(useAppSettings().settings.value.theme).toBe('hearth')
+  })
+
+  it('propagates storage write errors from set', async () => {
+    vi.resetModules()
+    const { useAppSettings } = await import('../../app/composables/useAppSettings')
+    const { set } = useAppSettings()
+    vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+      throw new Error('quota exceeded')
+    })
+    expect(() => set('theme', 'ocean')).toThrow('quota exceeded')
   })
 
   it('set() stores complete settings object (not partial)', async () => {

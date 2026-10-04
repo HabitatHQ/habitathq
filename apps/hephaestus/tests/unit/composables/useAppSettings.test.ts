@@ -1,32 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ref } from 'vue'
-import type { AppSettings } from '~/composables/useAppSettings'
-
-// Mock Nuxt's useState so we can test the composable in isolation
-vi.mock('#imports', () => ({
-  useState: <T>(_key: string, init: () => T) => ref(init()),
-  readonly: (r: ReturnType<typeof ref>) => r,
-}))
+import { readonly, ref } from 'vue'
+import type { AppSettings } from '../../../app/composables/useAppSettings'
+import { useAppSettings } from '../../../app/composables/useAppSettings'
 
 const KEY = 'hephaestus-app-settings'
-
-// Minimal localStorage mock
 let store: Record<string, string> = {}
+let failWrites = false
 const mockLocalStorage = {
   getItem: (key: string) => store[key] ?? null,
   setItem: (key: string, value: string) => {
+    if (failWrites) throw new Error('quota exceeded')
     store[key] = value
-  },
-  removeItem: (key: string) => {
-    delete store[key]
-  },
-  clear: () => {
-    store = {}
   },
 }
 
 beforeEach(() => {
   store = {}
+  failWrites = false
+  vi.stubGlobal('useState', <T>(_key: string, init: () => T) => ref(init()))
+  vi.stubGlobal('readonly', readonly)
   vi.stubGlobal('localStorage', mockLocalStorage)
 })
 
@@ -34,121 +26,83 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-const DEFAULTS: AppSettings = {
-  theme: 'hephaestus',
-  weightUnit: 'kg',
-  distanceUnit: 'km',
-  use24HourTime: false,
-  reduceMotion: false,
-  defaultRestSeconds: 120,
-  showRpe: true,
-  showRir: false,
+function replacement(overrides: Partial<AppSettings> = {}): AppSettings {
+  return {
+    theme: 'forge',
+    weightUnit: 'kg',
+    distanceUnit: 'km',
+    use24HourTime: false,
+    reduceMotion: false,
+    defaultRestSeconds: 120,
+    showRpe: true,
+    showRir: false,
+    warmupRamps: [25, 50],
+    showWarmupSuggestions: true,
+    showFailurePrompt: true,
+    showSessionNotes: true,
+    showSetSchemes: false,
+    showVariableRest: false,
+    showSupersets: false,
+    ...overrides,
+  }
 }
 
-// Test the core storage read/write logic without requiring Nuxt runtime
-describe('AppSettings storage logic', () => {
-  it('defaults have correct theme', () => {
-    expect(DEFAULTS.theme).toBe('hephaestus')
+describe('useAppSettings', () => {
+  it('hydrates stored object values over defaults and clones warmup ramps', async () => {
+    store[KEY] = JSON.stringify({ theme: 'daylight', warmupRamps: [30, 55] })
+    const { settings } = useAppSettings()
+    expect(settings.value.theme).toBe('daylight')
+    expect(settings.value.defaultRestSeconds).toBe(120)
+    expect(settings.value.warmupRamps).toEqual([30, 55])
   })
 
-  it('defaults have weightUnit kg', () => {
-    expect(DEFAULTS.weightUnit).toBe('kg')
+  it.each(['{', 'null', '[]', '42'])(
+    'falls back on malformed or non-record JSON (%s)',
+    async (raw) => {
+      store[KEY] = raw
+      expect(useAppSettings().settings.value.theme).toBe('hephaestus')
+    },
+  )
+
+  it('propagates write errors from set', async () => {
+    const { set } = useAppSettings()
+    failWrites = true
+    expect(() => set('theme', 'forge')).toThrow('quota exceeded')
   })
 
-  it('defaults have distanceUnit km', () => {
-    expect(DEFAULTS.distanceUnit).toBe('km')
+  it('writes persistent replacements before changing state or cloning ramps', async () => {
+    const { settings, replace } = useAppSettings()
+    const before = settings.value
+    const candidate = replacement()
+    failWrites = true
+
+    expect(() => replace(candidate)).toThrow('quota exceeded')
+    expect(settings.value).toBe(before)
+    expect(settings.value.theme).toBe('hephaestus')
+    expect(settings.value.warmupRamps).toEqual([40, 60, 80])
+    expect(candidate.warmupRamps).toEqual([25, 50])
   })
 
-  it('defaults have 120s rest', () => {
-    expect(DEFAULTS.defaultRestSeconds).toBe(120)
+  it('persists replacement settings without retaining the caller’s mutable ramps', async () => {
+    const { settings, replace } = useAppSettings()
+    const candidate = replacement()
+
+    replace(candidate)
+    candidate.warmupRamps.push(75)
+    expect(settings.value.warmupRamps).toEqual([25, 50])
+    const persisted = store[KEY]
+    if (persisted === undefined) throw new Error('Replacement settings were not persisted')
+    expect(JSON.parse(persisted)).toEqual(replacement())
   })
 
-  it('defaults show RPE', () => {
-    expect(DEFAULTS.showRpe).toBe(true)
-  })
+  it('clones replacement ramps before publishing a successful non-persistent restore', async () => {
+    const { settings, replace } = useAppSettings()
+    const candidate = replacement()
 
-  it('reads stored theme from localStorage', () => {
-    mockLocalStorage.setItem(KEY, JSON.stringify({ theme: 'forge' }))
-    const raw = mockLocalStorage.getItem(KEY)
-    const stored = { ...DEFAULTS, ...(raw ? (JSON.parse(raw) as Partial<AppSettings>) : {}) }
-    expect(stored.theme).toBe('forge')
-    // other defaults preserved
-    expect(stored.weightUnit).toBe('kg')
-  })
-
-  it('merges stored settings over defaults', () => {
-    mockLocalStorage.setItem(KEY, JSON.stringify({ weightUnit: 'lbs', distanceUnit: 'mi' }))
-    const raw = mockLocalStorage.getItem(KEY)
-    const stored = { ...DEFAULTS, ...(raw ? (JSON.parse(raw) as Partial<AppSettings>) : {}) }
-    expect(stored.weightUnit).toBe('lbs')
-    expect(stored.distanceUnit).toBe('mi')
-    expect(stored.theme).toBe('hephaestus') // default preserved
-  })
-
-  it('writes settings to localStorage', () => {
-    const current = { ...DEFAULTS, theme: 'daylight' as const }
-    mockLocalStorage.setItem(KEY, JSON.stringify(current))
-    const raw = mockLocalStorage.getItem(KEY)
-    expect(JSON.parse(raw ?? '{}').theme).toBe('daylight')
-  })
-
-  it('falls back to defaults when localStorage contains corrupted JSON', () => {
-    mockLocalStorage.setItem(KEY, 'not-valid-json{{{')
-    let result = DEFAULTS
-    try {
-      const raw = mockLocalStorage.getItem(KEY)
-      result = { ...DEFAULTS, ...(JSON.parse(raw ?? '{}') as Partial<AppSettings>) }
-    } catch {
-      result = { ...DEFAULTS }
-    }
-    expect(result.theme).toBe('hephaestus')
-  })
-
-  it('persists a numeric setting (defaultRestSeconds)', () => {
-    const current = { ...DEFAULTS, defaultRestSeconds: 90 }
-    mockLocalStorage.setItem(KEY, JSON.stringify(current))
-    const raw = mockLocalStorage.getItem(KEY)
-    const stored = { ...DEFAULTS, ...(JSON.parse(raw ?? '{}') as Partial<AppSettings>) }
-    expect(stored.defaultRestSeconds).toBe(90)
-    expect(typeof stored.defaultRestSeconds).toBe('number')
-  })
-
-  it('persists a boolean true setting (use24HourTime)', () => {
-    const current = { ...DEFAULTS, use24HourTime: true }
-    mockLocalStorage.setItem(KEY, JSON.stringify(current))
-    const raw = mockLocalStorage.getItem(KEY)
-    const stored = { ...DEFAULTS, ...(JSON.parse(raw ?? '{}') as Partial<AppSettings>) }
-    expect(stored.use24HourTime).toBe(true)
-  })
-
-  it('persists a boolean true setting (reduceMotion)', () => {
-    const current = { ...DEFAULTS, reduceMotion: true }
-    mockLocalStorage.setItem(KEY, JSON.stringify(current))
-    const raw = mockLocalStorage.getItem(KEY)
-    const stored = { ...DEFAULTS, ...(JSON.parse(raw ?? '{}') as Partial<AppSettings>) }
-    expect(stored.reduceMotion).toBe(true)
-  })
-
-  it('multiple settings can be updated independently', () => {
-    const step1 = { ...DEFAULTS, theme: 'forge' as const }
-    mockLocalStorage.setItem(KEY, JSON.stringify(step1))
-    const step2 = {
-      ...JSON.parse(mockLocalStorage.getItem(KEY) ?? '{}'),
-      weightUnit: 'lbs',
-    } as AppSettings
-    mockLocalStorage.setItem(KEY, JSON.stringify(step2))
-    const raw = mockLocalStorage.getItem(KEY)
-    const stored = { ...DEFAULTS, ...(JSON.parse(raw ?? '{}') as Partial<AppSettings>) }
-    expect(stored.theme).toBe('forge')
-    expect(stored.weightUnit).toBe('lbs')
-    expect(stored.distanceUnit).toBe('km') // unchanged
-  })
-
-  it('defaults have correct showRir value', () => {
-    expect(DEFAULTS.showRir).toBe(false)
-  })
-
-  it('defaults have correct use24HourTime value', () => {
-    expect(DEFAULTS.use24HourTime).toBe(false)
+    replace(candidate, false)
+    expect(settings.value).toEqual(candidate)
+    expect(settings.value.warmupRamps).not.toBe(candidate.warmupRamps)
+    candidate.warmupRamps.push(75)
+    expect(settings.value.warmupRamps).toEqual([25, 50])
   })
 })

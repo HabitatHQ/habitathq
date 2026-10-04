@@ -1,8 +1,8 @@
 <script setup lang="ts">
+import { formatDate, formatRelativeTime, localDateString } from '@habitathq/utils'
 import { useDatabase } from '~/composables/useDatabase'
 import { useVault } from '~/composables/useVault'
 import type { DashboardData } from '~/types/database'
-import { localDateString } from '~/utils/format'
 
 const db = useDatabase()
 const { activeVaultId } = useVault()
@@ -41,7 +41,7 @@ const isEmpty = computed(
         <h1 class="text-2xl font-semibold text-zinc-100">Home</h1>
         <p class="text-sm text-zinc-500 mt-0.5">{{ formatDate(today) }}</p>
       </div>
-      <UButton to="/contacts/new" icon="i-heroicons-plus" color="violet" variant="soft" size="sm">
+      <UButton to="/contacts/new" icon="i-heroicons-plus" color="primary" variant="soft" size="sm">
         Add contact
       </UButton>
     </header>
@@ -85,7 +85,7 @@ const isEmpty = computed(
             <UButton
               size="xs"
               variant="soft"
-              color="violet"
+              color="primary"
               :to="`/contacts/${sit.contact.id}/interactions/new`"
             >
               Log
@@ -198,7 +198,7 @@ const isEmpty = computed(
           <p class="text-zinc-300 font-medium">Your relationship manager is ready</p>
           <p class="text-zinc-500 text-sm mt-1">Add contacts to see reminders, birthdays, and stay in touch.</p>
         </div>
-        <UButton to="/contacts/new" color="violet" variant="soft" icon="i-heroicons-plus">
+        <UButton to="/contacts/new" color="primary" variant="soft" icon="i-heroicons-plus">
           Add your first contact
         </UButton>
       </div>
@@ -207,7 +207,7 @@ const isEmpty = computed(
     <!-- No vault yet -->
     <div v-else-if="!activeVaultId && !loading" class="text-center py-16 space-y-4">
       <p class="text-zinc-500">Set up a vault to get started.</p>
-      <UButton to="/settings/vault" color="violet" variant="soft">Open settings</UButton>
+      <UButton to="/settings/vault" color="primary" variant="soft">Open settings</UButton>
     </div>
   </div>
 </template>
