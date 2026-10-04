@@ -325,12 +325,7 @@ const INSTALL_FTS_TRIGGERS = `
     INSERT INTO contacts_fts(contacts_fts, rowid, id, first_name, last_name, nickname)
     VALUES ('delete', old.rowid, old.id, old.first_name, old.last_name, old.nickname);
   END;
-  CREATE TRIGGER IF NOT EXISTS contacts_fts_au AFTER UPDATE ON contacts BEGIN
-    INSERT INTO contacts_fts(contacts_fts, rowid, id, first_name, last_name, nickname)
-    VALUES ('delete', old.rowid, old.id, old.first_name, old.last_name, old.nickname);
-    INSERT INTO contacts_fts(rowid, id, first_name, last_name, nickname)
-    VALUES (new.rowid, new.id, new.first_name, new.last_name, new.nickname);
-  END;
+  CREATE TRIGGER IF NOT EXISTS contacts_fts_au AFTER UPDATE ON contacts BEGIN INSERT INTO contacts_fts(contacts_fts, rowid, id, first_name, last_name, nickname) VALUES ('delete', old.rowid, old.id, old.first_name, old.last_name, old.nickname); INSERT INTO contacts_fts(rowid, id, first_name, last_name, nickname) VALUES (new.rowid, new.id, new.first_name, new.last_name, new.nickname); END;
   CREATE TRIGGER IF NOT EXISTS notes_fts_ai AFTER INSERT ON notes BEGIN
     INSERT INTO notes_fts(rowid, id, contact_id, body)
     VALUES (new.rowid, new.id, new.contact_id, new.body);
@@ -339,12 +334,7 @@ const INSTALL_FTS_TRIGGERS = `
     INSERT INTO notes_fts(notes_fts, rowid, id, contact_id, body)
     VALUES ('delete', old.rowid, old.id, old.contact_id, old.body);
   END;
-  CREATE TRIGGER IF NOT EXISTS notes_fts_au AFTER UPDATE ON notes BEGIN
-    INSERT INTO notes_fts(notes_fts, rowid, id, contact_id, body)
-    VALUES ('delete', old.rowid, old.id, old.contact_id, old.body);
-    INSERT INTO notes_fts(rowid, id, contact_id, body)
-    VALUES (new.rowid, new.id, new.contact_id, new.body);
-  END;
+  CREATE TRIGGER IF NOT EXISTS notes_fts_au AFTER UPDATE ON notes BEGIN INSERT INTO notes_fts(notes_fts, rowid, id, contact_id, body) VALUES ('delete', old.rowid, old.id, old.contact_id, old.body); INSERT INTO notes_fts(rowid, id, contact_id, body) VALUES (new.rowid, new.id, new.contact_id, new.body); END;
 `
 
 export async function runMigrations(db: DbAdapter): Promise<void> {
