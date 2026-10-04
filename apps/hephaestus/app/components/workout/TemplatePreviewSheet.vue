@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDurationMinutes } from '@habitathq/utils'
 import type { TemplateExerciseWithName } from '~/composables/useTemplates'
 import { estimateTemplateDuration } from '~/lib/template-stats'
 import type { SessionType, TemplateRow } from '~/types/database'
@@ -58,11 +59,6 @@ const hasDuplicateExercise = computed(() => {
   return ids.length !== new Set(ids).size
 })
 
-function formatDuration(secs: number): string {
-  const m = Math.round(secs / 60)
-  return `~${m} min`
-}
-
 function toggleExercise(exerciseId: string) {
   if (excludedExerciseIds.value.has(exerciseId)) {
     excludedExerciseIds.value.delete(exerciseId)
@@ -102,7 +98,7 @@ const scalePercent = computed({
         <div>
           <h2 class="font-bold">{{ template.name }}</h2>
           <p class="text-xs text-(--ui-text-muted)">
-            {{ exercises.length }} exercises · {{ formatDuration(estimatedSecs) }}
+            {{ exercises.length }} exercises · ~{{ formatDurationMinutes(Math.round(estimatedSecs / 60)) }}
           </p>
         </div>
         <button class="text-(--ui-text-muted)" aria-label="Close" @click="emit('close')">

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { localDateString } from '@habitathq/utils'
+import { addCalendarDays, formatCalendarDate, localCalendarDate } from '@habitathq/utils'
 import { isStruggling, type StreakInput } from '~/lib/streak-engine'
 import type {
   BoredOracleResult,
@@ -28,25 +28,17 @@ watchEffect(() => {
 })
 
 const _now = new Date()
-const today = localDateString(_now)
+const today = localCalendarDate(_now)
 const legacyUtcTodayKeys = legacyUtcKeysForLocalDay(_now)
 const todayDayOfWeek = _now.getDay()
-const dayName = _now.toLocaleDateString('en-US', { weekday: 'long' })
-const dateStr = _now.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })
+const dayName = formatCalendarDate(today, { locale: 'en-US', weekday: 'long' })
+const dateStr = formatCalendarDate(today, { locale: 'en-US', month: 'long', day: 'numeric' })
 
 // Get current week start (Sunday)
-const weekStart = (() => {
-  const d = new Date()
-  d.setDate(d.getDate() - d.getDay())
-  return localDateString(d)
-})()
+const weekStart = addCalendarDays(today, -todayDayOfWeek)
 
 // 15-day window for the struggling-habit detector (needs ~2 weeks of history).
-const histStart = (() => {
-  const d = new Date()
-  d.setDate(d.getDate() - 15)
-  return localDateString(d)
-})()
+const histStart = addCalendarDays(today, -15)
 
 const habits = ref<HabitWithSchedule[]>([])
 const completions = ref<Completion[]>([])
@@ -261,7 +253,7 @@ async function loadVoiceCount() {
   try {
     const rows = await db.getVoiceNotes()
     todayVoiceCount.value = rows.filter(
-      (n) => localDateString(new Date(n.created_at)) === today,
+      (n) => localCalendarDate(new Date(n.created_at)) === today,
     ).length
   } catch {
     todayVoiceCount.value = 0
@@ -388,9 +380,7 @@ async function pauseStrugglingToday(h: HabitWithSchedule) {
   if (pausingId.value) return
   pausingId.value = h.id
   try {
-    const until = new Date()
-    until.setDate(until.getDate() + 7)
-    await db.pauseHabit(h.id, localDateString(until))
+    await db.pauseHabit(h.id, addCalendarDays(today, 7))
     await load()
     toast.add({ title: `"${h.name}" paused for a week`, color: 'success', duration: 3000 })
   } catch (e) {

@@ -1,3 +1,4 @@
+import { addCalendarDays, localCalendarDate, parseDateString } from '@habitathq/utils'
 import type { TemplateRow } from '~/types/database'
 
 const PUSH_MOVEMENTS = new Set(['press'])
@@ -22,8 +23,13 @@ export function findNeglectedTemplates(
   thresholdDays: number,
   refDate: Date,
 ): TemplateRow[] {
-  const cutoff = new Date(refDate)
-  cutoff.setDate(cutoff.getDate() - thresholdDays)
+  const cutoff = parseDateString(addCalendarDays(localCalendarDate(refDate), -thresholdDays))
+  cutoff.setHours(
+    refDate.getHours(),
+    refDate.getMinutes(),
+    refDate.getSeconds(),
+    refDate.getMilliseconds(),
+  )
 
   return templates.filter((t) => {
     if (!t.last_used_at) return true

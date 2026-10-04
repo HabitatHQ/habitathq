@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { localDateString } from '@habitathq/utils'
+import { localCalendarDate } from '@habitathq/utils'
 import type { RankedTag } from '~/composables/useTagSuggestions'
 import type { BoredCategory, Todo } from '~/types/database'
 import { buildTodoPayload, validateTodoForm } from '~/utils/todos-helpers'
@@ -135,7 +135,7 @@ async function openJotPicker() {
       ...voices.map((v) => ({
         kind: 'voice' as const,
         id: v.id,
-        label: `Voice note — ${localDateString(new Date(v.created_at))}`,
+        label: `Voice note — ${localCalendarDate(new Date(v.created_at))}`,
       })),
       ...images.map((i) => ({ kind: 'image' as const, id: i.id, label: i.filename })),
     ]

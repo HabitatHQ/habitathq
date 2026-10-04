@@ -1,3 +1,4 @@
+import { localCalendarDate } from '@habitathq/utils'
 import { describe, expect, it } from 'vitest'
 import type { Reminder } from '~/types/database'
 import {
@@ -133,7 +134,7 @@ describe('stayInTouchNextDate — edge cases', () => {
       frequency_days: 1,
       last_contacted_at: yesterday.toISOString(),
     })
-    const today = new Date().toISOString().slice(0, 10)
+    const today = localCalendarDate()
     expect(result).toBe(today)
   })
 

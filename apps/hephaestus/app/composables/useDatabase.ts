@@ -62,8 +62,8 @@ export function useDatabase() {
     return sendToWorker<void>({ type: 'MARK_DEFAULT_APPLIED', payload: { key } })
   }
 
-  function clearLocalData(): Promise<void> {
-    return sendToWorker<void>({ type: 'RESET_LOCAL_DATA' })
+  function resetDatabase(): Promise<void> {
+    return sendToWorker<void>({ type: 'RESET_DATABASE' })
   }
 
   return {
@@ -78,6 +78,6 @@ export function useDatabase() {
     transfer,
     isDefaultApplied,
     markDefaultApplied,
-    clearLocalData,
+    resetDatabase,
   }
 }

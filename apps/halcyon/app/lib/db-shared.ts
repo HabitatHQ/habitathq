@@ -1,4 +1,10 @@
-import { safeJsonParse } from '@habitathq/utils'
+import {
+  addCalendarDays,
+  differenceInCalendarDays,
+  localCalendarDate,
+  parseCalendarDate,
+  safeJsonParse,
+} from '@habitathq/utils'
 import * as parse from '~/lib/db-parsers'
 import type {
   Address,
@@ -36,7 +42,10 @@ import type {
   Vault,
   WorkerRequestBody,
 } from '~/types/database'
-import { stayInTouchNextDate } from '~/utils/reminder-helpers'
+import {
+  nextBirthdayDate as reminderNextBirthdayDate,
+  stayInTouchNextDate,
+} from '~/utils/reminder-helpers'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -1156,10 +1165,8 @@ export async function getUpcomingReminders(
   vault_id: string,
   days: number,
 ): Promise<Array<{ contact: Contact; reminder: Reminder; days_away: number }>> {
-  const today = new Date().toISOString().slice(0, 10)
-  const future = new Date()
-  future.setDate(future.getDate() + days)
-  const until = future.toISOString().slice(0, 10)
+  const today = localCalendarDate()
+  const until = addCalendarDays(today, days)
 
   const rows = await db.queryAll(
     `SELECT r.*, c.* FROM reminders r
@@ -1173,9 +1180,7 @@ export async function getUpcomingReminders(
   return rows.map((r) => {
     const reminder = parse.rowToReminder(r)
     const contact = parse.rowToContact(r)
-    const daysAway = Math.round(
-      (new Date(reminder.remind_at).getTime() - new Date(today).getTime()) / 86_400_000,
-    )
+    const daysAway = differenceInCalendarDays(reminder.remind_at, today)
     return { contact, reminder, days_away: daysAway }
   })
 }
@@ -1245,7 +1250,7 @@ export async function getOverdueStayInTouch(
   db: DbAdapter,
   vault_id: string,
 ): Promise<StayInTouchWithContact[]> {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localCalendarDate()
   const rows = await db.queryAll(
     `SELECT s.*, c.* FROM stay_in_touch s
      JOIN contacts c ON c.id = s.contact_id
@@ -1545,20 +1550,15 @@ export async function getDashboard(db: DbAdapter, vault_id: string): Promise<Das
   const overdue_stay_in_touch = await getOverdueStayInTouch(db, vault_id)
   const recent_interactions = await getInteractions(db, vault_id, undefined, 10)
 
-  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayStr = localCalendarDate()
   const allContacts = await getContacts(db, vault_id)
   const upcoming_birthdays: DashboardData['upcoming_birthdays'] = []
   for (const contact of allContacts) {
     if (!contact.birthday) continue
-    const [birthYearStr, month, day] = contact.birthday.split('-') as [string, string, string]
-    const birthYear = Number(birthYearStr)
-    const todayYear = Number(todayStr.slice(0, 4))
-    let nextBirthday = `${todayYear}-${month}-${day}`
-    if (nextBirthday < todayStr) nextBirthday = `${todayYear + 1}-${month}-${day}`
-    const days_away = Math.round(
-      (new Date(nextBirthday).getTime() - new Date(todayStr).getTime()) / 86400000,
-    )
+    const nextBirthday = reminderNextBirthdayDate(contact.birthday, todayStr)
+    const days_away = differenceInCalendarDays(nextBirthday, todayStr)
     if (days_away <= 30) {
+      const birthYear = parseCalendarDate(contact.birthday).year
       const nextYear = Number(nextBirthday.slice(0, 4))
       upcoming_birthdays.push({
         contact,
@@ -2034,10 +2034,8 @@ export async function dispatch(db: DbAdapter, req: WorkerRequestBody): Promise<u
     // EXPORT_VAULT is handled by the worker directly (not dispatched here)
     case 'EXPORT_VAULT':
       return exportVault(db, req.payload.vault_id)
-
-    // NUKE_OPFS is handled by the worker/native layer directly
-    case 'NUKE_OPFS':
-      return null
+    case 'RESET_DATABASE':
+      throw new Error('RESET_DATABASE must be handled by the database runtime')
 
     default:
       req satisfies never

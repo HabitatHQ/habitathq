@@ -446,7 +446,7 @@ export type WorkerRequestBody =
   | { type: 'GET_DASHBOARD'; payload: { vault_id: string } }
   // Export/Import
   | { type: 'EXPORT_VAULT'; payload: { vault_id: string } }
-  | { type: 'NUKE_OPFS' }
+  | { type: 'RESET_DATABASE' }
 
 export type WorkerRequest = WorkerRequestBody & { id: string }
 

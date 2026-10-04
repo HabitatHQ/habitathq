@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import AppOperationFeedback from '@habitathq/shared/app/components/AppOperationFeedback.vue'
+import { downloadBlob } from '@habitathq/shared/app/composables/downloadBlob'
+import { useAsyncOperation } from '@habitathq/shared/app/composables/useAsyncOperation'
+import { localCalendarDate } from '@habitathq/utils'
 import { useDatabase } from '~/composables/useDatabase'
 import { useVault } from '~/composables/useVault'
 import { contactToVCard, parseVCardBlock } from '~/utils/import-export-helpers'
@@ -8,27 +12,32 @@ const db = useDatabase()
 const { activeVaultId } = useVault()
 
 // Export
-const exporting = ref(false)
-const exportDone = ref(false)
-
-async function exportJSON() {
-  if (!activeVaultId.value) return
-  exporting.value = true
-  try {
+const exportOperation = useAsyncOperation({
+  action: async (format: 'json' | 'vcard' | 'jscontact') => {
+    if (!activeVaultId.value) throw new Error('Select a vault before exporting')
     const data = await db.exportVault(activeVaultId.value)
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `halcyon-export-${new Date().toISOString().slice(0, 10)}.json`
-    a.click()
-    URL.revokeObjectURL(url)
-    exportDone.value = true
-    setTimeout(() => (exportDone.value = false), 3000)
-  } finally {
-    exporting.value = false
-  }
-}
+    if (format === 'json') {
+      downloadBlob(
+        new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+        `halcyon-export-${localCalendarDate()}.json`,
+      )
+      return
+    }
+    if (format === 'vcard') {
+      const vcards = data.contacts.map((c) => contactToVCard(c, buildFieldsWithType(data, c.id)))
+      downloadBlob(
+        new Blob([vcards.join('\n\n')], { type: 'text/vcard' }),
+        `halcyon-contacts-${localCalendarDate()}.vcf`,
+      )
+      return
+    }
+    const cards = data.contacts.map((c) => contactToJSContact(c, buildFieldsWithType(data, c.id)))
+    downloadBlob(
+      new Blob([JSON.stringify(cards, null, 2)], { type: 'application/json' }),
+      `halcyon-jscontact-${localCalendarDate()}.json`,
+    )
+  },
+})
 
 function buildFieldsWithType(data: Awaited<ReturnType<typeof db.exportVault>>, contactId: string) {
   const fields = data.contact_fields.filter((f) => f.contact_id === contactId)
@@ -38,63 +47,25 @@ function buildFieldsWithType(data: Awaited<ReturnType<typeof db.exportVault>>, c
   }))
 }
 
-async function exportVCard() {
-  if (!activeVaultId.value) return
-  exporting.value = true
-  try {
-    const data = await db.exportVault(activeVaultId.value)
-    const vcards = data.contacts.map((c) => contactToVCard(c, buildFieldsWithType(data, c.id)))
-    const blob = new Blob([vcards.join('\n\n')], { type: 'text/vcard' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `halcyon-contacts-${new Date().toISOString().slice(0, 10)}.vcf`
-    a.click()
-    URL.revokeObjectURL(url)
-  } finally {
-    exporting.value = false
-  }
-}
-
-async function exportJSContact() {
-  if (!activeVaultId.value) return
-  exporting.value = true
-  try {
-    const data = await db.exportVault(activeVaultId.value)
-    const cards = data.contacts.map((c) => contactToJSContact(c, buildFieldsWithType(data, c.id)))
-    const blob = new Blob([JSON.stringify(cards, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `halcyon-jscontact-${new Date().toISOString().slice(0, 10)}.json`
-    a.click()
-    URL.revokeObjectURL(url)
-  } finally {
-    exporting.value = false
-  }
+function runExport(format: 'json' | 'vcard' | 'jscontact') {
+  void exportOperation.run(format).catch(() => {})
 }
 
 // Import
 const importFile = ref<File | null>(null)
-const importing = ref(false)
 const importResult = ref<{ added: number; errors: number } | null>(null)
-const importError = ref('')
 
-function onFileChange(e: Event) {
-  const target = e.target as HTMLInputElement
-  importFile.value = target.files?.[0] ?? null
-  importResult.value = null
-  importError.value = ''
-}
-
-async function createContactFromParsed(parsed: {
+type ParsedContact = {
   first_name: string
   last_name: string
   nickname: string
   birthday: string | null
-}) {
+}
+
+async function createContactFromParsed(parsed: ParsedContact) {
+  if (!activeVaultId.value) throw new Error('Select a vault before importing')
   await db.createContact({
-    vault_id: activeVaultId.value!,
+    vault_id: activeVaultId.value,
     first_name: parsed.first_name || 'Unknown',
     last_name: parsed.last_name,
     nickname: parsed.nickname,
@@ -113,73 +84,67 @@ async function createContactFromParsed(parsed: {
   })
 }
 
-async function importVCard() {
-  if (!importFile.value || !activeVaultId.value) return
-  importing.value = true
-  importResult.value = null
-  importError.value = ''
-  try {
+const importOperation = useAsyncOperation({
+  action: async (format: 'vcard' | 'jscontact') => {
+    if (!importFile.value || !activeVaultId.value)
+      throw new Error('Choose a contact file to import')
     const text = await importFile.value.text()
-    const blocks = text
-      .split(/(?=BEGIN:VCARD)/i)
-      .map((b) => b.trim())
-      .filter((b) => /^BEGIN:VCARD/i.test(b))
-
     let added = 0
     let errors = 0
-    for (const block of blocks) {
-      try {
-        const parsed = parseVCardBlock(block)
-        if (!parsed.first_name && !parsed.last_name) {
+
+    if (format === 'vcard') {
+      const blocks = text
+        .split(/(?=BEGIN:VCARD)/i)
+        .map((b) => b.trim())
+        .filter((b) => /^BEGIN:VCARD/i.test(b))
+      for (const block of blocks) {
+        try {
+          const parsed = parseVCardBlock(block)
+          if (!parsed.first_name && !parsed.last_name) {
+            errors++
+            continue
+          }
+          await createContactFromParsed(parsed)
+          added++
+        } catch {
           errors++
-          continue
         }
-        await createContactFromParsed(parsed)
-        added++
-      } catch {
-        errors++
+      }
+    } else {
+      const raw = JSON.parse(text)
+      // Accept a single card object or an array of cards.
+      const cards: unknown[] = Array.isArray(raw) ? raw : [raw]
+      for (const card of cards) {
+        try {
+          const parsed = parseJSContact(card as Record<string, unknown>)
+          if (!parsed.first_name && !parsed.last_name) {
+            errors++
+            continue
+          }
+          await createContactFromParsed(parsed)
+          added++
+        } catch {
+          errors++
+        }
       }
     }
-    importResult.value = { added, errors }
-  } catch (e) {
-    importError.value = e instanceof Error ? e.message : 'Failed to parse file'
-  } finally {
-    importing.value = false
-  }
+
+    return { added, errors }
+  },
+  onSuccess: (result) => {
+    importResult.value = result
+  },
+})
+
+function onFileChange(e: Event) {
+  const target = e.target as HTMLInputElement
+  importFile.value = target.files?.[0] ?? null
+  importResult.value = null
+  importOperation.reset()
 }
 
-async function importJSContact() {
-  if (!importFile.value || !activeVaultId.value) return
-  importing.value = true
-  importResult.value = null
-  importError.value = ''
-  try {
-    const text = await importFile.value.text()
-    const raw = JSON.parse(text)
-    // Accept a single card object or an array of cards
-    const cards: unknown[] = Array.isArray(raw) ? raw : [raw]
-
-    let added = 0
-    let errors = 0
-    for (const card of cards) {
-      try {
-        const parsed = parseJSContact(card as Record<string, unknown>)
-        if (!parsed.first_name && !parsed.last_name) {
-          errors++
-          continue
-        }
-        await createContactFromParsed(parsed)
-        added++
-      } catch {
-        errors++
-      }
-    }
-    importResult.value = { added, errors }
-  } catch (e) {
-    importError.value = e instanceof Error ? e.message : 'Failed to parse file'
-  } finally {
-    importing.value = false
-  }
+function runImport(format: 'vcard' | 'jscontact') {
+  void importOperation.run(format).catch(() => {})
 }
 </script>
 
@@ -199,20 +164,24 @@ async function importJSContact() {
         </div>
         <p class="text-sm text-zinc-400">Download a copy of all your data.</p>
         <div class="flex flex-wrap gap-2">
-          <UButton color="primary" variant="soft" :loading="exporting" icon="i-heroicons-document-text" @click="exportJSON">
+          <UButton color="primary" variant="soft" :loading="exportOperation.busy.value" icon="i-heroicons-document-text" @click="runExport('json')">
             JSON (full backup)
           </UButton>
-          <UButton color="neutral" variant="soft" :loading="exporting" icon="i-heroicons-user-group" @click="exportVCard">
+          <UButton color="neutral" variant="soft" :loading="exportOperation.busy.value" icon="i-heroicons-user-group" @click="runExport('vcard')">
             vCard (.vcf)
           </UButton>
-          <UButton color="neutral" variant="soft" :loading="exporting" icon="i-heroicons-code-bracket" @click="exportJSContact">
+          <UButton color="neutral" variant="soft" :loading="exportOperation.busy.value" icon="i-heroicons-code-bracket" @click="runExport('jscontact')">
             JSContact (.json)
           </UButton>
         </div>
-        <p v-if="exportDone" class="text-sm text-green-400">
-          <UIcon name="i-heroicons-check-circle" class="size-4 inline mr-1" />
-          Downloaded!
-        </p>
+        <AppOperationFeedback
+          :busy="exportOperation.busy.value"
+          :error="exportOperation.error.value"
+          :success="exportOperation.success.value"
+          busy-label="Preparing download…"
+          success-label="Downloaded!"
+          error-label="Export failed"
+        />
       </div>
 
       <!-- Import vCard -->
@@ -233,9 +202,9 @@ async function importJSContact() {
             v-if="importFile.name.endsWith('.vcf') || importFile.name.endsWith('.vcard')"
             color="primary"
             variant="soft"
-            :loading="importing"
+            :loading="importOperation.busy.value"
             icon="i-heroicons-arrow-up-tray"
-            @click="importVCard"
+            @click="runImport('vcard')"
           >
             Import vCard
           </UButton>
@@ -243,31 +212,41 @@ async function importJSContact() {
             v-else-if="importFile.name.endsWith('.json')"
             color="primary"
             variant="soft"
-            :loading="importing"
+            :loading="importOperation.busy.value"
             icon="i-heroicons-arrow-up-tray"
-            @click="importJSContact"
+            @click="runImport('jscontact')"
           >
             Import JSContact
           </UButton>
           <template v-else>
-            <UButton color="primary" variant="soft" :loading="importing" @click="importVCard">
+            <UButton color="primary" variant="soft" :loading="importOperation.busy.value" @click="runImport('vcard')">
               Import as vCard
             </UButton>
-            <UButton color="neutral" variant="soft" :loading="importing" @click="importJSContact">
+            <UButton color="neutral" variant="soft" :loading="importOperation.busy.value" @click="runImport('jscontact')">
               Import as JSContact
             </UButton>
           </template>
         </div>
-        <div v-if="importResult" class="text-sm">
-          <p class="text-green-400">
-            <UIcon name="i-heroicons-check-circle" class="size-4 inline mr-1" />
-            {{ importResult.added }} contact{{ importResult.added !== 1 ? 's' : '' }} imported
-          </p>
-          <p v-if="importResult.errors > 0" class="text-yellow-400 mt-1">
-            {{ importResult.errors }} skipped (parse errors)
-          </p>
-        </div>
-        <p v-if="importError" class="text-sm text-red-400">{{ importError }}</p>
+        <AppOperationFeedback
+          :busy="importOperation.busy.value"
+          :error="importOperation.error.value"
+          :success="importOperation.success.value"
+          busy-label="Importing contacts…"
+          success-label="Import complete"
+          error-label="Import failed"
+        >
+          <template #success>
+            <div v-if="importResult" class="text-sm">
+              <p class="text-green-400">
+                <UIcon name="i-heroicons-check-circle" class="size-4 inline mr-1" />
+                {{ importResult.added }} contact{{ importResult.added !== 1 ? 's' : '' }} imported
+              </p>
+              <p v-if="importResult.errors > 0" class="text-yellow-400 mt-1">
+                {{ importResult.errors }} skipped (parse errors)
+              </p>
+            </div>
+          </template>
+        </AppOperationFeedback>
       </div>
     </div>
   </div>

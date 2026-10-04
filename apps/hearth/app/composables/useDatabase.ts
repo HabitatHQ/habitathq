@@ -116,7 +116,7 @@ export function useDatabase() {
     exportJson: (): Promise<HearthExport> => sendToWorker({ type: 'EXPORT_JSON' }),
     importJson: (data: HearthExport): Promise<null> =>
       sendToWorker({ type: 'IMPORT_JSON', payload: data }),
-    nukeOpfs: (): Promise<null> => sendToWorker({ type: 'NUKE_OPFS' }),
+    resetDatabase: (): Promise<null> => sendToWorker({ type: 'RESET_DATABASE' }),
 
     // ── Chores ─────────────────────────────────────────────────────────────
     getChoresWithStatus: (date: string): Promise<ChoreWithStatus[]> =>

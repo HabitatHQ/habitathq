@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { localDateString } from '@habitathq/utils'
+import { formatInstant, localCalendarDate } from '@habitathq/utils'
 import type { FocusSession, FocusSessionSummary, Todo } from '~/types/database'
 
 const db = useDatabase()
@@ -7,10 +7,10 @@ const timer = reactive(useTimer())
 const sessions = ref<FocusSession[]>([])
 const todos = ref<Todo[]>([])
 const summary = ref<FocusSessionSummary>({ session_count: 0, total_seconds: 0 })
-const today = ref(localDateString(new Date()))
+const today = ref(localCalendarDate())
 const todaySessions = computed(() =>
   sessions.value.filter(
-    (session) => localDateString(new Date(session.completed_at)) === today.value,
+    (session) => localCalendarDate(new Date(session.completed_at)) === today.value,
   ),
 )
 const totalMinutes = computed(() =>
@@ -27,12 +27,14 @@ const averageMinutes = computed(() =>
     : 0,
 )
 function refreshToday() {
-  today.value = localDateString(new Date())
+  today.value = localCalendarDate()
 }
 const titleFor = (session: FocusSession) =>
   todos.value.find((todo) => todo.id === session.todo_id)?.title ?? 'Completed task'
 function displayDate(value: string) {
-  return new Date(value).toLocaleDateString(undefined, {
+  return formatInstant(value, {
+    locale: Intl.DateTimeFormat().resolvedOptions().locale,
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     weekday: 'short',
     month: 'short',
     day: 'numeric',

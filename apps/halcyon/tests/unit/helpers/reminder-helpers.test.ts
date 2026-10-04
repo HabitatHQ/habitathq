@@ -1,3 +1,4 @@
+import { localCalendarDate } from '@habitathq/utils'
 import { describe, expect, it } from 'vitest'
 import type { Reminder, StayInTouch } from '~/types/database'
 import {
@@ -134,7 +135,7 @@ describe('stayInTouchNextDate', () => {
       last_contacted_at: null,
     }
     // When null, next date is today (overdue immediately)
-    const today = new Date().toISOString().slice(0, 10)
+    const today = localCalendarDate()
     expect(stayInTouchNextDate(sit)).toBe(today)
   })
 })

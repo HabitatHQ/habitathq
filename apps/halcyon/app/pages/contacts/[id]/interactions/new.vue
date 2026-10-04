@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { localDateString } from '@habitathq/utils'
+import { localCalendarDate } from '@habitathq/utils'
 import { useDatabase } from '~/composables/useDatabase'
 import { useVault } from '~/composables/useVault'
 import type { Contact, ConversationChannel, InteractionType } from '~/types/database'
@@ -17,7 +17,7 @@ const additionalContacts = ref<Contact[]>([])
 const allContacts = ref<Contact[]>([])
 const searchAdd = ref('')
 
-const today = localDateString(new Date())
+const today = localCalendarDate()
 
 const form = reactive({
   type: 'conversation' as InteractionType,

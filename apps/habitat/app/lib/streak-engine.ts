@@ -1,3 +1,4 @@
+import { addCalendarDays, parseCalendarDate } from '@habitathq/utils'
 /**
  * streak-engine — pure, schedule-aware streak calculation with "never miss twice".
  *
@@ -73,29 +74,16 @@ export interface StreakInput {
   today: string
 }
 
-// ─── Date helpers (UTC, calendar-only) ──────────────────────────────────────────
-
-function toUTC(date: string): Date {
-  return new Date(`${date}T00:00:00Z`)
-}
-
-function iso(d: Date): string {
-  return d.toISOString().slice(0, 10)
-}
-
-function addDays(date: string, n: number): string {
-  const d = toUTC(date)
-  d.setUTCDate(d.getUTCDate() + n)
-  return iso(d)
-}
-
+// Calendar-only weekday derivation. Date.UTC is intentional: the key is not an instant,
+// and UTC prevents the host time zone from shifting its Gregorian fields.
 function dayOfWeek(date: string): number {
-  return toUTC(date).getUTCDay()
+  const { year, month, day } = parseCalendarDate(date)
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay()
 }
 
 /** Sunday-aligned week start for a date. */
 function weekStart(date: string): string {
-  return addDays(date, -dayOfWeek(date))
+  return addCalendarDays(date, -dayOfWeek(date))
 }
 
 // ─── Per-day classification ─────────────────────────────────────────────────────
@@ -148,7 +136,7 @@ function buildDaySequence(input: StreakInput): boolean[] {
   const days = isSpecific ? new Set(input.schedule.daysOfWeek ?? []) : null
 
   const seq: boolean[] = []
-  for (let date = start; date <= input.today; date = addDays(date, 1)) {
+  for (let date = start; date <= input.today; date = addCalendarDays(date, 1)) {
     if (days && !days.has(dayOfWeek(date))) continue // not a scheduled day
     const hit = classifyDay(input, date) !== 'missed'
     // The current day (today) is only included if it is already a hit.
@@ -166,11 +154,11 @@ function buildWeekSequence(input: StreakInput): boolean[] {
   const currentWeek = weekStart(input.today)
 
   const seq: boolean[] = []
-  for (let ws = firstWeek; ws <= currentWeek; ws = addDays(ws, 7)) {
-    const weekEnd = addDays(ws, 6)
+  for (let ws = firstWeek; ws <= currentWeek; ws = addCalendarDays(ws, 7)) {
+    const weekEnd = addCalendarDays(ws, 6)
     // Count distinct activity days within the week, bounded by today.
     let activeDays = 0
-    for (let date = ws; date <= weekEnd && date <= input.today; date = addDays(date, 1)) {
+    for (let date = ws; date <= weekEnd && date <= input.today; date = addCalendarDays(date, 1)) {
       if (hasActivity(input, date)) activeDays++
     }
     const met = activeDays >= freq
@@ -285,17 +273,17 @@ export function recentCompletionRate(input: StreakInput, windowDays = 14): Compl
   const empty: CompletionWindow = { scheduled: 0, hit: 0, rate: 0 }
   if (input.schedule.type === 'WEEKLY_FLEX') return empty
 
-  const from = addDays(input.today, -windowDays)
+  const from = addCalendarDays(input.today, -windowDays)
   const start = effectiveStart(input)
   const begin = start > from ? start : from
-  const end = addDays(input.today, -1) // yesterday
+  const end = addCalendarDays(input.today, -1) // yesterday
   if (begin > end) return empty
 
   const days =
     input.schedule.type === 'SPECIFIC_DAYS' ? new Set(input.schedule.daysOfWeek ?? []) : null
   let scheduled = 0
   let hit = 0
-  for (let date = begin; date <= end; date = addDays(date, 1)) {
+  for (let date = begin; date <= end; date = addCalendarDays(date, 1)) {
     if (days && !days.has(dayOfWeek(date))) continue
     scheduled++
     if (classifyDay(input, date) !== 'missed') hit++

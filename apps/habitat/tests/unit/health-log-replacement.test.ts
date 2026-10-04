@@ -11,7 +11,7 @@ import {
   replaceHabitLogsForDate,
   toggleCompletion,
 } from '~/lib/db-shared'
-import { localDateString } from '@habitathq/utils'
+import { localCalendarDate } from '@habitathq/utils'
 
 function sqliteBindings(bind?: unknown[]): SQLInputValue[] {
   return (bind ?? []).map((value, index) => {
@@ -175,7 +175,7 @@ describe('new habit schedule local-day boundary', () => {
       vi.useFakeTimers()
       vi.setSystemTime(new Date(2026, 9, 4, hour, 30))
       try {
-        const localDay = localDateString(new Date())
+        const localDay = localCalendarDate(new Date())
         const habit = await createHabit(adapter, {
           name: `Boundary habit ${hour}`,
           description: '',

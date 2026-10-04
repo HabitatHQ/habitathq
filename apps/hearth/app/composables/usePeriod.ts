@@ -1,4 +1,18 @@
-import { currentPeriod, offsetPeriod } from '~/utils/format'
+import { addCalendarDays, localCalendarDate } from '@habitathq/utils'
+
+export function currentPeriod(): string {
+  return localCalendarDate().slice(0, 7)
+}
+
+export function offsetPeriod(period: string, offset: number): string {
+  let result = `${period}-01`
+  const direction = Math.sign(offset)
+  for (let i = 0; i < Math.abs(offset); i++) {
+    result = direction < 0 ? addCalendarDays(result, -1) : addCalendarDays(result, 31)
+    result = `${result.slice(0, 7)}-01`
+  }
+  return result.slice(0, 7)
+}
 
 export function usePeriod() {
   const period = ref(currentPeriod())

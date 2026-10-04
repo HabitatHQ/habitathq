@@ -2,7 +2,7 @@ import type { StorageAdapter, TransactableStorageAdapter } from '@palladium/core
 import initSqlJs from 'sql.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createSerialQueue, executeBatch } from '../../../app/lib/database-operations'
-import { resetAppDatabase } from '../../../app/lib/database-reset'
+import { resetDatabase } from '../../../app/lib/database-reset'
 import { dispatchNative, initNativeDb } from '../../../app/lib/db-native'
 import { HEPHAESTUS_SCHEMA, initializeSchema } from '../../../app/lib/db-schema'
 import { toAppDbAdapter } from '../../../app/lib/palladium-database'
@@ -44,6 +44,10 @@ async function makeDatabase() {
     async open() {},
     async exec<T>(sql: string, params: readonly unknown[] = []): Promise<T[]> {
       if (failOnSql && sql.includes(failOnSql)) throw new Error('injected migration failure')
+      if (params.length === 0 && !/^(SELECT|PRAGMA|WITH)\b/i.test(sql.trim())) {
+        raw.run(sql)
+        return []
+      }
       const statement = raw.prepare(sql)
       try {
         statement.bind(params as (string | number | null | Uint8Array)[])
@@ -295,20 +299,38 @@ describe('Palladium Hephaestus local database boundary', () => {
     expect(order).toEqual(['first-start', 'first-end', 'failed', 'last'])
   })
 
-  it('clears app tables transactionally while preserving Palladium metadata and rolling back failures', async () => {
+  it('clears only explicit Hephaestus tables transactionally, preserves sync metadata, and rolls back failures', async () => {
     const { storage, adapter } = await makeDatabase()
     await initializeSchema(storage)
+    await adapter.exec('CREATE TABLE _sync_state (value TEXT)')
+    await adapter.exec('CREATE TABLE sibling_data (value TEXT)')
     await adapter.exec('CREATE TABLE _palladium_private (value TEXT)')
     await adapter.exec(
       `INSERT INTO exercises (id,name,slug,equipment,movement,created_at) VALUES ('reset-me','Row','row','barbell','row','2026-01-01')`,
     )
+    await adapter.exec(
+      `INSERT INTO equipment_profiles VALUES ('reset-me', 2.5, 1.25, 20, '[]', '2026-01-01')`,
+    )
+    await adapter.exec(
+      `INSERT INTO organization_source_links VALUES ('reset-me', NULL, NULL, NULL)`,
+    )
     await adapter.exec(`INSERT INTO _palladium_private VALUES ('preserve')`)
-    await resetAppDatabase(adapter)
-    expect(await adapter.queryAll('SELECT id FROM exercises')).toEqual([])
+    await adapter.exec(`INSERT INTO _sync_state VALUES ('preserve-sync')`)
+    await adapter.exec(`INSERT INTO sibling_data VALUES ('preserve-sibling')`)
+    await resetDatabase(adapter)
+    expect(await adapter.queryAll('SELECT exercise_id FROM equipment_profiles')).toEqual([])
+    expect(await adapter.queryAll('SELECT workout_id FROM organization_source_links')).toEqual([])
     expect(await adapter.queryAll('SELECT value FROM _palladium_private')).toEqual([
       { value: 'preserve' },
     ])
+    expect(await adapter.queryAll('SELECT value FROM _sync_state')).toEqual([
+      { value: 'preserve-sync' },
+    ])
+    expect(await adapter.queryAll('SELECT value FROM sibling_data')).toEqual([
+      { value: 'preserve-sibling' },
+    ])
     expect(await adapter.queryAll('SELECT key FROM applied_defaults')).toEqual([])
+    await resetDatabase(adapter)
 
     await adapter.exec(
       `INSERT INTO exercises (id,name,slug,equipment,movement,created_at) VALUES ('keep-on-error','Row','row2','barbell','row','2026-01-01')`,
@@ -316,14 +338,14 @@ describe('Palladium Hephaestus local database boundary', () => {
     await adapter.exec(
       `CREATE TRIGGER reject_reset BEFORE DELETE ON exercises BEGIN SELECT RAISE(ABORT, 'reset rejected'); END`,
     )
-    await expect(resetAppDatabase(adapter)).rejects.toThrow('reset rejected')
+    await expect(resetDatabase(adapter)).rejects.toThrow('reset rejected')
     expect(await adapter.queryAll('SELECT id FROM exercises')).toEqual([{ id: 'keep-on-error' }])
   })
   it('rejects native database operations explicitly instead of pretending reset succeeded', async () => {
     await expect(initNativeDb()).rejects.toThrow(
       'Native database operations are unavailable; Hephaestus is PWA-only.',
     )
-    await expect(dispatchNative({ type: 'RESET_LOCAL_DATA' })).rejects.toThrow(
+    await expect(dispatchNative({ type: 'RESET_DATABASE' })).rejects.toThrow(
       'Native database operations are unavailable; Hephaestus is PWA-only.',
     )
   })

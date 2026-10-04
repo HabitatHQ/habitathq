@@ -1,4 +1,6 @@
+
 <script setup lang="ts">
+import { localCalendarDate } from '@habitathq/utils'
 import type { WeekDot } from '~/lib/analytics'
 
 defineProps<{
@@ -6,7 +8,7 @@ defineProps<{
 }>()
 
 const dayLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
-const today = new Date().toISOString().slice(0, 10)
+const today = localCalendarDate()
 </script>
 
 <template>

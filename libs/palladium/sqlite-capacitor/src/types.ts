@@ -25,6 +25,8 @@ export interface CapSQLiteResult {
 /** Structural type for SQLiteDBConnection from @capacitor-community/sqlite. */
 export interface SQLiteDBConnection {
   open(): Promise<void>;
+  /** Optional in desktop shims; native SQLiteDBConnection supports deletion. */
+  delete?(): Promise<void>;
   query(sql: string, values?: unknown[]): Promise<CapSQLiteValues>;
   run(sql: string, values?: unknown[], transaction?: boolean): Promise<CapSQLiteChanges>;
   execute(sql: string, transaction?: boolean): Promise<CapSQLiteChanges>;

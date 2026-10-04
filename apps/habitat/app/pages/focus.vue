@@ -1,11 +1,12 @@
 <script setup lang="ts">
-// Vue APIs via Nuxt auto-imports
+import { formatTime } from '@habitathq/utils'
 
 definePageMeta({
   layout: false,
 })
 
 const timerComp = reactive(useTimer())
+const { settings } = useAppSettings()
 const { impact } = useHaptics()
 const db = useDatabase()
 const toast = useToast()
@@ -40,8 +41,7 @@ const timeRange = computed(() => {
   const start = new Date(timerComp.timer.startedAt)
   const end = new Date(start.getTime() + timerComp.timer.durationSeconds * 1000)
 
-  const formatTime = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-  return `${formatTime(start)} → ${formatTime(end)}`
+  return `${formatTime(start, { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, hour: 'numeric', minute: '2-digit', hour12: !settings.value.use24HourTime })} → ${formatTime(end, { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, hour: 'numeric', minute: '2-digit', hour12: !settings.value.use24HourTime })}`
 })
 
 const progress = computed(() => {

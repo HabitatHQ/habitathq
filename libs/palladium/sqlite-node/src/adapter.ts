@@ -44,9 +44,10 @@ function assertIdentifier(name: string): void {
 }
 
 /** Coerce JS values to types accepted by node:sqlite. */
-function coerce(v: unknown): null | number | bigint | string {
+function coerce(v: unknown): null | number | bigint | string | Uint8Array {
   if (v === null || v === undefined) return null;
   if (typeof v === "boolean") return v ? 1 : 0;
+  if (v instanceof Uint8Array) return v;
   // Stryker disable next-line all -- LogicalOperator/ConditionalExpression mutations here produce String(v) instead, but SQLite's type affinity coerces "42"→42 on read, making the mutations unobservable via exec()
   if (typeof v === "number" || typeof v === "bigint" || typeof v === "string") return v;
   return String(v);

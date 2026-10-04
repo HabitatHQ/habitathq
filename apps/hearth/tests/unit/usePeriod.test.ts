@@ -5,8 +5,7 @@ import { computed, nextTick, ref } from 'vue'
 vi.stubGlobal('ref', ref)
 vi.stubGlobal('computed', computed)
 
-import { usePeriod } from '~/composables/usePeriod'
-import { currentPeriod, offsetPeriod } from '~/utils/format'
+import { currentPeriod, offsetPeriod, usePeriod } from '~/composables/usePeriod'
 
 describe('usePeriod', () => {
   it('initializes with the current period', () => {

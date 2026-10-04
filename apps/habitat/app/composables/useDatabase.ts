@@ -69,7 +69,7 @@ export function useDatabase() {
       sendToWorker({ type: 'MARK_DEFAULT_APPLIED', payload: { key } }),
     getArchivedHabits: (): Promise<HabitWithSchedule[]> =>
       sendToWorker({ type: 'GET_ARCHIVED_HABITS' }),
-    nukeOpfs: (): Promise<null> => sendToWorker({ type: 'NUKE_OPFS' }),
+    resetDatabase: (): Promise<null> => sendToWorker({ type: 'RESET_DATABASE' }),
     exportDb: (): Promise<Uint8Array> => sendToWorker({ type: 'EXPORT_DB' }),
     getHabitLogsForDate: (date: string): Promise<HabitLog[]> =>
       sendToWorker({ type: 'GET_HABIT_LOGS_FOR_DATE', payload: { date } }),

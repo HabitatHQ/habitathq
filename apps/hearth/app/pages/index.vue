@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { compareCalendarDates, formatCalendarDate, localCalendarDate } from '@habitathq/utils'
 import type { DashboardSummary, RecurringPatternRow } from '~/types/database'
-import { formatDateRelative, splitCurrencyParts } from '~/utils/format'
+import { formatHearthDateLabel, splitCurrencyParts } from '~/utils/format'
 
 const db = useDatabase()
 const { settings } = useAppSettings()
@@ -30,7 +31,7 @@ onMounted(async () => {
   try {
     const patterns = await db.getRecurringPatterns('confirmed')
     upcomingRecurring.value = patterns
-      .filter((p) => p.next_expected >= new Date().toISOString().slice(0, 10))
+      .filter((p) => compareCalendarDates(p.next_expected, localCalendarDate()) >= 0)
       .slice(0, 3)
   } catch {
     // Recurring table might not exist yet on first load
@@ -52,7 +53,7 @@ const groupedTransactions = computed(() => {
   if (!summary.value?.recent_transactions) return []
   const groups = new Map<string, typeof summary.value.recent_transactions>()
   for (const tx of summary.value.recent_transactions) {
-    const label = formatDateRelative(tx.date)
+    const label = formatHearthDateLabel(tx.date)
     if (!groups.has(label)) groups.set(label, [])
     groups.get(label)?.push(tx)
   }
@@ -191,7 +192,7 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
           class="flex items-center gap-2 text-sm"
         >
           <span class="text-(--ui-text) truncate flex-1">{{ p.merchant }}</span>
-          <span class="text-xs text-(--ui-text-muted) shrink-0">{{ formatDateRelative(p.next_expected) }}</span>
+          <span class="text-xs text-(--ui-text-muted) shrink-0">{{ formatHearthDateLabel(p.next_expected) }}</span>
           <span class="font-mono font-medium text-(--ui-text) shrink-0 ml-1">{{ formatAmount(p.average_amount, homeCurrency) }}</span>
         </div>
       </div>
@@ -342,7 +343,7 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
           <div class="flex justify-between text-xs text-(--ui-text-muted)">
             <span>{{ Math.round((goal.current_amount / goal.target_amount) * 100) }}% funded</span>
             <span v-if="goal.target_date">
-              Target: {{ new Date(goal.target_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) }}
+              Target: {{ formatCalendarDate(goal.target_date, { locale: 'en-US', month: 'short', year: 'numeric' }) }}
             </span>
           </div>
         </li>

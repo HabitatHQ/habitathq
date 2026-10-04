@@ -1,13 +1,12 @@
 <script setup lang="ts">
+import { addCalendarDays, formatCalendarDate, localCalendarDate } from '@habitathq/utils'
 /**
  * CheckinInsights — the "Check-ins" tab of the Insights page. Soft, wellbeing-
  * styled trends grouped by check-in: SCALE avg + area trend, BOOLEAN % desired
  * ring, TEXT reflection counts, plus reflection consistency + a gentle streak.
  */
 
-import { localDateString } from '@habitathq/utils'
 import type { CheckinHistoryRow, CheckinTemplate } from '~/types/database'
-import { addDateKeyDays } from '~/utils/calendar-dates'
 import {
   computeCheckinInsights,
   type QuestionInsight,
@@ -19,14 +18,14 @@ const db = useDatabase()
 
 const PERIODS = [7, 30, 90] as const
 const windowDays = ref(30)
-const today = localDateString(new Date())
+const today = localCalendarDate()
 
 const templates = ref<CheckinTemplate[]>([])
 const rows = ref<CheckinHistoryRow[]>([])
 const loading = ref(true)
 
 async function load() {
-  const from = addDateKeyDays(today, -179)
+  const from = addCalendarDays(today, -179) // covers up to 2× the 90-day window
   const [tpls, hist] = await Promise.all([
     db.getCheckinTemplates(),
     db.getCheckinHistory(from, today),
@@ -67,19 +66,25 @@ const checkinCounts = computed(() => {
 })
 
 const monthlyData = computed(() => {
-  const now = new Date()
+  const currentMonth = `${today.slice(0, 7)}-01`
+  const newestFirst = [currentMonth]
+  for (let i = 1; i < 6; i++) {
+    const previousMonthLastDay = addCalendarDays(newestFirst[i - 1]!, -1)
+    newestFirst.push(`${previousMonthLastDay.slice(0, 7)}-01`)
+  }
   const total = totalTemplates.value
-  return Array.from({ length: 6 }, (_, i) => {
-    const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1)
-    const prefix = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-    const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
-    const days = i === 5 ? now.getDate() : daysInMonth
+  return newestFirst.reverse().map((monthStart) => {
+    const monthPrefix = monthStart.slice(0, 7)
+    let date = monthStart
+    let days = 0
     let done = 0
-    for (let day = 1; day <= days; day++) {
-      done += checkinCounts.value.get(`${prefix}-${String(day).padStart(2, '0')}`) ?? 0
+    while (date.slice(0, 7) === monthPrefix && date <= today) {
+      days++
+      done += checkinCounts.value.get(date) ?? 0
+      date = addCalendarDays(date, 1)
     }
     const rate = total && days ? Math.min(100, Math.round((done / (total * days)) * 100)) : 0
-    return { label: d.toLocaleDateString('en-US', { month: 'short' }), rate }
+    return { label: formatCalendarDate(monthStart, { locale: 'en-US', month: 'short' }), rate }
   })
 })
 

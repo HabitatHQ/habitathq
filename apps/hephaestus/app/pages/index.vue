@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import { formatDurationSeconds as formatDuration, localDateString } from '@habitathq/utils'
+import {
+  addCalendarDays,
+  formatCalendarDate,
+  formatDurationSeconds as formatDuration,
+  localCalendarDate,
+} from '@habitathq/utils'
 import type { ReadinessResult } from '~/lib/readiness'
 import type { WorkoutRow } from '~/types/database'
 
@@ -7,7 +12,7 @@ const db = useDatabase()
 const progress = useProgress()
 const workout = useWorkout()
 const organization = useOrganization()
-const today = new Date().toLocaleDateString('en-US', {
+const today = formatCalendarDate(localCalendarDate(), {
   weekday: 'long',
   month: 'long',
   day: 'numeric',
@@ -48,11 +53,9 @@ async function loadData() {
   )
   const dateSet = new Set(workoutDates.map((w) => w.date))
   let currentStreak = 0
-  const todayDate = new Date()
+  const todayDate = localCalendarDate()
   for (let i = 0; i < 365; i++) {
-    const d = new Date(todayDate)
-    d.setDate(d.getDate() - i)
-    const ds = localDateString(d)
+    const ds = addCalendarDays(todayDate, -i)
     if (dateSet.has(ds)) {
       currentStreak++
     } else if (i > 0) {
@@ -62,7 +65,7 @@ async function loadData() {
   streak.value = currentStreak
 
   readiness.value = await progress.readinessData()
-  priorityItems.value = await organization.today(localDateString(new Date()))
+  priorityItems.value = await organization.today(localCalendarDate())
   const routineRows = await db.query<{ id: string; name: string }>(
     'SELECT id,name FROM saved_routines ORDER BY name,id',
   )
@@ -104,7 +107,7 @@ async function postponeAppointment(item: import('~/types/organization').Organiza
   if (item.kind !== 'appointment' || item.workoutId) return
   const proposed = window.prompt(
     'Move this appointment to local date (YYYY-MM-DD):',
-    item.date ?? localDateString(new Date()),
+    item.date ?? localCalendarDate(),
   )
   if (!proposed) return
   try {
@@ -230,7 +233,7 @@ function sessionLabel(w: WorkoutRow): string {
             <div>
               <p class="text-sm font-medium">{{ sessionLabel(w) }}</p>
               <p class="text-xs text-(--ui-text-muted)">
-                {{ new Date(`${w.date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) }}
+                {{ formatCalendarDate(w.date, { weekday: 'short', month: 'short', day: 'numeric' }) }}
               </p>
             </div>
             <UIcon name="i-ph-caret-right" class="w-4 h-4 text-(--ui-text-muted)" aria-hidden="true" />

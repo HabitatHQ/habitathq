@@ -1,10 +1,15 @@
 <script setup lang="ts">
+import { formatInstant, localCalendarDate } from '@habitathq/utils'
 import type { ExportSelection, HabitatExport } from '~/types/database'
 import { buildJotsExportZip } from '~/utils/jots-export'
 
 const db = useDatabase()
 const toast = useToast()
 const isDev = import.meta.dev
+const exportDateOptions = {
+  locale: [],
+  timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+}
 const seeding = ref(false)
 
 async function seedDemoData() {
@@ -93,7 +98,6 @@ function defaultExportSelection(): ExportSelection {
 }
 
 const showExportModal = ref(false)
-const exporting = ref(false)
 const exportSel = reactive<ExportSelection>(defaultExportSelection())
 const exportErrors = ref<string[]>([])
 
@@ -129,53 +133,46 @@ function validateExportFk(): string[] {
     .map(([, , childLabel, parentLabel]) => `${childLabel} require ${parentLabel}`)
 }
 
+const jsonExport = useAsyncOperation({
+  action: async () => {
+    const data = await db.exportJsonData({ ...exportSel })
+    downloadBlob(
+      new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+      `habitat-${localCalendarDate()}.json`,
+    )
+    showExportModal.value = false
+  },
+})
+const exporting = jsonExport.busy
+
 async function downloadJson() {
   exportErrors.value = validateExportFk()
   if (exportErrors.value.length > 0) return
-  exporting.value = true
   try {
-    const data = await db.exportJsonData({ ...exportSel })
-    const payload = JSON.stringify(data, null, 2)
-    const url = URL.createObjectURL(new Blob([payload], { type: 'application/json' }))
-    try {
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `habitat-${new Date().toISOString().slice(0, 10)}.json`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-    } finally {
-      URL.revokeObjectURL(url)
-    }
-    showExportModal.value = false
-  } finally {
-    exporting.value = false
+    await jsonExport.run()
+  } catch (error) {
+    logError('[exportJson]', error)
   }
 }
 
 // ─── SQLite export ─────────────────────────────────────────────────────────────
 
-const exportingDb = ref(false)
+const sqliteExport = useAsyncOperation({
+  action: async () => {
+    const bytes = await db.exportDb()
+    downloadBlob(
+      new Blob([new Uint8Array(bytes)], { type: 'application/x-sqlite3' }),
+      `habitat-${localCalendarDate()}.sqlite3`,
+    )
+  },
+})
+const exportingDb = sqliteExport.busy
 
 async function exportSqlite() {
-  exportingDb.value = true
   try {
-    const bytes = await db.exportDb()
-    const url = URL.createObjectURL(
-      new Blob([new Uint8Array(bytes)], { type: 'application/x-sqlite3' }),
-    )
-    try {
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `habitat-${new Date().toISOString().slice(0, 10)}.sqlite3`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-    } finally {
-      URL.revokeObjectURL(url)
-    }
-  } finally {
-    exportingDb.value = false
+    await sqliteExport.run()
+  } catch (error) {
+    logError('[exportSqlite]', error)
   }
 }
 
@@ -183,7 +180,6 @@ async function exportSqlite() {
 
 const importInput = ref<HTMLInputElement | null>(null)
 const showImportModal = ref(false)
-const importing = ref(false)
 const importPreview = ref<HabitatExport | null>(null)
 const importError = ref<string | null>(null)
 const importDone = ref(false)
@@ -200,15 +196,22 @@ function isRecord(obj: unknown): obj is Record<string, unknown> {
 }
 
 function isHabitatExport(obj: unknown): obj is HabitatExport {
-  return isRecord(obj) && obj['version'] === 1
+  return (
+    isRecord(obj) &&
+    obj['version'] === 1 &&
+    typeof obj['exported_at'] === 'string' &&
+    Number.isFinite(Date.parse(obj['exported_at']))
+  )
 }
 
 async function onImportFileSelected(e: Event) {
-  const file = (e.target as HTMLInputElement).files?.[0]
+  const input = e.target
+  if (!(input instanceof HTMLInputElement)) return
+  const file = input.files?.[0]
+  input.value = ''
   if (!file) return
-  ;(e.target as HTMLInputElement).value = ''
   try {
-    const raw = JSON.parse(await file.text()) as unknown
+    const raw: unknown = JSON.parse(await file.text())
     if (!isRecord(raw)) {
       importError.value = 'Invalid file.'
       showImportModal.value = true
@@ -242,54 +245,54 @@ function reloadPage() {
   window.location.reload()
 }
 
-async function confirmImport() {
-  if (!importPreview.value) return
-  importing.value = true
-  try {
-    await db.importJson(toRaw(importPreview.value))
+const jsonImport = useAsyncOperation({
+  action: async (data: HabitatExport) => {
+    await db.importJson(toRaw(data))
     importDone.value = true
     importPreview.value = null
-  } finally {
-    importing.value = false
+  },
+})
+const importing = jsonImport.busy
+
+async function confirmImport() {
+  if (!importPreview.value) return
+  try {
+    await jsonImport.run(importPreview.value)
+  } catch (error) {
+    logError('[importJson]', error)
   }
 }
 
 // ─── Jots ZIP export ───────────────────────────────────────────────────────────
 
 const showJotsExportModal = ref(false)
-const exportingJots = ref(false)
 const jotsExportSel = reactive({ text: true, voice: true, images: true })
 
-async function exportJotsZip() {
-  // Dynamic import avoids IDBBlobAdapter init-order crash in SSR (see e64a6cf)
-  const { getBlobAdapter } = await import('~/composables/useJotsStore')
-  const blobAdapter = getBlobAdapter()
-  exportingJots.value = true
-  try {
+const jotsExport = useAsyncOperation({
+  action: async () => {
+    const { getMediaStore } = await import('~/composables/useJotsStore')
+    const media = getMediaStore()
     const zipped = await buildJotsExportZip({
       ...(jotsExportSel.text && { textJots: await db.getScribbles() }),
       ...(jotsExportSel.voice && { voiceNotes: await db.getVoiceNotes() }),
       ...(jotsExportSel.images && { imageNotes: await db.getImageNotes() }),
-      getBlob: (id) => blobAdapter.get(id),
+      getBlob: (id) => media.get(id),
     })
     if (!zipped) return
-
-    const url = URL.createObjectURL(
-      new Blob([zipped.buffer as ArrayBuffer], { type: 'application/zip' }),
+    downloadBlob(
+      new Blob([new Uint8Array(zipped)], { type: 'application/zip' }),
+      `habitat-jots-${localCalendarDate()}.zip`,
     )
-    try {
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `habitat-jots-${new Date().toISOString().slice(0, 10)}.zip`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-    } finally {
-      URL.revokeObjectURL(url)
-    }
     showJotsExportModal.value = false
-  } finally {
-    exportingJots.value = false
+  },
+})
+const exportingJots = jotsExport.busy
+
+async function exportJotsZip() {
+  try {
+    await jotsExport.run()
+  } catch (error) {
+    logError('[exportJotsZip]', error)
   }
 }
 
@@ -301,25 +304,15 @@ function clearLocalStorage() {
   }
 }
 
-function clearIdb(): Promise<void> {
-  return Promise.all([
-    new Promise<void>((resolve) => {
-      const req = indexedDB.deleteDatabase('habitat-blobs')
-      req.onsuccess = () => resolve()
-      req.onerror = () => resolve()
-      req.onblocked = () => resolve()
-    }),
-    new Promise<void>((resolve) => {
-      const req = indexedDB.deleteDatabase('habitat')
-      req.onsuccess = () => resolve()
-      req.onerror = () => resolve()
-      req.onblocked = () => resolve()
-    }),
-  ]).then(() => {})
+async function clearMediaData(): Promise<void> {
+  const { getMediaStore } = await import('~/composables/useJotsStore')
+  await getMediaStore().clear()
+  const { IDBBlobAdapter } = await import('@palladium/core')
+  // The legacy media database belongs exclusively to Habitat.
+  await new IDBBlobAdapter('habitat', 0, '', true).deleteDatabase()
 }
 
 const showClearModal = ref(false)
-const clearing = ref(false)
 
 const clearSelection = reactive({
   habits: true,
@@ -377,75 +370,64 @@ const nothingSelected = computed(
     ),
 )
 
-async function clearAppData() {
-  if (nothingSelected.value) return
-  clearing.value = true
-  try {
-    const ops: Promise<unknown>[] = []
-    if (clearSelection.habits) ops.push(db.deleteAllHabits())
-    if (clearSelection.checkinEntries) ops.push(db.deleteAllCheckinEntries())
-    if (clearSelection.checkins) ops.push(db.deleteAllCheckinData())
-    if (clearSelection.scribbles) ops.push(db.deleteAllScribbles())
-    if (clearSelection.todos) ops.push(db.deleteAllTodos())
-    if (clearSelection.boredData) ops.push(db.deleteAllBoredData())
-    if (clearSelection.appliedDefaults) ops.push(db.clearAppliedDefaults())
-    await Promise.all(ops)
+const clearOperation = useAsyncOperation({
+  action: async () => {
+    if (clearSelection.habits) await db.deleteAllHabits()
+    if (clearSelection.checkinEntries) await db.deleteAllCheckinEntries()
+    if (clearSelection.checkins) await db.deleteAllCheckinData()
+    if (clearSelection.scribbles) await db.deleteAllScribbles()
+    if (clearSelection.todos) await db.deleteAllTodos()
+    if (clearSelection.boredData) await db.deleteAllBoredData()
+    if (clearSelection.appliedDefaults) await db.clearAppliedDefaults()
     if (clearSelection.checkinEntries) clearLocalStorage()
     if (clearSelection.voiceNotes) {
-      await clearIdb()
+      await clearMediaData()
       await db.deleteAllMediaNotes()
     }
     if (clearSelection.habits) localStorage.removeItem('habitat-has-data')
     showClearModal.value = false
-  } catch (err) {
-    logError('[clearAppData]', err)
-    toast.add({ title: 'Failed to clear data', color: 'error', duration: 4000 })
-  } finally {
-    clearing.value = false
-  }
-}
-
-// ─── Nuke OPFS ─────────────────────────────────────────────────────────────────
-
-const showNukeModal = ref(false)
-const nuking = ref(false)
-const wiped = ref(false)
-
-watch(wiped, async (isWiped) => {
-  if (!isWiped) return
-  await nextTick()
-  document.getElementById('nuke-wiped-close')?.focus()
+  },
 })
+const clearing = clearOperation.busy
 
-async function fullWipe(reload: boolean): Promise<void> {
-  localStorage.removeItem('habitat-has-data')
-  await db.nukeOpfs()
-  await clearIdb()
-  clearLocalStorage()
-  for (const key of Object.keys(localStorage)) {
-    if (key.startsWith('journal-')) localStorage.removeItem(key)
-  }
-  if (reload) {
-    window.location.reload()
-  } else {
-    wiped.value = true
+async function clearAppData() {
+  if (nothingSelected.value) return
+  try {
+    await clearOperation.run()
+  } catch (error) {
+    logError('[clearAppData]', error)
   }
 }
 
-async function nukeOpfs(reload: boolean) {
-  nuking.value = true
+// ─── Reset app-owned storage ──────────────────────────────────────────────────
+
+const resetConfirmation = useDestructiveConfirmation<[]>()
+const showNukeModal = computed({
+  get: () => resetConfirmation.pending.value,
+  set: (open: boolean) => {
+    if (!open) resetConfirmation.cancel()
+  },
+})
+const resetOperation = useAsyncOperation({
+  action: async (reload: boolean) => {
+    await clearMediaData()
+    await db.resetDatabase()
+    localStorage.removeItem('habitat-has-data')
+    clearLocalStorage()
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith('journal-')) localStorage.removeItem(key)
+    }
+    if (reload) window.location.reload()
+  },
+})
+const nuking = resetOperation.busy
+
+async function confirmReset(reload: boolean) {
+  if (!resetConfirmation.confirm()) return
   try {
-    await fullWipe(reload)
-  } catch (err) {
-    logError('[nukeOpfs]', err)
-    toast.add({
-      title: 'Failed to wipe data',
-      description: 'Try reloading and trying again.',
-      color: 'error',
-      duration: 5000,
-    })
-  } finally {
-    nuking.value = false
+    await resetOperation.run(reload)
+  } catch (error) {
+    logError('[resetDatabase]', error)
   }
 }
 
@@ -585,20 +567,26 @@ async function seedDevData() {
 
         <div class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5">
-            <p class="text-sm font-medium text-red-400">Clear OPFS storage</p>
-            <p class="text-xs text-(--ui-text-dimmed)">Wipe all on-device file system storage including the database.</p>
+            <p class="text-sm font-medium text-red-400">Reset Habitat data</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Clear Habitat's database, media, and journal entries. Preferences and other apps are preserved.</p>
           </div>
           <span class="shrink-0">
             <UButton
               :icon="resolveIcon('fire')"
               variant="ghost" color="error" size="sm"
-              @click="showNukeModal = true"
+              @click="resetConfirmation.request()"
             />
           </span>
         </div>
 
       </UCard>
     </section>
+    <AppOperationFeedback :busy="jsonExport.busy.value" :error="jsonExport.error.value" :success="jsonExport.success.value" success-label="JSON downloaded." />
+    <AppOperationFeedback :busy="sqliteExport.busy.value" :error="sqliteExport.error.value" :success="sqliteExport.success.value" success-label="SQLite database downloaded." />
+    <AppOperationFeedback :busy="jotsExport.busy.value" :error="jotsExport.error.value" :success="jotsExport.success.value" success-label="Jots archive downloaded." />
+    <AppOperationFeedback :busy="jsonImport.busy.value" :error="jsonImport.error.value" :success="jsonImport.success.value" success-label="Data imported." />
+    <AppOperationFeedback :busy="clearOperation.busy.value" :error="clearOperation.error.value" :success="clearOperation.success.value" success-label="Selected data cleared." />
+    <AppOperationFeedback :busy="resetOperation.busy.value" :error="resetOperation.error.value" :success="resetOperation.success.value" success-label="Habitat data reset. You can continue using the app." />
 
     <!-- Export JSON modal -->
     <AppBottomSheet v-model="showExportModal" variant="centered" content-padding="none" :closeable="false">
@@ -755,7 +743,7 @@ async function seedDevData() {
 
           <div class="border border-(--ui-border) rounded-xl p-3 space-y-1">
             <p class="text-xs text-(--ui-text-dimmed) mb-2">
-              Version {{ importPreview.version }} export from {{ new Date(importPreview.exported_at).toLocaleDateString() }}
+              Version {{ importPreview.version }} export from {{ formatInstant(importPreview.exported_at, exportDateOptions) }}
             </p>
             <template v-for="group in EXPORT_GROUPS" :key="group.label">
               <template v-for="item in group.items" :key="item.key">
@@ -822,45 +810,17 @@ async function seedDevData() {
         </div>
     </AppBottomSheet>
 
-    <!-- Confirm nuke OPFS -->
-    <AppBottomSheet v-model="showNukeModal" variant="centered" content-padding="none" :closeable="false">
-        <div v-if="wiped" class="p-5 space-y-4">
-          <div class="flex items-start gap-3">
-            <div class="w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center flex-shrink-0">
-              <AppIcon name="check-circle" class="w-5 h-5 text-green-400" />
-            </div>
-            <div class="space-y-1">
-              <p class="font-semibold">All data wiped</p>
-              <p class="text-sm text-(--ui-text-muted)">Storage has been cleared. You can safely close this tab.</p>
-            </div>
-          </div>
-          <div class="flex justify-end pt-1">
-            <UButton id="nuke-wiped-close" variant="ghost" color="neutral" @click="showNukeModal = false">
-              Close
-            </UButton>
-          </div>
-        </div>
-
-        <div v-else class="p-5 space-y-4">
-          <div class="flex items-start gap-3">
-            <div class="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0">
-              <AppIcon name="fire" class="w-5 h-5 text-red-400" />
-            </div>
-            <div class="space-y-1">
-              <p class="font-semibold">Wipe OPFS storage?</p>
-              <p class="text-sm text-(--ui-text-muted)">
-                Removes every file in the browser's origin private file system —
-                including the SQLite database. Voice recordings and check-in entries
-                will also be cleared.
-              </p>
-            </div>
-          </div>
-          <div class="flex justify-end gap-2 pt-1">
-            <UButton variant="ghost" color="neutral" @click="showNukeModal = false">Cancel</UButton>
-            <UButton color="error" variant="ghost" :loading="nuking" @click="nukeOpfs(false)">Wipe only</UButton>
-            <UButton color="error" :loading="nuking" @click="nukeOpfs(true)">Wipe &amp; reload</UButton>
-          </div>
-        </div>
-    </AppBottomSheet>
+    <AppDestructiveConfirm
+      v-model="showNukeModal"
+      title="Reset Habitat data?"
+      message="Permanently removes Habitat's database, media, and journal entries. Preferences and other apps are preserved."
+      :busy="nuking"
+    >
+      <template #actions>
+        <UButton variant="ghost" color="neutral" :disabled="nuking" @click="resetConfirmation.cancel()">Cancel</UButton>
+        <UButton color="error" variant="ghost" :loading="nuking" @click="confirmReset(false)">Reset only</UButton>
+        <UButton color="error" :loading="nuking" @click="confirmReset(true)">Reset &amp; reload</UButton>
+      </template>
+    </AppDestructiveConfirm>
   </div>
 </template>

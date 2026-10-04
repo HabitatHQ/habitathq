@@ -1,3 +1,4 @@
+import { addCalendarDays } from '@habitathq/utils'
 import type { DbAdapter } from '@palladium/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { migrateOrganization } from '~/lib/organization-schema'
@@ -137,12 +138,10 @@ describe('persisted training organization', () => {
       date: '2026-03-09',
     })
     for (let offset = 0; offset < 28; offset++) {
-      const date = new Date('2026-03-10T12:00:00Z')
-      date.setUTCDate(date.getUTCDate() + offset)
       await operation('ORGANIZATION_APPOINTMENT_CREATE', {
         planId: planB.id,
         routineId: sharedRoutine,
-        date: date.toISOString().slice(0, 10),
+        date: addCalendarDays('2026-03-10', offset),
       })
     }
     const first = await operation('ORGANIZATION_RECONCILE_OPEN', { today: '2026-03-10' })

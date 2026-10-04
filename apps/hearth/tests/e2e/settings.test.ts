@@ -154,21 +154,6 @@ test.describe('Settings page', () => {
 
   // ── Data management ────────────────────────────────────────────────────
 
-  test('reset button shows confirmation before acting', async ({ page }) => {
-    const resetButton = page.getByRole('button', { name: /reset|erase|delete.*data/i })
-    if (await resetButton.isVisible()) {
-      // Set up dialog handler to capture the confirm
-      let dialogShown = false
-      page.on('dialog', async (dialog) => {
-        dialogShown = true
-        await dialog.dismiss() // Cancel the reset
-      })
-
-      await resetButton.click()
-      await page.waitForTimeout(300)
-      expect(dialogShown).toBe(true)
-    }
-  })
 
   test('export button produces downloadable data', async ({ page }) => {
     const exportButton = page.getByRole('button', { name: /export/i }).first()

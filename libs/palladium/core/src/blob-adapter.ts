@@ -1,14 +1,19 @@
+import type { DbAdapter } from "./db-adapter.js";
+import type { StorageAdapter } from "./storage.js";
+
 /** Options for BlobAdapter operations. */
 export interface BlobAdapterOptions {
   /** AbortSignal for cancellation. */
   signal?: AbortSignal;
+  /** Transaction-scoped executor to couple blob writes to a domain mutation. */
+  transaction?: StorageAdapter | DbAdapter;
 }
 
 /**
  * Storage adapter for binary blob data.
  *
  * Implementations: IDBBlobAdapter (IndexedDB), LocalStorageBlobAdapter,
- * MemoryBlobAdapter.
+ * MemoryBlobAdapter, and SQLiteBlobAdapter.
  */
 export interface BlobAdapter {
   /** Store blob bytes under `id`. */
@@ -19,6 +24,18 @@ export interface BlobAdapter {
   delete(id: string, options?: BlobAdapterOptions): Promise<void>;
   /** Check whether a blob exists for `id`. */
   has(id: string, options?: BlobAdapterOptions): Promise<boolean>;
+}
+
+/**
+ * Optional lifecycle supported by media backends that own external resources.
+ * The methods are optional on BlobAdapter so existing engine callers remain
+ * compatible; applications that own the backend should call dispose at close.
+ */
+export interface BlobStoreLifecycle {
+  /** Remove every blob belonging to this adapter's explicit namespace. */
+  clear(options?: BlobAdapterOptions): Promise<void>;
+  /** Release the adapter's resources. Repeated calls are safe. */
+  dispose(): Promise<void>;
 }
 
 /** Supported output formats for BlobAdapter.get(). */

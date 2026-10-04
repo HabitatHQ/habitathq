@@ -227,9 +227,15 @@ test.describe('populated local-first acceptance journey', () => {
     const backupPath = await download.path()
     if (!backupPath) throw new Error('Backup download did not produce a local file.')
 
-    page.once('dialog', (dialog) => dialog.accept())
     await page.getByRole('button', { name: /reset hephaestus database/i }).click()
-    await expect(page.getByRole('status')).toContainText(/database cleared/i)
+    const resetConfirmation = page.getByRole('alertdialog', { name: /reset hephaestus database/i })
+    const resetReload = page.waitForEvent('load')
+    await resetConfirmation.getByRole('button', { name: 'Reset database' }).click()
+    await resetReload
+    await expect(page.getByRole('button', { name: /^Forge\b/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
     await page.getByRole('button', { name: /^Daylight\b/ }).click()
     await expect(page.getByRole('button', { name: /^Daylight\b/ })).toHaveAttribute(
       'aria-pressed',
@@ -247,11 +253,11 @@ test.describe('populated local-first acceptance journey', () => {
     await page.goto('/profile')
     await page.getByLabel('Choose backup file').setInputFiles(backupPath)
     await expect(page.getByText(/preview: .*1 workout.*1 template/i)).toBeVisible()
-    page.once('dialog', (dialog) => dialog.accept())
     await page.getByRole('button', { name: /replace local data from backup/i }).click()
-    await expect(page.getByRole('status')).toContainText(/backup restored/i)
-    await page.reload()
-    await page.goto('/profile')
+    const restoreConfirmation = page.getByRole('alertdialog', { name: /replace hephaestus data/i })
+    const restoreReload = page.waitForEvent('load')
+    await restoreConfirmation.getByRole('button', { name: 'Replace data' }).click()
+    await restoreReload
     await expect(page.getByRole('button', { name: /^Forge\b/ })).toHaveAttribute(
       'aria-pressed',
       'true',

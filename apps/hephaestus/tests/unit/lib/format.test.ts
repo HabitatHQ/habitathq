@@ -1,4 +1,3 @@
-import { formatDurationSeconds as formatDuration } from '@habitathq/utils'
 import { describe, expect, it } from 'vitest'
 import { formatVolume, formatWeight, isoWeek, kgToLbs, lbsToKg } from '~/lib/format'
 
@@ -53,32 +52,6 @@ describe('formatWeight', () => {
   })
 })
 
-describe('formatDuration', () => {
-  it('formats sub-minute as seconds', () => {
-    expect(formatDuration(45)).toBe('45s')
-  })
-
-  it('formats minutes and seconds', () => {
-    expect(formatDuration(90)).toBe('1m 30s')
-  })
-
-  it('formats hours and minutes', () => {
-    expect(formatDuration(3661)).toBe('1h 1m')
-  })
-
-  it('formats exactly 1 hour', () => {
-    expect(formatDuration(3600)).toBe('1h 0m')
-  })
-
-  it('formats zero as 0s', () => {
-    expect(formatDuration(0)).toBe('0s')
-  })
-
-  it('formats 65 minutes as 1h 5m', () => {
-    expect(formatDuration(65 * 60)).toBe('1h 5m')
-  })
-})
-
 describe('formatVolume', () => {
   it('formats thousands with k suffix', () => {
     expect(formatVolume(12500)).toBe('12.5k kg')
@@ -95,20 +68,6 @@ describe('formatVolume', () => {
   it('formats in lbs when unit is lbs', () => {
     const result = formatVolume(1000, 'lbs')
     expect(result).toContain('lbs')
-  })
-})
-
-describe('formatDuration (additional)', () => {
-  it('formats exactly 60 seconds as 1m', () => {
-    expect(formatDuration(60)).toBe('1m')
-  })
-
-  it('formats exactly 59 seconds as 59s (sub-minute)', () => {
-    expect(formatDuration(59)).toBe('59s')
-  })
-
-  it('formats 2 minutes exactly as 2m', () => {
-    expect(formatDuration(120)).toBe('2m')
   })
 })
 

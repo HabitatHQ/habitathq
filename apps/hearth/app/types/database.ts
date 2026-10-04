@@ -295,7 +295,7 @@ export type WorkerRequestBody =
   | { type: 'EXPORT_DB' }
   | { type: 'EXPORT_JSON' }
   | { type: 'IMPORT_JSON'; payload: HearthExport }
-  | { type: 'NUKE_OPFS' }
+  | { type: 'RESET_DATABASE' }
   | { type: 'GET_CHORES_WITH_STATUS'; payload: { date: string } }
   | { type: 'CREATE_CHORE'; payload: Omit<Chore, 'id' | 'created_at'> }
   | { type: 'UPDATE_CHORE'; payload: Partial<Chore> & { id: string } }

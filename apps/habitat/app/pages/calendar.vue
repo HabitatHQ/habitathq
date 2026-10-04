@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { localDateString } from '@habitathq/utils'
+import { addCalendarDays, formatCalendarDate, localCalendarDate } from '@habitathq/utils'
 import type { BoredCategory, Completion, HabitWithSchedule, Scribble, Todo } from '~/types/database'
 import { hasCalendarNoteTag } from '~/utils/jots-helpers'
 import {
@@ -31,7 +31,7 @@ const { impact, selectionChanged, notification } = useHaptics()
 const { suggest: suggestTags } = useTagSuggestions('todo')
 const toast = useToast()
 const calendarViews: CalendarView[] = ['day', 'week', 'month']
-const today = localDateString(new Date())
+const today = localCalendarDate(new Date())
 const calendarView = ref<CalendarView>('day')
 const selected = ref(calendarDateFromQuery(route.query['date'], today))
 const cursor = ref(dateForKey(selected.value))
@@ -51,13 +51,15 @@ const savingNote = ref(false)
 const visibleDays = computed(() => {
   if (calendarView.value === 'day') return [selected.value]
   if (calendarView.value === 'week') return daysFrom(startOfWeek(cursor.value), 7)
-  const first = new Date(cursor.value.getFullYear(), cursor.value.getMonth(), 1)
-  first.setDate(1 - first.getDay())
-  return daysFrom(first, 42)
+  const firstOfMonth = localCalendarDate(
+    new Date(cursor.value.getFullYear(), cursor.value.getMonth(), 1),
+  )
+  const first = addCalendarDays(firstOfMonth, -dateForKey(firstOfMonth).getDay())
+  return daysFrom(dateForKey(first), 42)
 })
 const periodTitle = computed(() => {
   if (calendarView.value === 'day')
-    return dateForKey(selected.value).toLocaleDateString(undefined, {
+    return formatCalendarDate(selected.value, {
       weekday: 'long',
       month: 'long',
       day: 'numeric',
@@ -66,10 +68,8 @@ const periodTitle = computed(() => {
   const last = visibleDays.value.at(-1)
   if (!first || !last) return ''
   if (calendarView.value === 'month')
-    return cursor.value.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
-  const start = dateForKey(first)
-  const end = dateForKey(last)
-  return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+    return formatCalendarDate(localCalendarDate(cursor.value), { month: 'long', year: 'numeric' })
+  return `${formatCalendarDate(first, { month: 'short', day: 'numeric' })} – ${formatCalendarDate(last, { month: 'short', day: 'numeric' })}`
 })
 const todosByDate = computed(() => {
   const first = visibleDays.value[0] ?? selected.value
@@ -161,12 +161,16 @@ async function selectView(view: CalendarView) {
   void selectionChanged()
 }
 async function movePeriod(direction: -1 | 1) {
-  const next = new Date(cursor.value)
-  if (calendarView.value === 'month') next.setMonth(next.getMonth() + direction)
-  else if (calendarView.value === 'week') next.setDate(next.getDate() + direction * 7)
-  else next.setDate(next.getDate() + direction)
+  let next: Date
+  if (calendarView.value === 'month') {
+    next = new Date(cursor.value)
+    next.setMonth(next.getMonth() + direction)
+  } else {
+    const offset = calendarView.value === 'week' ? direction * 7 : direction
+    next = dateForKey(addCalendarDays(localCalendarDate(cursor.value), offset))
+  }
   cursor.value = next
-  if (calendarView.value === 'day') selected.value = localDateString(next)
+  if (calendarView.value === 'day') selected.value = localCalendarDate(next)
   await loadCompletions()
   void impact('light')
 }
@@ -280,7 +284,7 @@ onMounted(async () => {
     </template>
     <section v-else-if="calendarView === 'week'" class="grid gap-3 sm:grid-cols-7">
       <button v-for="date in visibleDays" :key="date" type="button" class="min-h-44 rounded-2xl border border-(--ui-border) bg-(--ui-bg-elevated) p-3 text-left" @click="selectDate(date)">
-        <p class="text-xs font-semibold uppercase tracking-wide text-(--ui-text-dimmed)">{{ dateForKey(date).toLocaleDateString(undefined, { weekday: 'short' }) }}</p>
+        <p class="text-xs font-semibold uppercase tracking-wide text-(--ui-text-dimmed)">{{ formatCalendarDate(date, { weekday: 'short' }) }}</p>
         <p class="text-xl font-bold">{{ dateForKey(date).getDate() }}</p>
         <ul class="mt-4 space-y-2">
           <li v-for="item in agendaFor(date)" :key="item.id" class="flex gap-2 text-xs">
@@ -291,7 +295,7 @@ onMounted(async () => {
         </ul>
       </button>
     </section>
-    <template v-else><section class="rounded-2xl border border-(--ui-border) bg-(--ui-bg-elevated) p-3"><div class="grid grid-cols-7 text-center text-[11px] font-semibold uppercase tracking-wide text-(--ui-text-dimmed)"><span v-for="day in ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']" :key="day" class="pb-2">{{ day }}</span></div><div class="grid grid-cols-7 gap-1"><button v-for="date in visibleDays" :key="date" type="button" class="relative flex min-h-14 flex-col rounded-xl p-1.5 text-left" :class="[date === today ? 'bg-primary-500/10' : 'hover:bg-(--ui-bg-muted)', !isCurrentMonth(date) ? 'opacity-35' : '']" :aria-label="dateForKey(date).toLocaleDateString()" @click="selectDate(date)"><span class="text-sm font-bold">{{ dateForKey(date).getDate() }}</span><span class="mt-auto flex gap-1"><i v-if="completionCount(date)" class="h-1.5 w-1.5 rounded-full bg-emerald-500" /><i v-if="taskCount(date)" class="h-1.5 w-1.5 rounded-full bg-amber-500" /><i v-if="noteCount(date)" class="h-1.5 w-1.5 rounded-full bg-primary-500" /></span></button></div></section><p class="flex justify-center gap-3 text-xs text-(--ui-text-dimmed)"><span>Habits</span><span>Tasks</span><span>Notes</span></p></template>
+    <template v-else><section class="rounded-2xl border border-(--ui-border) bg-(--ui-bg-elevated) p-3"><div class="grid grid-cols-7 text-center text-[11px] font-semibold uppercase tracking-wide text-(--ui-text-dimmed)"><span v-for="day in ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']" :key="day" class="pb-2">{{ day }}</span></div><div class="grid grid-cols-7 gap-1"><button v-for="date in visibleDays" :key="date" type="button" class="relative flex min-h-14 flex-col rounded-xl p-1.5 text-left" :class="[date === today ? 'bg-primary-500/10' : 'hover:bg-(--ui-bg-muted)', !isCurrentMonth(date) ? 'opacity-35' : '']" :aria-label="formatCalendarDate(date, { locale: [], year: 'numeric', month: 'numeric', day: 'numeric' })" @click="selectDate(date)"><span class="text-sm font-bold">{{ dateForKey(date).getDate() }}</span><span class="mt-auto flex gap-1"><i v-if="completionCount(date)" class="h-1.5 w-1.5 rounded-full bg-emerald-500" /><i v-if="taskCount(date)" class="h-1.5 w-1.5 rounded-full bg-amber-500" /><i v-if="noteCount(date)" class="h-1.5 w-1.5 rounded-full bg-primary-500" /></span></button></div></section><p class="flex justify-center gap-3 text-xs text-(--ui-text-dimmed)"><span>Habits</span><span>Tasks</span><span>Notes</span></p></template>
     <TodoFormModal v-model:open="showTodoModal" :editing-todo="editingTodo" :bored-categories="boredCategories" :suggest-tags="suggestTags" :default-date="formDefaultDate" @save="saveTodo" @todo-updated="updateTodo" />
     <CalendarNoteSheet v-model:open="showNoteSheet" :note="editingNote" :entry-date="selected" :saving="savingNote" @save="saveCalendarNote" />
   </div>

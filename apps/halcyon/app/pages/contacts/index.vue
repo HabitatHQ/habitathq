@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { localDateString } from '@habitathq/utils'
+import { localCalendarDate } from '@habitathq/utils'
 import { useDatabase } from '~/composables/useDatabase'
 import { useVault } from '~/composables/useVault'
 import type { Contact } from '~/types/database'
@@ -12,7 +12,7 @@ const { activeVaultId } = useVault()
 const contacts = ref<Contact[]>([])
 const query = ref('')
 const loading = ref(true)
-const today = localDateString(new Date())
+const today = localCalendarDate()
 
 async function load() {
   if (!activeVaultId.value) return

@@ -9,7 +9,7 @@ import {
   dayNum,
   fmtDate,
 } from '~/utils/format'
-import { localDateString } from '@habitathq/utils'
+import { localCalendarDate } from '@habitathq/utils'
 
 // ─── fmtDuration ─────────────────────────────────────────────────────────────
 
@@ -145,29 +145,29 @@ describe('dayNum', () => {
   })
 })
 
-// ─── localDateString ──────────────────────────────────────────────────────────
+// ─── localCalendarDate ──────────────────────────────────────────────────────────
 
-describe('localDateString', () => {
+describe('localCalendarDate', () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => vi.useRealTimers())
 
   it('returns YYYY-MM-DD for a given date', () => {
-    expect(localDateString(new Date(2024, 2, 15))).toBe('2024-03-15')
+    expect(localCalendarDate(new Date(2024, 2, 15))).toBe('2024-03-15')
   })
 
   it('zero-pads single-digit month and day', () => {
-    expect(localDateString(new Date(2024, 0, 5))).toBe('2024-01-05')
+    expect(localCalendarDate(new Date(2024, 0, 5))).toBe('2024-01-05')
   })
 
   it('defaults to current local date when no argument given', () => {
     vi.setSystemTime(new Date(2024, 5, 8)) // June 8 local
-    expect(localDateString(new Date())).toBe('2024-06-08')
+    expect(localCalendarDate(new Date())).toBe('2024-06-08')
   })
 
   it('uses local date parts, not UTC', () => {
     // UTC midnight on Jan 1 is still Dec 31 in UTC-5
     const d = new Date(2024, 11, 31, 23, 0, 0) // local Dec 31
-    expect(localDateString(d)).toBe('2024-12-31')
+    expect(localCalendarDate(d)).toBe('2024-12-31')
   })
 })
 

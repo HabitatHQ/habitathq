@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { formatCalendarDate, localCalendarDate } from '@habitathq/utils'
+
 // Voice recorder bottom sheet
 const emit = defineEmits<{ close: [] }>()
 const store = useJotsStore()
@@ -167,7 +169,12 @@ async function saveTranscript() {
   savingTranscript.value = true
   try {
     await store.db.createScribble({
-      title: `Voice transcript — ${new Date().toLocaleDateString()}`,
+      title: `Voice transcript — ${formatCalendarDate(localCalendarDate(), {
+        locale: Intl.DateTimeFormat().resolvedOptions().locale,
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+      })}`,
       content: transcriptText.value.trim(),
       tags: ['habitat-voice-transcript'],
       annotations: { source_voice_id: transcriptNoteId.value },

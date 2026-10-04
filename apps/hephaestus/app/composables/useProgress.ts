@@ -1,16 +1,11 @@
-import { localDateString } from '@habitathq/utils'
+import { addCalendarDays, differenceInCalendarDays, localCalendarDate } from '@habitathq/utils'
 import type {
   ExerciseSessionStat,
   MuscleFrequency,
   WeekDot,
   WorkoutComparison,
 } from '~/lib/analytics'
-import {
-  addCalendarDays,
-  aggregateMuscleFrequency,
-  buildExerciseHistory,
-  buildWeekGrid,
-} from '~/lib/analytics'
+import { aggregateMuscleFrequency, buildExerciseHistory, buildWeekGrid } from '~/lib/analytics'
 import type { ReadinessResult } from '~/lib/readiness'
 import { calculateReadiness } from '~/lib/readiness'
 import { calculateAcuteLoad, calculateChronicLoad, getLoadRatio } from '~/lib/training-load'
@@ -27,15 +22,15 @@ export function useProgress() {
   const db = useDatabase()
 
   async function getRecentWorkouts(days: number): Promise<WorkoutRow[]> {
-    const cutoff = addCalendarDays(localDateString(new Date()), -days)
+    const cutoff = addCalendarDays(localCalendarDate(), -days)
     return db.query<WorkoutRow>(
       'SELECT * FROM workouts WHERE ended_at IS NOT NULL AND date >= ? AND date <= ? ORDER BY date DESC',
-      [cutoff, localDateString(new Date())],
+      [cutoff, localCalendarDate()],
     )
   }
 
   async function dotGrid(weeks: number = 12): Promise<WeekDot[][]> {
-    const today = localDateString(new Date())
+    const today = localCalendarDate()
     const workouts = await getRecentWorkouts(weeks * 7)
     return buildWeekGrid(
       workouts.map((w) => w.date),
@@ -45,7 +40,7 @@ export function useProgress() {
   }
 
   async function muscleFrequency(days: 7 | 28 | 90 = 28): Promise<MuscleFrequency[]> {
-    const today = localDateString(new Date())
+    const today = localCalendarDate()
     const cutoff = addCalendarDays(today, -days)
     const [workouts, workoutExercises, exercises] = await Promise.all([
       db.query<Pick<WorkoutRow, 'id' | 'date' | 'ended_at'>>(
@@ -175,20 +170,14 @@ export function useProgress() {
   }
 
   async function readinessData(): Promise<ReadinessResult> {
-    const today = localDateString(new Date())
+    const today = localCalendarDate()
     const recentWorkouts = await db.query<WorkoutRow>(
       "SELECT * FROM workouts WHERE ended_at IS NOT NULL AND date <= ? AND session_type = 'gym' ORDER BY date DESC LIMIT 28",
       [today],
     )
 
     const lastWorkout = recentWorkouts[0]
-    const daysSinceLast = lastWorkout
-      ? Math.floor(
-          (new Date(`${today}T00:00:00`).getTime() -
-            new Date(`${lastWorkout.date}T00:00:00`).getTime()) /
-            86400000,
-        )
-      : 999
+    const daysSinceLast = lastWorkout ? differenceInCalendarDays(today, lastWorkout.date) : 999
 
     const moodWorkouts = recentWorkouts.filter((w) => w.mood_rating !== null).slice(0, 5)
     const recentMoodAvg =
@@ -234,7 +223,7 @@ export function useProgress() {
     return db.query<PersonalRecordRow>('SELECT * FROM personal_records ORDER BY date DESC LIMIT 20')
   }
   async function organizationReport(days = 28): Promise<OrganizationReport> {
-    const endDate = localDateString(new Date())
+    const endDate = localCalendarDate()
     const startDate = addCalendarDays(endDate, -Math.max(0, days - 1))
     return db.organization('ORGANIZATION_REPORT', { startDate, endDate })
   }

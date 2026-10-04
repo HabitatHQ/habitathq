@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { localDateString } from '@habitathq/utils'
+import { localCalendarDate } from '@habitathq/utils'
 import type {
   Appointment,
   AppointmentReview,
@@ -22,14 +22,14 @@ const selectedPlan = ref('')
 const routineName = (id: string | null) =>
   savedRoutines.value.find((routine) => routine.id === id)?.name ?? 'No routine'
 const planName = ref('')
-const planStartDate = ref(localDateString(new Date()))
+const planStartDate = ref(localCalendarDate())
 const routineId = ref('')
-const appointmentDate = ref(localDateString(new Date()))
+const appointmentDate = ref(localCalendarDate())
 const appointmentTime = ref('')
 const recurrenceRules = ref<OrganizationRecurrenceRule[]>([])
 const recurrenceId = ref('')
 const recurrenceWeekdays = ref<number[]>([])
-const recurrenceStart = ref(localDateString(new Date()))
+const recurrenceStart = ref(localCalendarDate())
 const recurrenceEnd = ref('')
 const recurrenceTime = ref('')
 const recurrencePreview = ref<RecurrenceReview | null>(null)
@@ -72,7 +72,7 @@ const adoptionPreview = ref<ProgramAdoptionPreview | null>(null)
 const adoptionBindings = ref<Record<string, string | null>>({})
 const adoptionNeedsReview = ref(false)
 const programWeek = ref<{ week: number; weekStart: string; weekEnd: string } | null>(null)
-const programDate = ref(localDateString(new Date()))
+const programDate = ref(localCalendarDate())
 const scheduleDates = ref<Record<string, string>>({})
 const scheduleTimes = ref<Record<string, string>>({})
 const schedulePreview = ref<AppointmentReview | null>(null)
@@ -82,7 +82,7 @@ const futureScheduleChanges = computed(() =>
       (item) =>
         item.status === 'open' &&
         !item.workoutId &&
-        item.plannedDate > localDateString(new Date()) &&
+        item.plannedDate > localCalendarDate() &&
         (scheduleDates.value[item.id] !== item.plannedDate ||
           (scheduleTimes.value[item.id] ?? '') !== (item.plannedTime ?? '')),
     )
@@ -110,7 +110,7 @@ async function load() {
   busy.value = true
   error.value = ''
   try {
-    await organization.reconcileOpen(localDateString(new Date()))
+    await organization.reconcileOpen(localCalendarDate())
     plans.value = await organization.plans()
     if (!selectedPlan.value) selectedPlan.value = plans.value.find((plan) => plan.active)?.id ?? ''
     savedRoutines.value = await routines.load()
@@ -128,7 +128,7 @@ async function load() {
     planPrograms.value = await db.query<PlanProgram>(
       'SELECT t.id,t.program_id AS programId,p.name AS programName,t.adopted_program_revision_id AS adoptedRevisionId,t.start_local_date AS startDate FROM training_plans t LEFT JOIN programs p ON p.id=t.program_id ORDER BY t.created_at,t.id',
     )
-    const todayItems = await organization.today(localDateString(new Date()))
+    const todayItems = await organization.today(localCalendarDate())
     rotationItems.value = todayItems.filter(
       (item) => item.kind === 'rotation' && item.planId === selectedPlan.value,
     )
@@ -272,7 +272,7 @@ async function reviewRecurrence(active = true) {
       endDate: recurrenceEnd.value || null,
       time: recurrenceTime.value || null,
       active,
-      today: localDateString(new Date()),
+      today: localCalendarDate(),
     })
     error.value = ''
   } catch (cause) {
@@ -530,8 +530,8 @@ async function saveGoal() {
         <li v-for="item in appointments" :key="item.id" class="rounded-lg bg-(--color-surface-2) p-3">
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0"><p class="font-medium">{{ savedRoutines.find((r) => r.id === item.routineId)?.name ?? 'Saved routine' }}</p><p class="text-xs text-(--ui-text-muted)">Originally {{ item.originalDate }} · planned {{ item.plannedDate }}{{ item.plannedTime ? ` at ${item.plannedTime}` : '' }}</p><p class="text-xs capitalize text-(--ui-text-muted)">{{ item.status }}{{ item.postponed ? ' · postponed' : '' }}{{ item.workoutId ? ' · linked workout' : '' }}</p></div>
-            <label v-if="item.status === 'open' && !item.workoutId && item.plannedDate > localDateString(new Date())" class="mt-2 block text-xs text-(--ui-text-muted)">Proposed future date<input v-model="scheduleDates[item.id]" type="date" class="mt-1 w-full rounded-lg bg-(--color-surface) p-2 text-sm text-(--ui-text)" @change="schedulePreview = null" /></label>
-            <label v-if="item.status === 'open' && !item.workoutId && item.plannedDate > localDateString(new Date())" class="mt-2 block text-xs text-(--ui-text-muted)">Proposed local time<input v-model="scheduleTimes[item.id]" type="time" class="mt-1 w-full rounded-lg bg-(--color-surface) p-2 text-sm text-(--ui-text)" @change="schedulePreview = null" /></label>
+            <label v-if="item.status === 'open' && !item.workoutId && item.plannedDate > localCalendarDate()" class="mt-2 block text-xs text-(--ui-text-muted)">Proposed future date<input v-model="scheduleDates[item.id]" type="date" class="mt-1 w-full rounded-lg bg-(--color-surface) p-2 text-sm text-(--ui-text)" @change="schedulePreview = null" /></label>
+            <label v-if="item.status === 'open' && !item.workoutId && item.plannedDate > localCalendarDate()" class="mt-2 block text-xs text-(--ui-text-muted)">Proposed local time<input v-model="scheduleTimes[item.id]" type="time" class="mt-1 w-full rounded-lg bg-(--color-surface) p-2 text-sm text-(--ui-text)" @change="schedulePreview = null" /></label>
             <div v-if="item.status === 'open' && !item.workoutId" class="flex shrink-0 gap-1"><UButton size="xs" variant="soft" @click="postpone(item)">Postpone</UButton><UButton size="xs" variant="ghost" @click="skip(item)">Skip</UButton></div>
           </div>
         </li>

@@ -1,7 +1,7 @@
 import { BrowserSqliteAdapter } from '@palladium/sqlite-browser'
 import { dispatchTransfer } from '~/lib/data-transfer'
 import { createSerialQueue, executeBatch } from '~/lib/database-operations'
-import { resetAppDatabase } from '~/lib/database-reset'
+import { resetDatabase } from '~/lib/database-reset'
 import { initializeSchema } from '~/lib/db-schema'
 import { dispatchHistory } from '~/lib/history-correction'
 import { dispatchOrganization, isOrganizationOperation } from '~/lib/organization-storage'
@@ -80,10 +80,10 @@ await (async () => {
   }
 
   async function dispatch(type: string, payload: unknown): Promise<unknown> {
-    if (type === 'RESET_LOCAL_DATA') {
+    if (type === 'RESET_DATABASE') {
       const adapter = db
       if (!adapter) throw new Error('Database is not initialized')
-      await resetAppDatabase(adapter)
+      await resetDatabase(adapter)
       return null
     }
     if (type === 'EXPORT_DB') {

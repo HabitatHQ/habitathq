@@ -1,3 +1,11 @@
+import {
+  addCalendarDays,
+  differenceInCalendarDays,
+  formatCalendarDate,
+  localCalendarDate,
+  parseCalendarDate,
+} from '@habitathq/utils'
+
 // ── Currency formatting ────────────────────────────────────────────────────
 
 /**
@@ -85,81 +93,36 @@ export function formatWithHomeEquiv(
   return { primary, annotation: `≈ ${formatAmount(homeAmount, homeCurrency)}` }
 }
 
-// ── Date formatting ────────────────────────────────────────────────────────
-
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-
-/** Get today's date as a local YYYY-MM-DD string (avoids UTC offset issues) */
-function localToday(): string {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
+// ── Hearth date-label policy ───────────────────────────────────────────────
 
 /**
- * Format a YYYY-MM-DD date string as a relative label.
- * Today → "Today" · Yesterday → "Yesterday" · This week → "Mon 3 Mar" · Older → "3 Mar 2025"
+ * Format a transaction calendar date using Hearth's established labels.
+ * Today → "Today" · Yesterday → "Yesterday" · Within 7 days → "Mon 3 Mar"
+ * · Same year → "3 Mar" · Older → "3 Mar 2025"
  */
-export function formatDateRelative(dateStr: string): string {
-  // Use local date string for "today" to avoid UTC offset issues
-  const todayStr = localToday()
-  const todayDate = new Date(`${todayStr}T00:00:00`)
-  const yesterdayDate = new Date(todayDate)
-  yesterdayDate.setDate(todayDate.getDate() - 1)
-  const yesterdayStr = `${yesterdayDate.getFullYear()}-${String(yesterdayDate.getMonth() + 1).padStart(2, '0')}-${String(yesterdayDate.getDate()).padStart(2, '0')}`
+export function formatHearthDateLabel(dateStr: string): string {
+  const today = localCalendarDate()
+  const daysAgo = differenceInCalendarDays(today, dateStr)
 
-  if (dateStr === todayStr) return 'Today'
-  if (dateStr === yesterdayStr) return 'Yesterday'
-
-  const date = new Date(`${dateStr}T00:00:00`)
-  const diffDays = Math.floor((todayDate.getTime() - date.getTime()) / (1000 * 60 * 60 * 24))
-  if (diffDays < 7) {
-    return `${DAYS[date.getDay()]} ${date.getDate()} ${MONTHS[date.getMonth()]}`
+  if (dateStr === today) return 'Today'
+  if (dateStr === addCalendarDays(today, -1)) return 'Yesterday'
+  if (daysAgo < 7) {
+    return formatCalendarDate(dateStr, {
+      locale: 'en-GB',
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+    }).replace(',', '')
   }
-  if (date.getFullYear() === todayDate.getFullYear()) {
-    return `${date.getDate()} ${MONTHS[date.getMonth()]}`
-  }
-  return `${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`
-}
 
-/**
- * Format YYYY-MM as "March 2026"
- */
-export function formatPeriod(period: string): string {
-  const parts = period.split('-').map(Number)
-  const year = parts[0]!
-  const month = parts[1]!
-  const fullMonths = [
-    'January',
-    'February',
-    'March',
-    'April',
-    'May',
-    'June',
-    'July',
-    'August',
-    'September',
-    'October',
-    'November',
-    'December',
-  ]
-  return `${fullMonths[month - 1]} ${year}`
-}
-
-/**
- * Get current period string "YYYY-MM"
- */
-export function currentPeriod(): string {
-  return new Date().toISOString().slice(0, 7)
-}
-
-/**
- * Navigate period by offset (+1 = next month, -1 = previous month)
- */
-export function offsetPeriod(period: string, offset: number): string {
-  const parts = period.split('-').map(Number)
-  const date = new Date(parts[0]!, parts[1]! - 1 + offset, 1)
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+  const { year } = parseCalendarDate(dateStr)
+  const { year: currentYear } = parseCalendarDate(today)
+  return formatCalendarDate(dateStr, {
+    locale: 'en-GB',
+    day: 'numeric',
+    month: 'short',
+    ...(year === currentYear ? {} : { year: 'numeric' }),
+  })
 }
 
 // ── Percentage helpers ─────────────────────────────────────────────────────

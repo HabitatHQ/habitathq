@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { formatInstant, localCalendarDate } from '@habitathq/utils'
 import type { AppTheme, ColorMode, NlpTier } from '~/composables/useAppSettings'
 import { SUPPORTED_CURRENCIES } from '~/lib/currency/convert'
-import type { Account, HearthExport } from '~/types/database'
+import { parseHearthExport } from '~/lib/hearth-export'
+import type { Account } from '~/types/database'
 import { formatCurrency } from '~/utils/format'
 
 const currencies = SUPPORTED_CURRENCIES
@@ -9,7 +11,7 @@ const currencies = SUPPORTED_CURRENCIES
 const { settings, set, reset } = useAppSettings()
 const db = useDatabase()
 const runtimeConfig = useRuntimeConfig()
-const isNativeApp = import.meta.client && 'Capacitor' in window
+const { isNative: isNativeApp } = usePlatform()
 
 const dbInfo = ref<{
   transaction_count: number
@@ -80,41 +82,97 @@ onMounted(async () => {
     // ignore
   }
 })
+const exportOperation = useAsyncOperation({
+  action: async () => {
+    const data = await db.exportJson()
+    downloadBlob(
+      new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+      `hearth-export-${localCalendarDate()}.json`,
+    )
+  },
+})
+const importOperation = useAsyncOperation({
+  action: async (file: File) => {
+    const parsed: unknown = JSON.parse(await file.text())
+    const data = parseHearthExport(parsed)
+    await db.importJson(data)
+  },
+  onSuccess: () => {
+    setTimeout(() => window.location.reload(), 1000)
+  },
+})
+const sqliteExportOperation = useAsyncOperation({
+  action: async () => {
+    const bytes = await db.exportDb()
+    downloadBlob(
+      new Blob([new Uint8Array(bytes)], { type: 'application/x-sqlite3' }),
+      `hearth-${localCalendarDate()}.sqlite3`,
+    )
+  },
+})
+const sqliteExportBusy = sqliteExportOperation.busy
+const sqliteExportError = sqliteExportOperation.error
+const sqliteExportSuccess = sqliteExportOperation.success
+const resetOperation = useAsyncOperation({
+  action: () => db.resetDatabase(),
+  onSuccess: () => window.location.reload(),
+})
+const refreshOperation = useAsyncOperation({
+  action: async () => {
+    await refreshAppAssets({
+      scope: new URL(runtimeConfig.app.baseURL, location.origin).href,
+      cachePrefix: 'hearth-',
+    })
+  },
+})
+const exportBusy = exportOperation.busy
+const exportError = exportOperation.error
+const exportSuccess = exportOperation.success
+const importBusy = importOperation.busy
+const importError = importOperation.error
+const importSuccess = importOperation.success
+const resetSuccess = resetOperation.success
+const resetBusy = resetOperation.busy
+const resetError = resetOperation.error
+const refreshBusy = refreshOperation.busy
+const refreshError = refreshOperation.error
+const resetConfirmation = useDestructiveConfirmation<[]>()
+const resetConfirmPending = resetConfirmation.pending
+const dataOperationBusy = computed(
+  () =>
+    sqliteExportOperation.busy.value ||
+    exportOperation.busy.value ||
+    importOperation.busy.value ||
+    resetOperation.busy.value ||
+    refreshOperation.busy.value,
+)
 
-const exportError = ref('')
-const importSuccess = ref(false)
-const importError = ref('')
-const showResetConfirm = ref(false)
-
+async function exportSqlite() {
+  try {
+    await sqliteExportOperation.run()
+  } catch {
+    // Failure remains available through the shared feedback component.
+  }
+}
 async function exportJson() {
   try {
-    const data = await db.exportJson()
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `hearth-export-${new Date().toISOString().slice(0, 10)}.json`
-    a.click()
-    URL.revokeObjectURL(url)
-    exportError.value = ''
-  } catch (e) {
-    exportError.value = `Export failed: ${String(e)}`
+    await exportOperation.run()
+  } catch {
+    // Failure remains available through the shared feedback component.
   }
 }
 
 async function onImportFile(event: Event) {
-  const file = (event.target as HTMLInputElement).files?.[0]
+  const input = event.currentTarget
+  if (!(input instanceof HTMLInputElement)) return
+  const file = input.files?.[0]
+  input.value = ''
   if (!file) return
   try {
-    const text = await file.text()
-    const data = JSON.parse(text) as HearthExport
-    await db.importJson(data)
-    importSuccess.value = true
-    setTimeout(() => window.location.reload(), 1000)
-  } catch (e) {
-    importError.value = `Import failed: ${String(e)}`
+    await importOperation.run(file)
+  } catch {
+    // Failure remains available through the shared feedback component.
   }
-  if (importFileRef.value) importFileRef.value.value = ''
 }
 
 function resetSettings() {
@@ -123,32 +181,26 @@ function resetSettings() {
 }
 
 function requestResetDatabase() {
-  showResetConfirm.value = true
+  resetConfirmation.request()
 }
 
 async function confirmResetDatabase() {
-  await db.nukeOpfs()
-  window.location.reload()
+  if (!resetConfirmation.confirm()) return
+  try {
+    await resetOperation.run()
+  } catch {
+    // Failure remains available through the shared feedback component.
+  }
 }
 
 // ─── Here be dragons ─────────────────────────────────────────────────────────
 const dragonsOpen = ref(false)
-const forceReloading = ref(false)
 
 async function forceReload() {
-  forceReloading.value = true
   try {
-    if ('serviceWorker' in navigator) {
-      const registrations = await navigator.serviceWorker.getRegistrations()
-      await Promise.all(registrations.map((r) => r.unregister()))
-    }
-    if ('caches' in window) {
-      const keys = await caches.keys()
-      await Promise.all(keys.map((k) => caches.delete(k)))
-    }
-    window.location.reload()
+    await refreshOperation.run()
   } catch {
-    forceReloading.value = false
+    // Failure remains available through the shared feedback component.
   }
 }
 
@@ -214,21 +266,13 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
 
         <!-- Reduce motion -->
         <div class="flex items-center gap-3 p-4 min-h-[60px]">
-          <AppIcon name="sparkles" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
-          <div class="flex-1">
-            <p class="text-sm font-medium text-(--ui-text)">Reduce motion</p>
-            <p class="text-xs text-(--ui-text-muted)">Disable animations</p>
-          </div>
-          <button
-            class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
-            :class="settings.reduceMotion ? 'bg-primary-500' : 'bg-(--ui-bg-elevated)'"
-            role="switch"
-            aria-label="Reduce motion"
-            :aria-checked="settings.reduceMotion"
-            @click="set('reduceMotion', !settings.reduceMotion)"
-          >
-            <span class="inline-block h-4 w-4 rounded-full bg-white transition-transform" :class="settings.reduceMotion ? 'translate-x-6' : 'translate-x-1'" />
-          </button>
+          <AppFeatureToggle
+            class="flex-1 text-sm font-medium text-(--ui-text)"
+            :model-value="settings.reduceMotion"
+            label="Reduce motion"
+            description="Disable animations"
+            @update:model-value="set('reduceMotion', $event)"
+          />
         </div>
       </div>
     </section>
@@ -239,20 +283,13 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
       <div class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) divide-y divide-(--ui-border) overflow-hidden">
         <div class="flex items-center gap-3 p-4 min-h-[60px]">
           <AppIcon name="device-phone-mobile" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
-          <div class="flex-1">
-            <p class="text-sm font-medium text-(--ui-text)">Sticky bottom nav</p>
-            <p class="text-xs text-(--ui-text-muted)">Fix nav bar to bottom</p>
-          </div>
-          <button
-            class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
-            :class="settings.stickyNav ? 'bg-primary-500' : 'bg-(--ui-bg-elevated)'"
-            role="switch"
-            aria-label="Sticky bottom nav"
-            :aria-checked="settings.stickyNav"
-            @click="set('stickyNav', !settings.stickyNav)"
-          >
-            <span class="inline-block h-4 w-4 rounded-full bg-white transition-transform" :class="settings.stickyNav ? 'translate-x-6' : 'translate-x-1'" />
-          </button>
+          <AppFeatureToggle
+            class="flex-1 text-sm font-medium text-(--ui-text)"
+            :model-value="settings.stickyNav"
+            label="Sticky bottom nav"
+            description="Fix nav bar to bottom"
+            @update:model-value="set('stickyNav', $event)"
+          />
         </div>
       </div>
     </section>
@@ -472,14 +509,29 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
 
         <!-- Export -->
         <button
-          class="flex items-center gap-3 w-full p-4 text-left hover:bg-(--ui-bg-elevated) transition-colors min-h-[60px]"
+          class="flex items-center gap-3 w-full p-4 text-left hover:bg-(--ui-bg-elevated) transition-colors min-h-[60px] disabled:opacity-50"
           aria-label="Export data as JSON"
+          :disabled="dataOperationBusy"
           @click="exportJson"
         >
           <AppIcon name="arrow-down-tray" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
           <div class="flex-1">
             <p class="text-sm font-medium text-(--ui-text)">Export data</p>
             <p class="text-xs text-(--ui-text-muted)">Download JSON backup</p>
+          </div>
+          <AppIcon name="chevron-right" class="w-4 h-4 text-(--ui-text-muted)" aria-hidden="true" />
+        </button>
+        <button
+          v-if="!isNativeApp"
+          class="flex items-center gap-3 w-full p-4 text-left hover:bg-(--ui-bg-elevated) transition-colors min-h-[60px] disabled:opacity-50"
+          aria-label="Export database as SQLite"
+          :disabled="dataOperationBusy"
+          @click="exportSqlite"
+        >
+          <AppIcon name="circle-stack" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
+          <div class="flex-1">
+            <p class="text-sm font-medium text-(--ui-text)">Export SQLite database</p>
+            <p class="text-xs text-(--ui-text-muted)">Download the raw database file</p>
           </div>
           <AppIcon name="chevron-right" class="w-4 h-4 text-(--ui-text-muted)" aria-hidden="true" />
         </button>
@@ -494,8 +546,9 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
           @change="onImportFile"
         />
         <button
-          class="flex items-center gap-3 w-full p-4 text-left hover:bg-(--ui-bg-elevated) transition-colors min-h-[60px]"
+          class="flex items-center gap-3 w-full p-4 text-left hover:bg-(--ui-bg-elevated) transition-colors min-h-[60px] disabled:opacity-50"
           aria-label="Import data from JSON"
+          :disabled="dataOperationBusy"
           @click="importFileRef?.click()"
         >
           <AppIcon name="arrow-up-tray" class="w-5 h-5 text-(--ui-text-muted) shrink-0" aria-hidden="true" />
@@ -522,6 +575,45 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
 
       </div>
     </section>
+    <div class="space-y-2" aria-label="Data operation status">
+      <AppOperationFeedback
+        :busy="exportBusy"
+        :error="exportError"
+        :success="exportSuccess"
+        busy-label="Preparing JSON backup…"
+        success-label="JSON backup downloaded."
+        error-label="Export failed"
+      />
+      <AppOperationFeedback
+        :busy="sqliteExportBusy"
+        :error="sqliteExportError"
+        :success="sqliteExportSuccess"
+        busy-label="Preparing SQLite database…"
+        success-label="SQLite database downloaded."
+        error-label="SQLite export failed"
+      />
+      <AppOperationFeedback
+        :busy="importBusy"
+        :error="importError"
+        :success="importSuccess"
+        busy-label="Restoring JSON backup…"
+        success-label="Import complete. Reloading Hearth…"
+        error-label="Import failed"
+      />
+      <AppOperationFeedback
+        :busy="resetBusy"
+        :error="resetError"
+        :success="resetSuccess"
+        busy-label="Resetting Hearth database…"
+        error-label="Database reset failed"
+      />
+      <AppOperationFeedback
+        :busy="refreshBusy"
+        :error="refreshError"
+        busy-label="Refreshing Hearth assets…"
+        error-label="Asset refresh failed"
+      />
+    </div>
 
     <!-- ── About ──────────────────────────────────────────────────────────── -->
     <section aria-label="About">
@@ -539,7 +631,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
         </div>
         <div class="flex items-center justify-between px-4 py-3.5">
           <p class="text-sm text-(--ui-text-muted)">Built</p>
-          <p class="text-sm font-mono text-(--ui-text-toned)">{{ runtimeConfig.public.buildTime ? new Date(runtimeConfig.public.buildTime as string).toLocaleString() : '—' }}</p>
+          <p class="text-sm font-mono text-(--ui-text-toned)">{{ runtimeConfig.public.buildTime ? formatInstant(runtimeConfig.public.buildTime as string, { locale: Intl.DateTimeFormat().resolvedOptions().locale, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }) : '—' }}</p>
         </div>
       </div>
     </section>
@@ -555,10 +647,10 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
         <!-- Force reload — PWA only -->
         <div v-if="!isNativeApp" class="flex items-center justify-between px-4 py-3.5">
           <div class="space-y-0.5 mr-4">
-            <p class="text-sm font-medium text-(--ui-text)">Force reload</p>
-            <p class="text-xs text-(--ui-text-dimmed)">Unregister service worker, clear JS/CSS caches, and reload. OPFS data is preserved.</p>
+            <p class="text-sm font-medium text-(--ui-text)">Refresh app assets</p>
+            <p class="text-xs text-(--ui-text-dimmed)">Refresh Hearth's app-scoped service worker and cached assets.</p>
           </div>
-          <AppIconButton icon="arrow-path" :loading="forceReloading" label="Force reload" class="shrink-0" @click="forceReload" />
+          <AppIconButton icon="arrow-path" :loading="refreshBusy" :disabled="dataOperationBusy" label="Refresh app assets" class="shrink-0" @click="forceReload" />
         </div>
 
         <!-- Reset settings -->
@@ -573,30 +665,30 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
           </div>
         </button>
 
-        <!-- Nuke database -->
+        <!-- Reset database -->
         <button
-          class="flex items-center gap-3 w-full px-4 py-3.5 text-left hover:bg-rose-500/5 transition-colors min-h-[44px]"
+          class="flex items-center gap-3 w-full px-4 py-3.5 text-left hover:bg-rose-500/5 transition-colors min-h-[44px] disabled:opacity-50"
+          :disabled="dataOperationBusy"
           @click="requestResetDatabase"
         >
           <AppIcon name="trash" class="w-5 h-5 text-rose-400 shrink-0" />
           <div class="space-y-0.5">
-            <p class="text-sm font-medium text-rose-400">Nuke database</p>
+            <p class="text-sm font-medium text-rose-400">Reset database</p>
             <p class="text-xs text-(--ui-text-dimmed)">Permanently deletes all data. Cannot be undone.</p>
           </div>
         </button>
       </div>
     </section>
 
-    <!-- Reset confirmation -->
-    <AppConfirmDialog
-      v-model="showResetConfirm"
-      icon="exclamation-triangle"
-      icon-color="amber"
+    <AppDestructiveConfirm
+      :model-value="resetConfirmPending"
       title="Reset all data?"
-      message="This will permanently delete all transactions, envelopes, and settings. This cannot be undone."
+      message="This will permanently delete all Hearth database data. This cannot be undone."
       confirm-label="Reset Everything"
-      confirm-color="error"
+      cancel-label="Keep my data"
+      :busy="resetBusy"
       @confirm="confirmResetDatabase"
+      @cancel="resetConfirmation.cancel"
     />
   </div>
 </template>

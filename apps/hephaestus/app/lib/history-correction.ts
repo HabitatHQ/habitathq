@@ -1,3 +1,4 @@
+import { isCalendarDate } from '@habitathq/utils'
 import { organizationCreditPreview, recomputeOrganizationCredit } from '~/lib/organization-storage'
 import { parseSerializablePrescription } from '~/lib/prescription-domain'
 import { recomputeWorkoutDerivedState } from '~/lib/workout-storage'
@@ -39,11 +40,8 @@ function finite(value: unknown, label: string, maximum = Number.MAX_VALUE): numb
   return value
 }
 function localDate(value: unknown): string {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value))
+  if (typeof value !== 'string' || !isCalendarDate(value))
     throw new Error('Performed date must be a local YYYY-MM-DD date')
-  const parsed = new Date(`${value}T12:00:00Z`)
-  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value)
-    throw new Error('Performed date is invalid')
   return value
 }
 function timestamp(value: unknown, label: string): string {
@@ -53,7 +51,7 @@ function timestamp(value: unknown, label: string): string {
     !Number.isFinite(Date.parse(value))
   )
     throw new Error(`${label} must be a valid ISO timestamp`)
-  localDate(value.slice(0, 10))
+  if (!isCalendarDate(value.slice(0, 10))) throw new Error('Performed date is invalid')
   return value
 }
 function array(value: unknown): unknown[] {

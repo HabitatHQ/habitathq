@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import { localDateString } from '@habitathq/utils'
+import {
+  addCalendarDays,
+  formatCalendarDate,
+  localCalendarDate,
+  parseDateString,
+} from '@habitathq/utils'
 import { computed, onMounted, ref, watch } from 'vue'
 import type { CheckinEntry, CheckinHistoryRow } from '~/types/database'
 
@@ -10,7 +15,7 @@ const { impact } = useHaptics()
 
 const loading = ref(true)
 const viewMode = ref<'calendar' | 'timeline'>('calendar')
-const todayKey = localDateString(new Date())
+const todayKey = localCalendarDate(new Date())
 
 // Dates that have *any* check-in data
 const activeDates = ref<Set<string>>(new Set())
@@ -96,10 +101,6 @@ async function loadRange(start: string, end: string) {
 
 const calendarMonthDate = ref(new Date())
 
-function localDateStr(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
 function prevMonth() {
   const d = new Date(calendarMonthDate.value)
   d.setMonth(d.getMonth() - 1)
@@ -120,10 +121,9 @@ const calendarRange = computed(() => {
   const startDow = new Date(year, month, 1).getDay()
   const lastDate = new Date(year, month + 1, 0).getDate()
   const totalCells = Math.ceil((startDow + lastDate) / 7) * 7
-  const start = new Date(year, month, 1 - startDow)
-  const end = new Date(start)
-  end.setDate(end.getDate() + totalCells - 1)
-  return { start: localDateStr(start), end: localDateStr(end) }
+  const start = addCalendarDays(localCalendarDate(new Date(year, month, 1)), -startDow)
+  const end = addCalendarDays(start, totalCells - 1)
+  return { start, end }
 })
 
 // When month changes, load data if needed
@@ -140,15 +140,15 @@ const calendarCells = computed(() => {
   const lastDate = new Date(year, month + 1, 0).getDate()
   const totalCells = Math.ceil((startDow + lastDate) / 7) * 7
   const cells: { date: string; inMonth: boolean; hasData: boolean }[] = []
-  const d = new Date(year, month, 1 - startDow)
+  const first = addCalendarDays(localCalendarDate(new Date(year, month, 1)), -startDow)
   for (let i = 0; i < totalCells; i++) {
-    const ds = localDateStr(d)
+    const ds = addCalendarDays(first, i)
+    const d = parseDateString(ds)
     cells.push({
       date: ds,
       inMonth: d.getMonth() === month,
       hasData: activeDates.value.has(ds) || dataByDate.value.has(ds),
     })
-    d.setDate(d.getDate() + 1)
   }
   return cells
 })
@@ -172,9 +172,7 @@ const timelineDays = computed(() => {
 watch(viewMode, async (newMode) => {
   if (newMode === 'timeline' && timelineDays.value.length === 0) {
     // Load last 90 days
-    const d = new Date()
-    d.setDate(d.getDate() - 90)
-    await loadRange(localDateStr(d), todayKey)
+    await loadRange(addCalendarDays(todayKey, -90), todayKey)
   }
 })
 
@@ -184,10 +182,8 @@ async function loadMoreTimeline() {
   if (timelineDays.value.length > 0) {
     const oldestLoaded = timelineDays.value.at(-1)
     if (!oldestLoaded) return
-    const d = new Date(`${oldestLoaded}T12:00:00`)
-    const endStr = localDateStr(new Date(d.getTime() - 86400000))
-    d.setDate(d.getDate() - 90)
-    const startStr = localDateStr(d)
+    const endStr = addCalendarDays(oldestLoaded, -1)
+    const startStr = addCalendarDays(oldestLoaded, -91)
     await loadRange(startStr, endStr)
   }
 }
@@ -203,8 +199,12 @@ function parseFreeformEntry(content: string) {
 }
 
 function formatDateHeader(dateStr: string) {
-  const d = new Date(`${dateStr}T12:00:00`)
-  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+  return formatCalendarDate(dateStr, {
+    locale: 'en-US',
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  })
 }
 
 // Expandable text state
@@ -243,7 +243,7 @@ function toggleText(id: string) {
             <AppIcon name="chevron-left" class="w-4 h-4" />
           </button>
           <span class="font-semibold text-(--ui-text)">
-            {{ calendarMonthDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) }}
+            {{ formatCalendarDate(localCalendarDate(calendarMonthDate), { locale: [], month: 'long', year: 'numeric' }) }}
           </span>
           <button type="button" class="icon-btn hover:bg-(--ui-bg-elevated) text-(--ui-text-toned)" aria-label="Next month" @click="nextMonth">
             <AppIcon name="chevron-right" class="w-4 h-4" />

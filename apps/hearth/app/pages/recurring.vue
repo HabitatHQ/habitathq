@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { differenceInCalendarDays, localCalendarDate } from '@habitathq/utils'
 import type { RecurringPatternRow, RecurringStatus } from '~/types/database'
 
 const db = useDatabase()
@@ -66,21 +67,18 @@ const confirmedPatterns = computed(() => patterns.value.filter((p) => p.status =
 const dismissedPatterns = computed(() => patterns.value.filter((p) => p.status === 'dismissed'))
 
 // Upcoming: confirmed patterns with next_expected within 7 days
-const today = new Date()
-const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+const today = localCalendarDate()
 
 const upcomingThisWeek = computed(() =>
   confirmedPatterns.value.filter((p) => {
-    const next = p.next_expected
-    const diff = (new Date(next).getTime() - new Date(todayStr).getTime()) / 86400000
+    const diff = differenceInCalendarDays(p.next_expected, today)
     return diff >= 0 && diff <= 7
   }),
 )
 
 const upcomingThisMonth = computed(() =>
   confirmedPatterns.value.filter((p) => {
-    const next = p.next_expected
-    const diff = (new Date(next).getTime() - new Date(todayStr).getTime()) / 86400000
+    const diff = differenceInCalendarDays(p.next_expected, today)
     return diff > 7 && diff <= 31
   }),
 )
@@ -176,7 +174,7 @@ function intervalLabel(interval: string): string {
           </div>
 
           <div class="flex items-center justify-between text-xs text-(--ui-text-muted)">
-            <span>Next: {{ formatDateRelative(p.next_expected) }}</span>
+            <span>Next: {{ formatHearthDateLabel(p.next_expected) }}</span>
             <span class="flex items-center gap-0.5">
               Confidence:
               <span v-for="n in 5" :key="n" class="inline-block w-1.5 h-1.5 rounded-full" :class="n <= confidenceDots(p.confidence) ? 'bg-primary-400' : 'bg-(--ui-bg-elevated)'" />
@@ -212,7 +210,7 @@ function intervalLabel(interval: string): string {
         >
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-(--ui-text) truncate">{{ p.merchant }}</p>
-            <p class="text-xs text-(--ui-text-muted)">{{ formatDateRelative(p.next_expected) }}</p>
+            <p class="text-xs text-(--ui-text-muted)">{{ formatHearthDateLabel(p.next_expected) }}</p>
           </div>
           <p class="font-mono text-sm font-semibold text-(--ui-text) shrink-0">{{ formatAmount(p.average_amount) }}</p>
         </li>
@@ -230,7 +228,7 @@ function intervalLabel(interval: string): string {
         >
           <div class="flex-1 min-w-0">
             <p class="text-sm font-medium text-(--ui-text) truncate">{{ p.merchant }}</p>
-            <p class="text-xs text-(--ui-text-muted)">{{ formatDateRelative(p.next_expected) }}</p>
+            <p class="text-xs text-(--ui-text-muted)">{{ formatHearthDateLabel(p.next_expected) }}</p>
           </div>
           <p class="font-mono text-sm font-semibold text-(--ui-text) shrink-0">{{ formatAmount(p.average_amount) }}</p>
         </li>
@@ -272,7 +270,7 @@ function intervalLabel(interval: string): string {
               <span v-if="p.status === 'dismissed'" class="text-[10px] uppercase text-(--ui-text-dimmed) bg-(--ui-bg-elevated) px-1.5 py-0.5 rounded">dismissed</span>
             </div>
             <p class="text-xs text-(--ui-text-muted)">
-              {{ intervalLabel(p.interval) }} · Next: {{ formatDateRelative(p.next_expected) }}
+              {{ intervalLabel(p.interval) }} · Next: {{ formatHearthDateLabel(p.next_expected) }}
             </p>
           </div>
           <p class="font-mono text-sm font-semibold text-(--ui-text) shrink-0">{{ formatAmount(p.average_amount) }}</p>

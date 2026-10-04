@@ -4,11 +4,15 @@
  * completions/logs and renders summary stats, the garden, a daily-completion
  * heatmap, monthly rate, and per-habit completion bars. Mirrors CheckinInsights.
  */
-
-import { localDateString } from '@habitathq/utils'
+import {
+  addCalendarDays,
+  differenceInCalendarDays,
+  formatCalendarDate,
+  localCalendarDate,
+  parseCalendarDate,
+} from '@habitathq/utils'
 import { computeStreak, growthStage, type StreakInput } from '~/lib/streak-engine'
 import type { Completion, HabitLog, HabitWithSchedule } from '~/types/database'
-import { addDateKeyDays } from '~/utils/calendar-dates'
 
 const db = useDatabase()
 
@@ -17,18 +21,20 @@ const completions = ref<Completion[]>([])
 const habitLogs = ref<HabitLog[]>([])
 const loading = ref(true)
 
-const today = localDateString(new Date())
+const today = localCalendarDate()
 
-// Six months covers both the monthly chart and the heatmap
-const sixMonthsAgo = (() => {
-  const d = new Date()
-  const anchorDay = d.getDate()
-  d.setDate(1)
-  d.setMonth(d.getMonth() - 6)
-  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
-  d.setDate(Math.min(anchorDay, lastDay))
-  return localDateString(d)
-})()
+// Six months covers both the monthly chart and the heatmap. Preserve native
+// setMonth overflow for dates whose day does not exist in the target month.
+function sixMonthsEarlier(date: string): string {
+  const targetDay = parseCalendarDate(date).day
+  let monthStart = `${date.slice(0, 7)}-01`
+  for (let i = 0; i < 6; i++) {
+    const previousMonthLastDay = addCalendarDays(monthStart, -1)
+    monthStart = `${previousMonthLastDay.slice(0, 7)}-01`
+  }
+  return addCalendarDays(monthStart, targetDay - 1)
+}
+const sixMonthsAgo = sixMonthsEarlier(today)
 
 async function load() {
   const [h, c, l] = await Promise.all([
@@ -78,13 +84,10 @@ function isHabitDone(habit: HabitWithSchedule, date: string): boolean {
 
 // ─── Precomputed date strings (descending: today → sixMonthsAgo) ─────────────
 
-const allDateStrings = (() => {
-  const dates: string[] = []
-  for (let date = today; date >= sixMonthsAgo; date = addDateKeyDays(date, -1)) {
-    dates.push(date)
-  }
-  return dates
-})()
+const allDateStrings = Array.from(
+  { length: differenceInCalendarDays(today, sixMonthsAgo) + 1 },
+  (_, index) => addCalendarDays(today, -index),
+)
 
 // date → total habits done that day; used by aggregate charts (heatmap, monthly, avg)
 const doneCountByDate = computed(() => {
@@ -163,27 +166,28 @@ const avgCompletion = computed(() => {
 
 // ─── Monthly chart ────────────────────────────────────────────────────────────
 
-function countDoneInMonth(prefix: string, days: number): number {
-  let done = 0
-  for (let day = 1; day <= days; day++) {
-    done += doneCountByDate.value.get(`${prefix}-${String(day).padStart(2, '0')}`) ?? 0
-  }
-  return done
-}
-
 const monthlyData = computed(() => {
-  const now = new Date()
-  return Array.from({ length: 6 }, (_, i) => {
-    const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1)
-    const prefix = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-    const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
-    const days = i === 5 ? now.getDate() : daysInMonth
-    const done = countDoneInMonth(prefix, days)
+  const currentMonth = `${today.slice(0, 7)}-01`
+  const newestFirst = [currentMonth]
+  for (let i = 1; i < 6; i++) {
+    const previousMonthLastDay = addCalendarDays(newestFirst[i - 1]!, -1)
+    newestFirst.push(`${previousMonthLastDay.slice(0, 7)}-01`)
+  }
+  return newestFirst.reverse().map((monthStart) => {
+    const monthPrefix = monthStart.slice(0, 7)
+    let date = monthStart
+    let days = 0
+    let done = 0
+    while (date.slice(0, 7) === monthPrefix && date <= today) {
+      days++
+      done += doneCountByDate.value.get(date) ?? 0
+      date = addCalendarDays(date, 1)
+    }
     const rate =
       habits.value.length && days
         ? Math.min(100, Math.round((done / (habits.value.length * days)) * 100))
         : 0
-    return { label: d.toLocaleDateString('en-US', { month: 'short' }), rate }
+    return { label: formatCalendarDate(monthStart, { locale: 'en-US', month: 'short' }), rate }
   })
 })
 

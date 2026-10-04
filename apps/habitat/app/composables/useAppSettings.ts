@@ -1,4 +1,5 @@
 import { readStoredSettings, writeStoredSettings } from '@habitathq/utils'
+
 export type AppTheme = 'habitat' | 'forest' | 'ocean'
 export type AppProfile = 'minimalist' | 'journaler' | 'productivity' | 'mindful'
 
@@ -84,7 +85,6 @@ const DEFAULTS: AppSettings = {
   strictCsp: false,
   tabOrder: [],
 }
-
 function freshDefaults(): AppSettings {
   return { ...DEFAULTS, tabOrder: [...DEFAULTS.tabOrder] }
 }
@@ -167,18 +167,6 @@ export const PROFILE_SETTINGS: Record<AppProfile, Partial<AppSettings>> = {
     enableTimer: true,
     enableBored: true,
   },
-}
-
-/**
- * Format a Date's time portion respecting the user's 12/24-hour preference.
- * Uses Intl.DateTimeFormat with the runtime locale.
- */
-export function formatTime(date: Date, use24h: boolean): string {
-  return new Intl.DateTimeFormat(undefined, {
-    hour: use24h ? '2-digit' : 'numeric',
-    minute: '2-digit',
-    hour12: !use24h,
-  }).format(date)
 }
 
 export function normalizeAppSettings(

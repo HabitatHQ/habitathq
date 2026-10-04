@@ -7,7 +7,7 @@
  * Row parsing is delegated to db-parsers.ts.
  */
 
-import { localDateString } from '@habitathq/utils'
+import { localCalendarDate, parseDateString } from '@habitathq/utils'
 import { recoverBooleanHistoryFromLogs } from '~/lib/boolean-history-recovery'
 import {
   HABIT_WITH_SCHED_SQL,
@@ -176,7 +176,7 @@ export async function createHabit(
     `INSERT INTO habit_schedules
      (id, habit_id, schedule_type, frequency_count, days_of_week, due_time, start_date, end_date)
      VALUES (?,?,?,?,?,?,?,?)`,
-    [schedId, id, 'DAILY', null, null, null, localDateString(createdOn), null],
+    [schedId, id, 'DAILY', null, null, null, localCalendarDate(createdOn), null],
   )
   const row = await db.queryOne<Record<string, unknown>>(`${HABIT_WITH_SCHED_SQL} WHERE h.id = ?`, [
     id,
@@ -350,7 +350,7 @@ export async function getStreak(db: DbAdapter, habit_id: string): Promise<Streak
     frequencyCount: sched?.frequency_count ?? null,
     startDate: sched?.start_date ?? null,
   }
-  const today = localDateString(new Date())
+  const today = localCalendarDate()
 
   if (type === 'BOOLEAN') {
     const rows = await db.queryAll<Record<string, unknown>>(
@@ -714,7 +714,7 @@ export async function getCheckinSummaryForDate(
   )
 
   // Filter by schedule: skip templates not active on this day of week
-  const dow = new Date(`${date}T12:00:00`).getDay() // 0=Sun … 6=Sat
+  const dow = parseDateString(date).getDay() // 0=Sun … 6=Sat
   return rows
     .filter((r) => {
       const schedType = r['schedule_type'] as string
@@ -1024,7 +1024,7 @@ export async function createScribble(
       payload.content ?? '',
       JSON.stringify(payload.tags ?? []),
       JSON.stringify(payload.annotations ?? {}),
-      payload.entry_date ?? localDateString(createdOn),
+      payload.entry_date ?? localCalendarDate(createdOn),
       now,
       now,
     ],
@@ -1071,6 +1071,7 @@ export async function getRecentSharedScribbles(
   db: DbAdapter,
   daysBack: number = 7,
 ): Promise<Scribble[]> {
+  // Shared-note retention is an elapsed-time window, not a local-calendar range.
   const cutoff = new Date(Date.now() - daysBack * 86_400_000).toISOString()
   const rows = await db.queryAll<Record<string, unknown>>(
     `SELECT * FROM scribbles
@@ -1910,7 +1911,7 @@ export async function importJson(db: DbAdapter, data: HabitatExport): Promise<nu
           s.content ?? '',
           JSON.stringify(s.tags ?? []),
           JSON.stringify(s.annotations ?? {}),
-          s.entry_date ?? localDateString(new Date(s.created_at)),
+          s.entry_date ?? localCalendarDate(new Date(s.created_at)),
           s.created_at,
           s.updated_at,
         ],
@@ -2006,7 +2007,7 @@ export async function importJson(db: DbAdapter, data: HabitatExport): Promise<nu
 
 // ─── Shared dispatcher ─────────────────────────────────────────────────────────
 // Maps WorkerRequestBody.type to the corresponding db-shared function.
-// Worker-only ops (EXPORT_DB, NUKE_OPFS) are handled by the caller.
+// Storage-owned ops (EXPORT_DB, RESET_DATABASE) are handled by the caller.
 
 async function dispatchRequest(db: DbAdapter, req: WorkerRequestBody): Promise<unknown> {
   switch (req.type) {

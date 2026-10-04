@@ -80,6 +80,72 @@ async function onHealthToggle(value: boolean) {
     }
   }
 }
+const featureDefinitions = [
+  {
+    key: 'enableJournalling',
+    label: 'Enable Journalling',
+    description: 'Show Check-in, Scribbles, and Voice in the navigation.',
+  },
+  {
+    key: 'enableHealth',
+    label: 'Enable Health',
+    description: 'Track daily steps and meal calories.',
+  },
+  {
+    key: 'enableTodos',
+    label: 'Enable TODOs',
+    description: 'Standalone task tracker with due dates, priorities, and recurring tasks.',
+  },
+  {
+    key: 'enableBored',
+    label: 'Enable "I’m Bored" Mode',
+    description: 'Magic 8-ball oracle that suggests activities from curated categories.',
+  },
+  {
+    key: 'autoShowBored',
+    label: 'Auto-show "I’m Bored"',
+    description: 'Automatically suggest an activity when all daily habits are done.',
+  },
+  {
+    key: 'enableContextFilter',
+    label: 'Context Filter',
+    description:
+      'Tag icon in the header lets you filter habits, todos, and bored suggestions by shared tags.',
+  },
+  {
+    key: 'enableTimer',
+    label: 'Timer & Focus',
+    description:
+      'Start button on TODOs and Bored activities with stopwatch, countdown, and Pomodoro modes.',
+  },
+  {
+    key: 'saveTranscribedNotes',
+    label: 'Save transcriptions',
+    description:
+      'After recording, offer to save the speech-to-text transcript as a Scribble tagged habitat-transcribed.',
+  },
+] as const
+type FeatureKey = (typeof featureDefinitions)[number]['key']
+type Features = Pick<typeof appSettings.value, FeatureKey>
+const features = featureDefinitions.map((definition) => ({
+  ...definition,
+  controller: useFeatureToggle<Features, FeatureKey>({
+    key: definition.key,
+    value: computed(() => appSettings.value[definition.key]),
+    update: async (key, next) => {
+      if (key === 'enableHealth') await onHealthToggle(next)
+      else toggleFeature(key, next)
+    },
+  }),
+}))
+
+async function updateFeature(feature: (typeof features)[number], value: boolean) {
+  try {
+    await feature.controller.set(value)
+  } catch (error) {
+    logError('[featureToggle]', error)
+  }
+}
 
 async function confirmHealthSetup() {
   creatingHealth.value = true
@@ -153,92 +219,21 @@ async function confirmHealthSetup() {
       <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Feature flags</p>
       <UCard :ui="{ root: 'rounded-2xl', body: 'p-0 sm:p-0 divide-y divide-(--ui-border)' }">
 
-        <div class="flex items-center justify-between px-4 py-3.5">
-          <div class="space-y-0.5">
-            <p class="text-sm font-medium">Enable Journalling</p>
-            <p class="text-xs text-(--ui-text-dimmed)">Show Check-in, Scribbles, and Voice in the navigation.</p>
-          </div>
-          <USwitch
-            :model-value="appSettings.enableJournalling"
-            @update:model-value="toggleFeature('enableJournalling', $event)"
+        <div
+          v-for="feature in features"
+          v-show="(feature.key !== 'enableBored' || appSettings.enableTodos) && (feature.key !== 'saveTranscribedNotes' || appSettings.enableJournalling)"
+          :key="feature.key"
+          class="px-4 py-3.5"
+        >
+          <AppFeatureToggle
+            class="w-full justify-between"
+            :label="feature.label"
+            :description="feature.description"
+            :model-value="feature.controller.value.value"
+            :busy="feature.controller.busy.value"
+            @update:model-value="updateFeature(feature, $event)"
           />
-        </div>
-
-        <div class="flex items-center justify-between px-4 py-3.5">
-          <div class="space-y-0.5">
-            <p class="text-sm font-medium">Enable Health</p>
-            <p class="text-xs text-(--ui-text-dimmed)">Track daily steps and meal calories.</p>
-          </div>
-          <USwitch
-            :model-value="appSettings.enableHealth"
-            @update:model-value="onHealthToggle"
-          />
-        </div>
-
-        <div class="flex items-center justify-between px-4 py-3.5">
-          <div class="space-y-0.5">
-            <p class="text-sm font-medium">Enable TODOs</p>
-            <p class="text-xs text-(--ui-text-dimmed)">Standalone task tracker with due dates, priorities, and recurring tasks.</p>
-          </div>
-          <USwitch
-            :model-value="appSettings.enableTodos"
-            @update:model-value="toggleFeature('enableTodos', $event)"
-          />
-        </div>
-
-        <div v-if="appSettings.enableTodos" class="flex items-center justify-between px-4 py-3.5">
-          <div class="space-y-0.5">
-            <p class="text-sm font-medium">Enable "I'm Bored" Mode</p>
-            <p class="text-xs text-(--ui-text-dimmed)">Magic 8-ball oracle that suggests activities from curated categories.</p>
-          </div>
-          <USwitch
-            :model-value="appSettings.enableBored"
-            @update:model-value="toggleFeature('enableBored', $event)"
-          />
-        </div>
-
-        <div class="flex items-center justify-between px-4 py-3.5">
-          <div class="space-y-0.5">
-            <p class="text-sm font-medium">Auto-show "I'm Bored"</p>
-            <p class="text-xs text-(--ui-text-dimmed)">Automatically suggest an activity when all daily habits are done.</p>
-          </div>
-          <USwitch
-            :model-value="appSettings.autoShowBored"
-            @update:model-value="setAppSetting('autoShowBored', $event)"
-          />
-        </div>
-
-        <div class="flex items-center justify-between px-4 py-3.5">
-          <div class="space-y-0.5">
-            <p class="text-sm font-medium">Context Filter</p>
-            <p class="text-xs text-(--ui-text-dimmed)">Tag icon in the header lets you filter habits, todos, and bored suggestions by shared tags.</p>
-          </div>
-          <USwitch
-            :model-value="appSettings.enableContextFilter"
-            @update:model-value="setAppSetting('enableContextFilter', $event)"
-          />
-        </div>
-
-        <div class="flex items-center justify-between px-4 py-3.5">
-          <div class="space-y-0.5">
-            <p class="text-sm font-medium">Timer & Focus</p>
-            <p class="text-xs text-(--ui-text-dimmed)">Start button on TODOs and Bored activities with stopwatch, countdown, and Pomodoro modes.</p>
-          </div>
-          <USwitch
-            :model-value="appSettings.enableTimer"
-            @update:model-value="setAppSetting('enableTimer', $event)"
-          />
-        </div>
-
-        <div v-if="appSettings.enableJournalling" class="flex items-center justify-between px-4 py-3.5">
-          <div class="space-y-0.5">
-            <p class="text-sm font-medium">Save transcriptions</p>
-            <p class="text-xs text-(--ui-text-dimmed)">After recording, offer to save the speech-to-text transcript as a Scribble tagged <code class="text-(--ui-text-muted)">habitat-transcribed</code>.</p>
-          </div>
-          <USwitch
-            :model-value="appSettings.saveTranscribedNotes"
-            @update:model-value="setAppSetting('saveTranscribedNotes', $event)"
-          />
+          <AppOperationFeedback :error="feature.controller.error.value" />
         </div>
 
       </UCard>

@@ -1,3 +1,5 @@
+import { formatCalendarDate, isCalendarDate } from '@habitathq/utils'
+
 export interface WorkoutCardSummary {
   date: string
   sessionType: string
@@ -27,7 +29,7 @@ function escapeXml(value: string): string {
 }
 
 export function buildWorkoutCard(summary: WorkoutCardSummary): WorkoutCard {
-  if (!summary.date || !Number.isFinite(Date.parse(summary.date))) {
+  if (!isCalendarDate(summary.date)) {
     throw new Error('A saved workout card requires a valid date.')
   }
   if (!Number.isFinite(summary.durationMinutes) || summary.durationMinutes < 0) {
@@ -39,14 +41,11 @@ export function buildWorkoutCard(summary: WorkoutCardSummary): WorkoutCard {
   if (!Number.isInteger(summary.workingSets) || summary.workingSets < 0) {
     throw new Error('Workout set count is invalid.')
   }
-  const dateLabel = new Date(`${summary.date.slice(0, 10)}T12:00:00`).toLocaleDateString(
-    undefined,
-    {
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric',
-    },
-  )
+  const dateLabel = formatCalendarDate(summary.date, {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  })
   const lines = [
     `${summary.sessionType} workout — ${dateLabel}`,
     `${Math.round(summary.durationMinutes)} minutes`,

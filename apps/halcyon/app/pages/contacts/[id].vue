@@ -3,7 +3,7 @@ import {
   formatDate,
   formatDateRelative,
   formatRelativeTime,
-  localDateString,
+  localCalendarDate,
 } from '@habitathq/utils'
 import { useDatabase } from '~/composables/useDatabase'
 import type {
@@ -20,7 +20,7 @@ const route = useRoute()
 const db = useDatabase()
 const toast = useToast()
 
-const today = localDateString(new Date())
+const today = localCalendarDate()
 const contact = ref<ContactDetail | null>(null)
 const interactions = ref<InteractionWithContacts[]>([])
 const notes = ref<Note[]>([])

@@ -1,7 +1,7 @@
 /**
  * Comprehensive e2e tests for database worker operations.
  *
- * Goal: catch async bugs (like the NUKE_OPFS `await` in a sync function) by:
+ * Goal: catch async failures in database worker operations by:
  *  1. Listening for console errors / unhandled promise rejections on every page.
  *  2. Verifying that each DB-backed page actually renders real data (not a
  *     stale Promise object or an empty shell).
@@ -59,9 +59,9 @@ test.describe('Worker — initialisation', () => {
   })
 })
 
-// ── NUKE_OPFS (the specific bug fix) ─────────────────────────────────────────
+// ── Database reset ───────────────────────────────────────────────────────────
 
-test.describe('Worker — NUKE_OPFS (reset database)', () => {
+test.describe('Worker — database reset', () => {
   test('settings page loads without errors', async ({ page }) => {
     const errors = collectErrors(page)
     await page.goto('/settings')
@@ -90,33 +90,18 @@ test.describe('Worker — NUKE_OPFS (reset database)', () => {
     }
   })
 
-  test('Reset database button is present and triggers a confirm dialog', async ({ page }) => {
+  test('cancelling database reset leaves existing data untouched', async ({ page }) => {
     await page.goto('/settings')
     await waitForDb(page)
-
-    let dialogFired = false
-    page.on('dialog', async (dialog) => {
-      dialogFired = true
-      // Dismiss — we don't want to actually nuke the DB in tests
-      await dialog.dismiss()
-    })
-
-    const resetBtn = page.getByRole('button', { name: /reset database/i })
-    await expect(resetBtn).toBeVisible()
-    await resetBtn.click()
-    await page.waitForTimeout(500)
-
-    expect(dialogFired).toBe(true)
-  })
-
-  test('dismissing the reset dialog does NOT navigate away', async ({ page }) => {
-    await page.goto('/settings')
-    await waitForDb(page)
-
-    page.on('dialog', (dialog) => dialog.dismiss())
-    await page.getByRole('button', { name: /reset database/i }).click()
-    await page.waitForTimeout(500)
-
+    const stats = page.locator('dl')
+    await expect(stats).toBeVisible()
+    const before = await stats.innerText()
+    await page.getByRole('button', { name: /here be dragons/i }).click()
+    const dialog = page.getByRole('alertdialog', { name: /reset all data/i })
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole('button', { name: 'Keep my data' }).click()
+    await expect(dialog).toBeHidden()
+    await expect(stats).toHaveText(before)
     await expect(page).toHaveURL('/settings')
   })
 })

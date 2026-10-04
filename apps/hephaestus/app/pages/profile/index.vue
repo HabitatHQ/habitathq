@@ -1,16 +1,46 @@
 <script setup lang="ts">
+import AppDestructiveConfirm from '@habitathq/shared/app/components/AppDestructiveConfirm.vue'
+import AppFeatureToggle from '@habitathq/shared/app/components/AppFeatureToggle.vue'
+import AppOperationFeedback from '@habitathq/shared/app/components/AppOperationFeedback.vue'
+import { downloadBlob } from '@habitathq/shared/app/composables/downloadBlob'
+import { useAsyncOperation } from '@habitathq/shared/app/composables/useAsyncOperation'
+import { useDestructiveConfirmation } from '@habitathq/shared/app/composables/useDestructiveConfirmation'
+import { useFeatureToggle } from '@habitathq/shared/app/composables/useFeatureToggle'
 import { writeStoredSettings } from '@habitathq/utils'
+import { toRaw } from 'vue'
 import { parseBackupSettingsFromEnvelope, type RestorePreview } from '~/lib/data-transfer'
 
 const { settings, set, replace: replaceSettings } = useAppSettings()
-
+const db = useDatabase()
 const themes = [
   { label: 'Hephaestus', value: 'hephaestus' as const, desc: 'Dark · Orange flame' },
   { label: 'Forge', value: 'forge' as const, desc: 'Dark · Steel blue' },
   { label: 'Daylight', value: 'daylight' as const, desc: 'Light · Warm orange' },
 ]
-
 const restOptions = [60, 90, 120, 150, 180, 240, 300]
+const statusMessage = ref('')
+const errorMessage = ref('')
+const pendingBackup = ref<unknown>(null)
+const backupPreview = ref<RestorePreview | null>(null)
+const pendingPortable = ref<unknown>(null)
+const portablePreview = ref<RestorePreview | null>(null)
+const resetPreferences = ref(false)
+const operation = useAsyncOperation<[() => Promise<void>], void>({ action: (action) => action() })
+const restoreConfirmation = useDestructiveConfirmation<[]>()
+const importConfirmation = useDestructiveConfirmation<[]>()
+const resetConfirmation = useDestructiveConfirmation<[]>()
+const resetPreferencesConfirmation = useDestructiveConfirmation<[]>()
+
+async function runOperation(action: () => Promise<void>) {
+  errorMessage.value = ''
+  statusMessage.value = ''
+  try {
+    await operation.run(action)
+  } catch (error) {
+    if (!errorMessage.value)
+      errorMessage.value = error instanceof Error ? error.message : String(error)
+  }
+}
 
 function updateRamp(i: number, e: Event) {
   const val = Number.parseInt((e.target as HTMLInputElement).value, 10)
@@ -20,39 +50,16 @@ function updateRamp(i: number, e: Event) {
     set('warmupRamps', ramps)
   }
 }
-const db = useDatabase()
-const statusMessage = ref('')
-const errorMessage = ref('')
-const pendingBackup = ref<unknown>(null)
-const backupPreview = ref<RestorePreview | null>(null)
-const pendingPortable = ref<unknown>(null)
-const portablePreview = ref<RestorePreview | null>(null)
-const resetPreferences = ref(false)
-
-function download(name: string, content: string, mime: string) {
-  const url = URL.createObjectURL(new Blob([content], { type: mime }))
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = name
-  anchor.click()
-  URL.revokeObjectURL(url)
-}
 
 async function exportBackup() {
-  errorMessage.value = ''
-  try {
-    const backup = await db.transfer<unknown>('TRANSFER_EXPORT_BACKUP', {
-      settings: { ...settings.value, warmupRamps: [...settings.value.warmupRamps] },
-    })
-    download(
-      'hephaestus-backup.json',
-      JSON.stringify(backup, null, 2),
-      'application/json;charset=utf-8',
-    )
-    statusMessage.value = 'Backup downloaded.'
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error)
-  }
+  const backup = await db.transfer<unknown>('TRANSFER_EXPORT_BACKUP', {
+    settings: { ...settings.value, warmupRamps: [...settings.value.warmupRamps] },
+  })
+  downloadBlob(
+    new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8' }),
+    'hephaestus-backup.json',
+  )
+  statusMessage.value = 'Backup downloaded.'
 }
 
 async function inspectBackup(event: Event) {
@@ -78,15 +85,6 @@ async function inspectBackup(event: Event) {
 
 async function restoreBackup() {
   if (!pendingBackup.value || !backupPreview.value?.valid) return
-  if (
-    !window.confirm(
-      'Replace all Hephaestus database data and app settings with this backup? This cannot be undone.',
-    )
-  )
-    return
-  errorMessage.value = ''
-  statusMessage.value = ''
-
   let restoredSettings: ReturnType<typeof parseBackupSettingsFromEnvelope>
   let previousSettingsJson: string | null
   try {
@@ -95,9 +93,8 @@ async function restoreBackup() {
     writeStoredSettings('hephaestus-app-settings', restoredSettings)
   } catch (error) {
     errorMessage.value = `Backup was not restored; existing data and preferences are unchanged. App preferences could not be staged: ${error instanceof Error ? error.message : String(error)}`
-    return
+    throw error
   }
-
   try {
     await db.transfer('TRANSFER_RESTORE_BACKUP', { backup: toRaw(pendingBackup.value) })
   } catch (restoreError) {
@@ -106,31 +103,25 @@ async function restoreBackup() {
       else localStorage.setItem('hephaestus-app-settings', previousSettingsJson)
     } catch (rollbackError) {
       errorMessage.value = `Backup database restore failed; database data is unchanged, but app preference storage could not be restored and may be inconsistent. Restore error: ${restoreError instanceof Error ? restoreError.message : String(restoreError)} Preference rollback error: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`
-      return
+      throw restoreError
     }
     errorMessage.value = `Backup was not restored; database data and app preferences are unchanged. ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`
-    return
+    throw restoreError
   }
-
   replaceSettings(restoredSettings, false)
   pendingBackup.value = null
   backupPreview.value = null
+  window.location.reload()
   statusMessage.value = 'Backup restored. Reload Hephaestus to refresh all screens.'
 }
 
 async function exportPortable() {
-  errorMessage.value = ''
-  try {
-    const bundle = await db.transfer<unknown>('TRANSFER_EXPORT_PORTABLE')
-    download(
-      'hephaestus-training-portable.json',
-      JSON.stringify(bundle, null, 2),
-      'application/json;charset=utf-8',
-    )
-    statusMessage.value = 'Training configuration downloaded.'
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error)
-  }
+  const bundle = await db.transfer<unknown>('TRANSFER_EXPORT_PORTABLE')
+  downloadBlob(
+    new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json;charset=utf-8' }),
+    'hephaestus-training-portable.json',
+  )
+  statusMessage.value = 'Training configuration downloaded.'
 }
 
 async function inspectPortable(event: Event) {
@@ -156,53 +147,27 @@ async function inspectPortable(event: Event) {
 
 async function importPortable() {
   if (!pendingPortable.value || !portablePreview.value?.valid) return
-  if (
-    !window.confirm(
-      'Import these templates, Programs, saved routines and personal plans? Existing content will not be overwritten.',
-    )
-  )
-    return
-  errorMessage.value = ''
-  try {
-    await db.transfer('TRANSFER_IMPORT_PORTABLE', { bundle: toRaw(pendingPortable.value) })
-    pendingPortable.value = null
-    portablePreview.value = null
-    statusMessage.value = 'Training configuration imported.'
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error)
-  }
+  await db.transfer('TRANSFER_IMPORT_PORTABLE', { bundle: toRaw(pendingPortable.value) })
+  pendingPortable.value = null
+  portablePreview.value = null
+  statusMessage.value = 'Training configuration imported.'
 }
 
 async function exportCsv() {
-  errorMessage.value = ''
-  try {
-    const csv = await db.transfer<string>('TRANSFER_EXPORT_WORKOUT_CSV')
-    download('hephaestus-workout-history.csv', `\uFEFF${csv}`, 'text/csv;charset=utf-8')
-    statusMessage.value = 'Workout history CSV downloaded.'
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error)
-  }
+  const csv = await db.transfer<string>('TRANSFER_EXPORT_WORKOUT_CSV')
+  downloadBlob(
+    new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }),
+    'hephaestus-workout-history.csv',
+  )
+  statusMessage.value = 'Workout history CSV downloaded.'
 }
 
 async function resetData() {
-  if (
-    !window.confirm(
-      'Clear all Hephaestus application database records? This cannot be undone. App preferences are kept unless you separately confirm their reset.',
-    )
-  )
-    return
-  if (
-    resetPreferences.value &&
-    !window.confirm('Also reset Hephaestus app preferences stored under hephaestus-app-settings?')
-  )
-    return
-  errorMessage.value = ''
-  statusMessage.value = ''
   try {
-    await db.clearLocalData()
+    await db.resetDatabase()
   } catch (error) {
     errorMessage.value = `Hephaestus database reset failed; app preferences were not changed. ${error instanceof Error ? error.message : String(error)}`
-    return
+    throw error
   }
   statusMessage.value =
     'Hephaestus application database cleared. Reload the app to initialize an empty database.'
@@ -211,9 +176,76 @@ async function resetData() {
       localStorage.removeItem('hephaestus-app-settings')
     } catch (error) {
       errorMessage.value = `The database was cleared, but app preferences could not be reset. ${error instanceof Error ? error.message : String(error)}`
+      throw error
     }
   }
+  window.location.reload()
 }
+
+function confirmRestore() {
+  restoreConfirmation.confirm()
+  void runOperation(restoreBackup)
+}
+
+function confirmImport() {
+  importConfirmation.confirm()
+  void runOperation(importPortable)
+}
+
+function confirmReset() {
+  resetConfirmation.confirm()
+  if (resetPreferences.value) resetPreferencesConfirmation.request()
+  else void runOperation(resetData)
+}
+
+function confirmResetPreferences() {
+  resetPreferencesConfirmation.confirm()
+  void runOperation(resetData)
+}
+
+function cancelResetPreferences() {
+  resetPreferencesConfirmation.cancel()
+}
+async function updateToggle(setValue: (value: boolean) => Promise<void>, value: boolean) {
+  operation.reset()
+  errorMessage.value = ''
+  statusMessage.value = ''
+  try {
+    await setValue(value)
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : String(error)
+  }
+}
+
+function useSettingsToggle(
+  key:
+    | 'showWarmupSuggestions'
+    | 'showFailurePrompt'
+    | 'showSessionNotes'
+    | 'showSupersets'
+    | 'showSetSchemes'
+    | 'showVariableRest'
+    | 'showRpe'
+    | 'showRir'
+    | 'reduceMotion'
+    | 'use24HourTime',
+) {
+  return useFeatureToggle({
+    key,
+    value: computed(() => settings.value[key]),
+    update: (feature, next) => set(feature, next),
+  })
+}
+const warmupToggle = useSettingsToggle('showWarmupSuggestions')
+const failureToggle = useSettingsToggle('showFailurePrompt')
+const notesToggle = useSettingsToggle('showSessionNotes')
+const supersetsToggle = useSettingsToggle('showSupersets')
+const schemesToggle = useSettingsToggle('showSetSchemes')
+const variableRestToggle = useSettingsToggle('showVariableRest')
+const rpeToggle = useSettingsToggle('showRpe')
+const rirToggle = useSettingsToggle('showRir')
+const reduceMotionToggle = useSettingsToggle('reduceMotion')
+const timeFormatToggle = useSettingsToggle('use24HourTime')
 </script>
 
 <template>
@@ -351,43 +383,11 @@ async function resetData() {
             />
           </div>
         </div>
-        <div class="flex items-center justify-between px-4 py-3">
-          <p class="text-sm">Show RPE field</p>
-          <div>
-            <button
-              class="relative w-10 h-6 rounded-full transition-colors"
-              :class="settings.showRpe ? 'bg-(--color-accent)' : 'bg-(--color-surface-2)'"
-
-              role="switch"
-              :aria-checked="settings.showRpe"
-              aria-label="Show RPE field"
-              @click="set('showRpe', !settings.showRpe)"
-            >
-              <span
-                class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform"
-                :class="settings.showRpe ? 'translate-x-4' : ''"
-              />
-            </button>
-          </div>
+        <div class="px-4 py-3">
+          <AppFeatureToggle :model-value="rpeToggle.value.value" :busy="rpeToggle.busy.value" label="Show RPE field" @update:model-value="value => updateToggle(rpeToggle.set, value)" />
         </div>
-        <div class="flex items-center justify-between px-4 py-3">
-          <p class="text-sm">Show RIR field</p>
-          <div>
-            <button
-              class="relative w-10 h-6 rounded-full transition-colors"
-              :class="settings.showRir ? 'bg-(--color-accent)' : 'bg-(--color-surface-2)'"
-
-              role="switch"
-              :aria-checked="settings.showRir"
-              aria-label="Show RIR field"
-              @click="set('showRir', !settings.showRir)"
-            >
-              <span
-                class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform"
-                :class="settings.showRir ? 'translate-x-4' : ''"
-              />
-            </button>
-          </div>
+        <div class="px-4 py-3">
+          <AppFeatureToggle :model-value="rirToggle.value.value" :busy="rirToggle.busy.value" label="Show RIR field" @update:model-value="value => updateToggle(rirToggle.set, value)" />
         </div>
       </div>
     </section>
@@ -404,124 +404,28 @@ async function resetData() {
       <!-- While working out -->
       <p class="text-xs text-(--ui-text-muted) mb-1.5 px-1">While working out</p>
       <div class="rounded-xl bg-(--color-surface) divide-y divide-(--ui-border) mb-3">
-        <div class="flex items-center justify-between px-4 py-3">
-          <div>
-            <p class="text-sm">Warm-up suggestions</p>
-            <p class="text-xs text-(--ui-text-muted) mt-0.5">Ramp calculator button in the add-set sheet</p>
-          </div>
-          <button
-            class="relative w-10 h-6 rounded-full transition-colors shrink-0 ml-4"
-            :class="settings.showWarmupSuggestions ? 'bg-(--color-accent)' : 'bg-(--color-surface-2)'"
-            role="switch"
-            :aria-checked="settings.showWarmupSuggestions"
-            aria-label="Warm-up suggestions"
-            @click="set('showWarmupSuggestions', !settings.showWarmupSuggestions)"
-          >
-            <span
-              class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform"
-              :class="settings.showWarmupSuggestions ? 'translate-x-4' : ''"
-            />
-          </button>
+        <div class="px-4 py-3">
+          <AppFeatureToggle :model-value="warmupToggle.value.value" :busy="warmupToggle.busy.value" label="Warm-up suggestions" description="Ramp calculator button in the add-set sheet" @update:model-value="value => updateToggle(warmupToggle.set, value)" />
         </div>
-        <div class="flex items-center justify-between px-4 py-3">
-          <div>
-            <p class="text-sm">Failure rest prompt</p>
-            <p class="text-xs text-(--ui-text-muted) mt-0.5">Toast after logging a failure — "Take extra rest?"</p>
-          </div>
-          <button
-            class="relative w-10 h-6 rounded-full transition-colors shrink-0 ml-4"
-            :class="settings.showFailurePrompt ? 'bg-(--color-accent)' : 'bg-(--color-surface-2)'"
-            role="switch"
-            :aria-checked="settings.showFailurePrompt"
-            aria-label="Failure rest prompt"
-            @click="set('showFailurePrompt', !settings.showFailurePrompt)"
-          >
-            <span
-              class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform"
-              :class="settings.showFailurePrompt ? 'translate-x-4' : ''"
-            />
-          </button>
+        <div class="px-4 py-3">
+          <AppFeatureToggle :model-value="failureToggle.value.value" :busy="failureToggle.busy.value" label="Failure rest prompt" description="Toast after logging a failure — 'Take extra rest?'" @update:model-value="value => updateToggle(failureToggle.set, value)" />
         </div>
-        <div class="flex items-center justify-between px-4 py-3">
-          <div>
-            <p class="text-sm">Session notes</p>
-            <p class="text-xs text-(--ui-text-muted) mt-0.5">Notes field on the finish-workout sheet</p>
-          </div>
-          <button
-            class="relative w-10 h-6 rounded-full transition-colors shrink-0 ml-4"
-            :class="settings.showSessionNotes ? 'bg-(--color-accent)' : 'bg-(--color-surface-2)'"
-            role="switch"
-            :aria-checked="settings.showSessionNotes"
-            aria-label="Session notes"
-            @click="set('showSessionNotes', !settings.showSessionNotes)"
-          >
-            <span
-              class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform"
-              :class="settings.showSessionNotes ? 'translate-x-4' : ''"
-            />
-          </button>
+        <div class="px-4 py-3">
+          <AppFeatureToggle :model-value="notesToggle.value.value" :busy="notesToggle.busy.value" label="Session notes" description="Notes field on the finish-workout sheet" @update:model-value="value => updateToggle(notesToggle.set, value)" />
         </div>
       </div>
 
       <!-- Template builder -->
       <p class="text-xs text-(--ui-text-muted) mb-1.5 px-1">Template builder</p>
       <div class="rounded-xl bg-(--color-surface) divide-y divide-(--ui-border)">
-        <div class="flex items-center justify-between px-4 py-3">
-          <div>
-            <p class="text-sm">Superset groups</p>
-            <p class="text-xs text-(--ui-text-muted) mt-0.5">Assign exercises to supersets, circuits, or giant sets</p>
-          </div>
-          <button
-            class="relative w-10 h-6 rounded-full transition-colors shrink-0 ml-4"
-            :class="settings.showSupersets ? 'bg-(--color-accent)' : 'bg-(--color-surface-2)'"
-            role="switch"
-            :aria-checked="settings.showSupersets"
-            aria-label="Superset groups"
-            @click="set('showSupersets', !settings.showSupersets)"
-          >
-            <span
-              class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform"
-              :class="settings.showSupersets ? 'translate-x-4' : ''"
-            />
-          </button>
+        <div class="px-4 py-3">
+          <AppFeatureToggle :model-value="supersetsToggle.value.value" :busy="supersetsToggle.busy.value" label="Superset groups" description="Assign exercises to supersets, circuits, or giant sets" @update:model-value="value => updateToggle(supersetsToggle.set, value)" />
         </div>
-        <div class="flex items-center justify-between px-4 py-3">
-          <div>
-            <p class="text-sm">Set schemes</p>
-            <p class="text-xs text-(--ui-text-muted) mt-0.5">Pyramid, drop sets, rest-pause progressions</p>
-          </div>
-          <button
-            class="relative w-10 h-6 rounded-full transition-colors shrink-0 ml-4"
-            :class="settings.showSetSchemes ? 'bg-(--color-accent)' : 'bg-(--color-surface-2)'"
-            role="switch"
-            :aria-checked="settings.showSetSchemes"
-            aria-label="Set schemes"
-            @click="set('showSetSchemes', !settings.showSetSchemes)"
-          >
-            <span
-              class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform"
-              :class="settings.showSetSchemes ? 'translate-x-4' : ''"
-            />
-          </button>
+        <div class="px-4 py-3">
+          <AppFeatureToggle :model-value="schemesToggle.value.value" :busy="schemesToggle.busy.value" label="Set schemes" description="Pyramid, drop sets, rest-pause progressions" @update:model-value="value => updateToggle(schemesToggle.set, value)" />
         </div>
-        <div class="flex items-center justify-between px-4 py-3">
-          <div>
-            <p class="text-sm">Variable rest per set</p>
-            <p class="text-xs text-(--ui-text-muted) mt-0.5">Override rest time individually for each set</p>
-          </div>
-          <button
-            class="relative w-10 h-6 rounded-full transition-colors shrink-0 ml-4"
-            :class="settings.showVariableRest ? 'bg-(--color-accent)' : 'bg-(--color-surface-2)'"
-            role="switch"
-            :aria-checked="settings.showVariableRest"
-            aria-label="Variable rest per set"
-            @click="set('showVariableRest', !settings.showVariableRest)"
-          >
-            <span
-              class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform"
-              :class="settings.showVariableRest ? 'translate-x-4' : ''"
-            />
-          </button>
+        <div class="px-4 py-3">
+          <AppFeatureToggle :model-value="variableRestToggle.value.value" :busy="variableRestToggle.busy.value" label="Variable rest per set" description="Override rest time individually for each set" @update:model-value="value => updateToggle(variableRestToggle.set, value)" />
         </div>
       </div>
     </section>
@@ -536,9 +440,9 @@ async function resetData() {
         Workout history CSV uses local calendar dates, stored kg values, null marker \N, and quoted empty strings.
       </p>
       <div class="flex flex-wrap gap-2">
-        <UButton color="primary" icon="i-ph-download-simple" @click="exportBackup">Download full backup</UButton>
-        <UButton color="neutral" icon="i-ph-download-simple" @click="exportCsv">Download workout CSV</UButton>
-        <UButton color="neutral" icon="i-ph-download-simple" @click="exportPortable">Export training configuration</UButton>
+        <UButton color="primary" icon="i-ph-download-simple" :disabled="operation.busy.value" @click="runOperation(exportBackup)">Download full backup</UButton>
+        <UButton color="neutral" icon="i-ph-download-simple" :disabled="operation.busy.value" @click="runOperation(exportCsv)">Download workout CSV</UButton>
+        <UButton color="neutral" icon="i-ph-download-simple" :disabled="operation.busy.value" @click="runOperation(exportPortable)">Export training configuration</UButton>
       </div>
       <label class="block text-sm">
         <span class="sr-only">Choose a Hephaestus backup JSON file</span>
@@ -550,7 +454,7 @@ async function resetData() {
           {{ backupPreview.templateCount }} templates, {{ backupPreview.programCount }} Programs,
           {{ backupPreview.routineCount ?? 0 }} saved routines, {{ backupPreview.planCount ?? 0 }} personal plans.
         </p>
-        <UButton v-if="backupPreview.valid" class="mt-2 text-(--color-danger)" color="error" variant="outline" @click="restoreBackup">
+        <UButton v-if="backupPreview.valid" class="mt-2 text-(--color-danger)" color="error" variant="outline" :disabled="operation.busy.value" @click="restoreConfirmation.request()">
           Replace local data from backup
         </UButton>
       </div>
@@ -563,17 +467,24 @@ async function resetData() {
           Preview: {{ portablePreview.templateCount }} templates, {{ portablePreview.programCount }} Programs,
           {{ portablePreview.routineCount ?? 0 }} saved routines, {{ portablePreview.planCount ?? 0 }} personal plans.
         </p>
-        <UButton v-if="portablePreview.valid" class="mt-2" color="primary" @click="importPortable">Import without overwriting</UButton>
+        <UButton v-if="portablePreview.valid" class="mt-2" color="primary" :disabled="operation.busy.value" @click="importConfirmation.request()">Import without overwriting</UButton>
       </div>
       <label class="flex items-center gap-2 text-sm">
         <input v-model="resetPreferences" type="checkbox">
         Also reset Hephaestus app preferences (hephaestus-app-settings only)
       </label>
-      <UButton class="text-(--color-danger)" color="error" variant="outline" icon="i-ph-trash" @click="resetData">
+      <UButton class="text-(--color-danger)" color="error" variant="outline" icon="i-ph-trash" :disabled="operation.busy.value" @click="resetConfirmation.request()">
         Reset Hephaestus database
       </UButton>
-      <p v-if="statusMessage" role="status" aria-live="polite" class="text-sm text-green-400">{{ statusMessage }}</p>
-      <p v-if="errorMessage" role="alert" class="text-sm text-red-400">{{ errorMessage }}</p>
+      <AppOperationFeedback :busy="operation.busy.value" :error="errorMessage || operation.error.value" :success="Boolean(statusMessage)">
+        <template #busy>Preparing Hephaestus data…</template>
+        <template #success><span role="status">{{ statusMessage }}</span></template>
+        <template #error>{{ errorMessage || operation.error.value?.message }}</template>
+      </AppOperationFeedback>
+      <AppDestructiveConfirm :model-value="restoreConfirmation.pending.value" title="Replace Hephaestus data?" message="Replace all Hephaestus database data and app settings with this backup? This cannot be undone." confirm-label="Replace data" :busy="operation.busy.value" @cancel="restoreConfirmation.cancel()" @confirm="confirmRestore" />
+      <AppDestructiveConfirm :model-value="importConfirmation.pending.value" title="Import training configuration?" message="Import these templates, Programs, saved routines and personal plans? Existing content will not be overwritten." confirm-label="Import" :busy="operation.busy.value" @cancel="importConfirmation.cancel()" @confirm="confirmImport" />
+      <AppDestructiveConfirm :model-value="resetConfirmation.pending.value" title="Reset Hephaestus database?" message="Clear all Hephaestus application database records? This cannot be undone. App preferences are kept unless you separately confirm their reset." confirm-label="Reset database" :busy="operation.busy.value" @cancel="resetConfirmation.cancel()" @confirm="confirmReset" />
+      <AppDestructiveConfirm :model-value="resetPreferencesConfirmation.pending.value" title="Reset app preferences?" message="Also reset Hephaestus app preferences stored under hephaestus-app-settings?" confirm-label="Reset preferences" :busy="operation.busy.value" @cancel="cancelResetPreferences" @confirm="confirmResetPreferences" />
     </section>
     <!-- Accessibility -->
     <section aria-labelledby="a11y-heading">
@@ -585,40 +496,10 @@ async function resetData() {
       </h2>
       <div class="rounded-xl bg-(--color-surface) divide-y divide-(--ui-border)">
         <div class="flex items-center justify-between px-4 py-3">
-          <p class="text-sm">Reduce motion</p>
-          <div>
-            <button
-              class="relative w-10 h-6 rounded-full transition-colors"
-              :class="settings.reduceMotion ? 'bg-(--color-accent)' : 'bg-(--color-surface-2)'"
-              role="switch"
-              :aria-checked="settings.reduceMotion"
-              aria-label="Reduce motion"
-              @click="set('reduceMotion', !settings.reduceMotion)"
-            >
-              <span
-                class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform"
-                :class="settings.reduceMotion ? 'translate-x-4' : ''"
-              />
-            </button>
-          </div>
+          <AppFeatureToggle :model-value="reduceMotionToggle.value.value" :busy="reduceMotionToggle.busy.value" label="Reduce motion" @update:model-value="value => updateToggle(reduceMotionToggle.set, value)" />
         </div>
         <div class="flex items-center justify-between px-4 py-3">
-          <p class="text-sm">24-hour time</p>
-          <div>
-            <button
-              class="relative w-10 h-6 rounded-full transition-colors"
-              :class="settings.use24HourTime ? 'bg-(--color-accent)' : 'bg-(--color-surface-2)'"
-              role="switch"
-              :aria-checked="settings.use24HourTime"
-              aria-label="Use 24-hour time"
-              @click="set('use24HourTime', !settings.use24HourTime)"
-            >
-              <span
-                class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform"
-                :class="settings.use24HourTime ? 'translate-x-4' : ''"
-              />
-            </button>
-          </div>
+          <AppFeatureToggle :model-value="timeFormatToggle.value.value" :busy="timeFormatToggle.busy.value" label="Use 24-hour time" @update:model-value="value => updateToggle(timeFormatToggle.set, value)" />
         </div>
       </div>
     </section>

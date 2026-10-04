@@ -3,6 +3,7 @@ import type {
   BlobAdapterOptions,
   BlobGetFormat,
   BlobGetResult,
+  BlobStoreLifecycle,
 } from "./blob-adapter.js";
 import { convertBlobBytes } from "./blob-format.js";
 import type { BlobRegistry } from "./blob-registry.js";
@@ -46,5 +47,48 @@ export class BlobHandle {
   /** Check if a blob exists. */
   async has(id: string, options?: BlobAdapterOptions): Promise<boolean> {
     return this.#adapter.has(id, options);
+  }
+  /** Remove every blob in the configured backend namespace. */
+  async clear(options?: BlobAdapterOptions): Promise<void> {
+    const lifecycle = this.#lifecycle();
+    await lifecycle.clear(options);
+    this.#registry.revokeAll();
+  }
+
+  /** Release adapter resources; unsupported custom adapters fail explicitly. */
+  async dispose(): Promise<void> {
+    const lifecycle = this.#lifecycle();
+    try {
+      await lifecycle.dispose();
+    } finally {
+      this.#registry.revokeAll();
+    }
+  }
+
+  /** Release browser connections and URLs without permanently disposing the store. */
+  async close(): Promise<void> {
+    const adapter = this.#adapter;
+    try {
+      if ("close" in adapter && typeof adapter.close === "function") await adapter.close();
+    } finally {
+      this.#registry.revokeAll();
+    }
+  }
+
+  /** Track typed browser media URLs alongside URLs returned by get(). */
+  createObjectURL(blob: Blob): string {
+    return this.#registry.track(URL.createObjectURL(blob));
+  }
+
+  revokeObjectURL(url: string): void {
+    this.#registry.revoke(url);
+  }
+
+  #lifecycle(): BlobStoreLifecycle {
+    const adapter = this.#adapter as BlobAdapter & Partial<BlobStoreLifecycle>;
+    if (typeof adapter.clear !== "function" || typeof adapter.dispose !== "function") {
+      throw new Error("Blob adapter does not support media lifecycle operations");
+    }
+    return adapter as BlobStoreLifecycle;
   }
 }

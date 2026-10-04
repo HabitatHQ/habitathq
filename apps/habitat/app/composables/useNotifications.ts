@@ -3,7 +3,7 @@ import type {
   LocalNotificationSchema,
   LocalNotificationsPlugin,
 } from '@capacitor/local-notifications'
-import { resolveIcon } from '@habitathq/utils'
+import { formatTime, resolveIcon } from '@habitathq/utils'
 import { reactive, readonly, ref } from 'vue'
 
 interface BatteryOptimPlugin {
@@ -562,7 +562,9 @@ export function useNotifications() {
     // Snapshot for diagnostics panel
     _scheduled.length = 0
     for (const r of swSchedule) {
-      const hhmm = new Date(r.at).toLocaleTimeString(undefined, {
+      const hhmm = formatTime(r.at, {
+        locale: [],
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         hour: '2-digit',
         minute: '2-digit',
         hour12: false,
@@ -611,7 +613,13 @@ export function useNotifications() {
     }
 
     const title = 'Habitat'
-    const body = `Test at ${new Date().toLocaleTimeString()}`
+    const body = `Test at ${formatTime(Date.now(), {
+      locale: [],
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+    })}`
 
     if (typeof Notification === 'undefined') {
       notifLog('test', 'Notification API unavailable — using toast fallback')

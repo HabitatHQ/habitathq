@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { formatDate, formatRelativeTime, localDateString } from '@habitathq/utils'
+import { formatDate, formatRelativeTime, localCalendarDate } from '@habitathq/utils'
 import { useDatabase } from '~/composables/useDatabase'
 import { useVault } from '~/composables/useVault'
 import type { DashboardData } from '~/types/database'
@@ -7,7 +7,7 @@ import type { DashboardData } from '~/types/database'
 const db = useDatabase()
 const { activeVaultId } = useVault()
 
-const today = localDateString(new Date())
+const today = localCalendarDate()
 const dashboard = ref<DashboardData | null>(null)
 const loading = ref(true)
 

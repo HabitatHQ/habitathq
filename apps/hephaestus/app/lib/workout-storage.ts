@@ -1,4 +1,4 @@
-import { localDateString } from '@habitathq/utils'
+import { localCalendarDate, parseDateString } from '@habitathq/utils'
 import type { DbAdapter } from '@palladium/core'
 import type {
   PersonalRecordRow,
@@ -620,7 +620,7 @@ async function start(db: DbAdapter, payload: Payload) {
     throw new Error('An unfinished session already exists; resume or discard it first.')
   await db.exec(
     'INSERT INTO workouts (id,date,started_at,session_type,template_id,created_at) VALUES (?,?,?,?,?,?)',
-    [id, localDateString(new Date(now)), now, sessionType, templateId, now],
+    [id, localCalendarDate(new Date(now)), now, sessionType, templateId, now],
   )
   await db.exec(
     'INSERT INTO workout_session_options (workout_id,intensity_modifier,volume_modifier) VALUES (?,?,?)',
@@ -799,7 +799,7 @@ async function finish(db: DbAdapter, payload: Payload): Promise<WorkoutSummary> 
     opts['notes'] ?? null,
     workoutId,
   ])
-  const week = isoWeek(new Date(`${workout.date}T12:00:00`))
+  const week = isoWeek(parseDateString(workout.date))
   await db.exec(
     `INSERT INTO weekly_training_load (week,gym_volume,gym_sets,run_distance_m,run_duration_sec)
     VALUES (?,?,?,?,?) ON CONFLICT(week) DO UPDATE SET
@@ -873,7 +873,7 @@ export async function recomputeWorkoutDerivedState(
       run_distance_m=COALESCE(weekly_training_load.run_distance_m,0)+excluded.run_distance_m,
       run_duration_sec=COALESCE(weekly_training_load.run_duration_sec,0)+excluded.run_duration_sec`,
       [
-        isoWeek(new Date(`${workout.date}T12:00:00`)),
+        isoWeek(parseDateString(workout.date)),
         summary.totalVolume,
         strengthSets.filter((set) => set.is_warmup === 0).length,
         workout.session_type === 'run' ? distanceM : 0,

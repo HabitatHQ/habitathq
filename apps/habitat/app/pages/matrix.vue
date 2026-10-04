@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { localDateString } from '@habitathq/utils'
+import { addCalendarDays, localCalendarDate } from '@habitathq/utils'
 import type { Completion, HabitLog, HabitWithSchedule } from '~/types/database'
-import { addDateKeyDays } from '~/utils/calendar-dates'
 
 const db = useDatabase()
 const { settings } = useAppSettings()
@@ -44,10 +43,8 @@ function onLogoAnimEnd(e: AnimationEvent) {
   }
 }
 
-const today = localDateString(new Date())
-
-// Always load 30 days so both mobile (weekDays) and desktop (month) are covered
-const thirtyDaysAgo = addDateKeyDays(today, -29)
+const today = localCalendarDate()
+const thirtyDaysAgo = addCalendarDays(today, -29)
 
 // ─── Responsive: desktop shows a full month, mobile shows weekDays ────────────
 
@@ -70,7 +67,7 @@ const dateRangeLabel = computed(() =>
 const days = computed(() => {
   const count = isDesktop.value ? 30 : settings.value.weekDays
   const result = Array.from({ length: count }, (_, index) =>
-    addDateKeyDays(today, index - (count - 1)),
+    addCalendarDays(today, -(count - index - 1)),
   )
   return settings.value.matrixReverseDays ? result.reverse() : result
 })
@@ -249,8 +246,8 @@ onMounted(() => {
             <p
               class="text-[10px] font-semibold"
               :class="date === today ? 'text-primary-400' : 'text-(--ui-text-dimmed)'"
-            >{{ dayLabel(date, today) }}</p>
-            <p class="text-[9px] text-slate-600">{{ dayNum(date) }}</p>
+            >{{ date === today ? 'Today' : formatCalendarDate(date, { locale: 'en-US', weekday: 'short' }) }}</p>
+            <p class="text-[9px] text-slate-600">{{ formatCalendarDate(date, { locale: 'en-US', month: 'short', day: 'numeric' }) }}</p>
           </div>
         </div>
 
@@ -347,7 +344,7 @@ onMounted(() => {
           <div class="flex-1 min-w-0">
             <p class="text-sm font-semibold text-(--ui-text) truncate">{{ cellEdit.habit.name }}</p>
             <p class="text-xs text-(--ui-text-muted)">
-              {{ dayLabel(cellEdit.date, today) }}, {{ dayNum(cellEdit.date) }}
+              {{ cellEdit.date === today ? 'Today' : formatCalendarDate(cellEdit.date, { locale: 'en-US', weekday: 'short' }) }}, {{ formatCalendarDate(cellEdit.date, { locale: 'en-US', month: 'short', day: 'numeric' }) }}
               · {{ cellEdit.habit.type === 'NUMERIC' ? `target ${cellEdit.habit.target_value}` : `limit ${cellEdit.habit.target_value}` }}
               <template v-if="settings.logInputMode === 'increment'">
                 · now: {{ getLogSum(cellEdit.habit.id, cellEdit.date) }}

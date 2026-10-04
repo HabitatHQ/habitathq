@@ -4,12 +4,7 @@ import { SCHEMA_CONFIG } from '~/lib/db-schema'
 import * as shared from '~/lib/db-shared'
 import type { WorkerRequest, WorkerResponse } from '~/types/database'
 
-export const OPFS_DIR = 'hearth'
-
-export async function removeHearthOpfs(): Promise<void> {
-  const root = await navigator.storage.getDirectory()
-  await root.removeEntry(OPFS_DIR, { recursive: true }).catch(() => {})
-}
+const OPFS_DIR = 'hearth'
 
 await (async () => {
   async function tryAcquireDbLock(): Promise<boolean> {
@@ -71,13 +66,13 @@ await (async () => {
           case 'EXPORT_JSON':
             result = await shared.exportJson(adapter)
             break
-          case 'NUKE_OPFS': {
-            // The origin's OPFS root is shared by every suite app. Remove only
-            // Hearth's directory so resetting Hearth cannot delete sibling data.
-            await removeHearthOpfs()
+          case 'RESET_DATABASE':
+            await storage.resetStorage()
+            await storage.open()
+            await storage.exec('PRAGMA journal_mode = WAL')
+            await applySchema(storage, SCHEMA_CONFIG)
             result = null
             break
-          }
           default:
             result = await shared.dispatch(adapter, req)
         }

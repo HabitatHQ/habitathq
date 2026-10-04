@@ -1,19 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import {
+  addCalendarDays,
   formatDate,
   formatDateRelative,
   formatDurationMinutes as formatDuration,
   formatRelativeTime,
-  localDateString,
+  localCalendarDate,
   parseDateString,
 } from '@habitathq/utils'
 
-// ─── localDateString ──────────────────────────────────────────────────────────
+// ─── localCalendarDate ────────────────────────────────────────────────────────
 
-describe('localDateString', () => {
+describe('localCalendarDate', () => {
   it('returns YYYY-MM-DD string from a Date object', () => {
     const d = new Date(2024, 2, 15) // March 15 2024 (local)
-    expect(localDateString(d)).toBe('2024-03-15')
+    expect(localCalendarDate(d)).toBe('2024-03-15')
   })
 })
 
@@ -46,23 +47,19 @@ describe('formatDate', () => {
 
 describe('formatDateRelative', () => {
   it('returns "Today" for today', () => {
-    const today = new Date().toISOString().slice(0, 10)
+    const today = localCalendarDate()
     expect(formatDateRelative(today, today)).toBe('Today')
   })
 
   it('returns "Yesterday" for yesterday', () => {
-    const d = new Date()
-    d.setDate(d.getDate() - 1)
-    const yesterday = d.toISOString().slice(0, 10)
-    const today = new Date().toISOString().slice(0, 10)
+    const today = localCalendarDate()
+    const yesterday = addCalendarDays(today, -1)
     expect(formatDateRelative(yesterday, today)).toBe('Yesterday')
   })
 
   it('returns "Tomorrow" for tomorrow', () => {
-    const d = new Date()
-    d.setDate(d.getDate() + 1)
-    const tomorrow = d.toISOString().slice(0, 10)
-    const today = new Date().toISOString().slice(0, 10)
+    const today = localCalendarDate()
+    const tomorrow = addCalendarDays(today, 1)
     expect(formatDateRelative(tomorrow, today)).toBe('Tomorrow')
   })
 

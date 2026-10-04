@@ -259,7 +259,7 @@ export type WorkerRequest =
   | { id: string; type: 'DELETE_ALL_SCRIBBLES' }
   | { id: string; type: 'CLEAR_APPLIED_DEFAULTS' }
   | { id: string; type: 'GET_ARCHIVED_HABITS' }
-  | { id: string; type: 'NUKE_OPFS' }
+  | { id: string; type: 'RESET_DATABASE' }
   | { id: string; type: 'EXPORT_DB' }
   | { id: string; type: 'GET_HABIT_LOGS_FOR_DATE'; payload: { date: string } }
   | {

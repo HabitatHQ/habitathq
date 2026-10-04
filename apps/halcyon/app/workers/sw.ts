@@ -1,9 +1,11 @@
 /// <reference lib="webworker" />
+import { setCacheNameDetails } from 'workbox-core'
 import { cleanupOutdatedCaches, matchPrecache, precacheAndRoute } from 'workbox-precaching'
 
 declare const self: ServiceWorkerGlobalScope & {
   __WB_MANIFEST: Array<{ url: string; revision: string | null }>
 }
+setCacheNameDetails({ prefix: 'halcyon', suffix: encodeURIComponent(self.registration.scope) })
 
 self.skipWaiting()
 self.addEventListener('activate', (e: ExtendableEvent) => e.waitUntil(self.clients.claim()))

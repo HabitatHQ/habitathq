@@ -7,6 +7,7 @@ export type {
   BlobAdapterOptions,
   BlobGetFormat,
   BlobGetResult,
+  BlobStoreLifecycle,
 } from "./blob-adapter.js";
 export { convertBlobBytes } from "./blob-format.js";
 export { BlobHandle } from "./blob-handle.js";
@@ -56,6 +57,8 @@ export type {
 export { applySchema, applySeeds } from "./migration.js";
 export type { SqlQuery } from "./sql.js";
 export { sql } from "./sql.js";
+export type { SqliteBlobAdapterOptions } from "./sqlite-blob-adapter.js";
+export { SqliteBlobAdapter } from "./sqlite-blob-adapter.js";
 export type {
   ConstraintDeferringAdapter,
   SqlValue,
@@ -63,6 +66,14 @@ export type {
   TransactableStorageAdapter,
 } from "./storage.js";
 export { isTransactable, supportsConstraintDeferral } from "./storage.js";
+export type {
+  LogicalResetAdapter,
+  LogicalResetExecutor,
+  LogicalResetPolicy,
+  LogicalResetResult,
+  PhysicalStorageResetAdapter,
+} from "./storage-reset.js";
+export { resetOwnedTables, supportsPhysicalStorageReset } from "./storage-reset.js";
 export type {
   DeleteWireOp,
   InsertWireOp,

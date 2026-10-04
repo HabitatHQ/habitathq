@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { localDateString } from '@habitathq/utils'
+import { localCalendarDate } from '@habitathq/utils'
 import type { ImageNote, JotItem, VoiceNote } from '~/composables/useJotsStore'
 import type { Scribble } from '~/types/database'
 import type { JotSection } from '~/utils/jots-helpers'
@@ -168,7 +168,7 @@ function onJotLinkClick(item: JotItem) {
 
 // ─── Create TODO from jot ─────────────────────────────────────────────────────
 
-const today = localDateString(new Date())
+const today = localCalendarDate()
 
 const showCreateTodoModal = ref(false)
 const createTodoForJot = ref<JotItem | null>(null)
@@ -183,7 +183,7 @@ function jotDisplayTitle(item: JotItem): string {
   if (item.kind === 'voice') {
     return (
       (item.data as VoiceNote).title ||
-      `Voice note — ${localDateString(new Date(item.data.created_at))}`
+      `Voice note — ${localCalendarDate(new Date(item.data.created_at))}`
     )
   }
   const img = item.data as ImageNote
@@ -987,7 +987,7 @@ onUnmounted(() => {
     </template>
 
     <!-- ── Rename voice / image jot modal ─────────────────────────────────── -->
-    <AppBottomSheet v-model="showRenameModal" :closeable="false" :title="renameIsImage ? 'Rename photo' : 'Rename voice note'">
+    <AppModal v-model="showRenameModal" :title="renameIsImage ? 'Rename photo' : 'Rename voice note'">
       <div class="space-y-3">
         <UFormField label="Title">
           <AppTextField
@@ -1004,7 +1004,7 @@ onUnmounted(() => {
           <UButton color="primary" class="flex-1" :loading="renamingJot" @click="saveRename">Save</UButton>
         </div>
       </template>
-    </AppBottomSheet>
+    </AppModal>
 
     <!-- ── Image lightbox ─────────────────────────────────────────────────── -->
     <Teleport to="body">
@@ -1033,7 +1033,7 @@ onUnmounted(() => {
     </Teleport>
 
     <!-- ── Create TODO from jot modal ────────────────────────────────────── -->
-    <AppBottomSheet v-model="showCreateTodoModal" :closeable="false" title="Create TODO">
+    <AppModal v-model="showCreateTodoModal" title="Create TODO">
       <p class="text-xs text-(--ui-text-dimmed) -mt-2">A TODO will be created and linked to this jot.</p>
       <div class="space-y-3">
         <UFormField label="Title" required>
@@ -1055,7 +1055,7 @@ onUnmounted(() => {
           >Create</UButton>
         </div>
       </template>
-    </AppBottomSheet>
+    </AppModal>
 
     <!-- ── Bottom Sheets ─────────────────────────────────────────────────── -->
 
