@@ -648,6 +648,7 @@ function toggleColorMode() {
       :model-value="showSearch"
       variant="centered"
       max-width="md"
+      aria-label="Search"
       content-padding="none"
       :closeable="false"
       @update:model-value="(open) => { if (!open) closeSearch() }"

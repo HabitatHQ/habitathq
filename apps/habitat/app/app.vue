@@ -131,7 +131,7 @@ function dismissPermissionModal() {
     </NuxtLayout>
 
     <!-- First-launch permission onboarding (native only) -->
-    <AppBottomSheet v-model="showPermissionModal" variant="centered" content-padding="none" :closeable="false">
+    <AppBottomSheet v-model="showPermissionModal" variant="centered" content-padding="none" :closeable="false" aria-label="Set up permissions">
         <div class="p-6 space-y-5">
           <div class="space-y-1.5">
             <h3 class="text-lg font-bold">Set up permissions</h3>

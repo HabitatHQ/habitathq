@@ -173,7 +173,7 @@ onMounted(() => {
     </div>
 
     <!-- Delete confirmation -->
-    <AppBottomSheet v-model="showDeleteConfirm" max-width="sm" :closeable="false">
+    <AppBottomSheet v-model="showDeleteConfirm" max-width="sm" :closeable="false" aria-label="Delete Jot?">
       <div class="space-y-3">
           <h3 class="text-base font-semibold">Delete Jot?</h3>
           <p class="text-sm text-(--ui-text-dimmed)">This cannot be undone.</p>

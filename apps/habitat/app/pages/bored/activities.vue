@@ -297,7 +297,7 @@ async function archiveActivity(a: BoredActivity) {
     </UButton>
 
     <!-- Category modal -->
-    <AppBottomSheet v-model="showCategoryModal" :closeable="false">
+    <AppBottomSheet v-model="showCategoryModal" :aria-label="editingCategory ? 'Edit Category' : 'New Category'" :closeable="false">
         <h2 class="text-lg font-semibold">{{ editingCategory ? 'Edit Category' : 'New Category' }}</h2>
         <div class="space-y-3">
           <UFormField label="Name" required>
@@ -325,7 +325,7 @@ async function archiveActivity(a: BoredActivity) {
     </AppBottomSheet>
 
     <!-- Activity modal -->
-    <AppBottomSheet v-model="showActivityModal" :closeable="false">
+    <AppBottomSheet v-model="showActivityModal" :aria-label="editingActivity ? 'Edit Activity' : 'New Activity'" :closeable="false">
         <h2 class="text-lg font-semibold">{{ editingActivity ? 'Edit Activity' : 'New Activity' }}</h2>
         <div class="space-y-3">
           <UFormField label="Title" required>

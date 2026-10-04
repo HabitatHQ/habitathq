@@ -262,7 +262,7 @@ onMounted(() => {
     </ul>
 
     <!-- ── Pause all modal ───────────────────────────────────────────────────── -->
-    <AppBottomSheet v-model="showPauseAllModal" :closeable="false">
+    <AppBottomSheet v-model="showPauseAllModal" :closeable="false" aria-label="Pause all habits">
       <div>
         <h3 class="text-lg font-semibold">Pause all habits</h3>
         <p class="text-sm text-(--ui-text-muted) mt-0.5">All active habits will be hidden from Today until this date.</p>

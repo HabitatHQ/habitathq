@@ -587,7 +587,7 @@ async function forceReload() {
     </section>
 
     <!-- Licenses modal -->
-    <AppBottomSheet v-model="showLicensesModal" variant="centered" max-width="lg" content-padding="none" :closeable="false">
+    <AppBottomSheet v-model="showLicensesModal" variant="centered" max-width="lg" content-padding="none" :closeable="false" aria-label="Open source licenses">
         <div class="p-5 space-y-4 flex flex-col max-h-[80vh]">
           <div class="flex items-center justify-between shrink-0">
             <h3 class="font-semibold text-(--ui-text)">Open source licenses</h3>

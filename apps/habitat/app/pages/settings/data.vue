@@ -589,7 +589,7 @@ async function seedDevData() {
     <AppOperationFeedback :busy="resetOperation.busy.value" :error="resetOperation.error.value" :success="resetOperation.success.value" success-label="Habitat data reset. You can continue using the app." />
 
     <!-- Export JSON modal -->
-    <AppBottomSheet v-model="showExportModal" variant="centered" content-padding="none" :closeable="false">
+    <AppBottomSheet v-model="showExportModal" variant="centered" content-padding="none" :closeable="false" aria-label="Export data">
         <div class="p-5 space-y-4">
           <div class="flex items-center justify-between">
             <h3 class="font-semibold text-(--ui-text)">Export data</h3>
@@ -650,7 +650,7 @@ async function seedDevData() {
     </AppBottomSheet>
 
     <!-- Jots export modal -->
-    <AppBottomSheet v-model="showJotsExportModal" variant="centered" content-padding="none" :closeable="false">
+    <AppBottomSheet v-model="showJotsExportModal" variant="centered" content-padding="none" :closeable="false" aria-label="Export Jots">
         <div class="p-5 space-y-4">
           <div class="flex items-center justify-between">
             <h3 class="font-semibold text-(--ui-text)">Export Jots</h3>
@@ -699,7 +699,7 @@ async function seedDevData() {
     </AppBottomSheet>
 
     <!-- Import JSON modal -->
-    <AppBottomSheet v-model="showImportModal" variant="centered" content-padding="none" :closeable="false">
+    <AppBottomSheet v-model="showImportModal" variant="centered" content-padding="none" :closeable="false" :aria-label="importError ? 'Cannot import' : importDone ? 'Import complete' : 'Import data?'">
         <div v-if="importError" class="p-5 space-y-4">
           <div class="flex items-start gap-3">
             <div class="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0">
@@ -766,7 +766,7 @@ async function seedDevData() {
     </AppBottomSheet>
 
     <!-- Confirm clear app data -->
-    <AppBottomSheet v-model="showClearModal" variant="centered" content-padding="none" :closeable="false">
+    <AppBottomSheet v-model="showClearModal" variant="centered" content-padding="none" :closeable="false" aria-label="Clear app data?">
         <div class="p-5 space-y-4">
           <div class="flex items-start gap-3">
             <div class="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0">

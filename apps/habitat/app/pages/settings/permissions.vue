@@ -298,7 +298,7 @@ onMounted(async () => {
     </section>
 
     <!-- Install instructions modal -->
-    <AppBottomSheet v-model="showInstallModal" variant="centered" content-padding="none" :closeable="false">
+    <AppBottomSheet v-model="showInstallModal" variant="centered" content-padding="none" :closeable="false" aria-label="Install Habitat">
         <div class="p-5 space-y-4">
           <div class="flex items-center justify-between">
             <h3 class="font-semibold text-(--ui-text)">Install Habitat</h3>

@@ -189,7 +189,7 @@ function jotKindIcon(kind: string | undefined): string {
 </script>
 
 <template>
-  <AppBottomSheet :model-value="open" :closeable="false" @update:model-value="emit('update:open', $event)">
+  <AppBottomSheet :model-value="open" :aria-label="editingTodo ? 'Edit TODO' : 'New TODO'" :closeable="false" @update:model-value="emit('update:open', $event)">
     <h2 class="text-lg font-semibold">{{ editingTodo ? 'Edit TODO' : 'New TODO' }}</h2>
 
     <div class="space-y-3">

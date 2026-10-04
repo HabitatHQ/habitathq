@@ -132,11 +132,22 @@ test('add todo modal has no critical a11y violations', async ({ page }) => {
   await page.goto('/todos?modal=add')
   await waitForApp(page)
   // Wait for modal to appear
-  await page.waitForSelector('[role="dialog"], .fixed', { timeout: 5_000 }).catch(() => {})
+  const dialog = page.getByRole('dialog', { name: 'New TODO' })
+  await expect(dialog).toBeVisible()
   const violations = await getAxeCritical(page)
   logViolations(violations)
   expect(violations, `${violations.length} critical violation(s) in add-todo modal`).toHaveLength(0)
 })
+test('bored category and activity modals have accessible names', async ({ page }) => {
+  await page.goto('/bored/activities?modal=add-category')
+  await waitForApp(page)
+  await expect(page.getByRole('dialog', { name: 'New Category' })).toBeVisible()
+
+  await page.goto('/bored/activities?modal=add-activity')
+  await waitForApp(page)
+  await expect(page.getByRole('dialog', { name: 'New Activity' })).toBeVisible()
+})
+
 
 test('add habit modal has no critical a11y violations', async ({ page }) => {
   await page.goto('/habits?modal=create')

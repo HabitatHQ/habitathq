@@ -307,7 +307,7 @@ async function confirmHealthSetup() {
     </section>
 
     <!-- Health setup modal -->
-    <AppBottomSheet v-model="showHealthSetup" variant="centered" content-padding="none" :closeable="false">
+    <AppBottomSheet v-model="showHealthSetup" variant="centered" content-padding="none" :closeable="false" aria-label="Set up Health Tracking">
         <div class="p-5 space-y-5">
           <div>
             <h3 class="text-lg font-semibold">Set up Health Tracking</h3>

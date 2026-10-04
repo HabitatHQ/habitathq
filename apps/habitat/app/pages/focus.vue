@@ -264,7 +264,7 @@ function addOneMinute() {
     </main>
 
     <!-- Modal for End/Done -->
-    <AppBottomSheet v-model="showEndConfirm" variant="centered" content-padding="none" :closeable="false">
+    <AppBottomSheet v-model="showEndConfirm" variant="centered" content-padding="none" :closeable="false" :aria-label="endModalTitle">
         <div class="p-6 text-center space-y-5">
           <div class="mx-auto w-12 h-12 bg-red-100 dark:bg-red-900/30 text-red-500 rounded-full flex items-center justify-center mb-2">
             <AppIcon name="stop-circle" class="w-6 h-6" />

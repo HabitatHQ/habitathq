@@ -274,6 +274,7 @@ onUnmounted(() => {
     <AppBottomSheet
       :model-value="showTranscript"
       max-width="md"
+      aria-label="Save Transcript?"
       :closeable="false"
       @update:model-value="(open) => { if (!open) discardTranscript() }"
     >
