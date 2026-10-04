@@ -316,6 +316,7 @@ const REBUILD_FTS = `
   INSERT INTO notes_fts(notes_fts) VALUES ('rebuild');
 `
 
+// Capacitor SQLite splits at ";\n"; multi-statement trigger bodies must stay on one line.
 const INSTALL_FTS_TRIGGERS = `
   CREATE TRIGGER IF NOT EXISTS contacts_fts_ai AFTER INSERT ON contacts BEGIN
     INSERT INTO contacts_fts(rowid, id, first_name, last_name, nickname)
