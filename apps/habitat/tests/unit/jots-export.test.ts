@@ -1,6 +1,6 @@
 import { unzipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
-import type { ImageNoteRow, VoiceNoteRow } from '~/types/database'
+import type { ImageNoteRow, Scribble, VoiceNoteRow } from '~/types/database'
 import { buildJotsExportZip } from '~/utils/jots-export'
 
 const createdAt = '2026-04-03T02:01:00.000Z'
@@ -23,6 +23,34 @@ const blobs = new Map<string, Uint8Array>([
 ])
 
 describe('buildJotsExportZip', () => {
+  it('keeps both text notes when their update timestamps collide', async () => {
+    const textJots: Scribble[] = ['first', 'second'].map((id) => ({
+      id,
+      title: id,
+      content: `${id} body`,
+      tags: [],
+      annotations: {},
+      entry_date: '2026-04-03',
+      created_at: createdAt,
+      updated_at: createdAt,
+    }))
+    const zipped = await buildJotsExportZip({ textJots, getBlob: async () => null })
+
+    expect(zipped).not.toBeNull()
+    const archive = unzipSync(zipped!)
+    expect(Object.keys(archive).sort()).toEqual([
+      'jots.json',
+      'text/2026-04-03T02-01-00--first.txt',
+      'text/2026-04-03T02-01-00--second.txt',
+    ])
+    expect(new TextDecoder().decode(archive['text/2026-04-03T02-01-00--first.txt'])).toBe(
+      'first\n\nfirst body',
+    )
+    expect(new TextDecoder().decode(archive['text/2026-04-03T02-01-00--second.txt'])).toBe(
+      'second\n\nsecond body',
+    )
+  })
+
   it('preserves every colliding voice and image record with its exact bytes', async () => {
     const zipped = await buildJotsExportZip({
       voiceNotes,

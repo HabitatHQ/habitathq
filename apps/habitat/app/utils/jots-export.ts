@@ -44,7 +44,8 @@ export async function buildJotsExportZip({
     files['jots.json'] = new TextEncoder().encode(json)
     for (const jot of textJots) {
       const body = jot.title ? `${jot.title}\n\n${jot.content}` : jot.content
-      files[`text/${readableTimestamp(jot.updated_at)}.txt`] = new TextEncoder().encode(body)
+      files[`text/${readableTimestamp(jot.updated_at)}--${encodeURIComponent(jot.id)}.txt`] =
+        new TextEncoder().encode(body)
     }
   }
 
