@@ -28,7 +28,7 @@ onMounted(loadHabits)
       <h2 class="text-2xl font-bold">Archive</h2>
     </header>
 
-    <EmptyState
+    <AppEmptyState
       v-if="!loadingHabits && archivedHabits.length === 0"
       icon="archive-box"
       title="No archived habits yet"

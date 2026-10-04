@@ -1,3 +1,4 @@
+import { safeJsonParse } from '@habitathq/utils'
 import * as parse from '~/lib/db-parsers'
 import type {
   Address,
@@ -231,7 +232,7 @@ export async function getContactDetail(db: DbAdapter, id: string): Promise<Conta
           name: r['company_name'] as string,
           website: r['company_website'] as string,
           description: r['company_desc'] as string,
-          tags: parse.safeJsonParse(r['company_tags'] as string, []),
+          tags: safeJsonParse(r['company_tags'] as string, []),
           created_at: r['company_created_at'] as string,
           updated_at: r['company_updated_at'] as string,
         } as Company)
@@ -667,7 +668,7 @@ export async function getOccupations(
           name: r['company_name'] as string,
           website: r['company_website'] as string,
           description: r['company_desc'] as string,
-          tags: parse.safeJsonParse(r['company_tags'] as string, []),
+          tags: safeJsonParse(r['company_tags'] as string, []),
           created_at: r['company_created_at'] as string,
           updated_at: r['company_updated_at'] as string,
         } as Company)

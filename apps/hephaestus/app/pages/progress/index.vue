@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { type ExerciseSessionStat, localDateKey } from '~/lib/analytics'
+import { localDateString } from '@habitathq/utils'
+import type { ExerciseSessionStat } from '~/lib/analytics'
 import { formatWeight } from '~/lib/format'
 import type { ReadinessResult } from '~/lib/readiness'
 import type { ExerciseRow, PersonalRecordRow } from '~/types/database'
@@ -16,11 +17,10 @@ const organization = useOrganization()
 function dateOffset(offset: number): string {
   const date = new Date()
   date.setDate(date.getDate() + offset)
-  return localDateKey(date)
+  return localDateString(date)
 }
 const reportStart = ref(dateOffset(-27))
-const reportEnd = ref(localDateKey())
-
+const reportEnd = ref(localDateString(new Date()))
 const prs = ref<ProgressPersonalRecordRow[]>([])
 const loading = ref(true)
 

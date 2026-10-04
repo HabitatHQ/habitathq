@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { formatDurationSeconds as formatDuration } from '@habitathq/utils'
 import { useHistoryCorrection } from '~/composables/useHistoryCorrection'
-import { formatDuration, formatWeight } from '~/lib/format'
+import { formatWeight } from '~/lib/format'
 import { buildWorkoutCard } from '~/lib/workout-card'
 import type { ExerciseRow, SetRow, WorkoutExerciseRow, WorkoutRow } from '~/types/database'
 import type { FieldComparison, HistoryCorrectionDraft } from '~/types/history-correction'

@@ -276,7 +276,7 @@ onMounted(load)
     </div>
 
     <!-- Error -->
-    <EmptyState
+    <AppEmptyState
       v-else-if="loadError"
       icon="exclamation-triangle"
       title="Couldn't load health data"
@@ -285,7 +285,7 @@ onMounted(load)
       <template #actions>
         <UButton @click="loading = true; load()">Try again</UButton>
       </template>
-    </EmptyState>
+    </AppEmptyState>
 
     <!-- Empty state -->
     <div

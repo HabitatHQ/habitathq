@@ -1,3 +1,4 @@
+import { localDateString } from '@habitathq/utils'
 import type { DbAdapter } from '@palladium/core'
 import type { ProgramPhase, SetSchemeConfig } from '~/types/database'
 import type {
@@ -28,7 +29,7 @@ import type {
   TrainingPlanSaveRequest,
 } from '~/types/prescription'
 import { PRESCRIPTION_EVALUATOR_VERSION, PRESCRIPTION_SCHEMA_VERSION } from '~/types/prescription'
-import { addCalendarDays, localDateKey } from './analytics'
+import { addCalendarDays } from './analytics'
 import { getRoutineReferencePlans } from './organization-storage'
 import {
   parseSerializablePrescription,
@@ -2369,7 +2370,7 @@ async function previewProgramAdoption(
       payload.planId,
       revision.design,
       bindings,
-      localDateKey(),
+      localDateString(new Date()),
     ),
   }
   const currentBindingsFingerprint = await programBindingFingerprint(db, payload.planId)
@@ -2453,7 +2454,7 @@ async function applyProgramAdoption(db: DbAdapter, input: unknown): Promise<Trai
     plan.id,
     revision.design,
     validatedBindings,
-    localDateKey(),
+    localDateString(new Date()),
   )
   if (JSON.stringify(calendar) !== JSON.stringify(previewRow['calendar']))
     throw new Error('Program calendar changed after adoption preview; refresh the review')

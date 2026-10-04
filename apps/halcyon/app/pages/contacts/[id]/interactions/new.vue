@@ -1,9 +1,9 @@
 <script setup lang="ts">
+import { localDateString } from '@habitathq/utils'
 import { useDatabase } from '~/composables/useDatabase'
 import { useVault } from '~/composables/useVault'
 import type { Contact, ConversationChannel, InteractionType } from '~/types/database'
 import { contactDisplayName } from '~/utils/contact-helpers'
-import { localDateString } from '~/utils/format'
 
 const route = useRoute()
 const router = useRouter()

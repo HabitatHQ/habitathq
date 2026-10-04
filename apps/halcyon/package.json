@@ -37,7 +37,8 @@
   "dependencies": {
     "@capacitor-community/sqlite": "^8.1.1",
     "@capacitor/local-notifications": "^8.3.1",
-    "@habitathq/db": "workspace:*",
+    "@habitathq/shared": "workspace:*",
+    "@habitathq/utils": "workspace:*",
     "@nuxt/ui": "^4.11.3",
     "@palladium/core": "workspace:*",
     "@palladium/nuxt": "workspace:*",
@@ -57,6 +58,8 @@
     "@capacitor/ios": "^8.5.2",
     "@capacitor/preferences": "^8.0.1",
     "@capacitor/status-bar": "^8.0.3",
+    "@iconify-json/heroicons": "^1.2.3",
+    "@iconify-json/lucide": "^1.2.138",
     "@vite-pwa/nuxt": "^1.1.1",
     "@vue/test-utils": "^2.5.1",
     "happy-dom": "^20.14.5",

@@ -1,6 +1,6 @@
 <script setup lang="ts">
+import { localDateString } from '@habitathq/utils'
 import type { CheckinQuestion, CheckinResponse, CheckinTemplate } from '~/types/database'
-import { toLocalDateKey } from '~/utils/format'
 
 const db = useDatabase()
 const route = useRoute()
@@ -35,11 +35,11 @@ async function loadTemplate() {
 
 // ─── Date navigation ──────────────────────────────────────────────────────────
 
-const todayKey = toLocalDateKey()
+const todayKey = localDateString(new Date())
 const initDateStr = route.query['date'] as string | undefined
 const initialDate = initDateStr ? new Date(`${initDateStr}T12:00:00`) : new Date()
 const currentDate = ref(initialDate)
-const dateKey = computed(() => toLocalDateKey(currentDate.value))
+const dateKey = computed(() => localDateString(currentDate.value))
 const isToday = computed(() => dateKey.value === todayKey)
 
 const displayDate = computed(() =>

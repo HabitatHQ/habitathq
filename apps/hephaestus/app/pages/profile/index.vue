@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { toRaw } from 'vue'
+import { writeStoredSettings } from '@habitathq/utils'
 import { parseBackupSettingsFromEnvelope, type RestorePreview } from '~/lib/data-transfer'
 
 const { settings, set, replace: replaceSettings } = useAppSettings()
@@ -91,9 +91,8 @@ async function restoreBackup() {
   let previousSettingsJson: string | null
   try {
     restoredSettings = parseBackupSettingsFromEnvelope(toRaw(pendingBackup.value))
-    const nextSettingsJson = JSON.stringify(restoredSettings)
     previousSettingsJson = localStorage.getItem('hephaestus-app-settings')
-    localStorage.setItem('hephaestus-app-settings', nextSettingsJson)
+    writeStoredSettings('hephaestus-app-settings', restoredSettings)
   } catch (error) {
     errorMessage.value = `Backup was not restored; existing data and preferences are unchanged. App preferences could not be staged: ${error instanceof Error ? error.message : String(error)}`
     return

@@ -17,3 +17,9 @@ export {
   resolveIcon,
 } from './icons.js'
 export { safeJsonParse } from './json.js'
+export {
+  type ReadStoredSettingsOptions,
+  readStoredSettings,
+  type SettingsStorage,
+  writeStoredSettings,
+} from './settings.js'

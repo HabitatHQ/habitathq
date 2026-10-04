@@ -6,6 +6,7 @@ let scrollLockCount = 0
 const props = withDefaults(
   defineProps<{
     title?: string
+    ariaLabel?: string
     variant?: 'sheet' | 'centered'
     maxWidth?: 'sm' | 'md' | 'lg'
     contentPadding?: 'default' | 'none'
@@ -127,7 +128,7 @@ onUnmounted(() => {
         :class="variant === 'sheet' ? 'items-end sm:items-center' : 'items-center'"
         role="dialog"
         aria-modal="true"
-        :aria-label="title"
+        :aria-label="ariaLabel || title"
         @keydown="handleKeydown"
       >
         <!-- Backdrop -->

@@ -10,9 +10,7 @@
  *   2. Template uses optional chaining (`item.data.tags?.length`).
  */
 import { describe, it, expect } from 'vitest'
-import type { Scribble } from '~/types/database'
-import { previewTitle, previewBody, gridBody } from '~/utils/scribble'
-import { safeJsonParse } from '~/lib/db-parsers'
+import { safeJsonParse } from '@habitathq/utils'
 
 describe('safeJsonParse (DB helper contract)', () => {
   it('returns fallback for SQL NULL (null input)', () => {
@@ -38,40 +36,6 @@ describe('safeJsonParse (DB helper contract)', () => {
 
   it('returns fallback for malformed JSON', () => {
     expect(safeJsonParse('not-json', [])).toEqual([])
-  })
-})
-
-// ─── Scribble helpers with null-like tags ────────────────────────────────────
-// The helpers themselves don't access .tags, but these guard against future
-// refactors that might add tag access.
-
-function makeScribble(overrides: Partial<Scribble> = {}): Scribble {
-  return {
-    id: 's1',
-    title: 'Title',
-    content: 'Content',
-    tags: [],
-    annotations: {},
-    created_at: '2025-01-01T00:00:00Z',
-    updated_at: '2025-01-01T00:00:00Z',
-    ...overrides,
-  }
-}
-
-describe('scribble utils — null/empty tags robustness', () => {
-  it('previewTitle does not throw with null tags (cast)', () => {
-    const s = makeScribble({ tags: null as unknown as string[] })
-    expect(() => previewTitle(s)).not.toThrow()
-  })
-
-  it('previewBody does not throw with null tags (cast)', () => {
-    const s = makeScribble({ tags: null as unknown as string[] })
-    expect(() => previewBody(s)).not.toThrow()
-  })
-
-  it('gridBody does not throw with null tags (cast)', () => {
-    const s = makeScribble({ tags: null as unknown as string[] })
-    expect(() => gridBody(s)).not.toThrow()
   })
 })
 

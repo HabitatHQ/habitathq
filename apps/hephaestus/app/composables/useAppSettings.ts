@@ -1,3 +1,5 @@
+import { readStoredSettings, writeStoredSettings } from '@habitathq/utils'
+
 export type AppTheme = 'hephaestus' | 'forge' | 'daylight'
 export type WeightUnit = 'kg' | 'lbs'
 export type DistanceUnit = 'km' | 'mi'
@@ -29,7 +31,7 @@ export interface AppSettings {
 
 const KEY = 'hephaestus-app-settings'
 
-const DEFAULTS: AppSettings = {
+const DEFAULTS = (): AppSettings => ({
   theme: 'hephaestus',
   weightUnit: 'kg',
   distanceUnit: 'km',
@@ -46,29 +48,33 @@ const DEFAULTS: AppSettings = {
   showSetSchemes: false,
   showVariableRest: false,
   showSupersets: false,
-}
+})
 
 function readFromStorage(): AppSettings {
-  try {
-    return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') } as AppSettings
-  } catch (err) {
-    console.warn('[useAppSettings] Failed to parse stored settings, using defaults:', err)
-    return { ...DEFAULTS }
-  }
+  return readStoredSettings<AppSettings>(KEY, {
+    defaults: DEFAULTS,
+    normalize: (stored, defaults) => ({
+      ...defaults,
+      ...stored,
+      warmupRamps: Array.isArray(stored['warmupRamps'])
+        ? [...stored['warmupRamps']]
+        : [...defaults.warmupRamps],
+    }),
+  })
 }
 
 export function useAppSettings() {
   const settings = useState<AppSettings>('app-settings', () =>
-    import.meta.client ? readFromStorage() : { ...DEFAULTS },
+    typeof window === 'undefined' ? DEFAULTS() : readFromStorage(),
   )
 
   function set<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
     settings.value = { ...settings.value, [key]: value }
-    if (import.meta.client) localStorage.setItem(KEY, JSON.stringify(settings.value))
+    if (typeof window !== 'undefined') writeStoredSettings(KEY, settings.value)
   }
 
   function replace(value: AppSettings, persist = true) {
-    if (persist && import.meta.client) localStorage.setItem(KEY, JSON.stringify(value))
+    if (persist && typeof window !== 'undefined') writeStoredSettings(KEY, value)
     settings.value = { ...value, warmupRamps: [...value.warmupRamps] }
   }
 

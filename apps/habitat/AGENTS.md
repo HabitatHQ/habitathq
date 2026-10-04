@@ -25,7 +25,7 @@ pnpm --filter habitat verify
 | `app/composables/useTimer.ts` | Stopwatch / countdown / pomodoro. |
 | `app/composables/useLongPress.ts` | `{ onPointerdown, onPointerup, onPointermove }` for long-press; cancels on move/up. |
 | `app/composables/useCrudForm.ts` | Generic add/edit form state: `{ item, isEditing, open(item?), close() }`. |
-| `app/components/AppModal.vue` | `<AppModal v-model title>` + `#footer` slot. Replaces manual Teleport+overlay. |
+| `libs/habitat-shared/app/components/AppBottomSheet.vue` | Shared sheet/centered dialog with `v-model`, title/footer slots, focus trapping and scroll locking. Habitat form callers explicitly preserve `:closeable="false"`; centered callers pass `variant="centered"`. |
 | `app/utils/icons.ts` | Habitat-specific picker constants (`HABIT_PICKER_CATEGORIES`, `HABIT_COLORS`). Shared `<AppIcon>` + `resolveIcon` come from `@habitathq/shared` / `@habitathq/utils`. |
 | `app/assets/css/typography.css` | Semantic classes: `type-timer`, `type-duration`, `type-code`, `type-numeric`. Use these instead of raw `font-mono`/`tabular-nums`. |
 | `app/assets/css/themes.css` | Forest / Ocean / Habitat themes + sprout logo animation. |
@@ -54,7 +54,7 @@ Pass-through parents: `habits.vue`, `checkin.vue`, `bored.vue`, `jots.vue`, `set
   - `AppCard` is the only list-item surface (`rounded-xl` + `p-3` + muted border). Never hand-roll the card markup. Use `align="start"` for multi-line items, `tag="li"` inside a `<ul>`, and `to` / `completed` / `dimmed` as needed. Domain markup goes in its default slot.
   - `AppListSection` renders the canonical uppercase group header (+ optional `#actions`). Don't copy-paste the `text-xs font-semibold uppercase tracking-wider` header.
   - List containers use `space-y-2`; add `stagger-list` for entrance.
-  - Empty lists render `EmptyState` — don't hand-roll empties.
+  - Empty lists render shared `AppEmptyState`; expandable sections use shared `AppCollapsible`. Do not add app-local compatibility wrappers.
   - Scope: content lists only. Settings rows, calendar/matrix grids, pickers, and sheets/panels are deliberately NOT AppCard.
 
 ## Config

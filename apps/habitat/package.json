@@ -45,7 +45,6 @@
     "@capacitor-community/sqlite": "^8.1.1",
     "@capacitor/keyboard": "^8.0.5",
     "@capacitor/local-notifications": "^8.3.1",
-    "@habitathq/db": "workspace:*",
     "@habitathq/shared": "workspace:*",
     "@habitathq/utils": "workspace:*",
     "@nuxt/ui": "^4.11.3",

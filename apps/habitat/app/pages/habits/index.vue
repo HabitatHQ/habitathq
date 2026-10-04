@@ -184,7 +184,7 @@ onMounted(() => {
     </div>
 
     <!-- Error -->
-    <EmptyState
+    <AppEmptyState
       v-else-if="loadError"
       icon="exclamation-triangle"
       title="Couldn't load habits"
@@ -193,9 +193,9 @@ onMounted(() => {
       <template #actions>
         <UButton @click="loading = true; loadHabits()">Try again</UButton>
       </template>
-    </EmptyState>
+    </AppEmptyState>
 
-    <EmptyState
+    <AppEmptyState
       v-else-if="habits.length === 0"
       icon="clipboard-document-list"
       title="No habits yet"
@@ -265,7 +265,7 @@ onMounted(() => {
     </ul>
 
     <!-- ── Pause all modal ───────────────────────────────────────────────────── -->
-    <AppModal v-model="showPauseAllModal">
+    <AppBottomSheet v-model="showPauseAllModal" :closeable="false">
       <div>
         <h3 class="text-lg font-semibold">Pause all habits</h3>
         <p class="text-sm text-(--ui-text-muted) mt-0.5">All active habits will be hidden from Today until this date.</p>
@@ -284,7 +284,7 @@ onMounted(() => {
           Pause all
         </UButton>
       </div>
-    </AppModal>
+    </AppBottomSheet>
 
     <!-- ── Create modal ──────────────────────────────────────────────────────── -->
     <HabitFormModal v-model="isOpen" mode="create" @saved="onHabitCreated">

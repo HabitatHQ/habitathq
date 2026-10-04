@@ -69,13 +69,16 @@ async function create() {
       </div>
     </div>
 
-    <div v-if="loading" class="px-4 space-y-2">
-      <USkeleton v-for="i in 3" :key="i" class="h-14 rounded-xl" />
+    <div v-if="loading" class="px-4">
+      <AppSkeleton variant="row" :count="3" />
     </div>
 
-    <div v-else-if="groups.length === 0 && !showNew" class="px-4 py-16 text-center text-zinc-500">
-      No groups yet. Create one to organize your contacts.
-    </div>
+    <AppEmptyState
+      v-else-if="groups.length === 0 && !showNew"
+      class="px-4"
+      title="No groups yet."
+      description="Create one to organize your contacts."
+    />
 
     <div v-else class="px-4 space-y-2">
       <NuxtLink

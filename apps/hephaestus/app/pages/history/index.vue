@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { formatDuration } from '~/lib/format'
+import { formatDurationSeconds as formatDuration } from '@habitathq/utils'
 import { filterWorkouts, SESSION_TYPES, type SessionFilter, sessionLabel } from '~/lib/history'
 import type { WorkoutRow } from '~/types/database'
 

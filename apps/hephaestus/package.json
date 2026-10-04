@@ -36,6 +36,7 @@
   },
   "dependencies": {
     "@capacitor-community/sqlite": "^8.1.1",
+    "@habitathq/utils": "workspace:*",
     "@marcbachmann/cel-js": "8.0.0",
     "@nuxt/ui": "^4.11.3",
     "@palladium/core": "workspace:*",

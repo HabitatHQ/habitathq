@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { logError } from '~/utils/error'
+import { logError } from '@habitathq/utils'
 
 const { settings } = useAppSettings()
 const db = useDatabase()

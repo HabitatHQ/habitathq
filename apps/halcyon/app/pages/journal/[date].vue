@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDate } from '@habitathq/utils'
 import { useDatabase } from '~/composables/useDatabase'
 import { useVault } from '~/composables/useVault'
 import type { JournalEntry } from '~/types/database'

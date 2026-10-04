@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { localDateString } from '@habitathq/utils'
 import type { Todo } from '~/types/database'
 import {
   calendarNotePrompt,
   calendarDateFromQuery,
   daysFrom,
   expandTodoOccurrences,
-  plannerDateKey,
   startOfWeek,
 } from '~/utils/planner'
 
@@ -19,7 +19,7 @@ const recurringTodo = (overrides: Partial<Todo> = {}): Todo => ({
 
 describe('planner dates', () => {
   it('uses local date parts and starts weeks on Sunday', () => {
-    expect(plannerDateKey(new Date(2026, 8, 28))).toBe('2026-09-28')
+    expect(localDateString(new Date(2026, 8, 28))).toBe('2026-09-28')
     expect(daysFrom(startOfWeek(new Date(2026, 8, 30)), 7)).toEqual([
       '2026-09-27', '2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-03',
     ])

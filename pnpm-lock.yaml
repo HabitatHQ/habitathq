@@ -53,9 +53,6 @@ importers:
       '@capacitor/local-notifications':
         specifier: ^8.3.1
         version: 8.3.1(@capacitor/core@8.5.2)
-      '@habitathq/db':
-        specifier: workspace:*
-        version: link:../../libs/habitat-db
       '@habitathq/shared':
         specifier: workspace:*
         version: link:../../libs/habitat-shared
@@ -165,9 +162,12 @@ importers:
       '@capacitor/local-notifications':
         specifier: ^8.3.1
         version: 8.3.1(@capacitor/core@8.5.2)
-      '@habitathq/db':
+      '@habitathq/shared':
         specifier: workspace:*
-        version: link:../../libs/habitat-db
+        version: link:../../libs/habitat-shared
+      '@habitathq/utils':
+        specifier: workspace:*
+        version: link:../../libs/habitat-utils
       '@nuxt/ui':
         specifier: ^4.11.3
         version: 4.11.3(e731c409d519f30e85adb351fc212620)
@@ -220,6 +220,12 @@ importers:
       '@capacitor/status-bar':
         specifier: ^8.0.3
         version: 8.0.3(@capacitor/core@8.5.2)
+      '@iconify-json/heroicons':
+        specifier: ^1.2.3
+        version: 1.2.3
+      '@iconify-json/lucide':
+        specifier: ^1.2.138
+        version: 1.2.138
       '@vite-pwa/nuxt':
         specifier: ^1.1.1
         version: 1.1.1(magicast@0.5.5)(vite@8.3.2(@types/node@24.19.0)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2))(workbox-build@7.4.1(@types/babel__core@7.20.5))(workbox-window@7.4.1)
@@ -262,9 +268,6 @@ importers:
       '@capacitor/local-notifications':
         specifier: ^8.3.1
         version: 8.3.1(@capacitor/core@8.5.2)
-      '@habitathq/db':
-        specifier: workspace:*
-        version: link:../../libs/habitat-db
       '@habitathq/shared':
         specifier: workspace:*
         version: link:../../libs/habitat-shared
@@ -371,6 +374,9 @@ importers:
       '@capacitor-community/sqlite':
         specifier: ^8.1.1
         version: 8.1.1(@capacitor/core@8.5.2)
+      '@habitathq/utils':
+        specifier: workspace:*
+        version: link:../../libs/habitat-utils
       '@marcbachmann/cel-js':
         specifier: 8.0.0
         version: 8.0.0
@@ -2534,6 +2540,9 @@ packages:
 
   '@huggingface/transformers@4.3.0':
     resolution: {integrity: sha512-fL1A/WUZwouPrOlYxU5dzIwD2T5J781JiB2jDR8bFe5DwCj0Gfudq+NEXCMno49kQgajHA7xQkrRLJlqG1veEA==}
+
+  '@iconify-json/heroicons@1.2.3':
+    resolution: {integrity: sha512-n+vmCEgTesRsOpp5AB5ILB6srsgsYK+bieoQBNlafvoEhjVXLq8nIGN4B0v/s4DUfa0dOrjwE/cKJgIKdJXOEg==}
 
   '@iconify-json/lucide@1.2.138':
     resolution: {integrity: sha512-+J5+/6HOZsN6sG5PGNxGLcB0UCJtKrH2TPTNeSeXukRzR1C9QRocHaFjLRhoc14zE+XS2ss1i7QWPfunKpYHaQ==}
@@ -9963,6 +9972,10 @@ snapshots:
       sharp: 0.35.5(@types/node@24.19.0)
     transitivePeerDependencies:
       - '@types/node'
+
+  '@iconify-json/heroicons@1.2.3':
+    dependencies:
+      '@iconify/types': 2.0.0
 
   '@iconify-json/lucide@1.2.138':
     dependencies:

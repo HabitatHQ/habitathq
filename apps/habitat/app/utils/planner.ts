@@ -1,11 +1,6 @@
-import type { Todo } from '~/types/database'
+import { localDateString as plannerDateKey } from '@habitathq/utils'
 
-export function plannerDateKey(date: Date): string {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
+import type { Todo } from '~/types/database'
 
 export function dateForKey(key: string): Date {
   return new Date(`${key}T12:00:00`)

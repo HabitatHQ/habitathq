@@ -1,8 +1,8 @@
 <script setup lang="ts">
+import { formatDate, formatRelativeTime, localDateString } from '@habitathq/utils'
 import { useDatabase } from '~/composables/useDatabase'
 import { useVault } from '~/composables/useVault'
 import type { DashboardData } from '~/types/database'
-import { localDateString } from '~/utils/format'
 
 const db = useDatabase()
 const { activeVaultId } = useVault()

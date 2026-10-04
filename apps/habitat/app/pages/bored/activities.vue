@@ -297,7 +297,7 @@ async function archiveActivity(a: BoredActivity) {
     </UButton>
 
     <!-- Category modal -->
-    <AppModal v-model="showCategoryModal">
+    <AppBottomSheet v-model="showCategoryModal" :closeable="false">
         <h2 class="text-lg font-semibold">{{ editingCategory ? 'Edit Category' : 'New Category' }}</h2>
         <div class="space-y-3">
           <UFormField label="Name" required>
@@ -322,10 +322,10 @@ async function archiveActivity(a: BoredActivity) {
           <UButton color="primary" class="flex-1" :loading="saving" @click="saveCategory">Save</UButton>
         </div>
         <div class="safe-area-bottom" aria-hidden="true" />
-    </AppModal>
+    </AppBottomSheet>
 
     <!-- Activity modal -->
-    <AppModal v-model="showActivityModal">
+    <AppBottomSheet v-model="showActivityModal" :closeable="false">
         <h2 class="text-lg font-semibold">{{ editingActivity ? 'Edit Activity' : 'New Activity' }}</h2>
         <div class="space-y-3">
           <UFormField label="Title" required>
@@ -369,11 +369,11 @@ async function archiveActivity(a: BoredActivity) {
           <UButton color="primary" class="flex-1" :loading="saving" @click="saveActivity">Save</UButton>
         </div>
         <div class="safe-area-bottom" aria-hidden="true" />
-    </AppModal>
+    </AppBottomSheet>
 
     <!-- Delete activity confirm -->
-    <ConfirmDialog
-      :open="!!confirmDeleteActivity"
+    <AppConfirmDialog
+      :model-value="!!confirmDeleteActivity"
       icon="trash"
       icon-color="red"
       :title="`Delete &quot;${confirmDeleteActivity?.title}&quot;?`"
@@ -382,12 +382,12 @@ async function archiveActivity(a: BoredActivity) {
       confirm-color="error"
       @confirm="confirmDeleteActivity && deleteActivity(confirmDeleteActivity)"
       @cancel="confirmDeleteActivity = null"
-      @update:open="(open) => !open && (confirmDeleteActivity = null)"
+      @update:model-value="(open) => !open && (confirmDeleteActivity = null)"
     />
 
     <!-- Delete category confirm -->
-    <ConfirmDialog
-      :open="!!confirmDeleteCategory"
+    <AppConfirmDialog
+      :model-value="!!confirmDeleteCategory"
       icon="trash"
       icon-color="red"
       :title="`Delete &quot;${confirmDeleteCategory?.name}&quot;?`"
@@ -396,12 +396,12 @@ async function archiveActivity(a: BoredActivity) {
       confirm-color="error"
       @confirm="confirmDeleteCategory && deleteCategory(confirmDeleteCategory)"
       @cancel="confirmDeleteCategory = null"
-      @update:open="(open) => !open && (confirmDeleteCategory = null)"
+      @update:model-value="(open) => !open && (confirmDeleteCategory = null)"
     />
 
     <!-- Archive activity confirm -->
-    <ConfirmDialog
-      :open="!!confirmArchiveActivity"
+    <AppConfirmDialog
+      :model-value="!!confirmArchiveActivity"
       icon="archive-box"
       icon-color="amber"
       :title="`Archive &quot;${confirmArchiveActivity?.title}&quot;?`"
@@ -410,7 +410,7 @@ async function archiveActivity(a: BoredActivity) {
       confirm-color="warning"
       @confirm="confirmArchiveActivity && archiveActivity(confirmArchiveActivity)"
       @cancel="confirmArchiveActivity = null"
-      @update:open="(open) => !open && (confirmArchiveActivity = null)"
+      @update:model-value="(open) => !open && (confirmArchiveActivity = null)"
     />
   </div>
 </template>

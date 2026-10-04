@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDate, localDateString } from '@habitathq/utils'
 import { useDatabase } from '~/composables/useDatabase'
 import type {
   Address,
@@ -18,7 +19,6 @@ import type {
   StayInTouch,
   Task,
 } from '~/types/database'
-import { localDateString } from '~/utils/format'
 
 const route = useRoute()
 const router = useRouter()

@@ -14,7 +14,7 @@ describe('archive page', () => {
           AppCard: true,
           AppIcon: true,
           BackNav: true,
-          EmptyState: true,
+          AppEmptyState: true,
         },
       },
     })

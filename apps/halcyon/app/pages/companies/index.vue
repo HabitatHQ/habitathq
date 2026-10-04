@@ -40,13 +40,15 @@ const filtered = computed(() => {
       <UInput v-model="search" placeholder="Search companies…" icon="i-heroicons-magnifying-glass" />
     </div>
 
-    <div v-if="loading" class="px-4 space-y-2">
-      <USkeleton v-for="i in 4" :key="i" class="h-14 rounded-xl" />
+    <div v-if="loading" class="px-4">
+      <AppSkeleton variant="row" :count="4" />
     </div>
 
-    <div v-else-if="filtered.length === 0" class="px-4 py-16 text-center text-zinc-500">
-      {{ search ? 'No companies match your search.' : 'No companies yet.' }}
-    </div>
+    <AppEmptyState
+      v-else-if="filtered.length === 0"
+      class="px-4"
+      :title="search ? 'No companies match your search.' : 'No companies yet.'"
+    />
 
     <div v-else class="px-4 space-y-2">
       <NuxtLink

@@ -6,25 +6,20 @@ const isNative = buildTarget === 'native'
 const isPWA = !isNative
 
 export default defineNuxtConfig({
+  extends: ['@habitathq/shared'],
   devServer: {
     host: '127.0.0.1',
     port: 3300,
   },
-  compatibilityDate: '2025-01-01',
 
   // Required for SharedArrayBuffer (SQLite WASM OPFS persistence).
   routeRules: {
     '/**': {
       headers: {
-        'Cross-Origin-Opener-Policy': 'same-origin',
-        'Cross-Origin-Embedder-Policy': 'require-corp',
         'Content-Security-Policy': "frame-ancestors 'none'",
       },
     },
   },
-
-  // SPA mode — works for both PWA and Capacitor
-  ssr: false,
 
   devtools: { enabled: true },
 
@@ -34,6 +29,13 @@ export default defineNuxtConfig({
 
   ui: {
     colorMode: true,
+  },
+  icon: {
+    clientBundle: {
+      scan: true,
+    },
+    serverBundle: { collections: ['heroicons', 'lucide'] },
+    fallbackToApi: false,
   },
 
   ...(isPWA && {
@@ -84,19 +86,8 @@ export default defineNuxtConfig({
   vite: {
     server: {
       headers: {
-        'Cross-Origin-Opener-Policy': 'same-origin',
-        'Cross-Origin-Embedder-Policy': 'require-corp',
         'Content-Security-Policy': "frame-ancestors 'none'",
       },
-    },
-    define: {
-      __BUILD_TARGET__: JSON.stringify(buildTarget ?? 'pwa'),
-    },
-    optimizeDeps: {
-      exclude: ['@sqlite.org/sqlite-wasm'],
-    },
-    worker: {
-      format: 'es',
     },
   },
 
@@ -105,10 +96,6 @@ export default defineNuxtConfig({
       title: 'Halcyon',
       meta: [
         { name: 'description', content: 'Your memory for the people you care about.' },
-        { name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' },
-        { name: 'mobile-web-app-capable', content: 'yes' },
-        { name: 'apple-mobile-web-app-capable', content: 'yes' },
-        { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },
         { name: 'apple-mobile-web-app-title', content: 'Halcyon' },
         { name: 'theme-color', content: '#0f172a' },
       ],
@@ -117,12 +104,6 @@ export default defineNuxtConfig({
         { rel: 'apple-touch-icon', href: `${appBaseURL}icons/icon-192.png` },
         ...(isPWA ? [{ rel: 'manifest' as const, href: `${appBaseURL}manifest.webmanifest` }] : []),
       ],
-    },
-  },
-
-  runtimeConfig: {
-    public: {
-      buildTarget: buildTarget ?? 'pwa',
     },
   },
 })
