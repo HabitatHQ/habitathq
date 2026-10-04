@@ -170,33 +170,20 @@ test.describe('Profile settings', () => {
     await expect(page.getByRole('button', { name: 'mi' })).toHaveAttribute('aria-pressed', 'true')
   })
 
-  test('can toggle RPE field switch', async ({ page }) => {
-    await page.goto('/profile')
-    const rpeSwitch = page.getByRole('switch', { name: /show rpe/i })
-    const initialState = await rpeSwitch.getAttribute('aria-checked')
-    await rpeSwitch.click()
-    const newState = initialState === 'true' ? 'false' : 'true'
-    await expect(rpeSwitch).toHaveAttribute('aria-checked', newState)
-  })
+  for (const label of ['Show RPE field', 'Show RIR field', 'Reduce motion', 'Use 24-hour time']) {
+    test(`persists ${label} changes and restoration across reload`, async ({ page }) => {
+      await page.goto('/profile')
+      const control = page.getByRole('switch', { name: label, exact: true })
+      await expect(control).toBeVisible()
+      const initial = await control.isChecked()
 
-  test('can toggle RIR field switch', async ({ page }) => {
-    await page.goto('/profile')
-    const rirSwitch = page.getByRole('switch', { name: /show rir/i })
-    await rirSwitch.click()
-    await expect(rirSwitch).toHaveAttribute('aria-checked', 'true')
-  })
+      await control.setChecked(!initial)
+      await page.reload()
+      await expect(control).toBeChecked({ checked: !initial })
 
-  test('can toggle reduce motion switch', async ({ page }) => {
-    await page.goto('/profile')
-    const motionSwitch = page.getByRole('switch', { name: /reduce motion/i })
-    await motionSwitch.click()
-    await expect(motionSwitch).toHaveAttribute('aria-checked', 'true')
-  })
-
-  test('can toggle 24-hour time switch', async ({ page }) => {
-    await page.goto('/profile')
-    const timeSwitch = page.getByRole('switch', { name: /24.hour time/i })
-    await timeSwitch.click()
-    await expect(timeSwitch).toHaveAttribute('aria-checked', 'true')
-  })
+      await control.setChecked(initial)
+      await page.reload()
+      await expect(control).toBeChecked({ checked: initial })
+    })
+  }
 })

@@ -120,15 +120,15 @@ test('primary navigation exposes the current page', async ({ page }) => {
   )
 })
 
-test('profile switch state changes through an accessible control', async ({ page }) => {
+test('profile switch supports keyboard state changes', async ({ page }) => {
   await page.goto('/profile')
   const control = page.getByRole('switch', { name: 'Show RPE field' })
-  const initial = await control.getAttribute('aria-checked')
-  expect(['true', 'false']).toContain(initial)
-  if (initial !== 'true' && initial !== 'false') throw new Error('Missing accessible switch state')
+  await expect(control).toBeVisible()
+  const initial = await control.isChecked()
 
-  await control.click()
-  await expect(control).toHaveAttribute('aria-checked', initial === 'true' ? 'false' : 'true')
-  await control.click()
-  await expect(control).toHaveAttribute('aria-checked', initial)
+  await control.focus()
+  await page.keyboard.press('Space')
+  await expect(control).toBeChecked({ checked: !initial })
+  await page.keyboard.press('Space')
+  await expect(control).toBeChecked({ checked: initial })
 })
