@@ -7,6 +7,7 @@
  * Row parsing is delegated to db-parsers.ts.
  */
 
+import { localDateString } from '@habitathq/utils'
 import { recoverBooleanHistoryFromLogs } from '~/lib/boolean-history-recovery'
 import {
   HABIT_WITH_SCHED_SQL,
@@ -147,7 +148,8 @@ export async function createHabit(
 
   const id = crypto.randomUUID()
   const schedId = crypto.randomUUID()
-  const created_at = new Date().toISOString()
+  const createdOn = new Date()
+  const created_at = createdOn.toISOString()
   await db.exec(
     `INSERT INTO habits
      (id, name, name_key, description, why, color, icon, frequency, created_at, tags, annotations,
@@ -174,7 +176,7 @@ export async function createHabit(
     `INSERT INTO habit_schedules
      (id, habit_id, schedule_type, frequency_count, days_of_week, due_time, start_date, end_date)
      VALUES (?,?,?,?,?,?,?,?)`,
-    [schedId, id, 'DAILY', null, null, null, created_at.slice(0, 10), null],
+    [schedId, id, 'DAILY', null, null, null, localDateString(createdOn), null],
   )
   const row = await db.queryOne<Record<string, unknown>>(`${HABIT_WITH_SCHED_SQL} WHERE h.id = ?`, [
     id,
@@ -298,6 +300,10 @@ export async function toggleCompletion(
   )
   return parseCompletion(rows2[0]!)
 }
+export async function deleteCompletion(db: DbAdapter, id: string): Promise<null> {
+  await db.exec('DELETE FROM completions WHERE id = ?', [id])
+  return null
+}
 
 export async function getAllCompletions(db: DbAdapter): Promise<Completion[]> {
   const rows = await db.queryAll<Record<string, unknown>>(
@@ -344,7 +350,7 @@ export async function getStreak(db: DbAdapter, habit_id: string): Promise<Streak
     frequencyCount: sched?.frequency_count ?? null,
     startDate: sched?.start_date ?? null,
   }
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateString(new Date())
 
   if (type === 'BOOLEAN') {
     const rows = await db.queryAll<Record<string, unknown>>(
@@ -426,6 +432,31 @@ export async function logHabitValue(
 export async function deleteHabitLog(db: DbAdapter, id: string): Promise<null> {
   await db.exec('DELETE FROM habit_logs WHERE id = ?', [id])
   return null
+}
+export async function replaceHabitLogsForDate(
+  db: DbAdapter,
+  habit_id: string,
+  date: string,
+  value: number,
+  notes = '',
+): Promise<null> {
+  await db.exec('BEGIN')
+  try {
+    await db.exec('DELETE FROM habit_logs WHERE habit_id = ? AND date = ?', [habit_id, date])
+    if (value > 0) {
+      const id = crypto.randomUUID()
+      const logged_at = new Date().toISOString()
+      await db.exec(
+        'INSERT INTO habit_logs (id, habit_id, date, logged_at, value, notes) VALUES (?,?,?,?,?,?)',
+        [id, habit_id, date, logged_at, value, notes],
+      )
+    }
+    await db.exec('COMMIT')
+    return null
+  } catch (err) {
+    await db.exec('ROLLBACK')
+    throw err
+  }
 }
 
 // ─── Schedules ────────────────────────────────────────────────────────────────
@@ -982,7 +1013,8 @@ export async function createScribble(
   },
 ): Promise<Scribble> {
   const id = crypto.randomUUID()
-  const now = new Date().toISOString()
+  const createdOn = new Date()
+  const now = createdOn.toISOString()
   await db.exec(
     `INSERT INTO scribbles (id, title, content, tags, annotations, entry_date, created_at, updated_at)
      VALUES (?,?,?,?,?,?,?,?)`,
@@ -992,7 +1024,7 @@ export async function createScribble(
       payload.content ?? '',
       JSON.stringify(payload.tags ?? []),
       JSON.stringify(payload.annotations ?? {}),
-      payload.entry_date ?? now.slice(0, 10),
+      payload.entry_date ?? localDateString(createdOn),
       now,
       now,
     ],
@@ -1878,7 +1910,7 @@ export async function importJson(db: DbAdapter, data: HabitatExport): Promise<nu
           s.content ?? '',
           JSON.stringify(s.tags ?? []),
           JSON.stringify(s.annotations ?? {}),
-          s.entry_date ?? s.created_at.slice(0, 10),
+          s.entry_date ?? localDateString(new Date(s.created_at)),
           s.created_at,
           s.updated_at,
         ],
@@ -1976,7 +2008,7 @@ export async function importJson(db: DbAdapter, data: HabitatExport): Promise<nu
 // Maps WorkerRequestBody.type to the corresponding db-shared function.
 // Worker-only ops (EXPORT_DB, NUKE_OPFS) are handled by the caller.
 
-export async function dispatch(db: DbAdapter, req: WorkerRequestBody): Promise<unknown> {
+async function dispatchRequest(db: DbAdapter, req: WorkerRequestBody): Promise<unknown> {
   switch (req.type) {
     case 'GET_HABITS':
       return getHabits(db)
@@ -2006,6 +2038,8 @@ export async function dispatch(db: DbAdapter, req: WorkerRequestBody): Promise<u
         req.payload.tags,
         req.payload.annotations,
       )
+    case 'DELETE_COMPLETION':
+      return deleteCompletion(db, req.payload.id)
     case 'GET_STREAK':
       return getStreak(db, req.payload.habit_id)
     case 'DELETE_ALL_HABITS':
@@ -2038,6 +2072,14 @@ export async function dispatch(db: DbAdapter, req: WorkerRequestBody): Promise<u
       return getCheckinEntry(db, req.payload.date)
     case 'UPSERT_CHECKIN_ENTRY':
       return upsertCheckinEntry(db, req.payload.date, req.payload.content)
+    case 'REPLACE_HABIT_LOGS_FOR_DATE':
+      return replaceHabitLogsForDate(
+        db,
+        req.payload.habit_id,
+        req.payload.date,
+        req.payload.value,
+        req.payload.notes,
+      )
     case 'DELETE_CHECKIN_ENTRY':
       return deleteCheckinEntry(db, req.payload.id)
     case 'GET_CHECKIN_ENTRIES':
@@ -2213,6 +2255,18 @@ export async function dispatch(db: DbAdapter, req: WorkerRequestBody): Promise<u
     default:
       return undefined
   }
+}
+// The same adapter may receive concurrent worker requests. Serialize the shared
+// dispatch boundary so multi-statement transactions cannot interleave with them.
+let dispatchQueue: Promise<void> = Promise.resolve()
+
+export function dispatch(db: DbAdapter, req: WorkerRequestBody): Promise<unknown> {
+  const result = dispatchQueue.then(() => dispatchRequest(db, req))
+  dispatchQueue = result.then(
+    () => undefined,
+    () => undefined,
+  )
+  return result
 }
 
 // ─── Voice / Image notes (metadata only — binary data lives in IDBBlobAdapter) ──

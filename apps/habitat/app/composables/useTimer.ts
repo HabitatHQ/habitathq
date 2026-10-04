@@ -1,3 +1,5 @@
+import { normalizePomodoroSettingValue, POMODORO_SETTING_RULES } from '~/composables/useAppSettings'
+
 export type TimerMode = 'stopwatch' | 'countdown' | 'pomodoro'
 export type PomodoroPhase = 'work' | 'short-break' | 'long-break'
 
@@ -31,10 +33,20 @@ export function buildPomodoroConfig(settings: {
   pomodoroCyclesBeforeLong: number
 }): PomodoroConfig {
   return {
-    workSeconds: settings.pomodoroWorkMinutes * 60,
-    shortBreakSeconds: settings.pomodoroShortBreakMinutes * 60,
-    longBreakSeconds: settings.pomodoroLongBreakMinutes * 60,
-    cyclesBeforeLong: settings.pomodoroCyclesBeforeLong,
+    workSeconds:
+      normalizePomodoroSettingValue('pomodoroWorkMinutes', settings.pomodoroWorkMinutes) * 60,
+    shortBreakSeconds:
+      normalizePomodoroSettingValue(
+        'pomodoroShortBreakMinutes',
+        settings.pomodoroShortBreakMinutes,
+      ) * 60,
+    longBreakSeconds:
+      normalizePomodoroSettingValue('pomodoroLongBreakMinutes', settings.pomodoroLongBreakMinutes) *
+      60,
+    cyclesBeforeLong: normalizePomodoroSettingValue(
+      'pomodoroCyclesBeforeLong',
+      settings.pomodoroCyclesBeforeLong,
+    ),
   }
 }
 
@@ -70,6 +82,20 @@ export function formatTimerDisplay(
   return `🍅 ${phaseLabel} · ${formatMmSs(remaining)}`
 }
 
+function normalizeDurationSeconds(
+  value: number,
+  key: 'pomodoroWorkMinutes' | 'pomodoroShortBreakMinutes' | 'pomodoroLongBreakMinutes',
+): number {
+  const { min, max, defaultValue } = POMODORO_SETTING_RULES[key]
+  return Number.isInteger(value) && value >= min * 60 && value <= max * 60
+    ? value
+    : defaultValue * 60
+}
+
+function normalizeCycleCount(value: number): number {
+  return normalizePomodoroSettingValue('pomodoroCyclesBeforeLong', value)
+}
+
 export function nextPomodoroPhase(
   currentPhase: PomodoroPhase,
   workBlock: number,
@@ -78,14 +104,68 @@ export function nextPomodoroPhase(
   shortBreakSeconds: number,
   longBreakSeconds: number,
 ): { phase: PomodoroPhase; durationSeconds: number; workBlock: number } {
+  const safeCycles = normalizeCycleCount(cyclesBeforeLong)
+  const safeWorkBlock = Number.isInteger(workBlock) && workBlock >= 0 ? workBlock : 0
+  const safeWorkSeconds = normalizeDurationSeconds(workSeconds, 'pomodoroWorkMinutes')
+  const safeShortBreakSeconds = normalizeDurationSeconds(
+    shortBreakSeconds,
+    'pomodoroShortBreakMinutes',
+  )
+  const safeLongBreakSeconds = normalizeDurationSeconds(
+    longBreakSeconds,
+    'pomodoroLongBreakMinutes',
+  )
   if (currentPhase === 'work') {
-    const newBlock = workBlock + 1
-    if (newBlock % cyclesBeforeLong === 0) {
-      return { phase: 'long-break', durationSeconds: longBreakSeconds, workBlock: newBlock }
+    const newBlock = safeWorkBlock + 1
+    if (newBlock % safeCycles === 0) {
+      return { phase: 'long-break', durationSeconds: safeLongBreakSeconds, workBlock: newBlock }
     }
-    return { phase: 'short-break', durationSeconds: shortBreakSeconds, workBlock: newBlock }
+    return { phase: 'short-break', durationSeconds: safeShortBreakSeconds, workBlock: newBlock }
   }
-  return { phase: 'work', durationSeconds: workSeconds, workBlock }
+  return { phase: 'work', durationSeconds: safeWorkSeconds, workBlock: safeWorkBlock }
+}
+
+function normalizeRestoredPomodoroTimer(timer: ActiveTimer): ActiveTimer | null {
+  if (timer.mode !== 'pomodoro') return timer
+  if (
+    timer.pomodoroPhase !== 'work' &&
+    timer.pomodoroPhase !== 'short-break' &&
+    timer.pomodoroPhase !== 'long-break'
+  ) {
+    return null
+  }
+  const workSeconds = normalizeDurationSeconds(timer.pomodoroWorkSeconds, 'pomodoroWorkMinutes')
+  const shortBreakSeconds = normalizeDurationSeconds(
+    timer.pomodoroShortBreakSeconds,
+    'pomodoroShortBreakMinutes',
+  )
+  const longBreakSeconds = normalizeDurationSeconds(
+    timer.pomodoroLongBreakSeconds,
+    'pomodoroLongBreakMinutes',
+  )
+  const fallbackDurationSeconds =
+    timer.pomodoroPhase === 'work'
+      ? workSeconds
+      : timer.pomodoroPhase === 'short-break'
+        ? shortBreakSeconds
+        : longBreakSeconds
+  const durationSeconds =
+    Number.isFinite(timer.durationSeconds) && timer.durationSeconds > 0
+      ? timer.durationSeconds
+      : fallbackDurationSeconds
+  return {
+    ...timer,
+    elapsed: Number.isFinite(timer.elapsed) && timer.elapsed >= 0 ? timer.elapsed : 0,
+    durationSeconds,
+    pomodoroWorkBlock:
+      Number.isInteger(timer.pomodoroWorkBlock) && timer.pomodoroWorkBlock >= 0
+        ? timer.pomodoroWorkBlock
+        : 0,
+    pomodoroWorkSeconds: workSeconds,
+    pomodoroShortBreakSeconds: shortBreakSeconds,
+    pomodoroLongBreakSeconds: longBreakSeconds,
+    pomodoroCyclesBeforeLong: normalizeCycleCount(timer.pomodoroCyclesBeforeLong),
+  }
 }
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -106,7 +186,7 @@ function restoreFromLS(): ActiveTimer | null {
   try {
     const raw = localStorage.getItem(LS_KEY)
     if (!raw) return null
-    return JSON.parse(raw) as ActiveTimer
+    return normalizeRestoredPomodoroTimer(JSON.parse(raw) as ActiveTimer)
   } catch {
     return null
   }
@@ -151,6 +231,18 @@ export function useTimer() {
     durationSeconds: number,
     pomodoroConfig: PomodoroConfig,
   ): void {
+    const safeConfig = {
+      workSeconds: normalizeDurationSeconds(pomodoroConfig.workSeconds, 'pomodoroWorkMinutes'),
+      shortBreakSeconds: normalizeDurationSeconds(
+        pomodoroConfig.shortBreakSeconds,
+        'pomodoroShortBreakMinutes',
+      ),
+      longBreakSeconds: normalizeDurationSeconds(
+        pomodoroConfig.longBreakSeconds,
+        'pomodoroLongBreakMinutes',
+      ),
+      cyclesBeforeLong: normalizeCycleCount(pomodoroConfig.cyclesBeforeLong),
+    }
     const newTimer: ActiveTimer = {
       itemId,
       itemType,
@@ -158,13 +250,13 @@ export function useTimer() {
       mode,
       elapsed: 0,
       startedAt: Date.now(),
-      durationSeconds: mode === 'pomodoro' ? pomodoroConfig.workSeconds : durationSeconds,
+      durationSeconds: mode === 'pomodoro' ? safeConfig.workSeconds : durationSeconds,
       pomodoroPhase: 'work',
       pomodoroWorkBlock: 0,
-      pomodoroWorkSeconds: pomodoroConfig.workSeconds,
-      pomodoroShortBreakSeconds: pomodoroConfig.shortBreakSeconds,
-      pomodoroLongBreakSeconds: pomodoroConfig.longBreakSeconds,
-      pomodoroCyclesBeforeLong: pomodoroConfig.cyclesBeforeLong,
+      pomodoroWorkSeconds: safeConfig.workSeconds,
+      pomodoroShortBreakSeconds: safeConfig.shortBreakSeconds,
+      pomodoroLongBreakSeconds: safeConfig.longBreakSeconds,
+      pomodoroCyclesBeforeLong: safeConfig.cyclesBeforeLong,
     }
     timer.value = newTimer
     persist(timer.value)

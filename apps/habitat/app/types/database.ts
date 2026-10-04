@@ -250,6 +250,7 @@ export type WorkerRequest =
         annotations?: Record<string, string>
       }
     }
+  | { id: string; type: 'DELETE_COMPLETION'; payload: { id: string } }
   | { id: string; type: 'GET_STREAK'; payload: { habit_id: string } }
   | { id: string; type: 'GET_ALL_COMPLETIONS' }
   | { id: string; type: 'DELETE_ALL_HABITS' }
@@ -269,6 +270,11 @@ export type WorkerRequest =
   | {
       id: string
       type: 'LOG_HABIT_VALUE'
+      payload: { habit_id: string; date: string; value: number; notes?: string }
+    }
+  | {
+      id: string
+      type: 'REPLACE_HABIT_LOGS_FOR_DATE'
       payload: { habit_id: string; date: string; value: number; notes?: string }
     }
   | { id: string; type: 'DELETE_HABIT_LOG'; payload: { id: string } }

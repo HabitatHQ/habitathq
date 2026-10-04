@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { localDateString } from '@habitathq/utils'
 import { isStruggling, type StreakInput } from '~/lib/streak-engine'
 import type {
   BoredOracleResult,
@@ -22,7 +23,7 @@ watchEffect(() => {
 })
 
 const _now = new Date()
-const today = _now.toISOString().slice(0, 10)
+const today = localDateString(_now)
 const todayDayOfWeek = _now.getDay()
 const dayName = _now.toLocaleDateString('en-US', { weekday: 'long' })
 const dateStr = _now.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })
@@ -31,14 +32,14 @@ const dateStr = _now.toLocaleDateString('en-US', { month: 'long', day: 'numeric'
 const weekStart = (() => {
   const d = new Date()
   d.setDate(d.getDate() - d.getDay())
-  return d.toISOString().slice(0, 10)
+  return localDateString(d)
 })()
 
 // 15-day window for the struggling-habit detector (needs ~2 weeks of history).
 const histStart = (() => {
   const d = new Date()
   d.setDate(d.getDate() - 15)
-  return d.toISOString().slice(0, 10)
+  return localDateString(d)
 })()
 
 const habits = ref<HabitWithSchedule[]>([])
@@ -253,7 +254,9 @@ const hasTodayActivity = computed(
 async function loadVoiceCount() {
   try {
     const rows = await db.getVoiceNotes()
-    todayVoiceCount.value = rows.filter((n) => n.created_at.slice(0, 10) === today).length
+    todayVoiceCount.value = rows.filter(
+      (n) => localDateString(new Date(n.created_at)) === today,
+    ).length
   } catch {
     todayVoiceCount.value = 0
   }
@@ -341,7 +344,7 @@ async function pauseStrugglingToday(h: HabitWithSchedule) {
   try {
     const until = new Date()
     until.setDate(until.getDate() + 7)
-    await db.pauseHabit(h.id, until.toISOString().slice(0, 10))
+    await db.pauseHabit(h.id, localDateString(until))
     await load()
     toast.add({ title: `"${h.name}" paused for a week`, color: 'success', duration: 3000 })
   } catch (e) {
@@ -431,7 +434,7 @@ async function toggle(habit: HabitWithSchedule) {
   toggling.add(habit.id)
   const wasCompleted = isHabitDone(habit)
   try {
-    await db.toggleCompletion(habit.id, today)
+    const completion = await db.toggleCompletion(habit.id, today)
     completions.value = await db.getCompletionsForDate(today)
     weekCompletions.value = await db.getCompletionsForDateRange(weekStart, today)
     await impact(wasCompleted ? 'light' : 'medium')
@@ -439,7 +442,7 @@ async function toggle(habit: HabitWithSchedule) {
       flashing.add(habit.id)
       setTimeout(() => flashing.delete(habit.id), 400)
     }
-    if (!wasCompleted) {
+    if (!wasCompleted && completion) {
       toast.add({
         title: `"${habit.name}" completed`,
         color: 'success',
@@ -448,9 +451,18 @@ async function toggle(habit: HabitWithSchedule) {
           {
             label: 'Undo',
             onClick: async () => {
-              await db.toggleCompletion(habit.id, today)
-              completions.value = await db.getCompletionsForDate(today)
-              weekCompletions.value = await db.getCompletionsForDateRange(weekStart, today)
+              if (toggling.has(habit.id)) return
+              toggling.add(habit.id)
+              try {
+                await db.deleteCompletion(completion.id)
+                completions.value = await db.getCompletionsForDate(today)
+                weekCompletions.value = await db.getCompletionsForDateRange(weekStart, today)
+              } catch (e) {
+                logError('[today/undoCompletion]', e)
+                toast.add({ title: "Couldn't undo — try again", color: 'error', duration: 3000 })
+              } finally {
+                toggling.delete(habit.id)
+              }
             },
           },
         ],

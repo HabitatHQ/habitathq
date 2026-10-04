@@ -4,7 +4,7 @@
  * maps a raw `Record<string, unknown>` DB row to a typed domain object.
  */
 
-import { safeJsonParse } from '@habitathq/utils'
+import { localDateString, safeJsonParse } from '@habitathq/utils'
 
 import type {
   BoredActivity,
@@ -171,7 +171,9 @@ export function parseScribble(row: Record<string, unknown>): Scribble {
     content: (row['content'] as string) ?? '',
     tags: safeJsonParse(row['tags'] as string | null, []),
     annotations: safeJsonParse(row['annotations'] as string | null, {}),
-    entry_date: (row['entry_date'] as string | null) ?? (row['created_at'] as string).slice(0, 10),
+    entry_date:
+      (row['entry_date'] as string | null) ??
+      localDateString(new Date(row['created_at'] as string)),
     created_at: row['created_at'] as string,
     updated_at: row['updated_at'] as string,
   }

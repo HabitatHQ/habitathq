@@ -21,6 +21,20 @@ The same codebase ships as a PWA (installable web app) and as native iOS/Android
 - **Themes** — Habitat (cyan), Forest, Ocean; light/dark mode per theme
 - **Export/Import** — full JSON backup + ZIP export for jots (text, voice, images)
 
+## Daily data and recovery
+
+- Daily records, schedule starts, history, and streaks use your device's local
+  calendar date. Event timestamps remain ISO UTC instants.
+- A completion's Undo removes that specific completion; it cannot invert a
+  later edit or remove a newer completion.
+- Health edits replace a day's logs in one database transaction. A failed
+  replacement preserves the previous logs; saving zero clears the value.
+- Pomodoro preferences accept whole numbers: work 1–90 minutes, short/long
+  breaks 1–60 minutes, and 1–10 cycles before a long break. Invalid edits retain
+  the previous setting; invalid stored preferences use safe defaults.
+- Jots ZIP media filenames include both a readable timestamp and the note's
+  identity, so recordings or images created in the same second remain distinct.
+
 ## Tech Stack
 
 | Layer | Choice |

@@ -1,14 +1,15 @@
 <script setup lang="ts">
+import { localDateString } from '@habitathq/utils'
 import type { HabitLog, HabitWithSchedule } from '~/types/database'
 
 const db = useDatabase()
 const { selectionChanged, notification } = useHaptics()
 
-const today = new Date().toISOString().slice(0, 10)
+const today = localDateString(new Date())
 const sevenDaysAgo = (() => {
   const d = new Date()
   d.setDate(d.getDate() - 6)
-  return d.toISOString().slice(0, 10)
+  return localDateString(d)
 })()
 
 const habits = ref<HabitWithSchedule[]>([])
@@ -89,9 +90,9 @@ const weeklySteps = computed(() => {
   if (!stepsHabit.value) return []
   const sid = stepsHabit.value.id
   return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(sevenDaysAgo)
+    const d = new Date(`${sevenDaysAgo}T00:00:00`)
     d.setDate(d.getDate() + i)
-    const date = d.toISOString().slice(0, 10)
+    const date = localDateString(d)
     return {
       date,
       label: d.toLocaleDateString('en-US', { weekday: 'narrow' }),
@@ -123,11 +124,7 @@ async function saveSteps(value: number) {
   if (!stepsHabit.value) return
   savingSteps.value = true
   try {
-    const existing = todayLogs.value.filter((l) => l.habit_id === stepsHabit.value?.id)
-    await Promise.all(existing.map((l) => db.deleteHabitLog(l.id)))
-    if (value > 0) {
-      await db.logHabitValue(stepsHabit.value.id, today, value)
-    }
+    await db.replaceHabitLogsForDate(stepsHabit.value.id, today, value)
     await refreshLogs()
     void notification('success')
     showStepsSheet.value = false
@@ -148,9 +145,7 @@ async function setWater(glasses: number) {
   if (!waterHabit.value || savingWater.value) return
   savingWater.value = true
   try {
-    const existing = todayLogs.value.filter((l) => l.habit_id === waterHabit.value?.id)
-    await Promise.all(existing.map((l) => db.deleteHabitLog(l.id)))
-    if (glasses > 0) await db.logHabitValue(waterHabit.value.id, today, glasses)
+    await db.replaceHabitLogsForDate(waterHabit.value.id, today, glasses)
     await refreshLogs()
     void selectionChanged()
   } finally {
@@ -173,9 +168,9 @@ const weeklySleep = computed(() => {
   if (!sleepHabit.value) return []
   const sid = sleepHabit.value.id
   return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(sevenDaysAgo)
+    const d = new Date(`${sevenDaysAgo}T00:00:00`)
     d.setDate(d.getDate() + i)
-    const date = d.toISOString().slice(0, 10)
+    const date = localDateString(d)
     return {
       date,
       label: d.toLocaleDateString('en-US', { weekday: 'narrow' }),
@@ -201,9 +196,7 @@ async function saveSleep(value: number) {
   if (!sleepHabit.value) return
   savingSleep.value = true
   try {
-    const existing = todayLogs.value.filter((l) => l.habit_id === sleepHabit.value?.id)
-    await Promise.all(existing.map((l) => db.deleteHabitLog(l.id)))
-    if (value > 0) await db.logHabitValue(sleepHabit.value.id, today, value)
+    await db.replaceHabitLogsForDate(sleepHabit.value.id, today, value)
     await refreshLogs()
     void notification('success')
     showSleepSheet.value = false
@@ -243,9 +236,7 @@ async function saveMeal(value: number) {
   if (!mealSheetHabit.value) return
   savingMeal.value = true
   try {
-    const existing = todayLogs.value.filter((l) => l.habit_id === mealSheetHabit.value?.id)
-    await Promise.all(existing.map((l) => db.deleteHabitLog(l.id)))
-    if (value > 0) await db.logHabitValue(mealSheetHabit.value.id, today, value)
+    await db.replaceHabitLogsForDate(mealSheetHabit.value.id, today, value)
     await refreshLogs()
     void notification('success')
     closeMealLog()

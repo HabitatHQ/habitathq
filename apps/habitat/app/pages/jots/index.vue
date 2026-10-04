@@ -181,7 +181,10 @@ function jotDisplayTitle(item: JotItem): string {
     return item.data.title || item.data.content.slice(0, 50) || 'Untitled jot'
   }
   if (item.kind === 'voice') {
-    return (item.data as VoiceNote).title || `Voice note — ${item.data.created_at.slice(0, 10)}`
+    return (
+      (item.data as VoiceNote).title ||
+      `Voice note — ${localDateString(new Date(item.data.created_at))}`
+    )
   }
   const img = item.data as ImageNote
   return img.title || img.filename

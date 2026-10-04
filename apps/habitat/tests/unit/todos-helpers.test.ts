@@ -131,6 +131,10 @@ describe('formatDueDate', () => {
     expect(formatDueDate('2024-03-12', today)).toBe('3d ago')
   })
 
+  it('counts date-only day differences across DST and month boundaries', () => {
+    expect(formatDueDate('2026-03-09', '2026-03-08')).toBe('Tomorrow')
+    expect(formatDueDate('2026-11-01', '2026-10-31')).toBe('Tomorrow')
+  })
   it('returns a locale date string for dates more than a week away', () => {
     const result = formatDueDate('2024-04-01', today)
     expect(result).toMatch(/Apr/)

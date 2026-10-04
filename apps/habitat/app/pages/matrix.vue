@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { localDateString } from '@habitathq/utils'
 import type { Completion, HabitLog, HabitWithSchedule } from '~/types/database'
+import { addDateKeyDays } from '~/utils/calendar-dates'
 
 const db = useDatabase()
 const { settings } = useAppSettings()
@@ -42,14 +44,10 @@ function onLogoAnimEnd(e: AnimationEvent) {
   }
 }
 
-const today = new Date().toISOString().slice(0, 10)
+const today = localDateString(new Date())
 
 // Always load 30 days so both mobile (weekDays) and desktop (month) are covered
-const thirtyDaysAgo = (() => {
-  const d = new Date()
-  d.setDate(d.getDate() - 29)
-  return d.toISOString().slice(0, 10)
-})()
+const thirtyDaysAgo = addDateKeyDays(today, -29)
 
 // ─── Responsive: desktop shows a full month, mobile shows weekDays ────────────
 
@@ -71,12 +69,9 @@ const dateRangeLabel = computed(() =>
 
 const days = computed(() => {
   const count = isDesktop.value ? 30 : settings.value.weekDays
-  const result: string[] = []
-  for (let i = count - 1; i >= 0; i--) {
-    const d = new Date()
-    d.setDate(d.getDate() - i)
-    result.push(d.toISOString().slice(0, 10))
-  }
+  const result = Array.from({ length: count }, (_, index) =>
+    addDateKeyDays(today, index - (count - 1)),
+  )
   return settings.value.matrixReverseDays ? result.reverse() : result
 })
 

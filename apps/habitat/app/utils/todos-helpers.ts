@@ -1,4 +1,5 @@
 import type { Todo } from '~/types/database'
+import { calendarDayDifference } from '~/utils/calendar-dates'
 
 // ─── Priority ordering ──────────────────────────────────────────────────────
 
@@ -79,7 +80,7 @@ export function priorityColor(p: string): string {
  */
 export function formatDueDate(d: string, today: string): string {
   if (d === today) return 'Today'
-  const diff = Math.round((new Date(d).getTime() - new Date(today).getTime()) / 86400000)
+  const diff = calendarDayDifference(today, d)
   if (diff === 1) return 'Tomorrow'
   if (diff === -1) return 'Yesterday'
   if (diff < 0) return `${Math.abs(diff)}d ago`

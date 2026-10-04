@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { localDateString } from '@habitathq/utils'
 import type { HabitWithSchedule } from '~/types/database'
+import { addDateKeyDays } from '~/utils/calendar-dates'
 
 const db = useDatabase()
 const toast = useToast()
@@ -15,12 +17,8 @@ const showPauseAllModal = ref(false)
 const pauseAllDate = ref('')
 const pausingAll = ref(false)
 
-const today = new Date().toISOString().slice(0, 10)
-const tomorrow = (() => {
-  const d = new Date()
-  d.setDate(d.getDate() + 1)
-  return d.toISOString().slice(0, 10)
-})()
+const today = localDateString(new Date())
+const tomorrow = addDateKeyDays(today, 1)
 
 const todayCompletionHabitIds = ref(new Set<string>())
 
