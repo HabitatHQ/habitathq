@@ -1,3 +1,4 @@
+import { addCalendarDays } from '@habitathq/utils'
 import { computeStreak } from '~/lib/streak-engine'
 import type { CheckinHistoryRow, CheckinTemplate } from '~/types/database'
 
@@ -57,17 +58,9 @@ export interface CheckinInsightsInput {
   windowDays: number
 }
 
-// ─── date helpers (UTC) ─────────────────────────────────────────────────────────
-
-function addDays(date: string, n: number): string {
-  const d = new Date(`${date}T00:00:00Z`)
-  d.setUTCDate(d.getUTCDate() + n)
-  return d.toISOString().slice(0, 10)
-}
-
 function windowDates(today: string, windowDays: number): string[] {
   const out: string[] = []
-  for (let i = windowDays - 1; i >= 0; i--) out.push(addDays(today, -i))
+  for (let i = windowDays - 1; i >= 0; i--) out.push(addCalendarDays(today, -i))
   return out
 }
 
@@ -183,9 +176,9 @@ function buildQuestions(curr: CheckinHistoryRow[], prev: CheckinHistoryRow[], da
 
 export function computeCheckinInsights(input: CheckinInsightsInput): TemplateInsight[] {
   const { rows, templates, today, windowDays } = input
-  const winStart = addDays(today, -(windowDays - 1))
-  const prevStart = addDays(today, -(2 * windowDays - 1))
-  const prevEnd = addDays(today, -windowDays)
+  const winStart = addCalendarDays(today, -(windowDays - 1))
+  const prevStart = addCalendarDays(today, -(2 * windowDays - 1))
+  const prevEnd = addCalendarDays(today, -windowDays)
   const dates = windowDates(today, windowDays)
 
   const out: TemplateInsight[] = []

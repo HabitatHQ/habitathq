@@ -24,9 +24,24 @@ import type { SQLiteConnection, SQLiteDBConnection } from "./types.js";
 
 export type { SQLiteConnection, SQLiteDBConnection } from "./types.js";
 
+export type CapacitorSqliteBlobBindingFormat = "android-buffer" | "byte-array";
+
 export interface CapacitorSqliteConfig {
   readonly dbName: string;
   readonly version?: number;
+  /** Native plugin byte binding shape: Android Buffer object or iOS byte array. */
+  readonly blobBindingFormat?: CapacitorSqliteBlobBindingFormat;
+}
+
+function encodeBindings(
+  values: readonly unknown[],
+  format: CapacitorSqliteBlobBindingFormat,
+): unknown[] {
+  return values.map((value) => {
+    if (!(value instanceof Uint8Array)) return value;
+    const data = Array.from(value);
+    return format === "android-buffer" ? { type: "Buffer", data } : data;
+  });
 }
 
 /** Guard against SQL injection via interpolated identifiers (table/column names). */
@@ -82,13 +97,20 @@ export class CapacitorSqliteAdapter implements TransactableStorageAdapter {
     params: readonly unknown[] = [],
   ): Promise<T[]> {
     if (isReadStatement(sql)) {
-      const result = await this.#database.query(sql, params as unknown[]);
+      const result = await this.#database.query(
+        sql,
+        encodeBindings(params, this.#config.blobBindingFormat ?? "byte-array"),
+      );
       return (result.values ?? []) as T[];
     }
 
     if (params.length > 0) {
       dbg("sqlite-capacitor", "exec via run()", { sql: sql.slice(0, 60) });
-      await this.#database.run(sql, params as unknown[], false);
+      await this.#database.run(
+        sql,
+        encodeBindings(params, this.#config.blobBindingFormat ?? "byte-array"),
+        false,
+      );
       return [];
     }
 
@@ -106,7 +128,10 @@ export class CapacitorSqliteAdapter implements TransactableStorageAdapter {
     const sql = `INSERT OR REPLACE INTO ${table} (${keys.join(", ")}) VALUES (${placeholders})`;
     await this.#database.run(
       sql,
-      keys.map((k) => data[k]),
+      encodeBindings(
+        keys.map((k) => data[k]),
+        this.#config.blobBindingFormat ?? "byte-array",
+      ),
       false,
     );
   }
@@ -118,7 +143,14 @@ export class CapacitorSqliteAdapter implements TransactableStorageAdapter {
     for (const k of keys) assertIdentifier(k);
     const sets = keys.map((k) => `${k} = ?`).join(", ");
     const sql = `UPDATE ${table} SET ${sets} WHERE id = ?`;
-    await this.#database.run(sql, [...keys.map((k) => patch[k]), id], false);
+    await this.#database.run(
+      sql,
+      encodeBindings(
+        [...keys.map((k) => patch[k]), id],
+        this.#config.blobBindingFormat ?? "byte-array",
+      ),
+      false,
+    );
   }
 
   async remove(table: string, id: string): Promise<void> {
@@ -157,6 +189,17 @@ export class CapacitorSqliteAdapter implements TransactableStorageAdapter {
   async rollbackTransaction(): Promise<void> {
     dbg("sqlite-capacitor", "ROLLBACK");
     await this.#database.rollbackTransaction();
+  }
+
+  /** Delete only the configured native database after releasing its connection. */
+  async resetStorage(): Promise<void> {
+    const database = this.#database;
+    if (typeof database.delete !== "function") {
+      throw new Error("SQLite connection does not support physical database reset");
+    }
+    await this.close();
+    await database.delete();
+    await this.open();
   }
 
   async close(): Promise<void> {

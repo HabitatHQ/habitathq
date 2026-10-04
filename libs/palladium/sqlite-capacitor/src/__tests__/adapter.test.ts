@@ -250,3 +250,55 @@ describe("CapacitorSqliteAdapter", () => {
     });
   });
 });
+function decodeNativeBlob(value: unknown, format: "android-buffer" | "byte-array"): Uint8Array {
+  if (format === "byte-array") {
+    if (
+      Array.isArray(value) &&
+      value.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255)
+    ) {
+      return Uint8Array.from(value);
+    }
+    throw new TypeError("Expected native byte array");
+  }
+  if (
+    value !== null &&
+    typeof value === "object" &&
+    "type" in value &&
+    value.type === "Buffer" &&
+    "data" in value &&
+    Array.isArray(value.data) &&
+    value.data.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255)
+  ) {
+    return Uint8Array.from(value.data);
+  }
+  throw new TypeError("Expected native Buffer object");
+}
+
+describe("CapacitorSqliteAdapter BLOB bindings", () => {
+  it.each(["android-buffer", "byte-array"] as const)(
+    "preserves binary content through %s bindings",
+    async (blobBindingFormat) => {
+      const mockDb = createMockDb();
+      let persisted: Uint8Array | null = null;
+      vi.mocked(mockDb.run).mockImplementation(async (_sql, values) => {
+        persisted = decodeNativeBlob(values?.[0], blobBindingFormat);
+        return { changes: { changes: 1 } };
+      });
+      vi.mocked(mockDb.query).mockImplementation(async () => ({
+        values: [{ data: Array.from(persisted ?? []) }],
+      }));
+
+      const storage = new CapacitorSqliteAdapter(createMockConn(mockDb), {
+        dbName: "binary",
+        blobBindingFormat,
+      });
+      await storage.open();
+      const expected = new Uint8Array([0, 127, 128, 255, 1]);
+      await storage.exec("INSERT INTO media(data) VALUES (?)", [expected]);
+      const [row] = await storage.exec<{ data: number[] }>("SELECT data FROM media");
+
+      expect(row?.data).toEqual(Array.from(expected));
+      expect(Uint8Array.from(row?.data ?? [])).toEqual(expected);
+    },
+  );
+});

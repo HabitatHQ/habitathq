@@ -1,3 +1,9 @@
+import {
+  differenceInCalendarDays,
+  formatCalendarDate,
+  localCalendarDate,
+  parseCalendarDate,
+} from '@habitathq/utils'
 import type { JotItem } from '~/composables/useJotsStore'
 
 export const CALENDAR_NOTE_TAG = 'calendar-note'
@@ -26,10 +32,8 @@ export function isCalendarNote(item: JotItem): boolean {
  * Empty sections are excluded.
  */
 export function groupJotsByDate(items: JotItem[], now: Date = new Date()): JotSection[] {
-  const today = startOfDay(now)
-  const sevenDaysAgo = addDays(today, -7)
-  const thirtyDaysAgo = addDays(today, -30)
-  const currentYear = now.getFullYear()
+  const today = localCalendarDate(now)
+  const currentYear = parseCalendarDate(today).year
 
   const todayItems: JotItem[] = []
   const last7Items: JotItem[] = []
@@ -37,20 +41,24 @@ export function groupJotsByDate(items: JotItem[], now: Date = new Date()): JotSe
   const monthMap = new Map<string, { label: string; items: JotItem[] }>()
 
   for (const item of items) {
-    const d = new Date(getJotDate(item))
-    const itemDay = startOfDay(d)
+    const instant = new Date(getJotDate(item))
+    const itemDate = localCalendarDate(instant)
+    const ageInDays = differenceInCalendarDays(today, itemDate)
 
-    if (itemDay.getTime() >= today.getTime()) {
+    if (ageInDays <= 0) {
       todayItems.push(item)
-    } else if (itemDay.getTime() >= sevenDaysAgo.getTime()) {
+    } else if (ageInDays <= 7) {
       last7Items.push(item)
-    } else if (itemDay.getTime() >= thirtyDaysAgo.getTime()) {
+    } else if (ageInDays <= 30) {
       last30Items.push(item)
     } else {
-      const year = d.getFullYear()
-      const monthName = d.toLocaleString('default', { month: 'long' })
+      const { year, month } = parseCalendarDate(itemDate)
+      const monthName = formatCalendarDate(itemDate, {
+        locale: Intl.DateTimeFormat().resolvedOptions().locale,
+        month: 'long',
+      })
       const label = year === currentYear ? monthName : `${monthName} ${year}`
-      const key = `${year}-${String(d.getMonth()).padStart(2, '0')}`
+      const key = `${year}-${String(month).padStart(2, '0')}`
       let bucket = monthMap.get(key)
       if (!bucket) {
         bucket = { label, items: [] }
@@ -106,16 +114,4 @@ export function groupJotsByTags(items: JotItem[]): JotSection[] {
   if (untagged.length > 0) sections.push({ label: 'Untagged', items: untagged })
 
   return sections
-}
-
-function startOfDay(d: Date): Date {
-  const s = new Date(d)
-  s.setHours(0, 0, 0, 0)
-  return s
-}
-
-function addDays(d: Date, n: number): Date {
-  const r = new Date(d)
-  r.setDate(r.getDate() + n)
-  return r
 }

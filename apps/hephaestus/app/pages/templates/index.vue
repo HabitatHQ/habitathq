@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatRelativeTime } from '@habitathq/utils'
 import type { ExercisePreview } from '~/composables/useTemplates'
 import type { PortableBundle, RestorePreview } from '~/lib/data-transfer'
 import type { LegacyTemplatePayload } from '~/lib/template-export'
@@ -64,17 +65,6 @@ const filteredTemplates = computed(() => {
   let result = filterTemplates([...templates.value], searchQuery.value)
   return sortTemplates(result, sortOrder.value)
 })
-
-function relativeDate(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const days = Math.floor(diff / 86_400_000)
-  if (days === 0) return 'Today'
-  if (days === 1) return 'Yesterday'
-  if (days < 7) return `${days}d ago`
-  if (days < 30) return `${Math.floor(days / 7)}w ago`
-  if (days < 365) return `${Math.floor(days / 30)}mo ago`
-  return `${Math.floor(days / 365)}y ago`
-}
 
 async function handleArchive(id: string, name: string) {
   await archiveTemplate(id)
@@ -315,7 +305,7 @@ const sortOptions: Array<{ value: TemplateSortOrder; label: string }> = [
             </div>
 
             <div class="flex items-center gap-1.5 shrink-0">
-              <span class="text-[10px] text-(--ui-text-muted)">{{ relativeDate(t.created_at) }}</span>
+              <span class="text-[10px] text-(--ui-text-muted)">{{ formatRelativeTime(t.created_at) }}</span>
               <UIcon name="i-ph-caret-right" class="w-4 h-4 text-(--ui-text-muted)" aria-hidden="true" />
             </div>
           </NuxtLink>

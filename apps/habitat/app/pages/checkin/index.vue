@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { localDateString } from '@habitathq/utils'
+import { localCalendarDate } from '@habitathq/utils'
 import type { CheckinTemplate } from '~/types/database'
 
 const db = useDatabase()
@@ -18,7 +18,7 @@ const loadError = ref<string | null>(null)
 async function loadTemplates() {
   try {
     templates.value = await db.getCheckinTemplates()
-    const today = localDateString(new Date())
+    const today = localCalendarDate()
     const summary = await db.getCheckinSummaryForDate(today)
     todaySummary.value = new Map(
       summary.map((s) => [s.template_id, { count: s.response_count, completed: s.is_completed }]),

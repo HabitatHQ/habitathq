@@ -6,6 +6,15 @@ import { LocalStorageBlobAdapter } from "../localstorage-blob-adapter.js";
 // equivalent to verify the logic.
 class MockStorage {
   readonly #data = new Map<string, string>();
+
+  get length(): number {
+    return this.#data.size;
+  }
+
+  key(index: number): string | null {
+    return Array.from(this.#data.keys())[index] ?? null;
+  }
+
   getItem(key: string): string | null {
     return this.#data.get(key) ?? null;
   }
@@ -65,6 +74,19 @@ describe("LocalStorageBlobAdapter", () => {
     await a.put("x", new Uint8Array([1]));
     // Different namespace should not see the value
     expect(await b.has("x")).toBe(false);
+  });
+
+  it("clears only its prefix and rejects operations after disposal", async () => {
+    const first = new LocalStorageBlobAdapter("clear-a:");
+    const other = new LocalStorageBlobAdapter("clear-b:");
+    await first.put("id", new Uint8Array([1]));
+    await other.put("id", new Uint8Array([2]));
+
+    await first.clear();
+    expect(await first.has("id")).toBe(false);
+    expect(await other.get("id")).toEqual(new Uint8Array([2]));
+    await other.dispose();
+    await expect(other.get("id")).rejects.toThrow("disposed");
   });
 
   it("AbortSignal cancels put if already aborted", async () => {

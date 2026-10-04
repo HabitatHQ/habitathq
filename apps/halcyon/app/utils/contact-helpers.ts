@@ -1,3 +1,4 @@
+import { compareCalendarDates, differenceInCalendarDays, localCalendarDate } from '@habitathq/utils'
 import type { Contact, StayInTouch } from '~/types/database'
 
 /** Full display name: "First "Nick" Last" */
@@ -48,12 +49,18 @@ export function contactSortKey(contact: Contact): string {
 
 /** True when stay-in-touch is due today or past */
 export function isContactOverdue(sit: StayInTouch, today: string): boolean {
-  return sit.next_remind_at <= today
+  return compareCalendarDates(sit.next_remind_at, today) <= 0
 }
 
 /** Days until next contact is due (negative = overdue) */
 export function stayInTouchDaysUntilDue(sit: StayInTouch, today: string): number {
-  const due = new Date(sit.next_remind_at)
-  const now = new Date(today)
-  return Math.round((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+  return differenceInCalendarDays(sit.next_remind_at, today)
+}
+
+/** Relative calendar-day label for the contact list. */
+export function formatLastContacted(lastContactedAt: string, today: string): string {
+  const days = differenceInCalendarDays(today, localCalendarDate(new Date(lastContactedAt)))
+  if (days === 0) return 'today'
+  if (days === 1) return 'yesterday'
+  return `${days}d ago`
 }

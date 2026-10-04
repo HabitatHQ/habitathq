@@ -1,10 +1,10 @@
 <script setup lang="ts">
 // New text jot — full page editor
-import { localDateString } from '@habitathq/utils'
+import { localCalendarDate } from '@habitathq/utils'
 
 const store = useJotsStore()
 const saving = ref(false)
-const entryDate = localDateString(new Date())
+const entryDate = localCalendarDate()
 
 const textForm = reactive({
   title: '',

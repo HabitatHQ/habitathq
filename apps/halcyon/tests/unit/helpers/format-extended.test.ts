@@ -4,24 +4,24 @@ import {
   formatDateRelative,
   formatDurationMinutes as formatDuration,
   formatRelativeTime,
-  localDateString,
+  localCalendarDate,
   parseDateString,
 } from '@habitathq/utils'
 
-// ─── localDateString edge cases ───────────────────────────────────────────────
+// ─── localCalendarDate edge cases ───────────────────────────────────────────────
 
-describe('localDateString — edge cases', () => {
+describe('localCalendarDate — edge cases', () => {
   it('zero-pads single-digit months', () => {
-    expect(localDateString(new Date(2024, 0, 5))).toBe('2024-01-05') // Jan 5
+    expect(localCalendarDate(new Date(2024, 0, 5))).toBe('2024-01-05') // Jan 5
   })
 
   it('zero-pads single-digit days', () => {
-    expect(localDateString(new Date(2024, 11, 3))).toBe('2024-12-03') // Dec 3
+    expect(localCalendarDate(new Date(2024, 11, 3))).toBe('2024-12-03') // Dec 3
   })
 
   it('handles year boundaries', () => {
-    expect(localDateString(new Date(2024, 11, 31))).toBe('2024-12-31')
-    expect(localDateString(new Date(2025, 0, 1))).toBe('2025-01-01')
+    expect(localCalendarDate(new Date(2024, 11, 31))).toBe('2024-12-31')
+    expect(localCalendarDate(new Date(2025, 0, 1))).toBe('2025-01-01')
   })
 })
 

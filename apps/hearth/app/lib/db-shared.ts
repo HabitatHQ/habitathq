@@ -1,3 +1,6 @@
+import { differenceInCalendarDays, localCalendarDate, parseDateString } from '@habitathq/utils'
+import { BlobHandle, BlobRegistry, SqliteBlobAdapter } from '@palladium/core'
+
 /**
  * Shared database operations for both web (WorkerDbAdapter) and native
  * (NativeDbAdapter) paths. Every function is async and receives a DbAdapter
@@ -14,7 +17,7 @@ import type { DbAdapter, HearthExport, WorkerRequestBody } from '~/types/databas
 
 const now = () => new Date().toISOString()
 const uuid = () => crypto.randomUUID()
-const currentPeriod = () => new Date().toISOString().slice(0, 7)
+const currentPeriod = () => localCalendarDate().slice(0, 7)
 
 /**
  * Coerce a value to a type SQLite bind() accepts.
@@ -136,12 +139,13 @@ async function markTransactionsRecurring(db: DbAdapter, txIds: string[]): Promis
  * Compute period key for a chore's frequency.
  */
 function chorePeriodKey(frequency: string, date: string): string {
-  const d = new Date(date)
-  if (frequency === 'daily') return date.slice(0, 10)
+  const d = parseDateString(date)
+  if (frequency === 'daily') return date
   if (frequency === 'monthly') return date.slice(0, 7)
   // weekly: ISO week
-  const jan4 = new Date(d.getFullYear(), 0, 4)
-  const week = Math.ceil(((d.getTime() - jan4.getTime()) / 86400000 + jan4.getDay() + 1) / 7)
+  const jan4Key = `${d.getFullYear()}-01-04`
+  const jan4 = parseDateString(jan4Key)
+  const week = Math.ceil((differenceInCalendarDays(date, jan4Key) + jan4.getDay() + 1) / 7)
   return `${d.getFullYear()}-W${String(week).padStart(2, '0')}`
 }
 
@@ -1037,10 +1041,27 @@ export async function saveReceiptImage(
   const { transaction_id, image_data, mime_type } = payload
   const id = uuid()
   const blob = Uint8Array.from(atob(image_data), (c) => c.charCodeAt(0))
-  await db.exec(
-    'INSERT INTO receipt_images (id, transaction_id, image_data, mime_type, file_size, created_at) VALUES (?,?,?,?,?,?)',
-    [id, transaction_id, blob, mime_type ?? 'image/jpeg', blob.length, now()],
+  const media = new BlobHandle(
+    new SqliteBlobAdapter(db, {
+      table: 'receipt_images',
+      columns: { id: 'id', data: 'image_data' },
+    }),
+    new BlobRegistry(),
   )
+  await db.exec('BEGIN')
+  try {
+    await db.exec(
+      'INSERT INTO receipt_images (id, transaction_id, image_data, mime_type, file_size, created_at) VALUES (?,?,zeroblob(0),?,?,?)',
+      [id, transaction_id, mime_type ?? 'image/jpeg', blob.length, now()],
+    )
+    await media.put(id, blob, { transaction: db })
+    await db.exec('COMMIT')
+  } catch (error) {
+    await db.exec('ROLLBACK')
+    throw error
+  } finally {
+    await media.dispose()
+  }
   return { id, file_size: blob.length }
 }
 
@@ -1548,7 +1569,7 @@ export async function dispatch(db: DbAdapter, req: WorkerRequestBody): Promise<u
       return getDbInfo(db)
 
     // These are handled directly by the worker/native layer:
-    // EXPORT_DB, EXPORT_JSON, NUKE_OPFS
+    // EXPORT_DB, EXPORT_JSON, RESET_DATABASE
     default:
       throw new Error(`Unknown request type: ${(req as WorkerRequestBody).type}`)
   }

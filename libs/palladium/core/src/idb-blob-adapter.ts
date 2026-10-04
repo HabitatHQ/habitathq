@@ -1,17 +1,28 @@
-import type { BlobAdapter, BlobAdapterOptions } from "./blob-adapter.js";
+import type { BlobAdapter, BlobAdapterOptions, BlobStoreLifecycle } from "./blob-adapter.js";
 
-/** Blob storage in IndexedDB with optional chunking. */
-export class IDBBlobAdapter implements BlobAdapter {
+/** Blob storage in an explicitly named IndexedDB database with optional chunking. */
+export class IDBBlobAdapter implements BlobAdapter, BlobStoreLifecycle {
   readonly #dbName: string;
   readonly #chunkSizeBytes: number; // 0 = no chunking
+  readonly #namespace: string;
+  readonly #databaseExclusive: boolean;
   #db: IDBDatabase | null = null;
+  #disposed = false;
 
-  constructor(dbName = "palladium-blobs", chunkSizeKb = 0) {
+  constructor(
+    dbName = "palladium-blobs",
+    chunkSizeKb = 0,
+    namespace = "",
+    databaseExclusive = false,
+  ) {
     this.#dbName = dbName;
     this.#chunkSizeBytes = chunkSizeKb * 1024;
+    this.#namespace = namespace;
+    this.#databaseExclusive = databaseExclusive;
   }
 
   async #open(): Promise<IDBDatabase> {
+    if (this.#disposed) throw new Error("IDBBlobAdapter has been disposed");
     if (this.#db) return this.#db;
     return new Promise<IDBDatabase>((resolve, reject) => {
       const req = indexedDB.open(this.#dbName, 1);
@@ -25,8 +36,13 @@ export class IDBBlobAdapter implements BlobAdapter {
         }
       };
       req.onsuccess = () => {
-        this.#db = req.result;
-        resolve(req.result);
+        const db = req.result;
+        db.onversionchange = () => {
+          db.close();
+          if (this.#db === db) this.#db = null;
+        };
+        this.#db = db;
+        resolve(db);
       };
       req.onerror = () => {
         reject(req.error);
@@ -35,6 +51,7 @@ export class IDBBlobAdapter implements BlobAdapter {
   }
 
   async put(id: string, bytes: Uint8Array, options?: BlobAdapterOptions): Promise<void> {
+    const key = this.#key(id);
     options?.signal?.throwIfAborted();
     const db = await this.#open();
     await runTransaction(db, ["blobs", "chunks"], "readwrite", (tx) => {
@@ -42,40 +59,111 @@ export class IDBBlobAdapter implements BlobAdapter {
       const chunks = tx.objectStore("chunks");
       const chunkCount =
         this.#chunkSizeBytes === 0 ? 0 : Math.ceil(bytes.length / this.#chunkSizeBytes);
-      deleteChunks(chunks, id, chunkCount);
+      deleteChunks(chunks, key, chunkCount);
       if (this.#chunkSizeBytes === 0) {
-        blobs.put(bytes, id);
+        blobs.put(bytes, key);
         return;
       }
 
       for (let i = 0; i < chunkCount; i++) {
         const chunk = bytes.slice(i * this.#chunkSizeBytes, (i + 1) * this.#chunkSizeBytes);
-        chunks.put(chunk, chunkKey(id, i));
+        chunks.put(chunk, chunkKey(key, i));
       }
-      blobs.put(chunkCount, id);
+      blobs.put(chunkCount, key);
     });
   }
 
   async get(id: string, options?: BlobAdapterOptions): Promise<Uint8Array | null> {
     options?.signal?.throwIfAborted();
-    const db = await this.#open();
-    return readBlob(db, id);
+    return readBlob(await this.#open(), this.#key(id));
   }
 
   async delete(id: string, options?: BlobAdapterOptions): Promise<void> {
     options?.signal?.throwIfAborted();
+    const key = this.#key(id);
     const db = await this.#open();
     await runTransaction(db, ["blobs", "chunks"], "readwrite", (tx) => {
-      deleteChunks(tx.objectStore("chunks"), id, 0);
-      tx.objectStore("blobs").delete(id);
+      deleteChunks(tx.objectStore("chunks"), key, 0);
+      tx.objectStore("blobs").delete(key);
     });
   }
 
   async has(id: string, options?: BlobAdapterOptions): Promise<boolean> {
     options?.signal?.throwIfAborted();
-    const db = await this.#open();
-    const val = await idbGet<unknown>(db, "blobs", id);
+    const key = this.#key(id);
+    const val = await idbGet<unknown>(await this.#open(), "blobs", key);
     return val !== undefined;
+  }
+  async clear(options?: BlobAdapterOptions): Promise<void> {
+    options?.signal?.throwIfAborted();
+    if (this.#namespace.length === 0 && !this.#databaseExclusive) {
+      throw new Error(
+        "Clearing IndexedDB blobs requires an explicit namespace or exclusive database ownership",
+      );
+    }
+    const db = await this.#open();
+    await runTransaction(db, ["blobs", "chunks"], "readwrite", (tx) => {
+      const prefix = this.#namespace ? `${this.#namespace.length}:${this.#namespace}:` : "";
+      const blobs = tx.objectStore("blobs");
+      const chunks = tx.objectStore("chunks");
+      if (prefix === "") {
+        blobs.clear();
+        chunks.clear();
+      } else {
+        deleteKeysWithPrefix(blobs, prefix);
+        deleteKeysWithPrefix(chunks, prefix);
+      }
+    });
+  }
+
+  /** Close this connection but allow subsequent operations to reopen it. */
+  async close(): Promise<void> {
+    this.#db?.close();
+    this.#db = null;
+  }
+
+  /** Close and delete exactly the configured database. */
+  async deleteDatabase(): Promise<void> {
+    if (!this.#databaseExclusive) {
+      throw new Error(
+        "Database deletion requires explicit exclusive ownership of the configured database",
+      );
+    }
+    await this.close();
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.deleteDatabase(this.#dbName);
+      let settled = false;
+      request.onsuccess = () => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      };
+      request.onerror = () => {
+        if (!settled) {
+          settled = true;
+          reject(request.error ?? new Error(`Failed to delete IndexedDB "${this.#dbName}"`));
+        }
+      };
+      request.onblocked = () => {
+        if (!settled) {
+          settled = true;
+          reject(
+            new Error(`Deletion of IndexedDB "${this.#dbName}" is blocked by another connection`),
+          );
+        }
+      };
+    });
+  }
+
+  async dispose(): Promise<void> {
+    if (this.#disposed) return;
+    this.#disposed = true;
+    await this.close();
+  }
+
+  #key(id: string): string {
+    return this.#namespace ? `${this.#namespace.length}:${this.#namespace}:${id}` : id;
   }
 }
 
@@ -100,6 +188,15 @@ function deleteChunks(store: IDBObjectStore, id: string, preservedCount: number)
         cursor.delete();
       }
     }
+    cursor.continue();
+  };
+}
+function deleteKeysWithPrefix(store: IDBObjectStore, prefix: string): void {
+  const request = store.openCursor(IDBKeyRange.bound(prefix, `${prefix}\uffff`));
+  request.onsuccess = () => {
+    const cursor = request.result;
+    if (!cursor) return;
+    if (typeof cursor.key === "string" && cursor.key.startsWith(prefix)) cursor.delete();
     cursor.continue();
   };
 }

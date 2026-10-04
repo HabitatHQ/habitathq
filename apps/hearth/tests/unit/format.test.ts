@@ -1,16 +1,14 @@
+import { formatCalendarDate } from '@habitathq/utils'
 import { describe, expect, it } from 'vitest'
 import {
   clamp,
-  currentPeriod,
   envelopeColorClass,
   formatAmount,
   formatCompact,
   formatCurrency,
-  formatDateRelative,
-  formatPeriod,
+  formatHearthDateLabel,
   formatWithHomeEquiv,
   getCurrencySymbol,
-  offsetPeriod,
   splitCurrencyParts,
   transactionAmountClass,
   transactionAmountPrefix,
@@ -160,26 +158,26 @@ describe('splitCurrencyParts — additional', () => {
   })
 })
 
-// ── formatDateRelative ────────────────────────────────────────────────────
+// ── Hearth date-label policy ───────────────────────────────────────────────
 
-describe('formatDateRelative', () => {
+describe('formatHearthDateLabel', () => {
   it('returns "Today" for today', () => {
     const d = new Date()
     const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    expect(formatDateRelative(today)).toBe('Today')
+    expect(formatHearthDateLabel(today)).toBe('Today')
   })
 
   it('returns "Yesterday" for yesterday', () => {
     const d = new Date()
     d.setDate(d.getDate() - 1)
     const yesterday = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    expect(formatDateRelative(yesterday)).toBe('Yesterday')
+    expect(formatHearthDateLabel(yesterday)).toBe('Yesterday')
   })
 
   it('returns day + date for this week', () => {
     const d = new Date()
     d.setDate(d.getDate() - 3)
-    const result = formatDateRelative(
+    const result = formatHearthDateLabel(
       `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
     )
     // Should be like "Mon 6 Mar" — just check it's not Today/Yesterday and has a space
@@ -191,89 +189,30 @@ describe('formatDateRelative', () => {
   it('returns date without day for older dates', () => {
     const d = new Date()
     d.setDate(d.getDate() - 10)
-    const result = formatDateRelative(
+    const result = formatHearthDateLabel(
       `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
     )
     expect(result).not.toMatch(/\w{3} \d{1,2} \w{3}/)
   })
 
-  it('returns just "D Mon" (no year) for dates in the current year older than 7 days', () => {
-    const d = new Date()
-    d.setDate(d.getDate() - 10)
-    if (d.getFullYear() === new Date().getFullYear()) {
-      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-      const result = formatDateRelative(dateStr)
-      expect(result).toMatch(/^\d{1,2} \w{3}$/)
-    }
-  })
-
   it('returns "D Mon YYYY" for dates in a prior year', () => {
-    const result = formatDateRelative('2023-01-15')
+    const result = formatHearthDateLabel('2023-01-15')
     expect(result).toBe('15 Jan 2023')
   })
 
   it('handles January 1st across year boundary', () => {
-    const result = formatDateRelative('2024-01-01')
+    const result = formatHearthDateLabel('2024-01-01')
     expect(result).toContain('2024')
   })
 })
 
-// ── formatPeriod ──────────────────────────────────────────────────────────
+// ── Shared calendar-period formatting ─────────────────────────────────────
 
-describe('formatPeriod', () => {
-  it('formats YYYY-MM as "Month Year"', () => {
-    expect(formatPeriod('2026-03')).toBe('March 2026')
-    expect(formatPeriod('2026-01')).toBe('January 2026')
-    expect(formatPeriod('2025-12')).toBe('December 2025')
-  })
-})
-
-// ── currentPeriod ─────────────────────────────────────────────────────────
-
-describe('currentPeriod', () => {
-  it('returns current YYYY-MM', () => {
-    const result = currentPeriod()
-    expect(result).toMatch(/^\d{4}-\d{2}$/)
-    const [year, month] = result.split('-').map(Number)
-    const now = new Date()
-    expect(year).toBe(now.getFullYear())
-    expect(month).toBe(now.getMonth() + 1)
-  })
-})
-
-// ── offsetPeriod ──────────────────────────────────────────────────────────
-
-describe('offsetPeriod', () => {
-  it('increments month', () => {
-    expect(offsetPeriod('2026-01', 1)).toBe('2026-02')
-    expect(offsetPeriod('2026-12', 1)).toBe('2027-01')
-  })
-
-  it('decrements month', () => {
-    expect(offsetPeriod('2026-03', -1)).toBe('2026-02')
-    expect(offsetPeriod('2026-01', -1)).toBe('2025-12')
-  })
-
-  it('stays within bounds', () => {
-    const result = offsetPeriod('2026-06', 0)
-    expect(result).toBe('2026-06')
-  })
-})
-
-// ── offsetPeriod — additional ─────────────────────────────────────────────
-
-describe('offsetPeriod — additional', () => {
-  it('handles large positive offsets', () => {
-    expect(offsetPeriod('2026-01', 24)).toBe('2028-01')
-  })
-
-  it('handles large negative offsets', () => {
-    expect(offsetPeriod('2026-06', -18)).toBe('2024-12')
-  })
-
-  it('pads single-digit months', () => {
-    const result = offsetPeriod('2026-08', 1)
-    expect(result).toBe('2026-09') // September, padded
+describe('calendar period formatting', () => {
+  it('formats a month key as "Month Year"', () => {
+    expect(formatCalendarDate('2026-03-01', { month: 'long', year: 'numeric' })).toBe('March 2026')
+    expect(formatCalendarDate('2026-01-01', { month: 'long', year: 'numeric' })).toBe('January 2026')
+    expect(formatCalendarDate('2025-12-01', { month: 'long', year: 'numeric' })).toBe('December 2025')
   })
 })
 

@@ -1,6 +1,6 @@
 import { toDbAdapter } from '@palladium/core'
 import { BrowserSqliteAdapter } from '@palladium/sqlite-browser'
-import * as schema from '~/lib/db-schema'
+import { initializeDatabase, resetDatabaseStorage } from '~/lib/db-lifecycle'
 import * as shared from '~/lib/db-shared'
 import type { WorkerRequest, WorkerResponse } from '~/types/database'
 
@@ -38,9 +38,7 @@ await (async () => {
 
     const adapter = toDbAdapter(storage)
 
-    await adapter.exec(schema.SCHEMA_DDL)
-    await schema.runMigrations(adapter)
-    await schema.seedDefaults(adapter)
+    await initializeDatabase(adapter)
 
     // ─── Message loop ─────────────────────────────────────────────────────────────
 
@@ -49,22 +47,10 @@ await (async () => {
       let result: unknown
       try {
         switch (req.type) {
-          case 'NUKE_OPFS': {
-            // TODO(sync/opfs): DATA-LOSS bug — this iterates the origin OPFS
-            // root and deletes EVERY app's data. All suite apps share one
-            // origin (/habitat, /hearth, /halcyon, /hephaestus), so Halcyon's
-            // "reset data" also wipes the siblings. Scope the delete to
-            // '/halcyon' only, mirroring habitat's fix (commit 24811e7, PR #33).
-            // See libs/palladium/docs/plans/habitat-sync-integration.md follow-ups.
-            const root = await navigator.storage.getDirectory()
-            // biome-ignore lint/suspicious/noTsIgnore: tsgo and vue-tsc disagree on FileSystemDirectoryHandle iterability
-            // @ts-ignore — async-iterable at runtime but not in all lib.dom typings
-            for await (const [name] of root) {
-              await root.removeEntry(name, { recursive: true }).catch(() => {})
-            }
+          case 'RESET_DATABASE':
+            await resetDatabaseStorage(storage, adapter)
             result = null
             break
-          }
           default:
             // shared.dispatch's own default throws on truly unknown types;
             // void-returning ops legitimately resolve to undefined.

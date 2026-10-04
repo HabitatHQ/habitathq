@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { localDateString } from '@habitathq/utils'
+import { addCalendarDays, differenceInCalendarDays, localCalendarDate } from '@habitathq/utils'
 import {
   computeStreak,
   isStruggling,
@@ -7,7 +7,6 @@ import {
   type StreakResult,
 } from '~/lib/streak-engine'
 import type { Completion, HabitLog, HabitWithSchedule, Reminder } from '~/types/database'
-import { addDateKeyDays } from '~/utils/calendar-dates'
 
 const route = useRoute()
 const db = useDatabase()
@@ -27,8 +26,8 @@ const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 
 async function load() {
   const id = route.params['id'] as string
-  const to = localDateString(new Date())
-  const from = addDateKeyDays(to, -89)
+  const to = localCalendarDate()
+  const from = addCalendarDays(to, -89)
 
   const [habits, comps, logs, rems] = await Promise.all([
     db.getHabits(),
@@ -60,7 +59,7 @@ const scheduleLabel = computed(() => {
   return 'Daily'
 })
 
-const todayStr = localDateString(new Date())
+const todayStr = localCalendarDate()
 
 // ─── Daily Status (for Calendar and Stats) ────────────────────────────────────
 type DayStatus = 'done' | 'partial' | 'failed' | 'none'
@@ -109,16 +108,14 @@ const completionDates = computed(() => new Set(completions.value.map((c) => c.da
 // ─── Calendar (4 weeks ending this Saturday) ──────────────────────────────────
 // Shows 28 days of history dynamically lit up based on the habit type rules above.
 const calendarCells = computed(() => {
-  const today = new Date()
-  const sunday = addDateKeyDays(todayStr, -today.getDay() - 21)
+  const sunday = addCalendarDays(todayStr, -new Date().getDay() - 21)
 
   return Array.from({ length: 28 }, (_, i) => {
-    const ds = addDateKeyDays(sunday, i)
-    const day = Number(ds.slice(8))
+    const ds = addCalendarDays(sunday, i)
     const status = dailyStatus.value.get(ds) || 'none'
     return {
       dateStr: ds,
-      day,
+      day: Number(ds.slice(-2)),
       status, // 'done', 'partial', 'failed', 'none'
       isToday: ds === todayStr,
       future: ds > todayStr,
@@ -194,15 +191,8 @@ const avgStat = computed(() => {
     if (!completions.value.length) return { label: 'Avg / week', value: 0 }
     // Calculate average days completed per week since tracking started
     const firstLogStr =
-      completions.value[0]?.date || localDateString(new Date(habit.value.created_at))
-    const [firstYear, firstMonth, firstDay] = firstLogStr.split('-').map(Number)
-    const [todayYear, todayMonth, todayDay] = todayStr.split('-').map(Number)
-    const daysTracked = Math.max(
-      1,
-      (Date.UTC(todayYear!, todayMonth! - 1, todayDay!) -
-        Date.UTC(firstYear!, firstMonth! - 1, firstDay!)) /
-        (1000 * 60 * 60 * 24),
-    )
+      completions.value[0]?.date || localCalendarDate(new Date(habit.value.created_at))
+    const daysTracked = Math.max(1, differenceInCalendarDays(todayStr, firstLogStr))
     const weeksTracked = Math.max(1, daysTracked / 7)
     const avg = Math.round((completions.value.length / weeksTracked) * 10) / 10
     return { label: 'Avg / week', value: `${avg} days` }
@@ -252,7 +242,7 @@ async function deleteCompletionRecord(date: string) {
   if (!habit.value || deletingLog.has(date)) return
   deletingLog.add(date)
   try {
-    const from = addDateKeyDays(todayStr, -89)
+    const from = addCalendarDays(todayStr, -89)
     await db.toggleCompletion(habit.value.id, date)
     completions.value = await db.getCompletionsForHabit(habit.value.id, from, todayStr)
     void notification('warning')
@@ -285,7 +275,7 @@ const showPauseModal = ref(false)
 const pauseDate = ref('')
 const pausing = ref(false)
 
-const tomorrowStr = addDateKeyDays(todayStr, 1)
+const tomorrowStr = addCalendarDays(todayStr, 1)
 
 const isPaused = computed(() => {
   const pu = habit.value?.paused_until
@@ -334,10 +324,9 @@ const struggling = computed(
 
 async function pauseStruggling() {
   if (!habit.value) return
-  const until = addDateKeyDays(localDateString(new Date()), 7)
   pausing.value = true
   try {
-    habit.value = await db.pauseHabit(habit.value.id, until)
+    habit.value = await db.pauseHabit(habit.value.id, addCalendarDays(todayStr, 7))
     await notification('success')
   } finally {
     pausing.value = false
@@ -431,7 +420,7 @@ async function toggleToday() {
   if (!habit.value || togglingToday.value) return
   togglingToday.value = true
   try {
-    const from = addDateKeyDays(todayStr, -89)
+    const from = addCalendarDays(todayStr, -89)
     await db.toggleCompletion(habit.value.id, todayStr)
     completions.value = await db.getCompletionsForHabit(habit.value.id, from, todayStr)
     await impact(todayCompleted.value ? 'light' : 'medium')
@@ -467,7 +456,7 @@ async function submitLogSheet(value: number) {
   if (!isAbsolute && value <= 0) return
   loggingToday.value = true
   try {
-    const from = addDateKeyDays(todayStr, -89)
+    const from = addCalendarDays(todayStr, -89)
     if (isAbsolute) {
       const existing = habitLogs.value.filter((l) => l.date === todayStr)
       await Promise.all(existing.map((l) => db.deleteHabitLog(l.id)))

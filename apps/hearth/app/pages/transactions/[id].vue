@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { localCalendarDate } from '@habitathq/utils'
 import { SUPPORTED_CURRENCIES } from '~/lib/currency/convert'
 import { getIouSplitEditError, getTransferDestinationError } from '~/lib/transaction-edit-rules'
 import type { Account, Category, User } from '~/types/database'
@@ -20,7 +21,7 @@ const form = reactive({
   type: 'expense' as TxType,
   amountStr: '',
   currency: 'USD',
-  date: new Date().toISOString().slice(0, 10),
+  date: localCalendarDate(),
   accountId: '',
   toAccountId: '',
   categoryId: '',

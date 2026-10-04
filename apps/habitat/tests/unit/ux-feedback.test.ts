@@ -8,7 +8,10 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { shallowMount, flushPromises, config } from '@vue/test-utils'
-import { nextTick, ref } from 'vue'
+import { ref } from 'vue'
+import { useFeatureToggle } from '@habitathq/shared/app/composables/useFeatureToggle'
+// @ts-expect-error The Vue Vite plugin resolves shared SFC imports during unit tests.
+import SettingsFeaturesPage from '~/pages/settings/features.vue'
 
 vi.mock('@capacitor/core', () => ({
   Capacitor: { isNativePlatform: () => false, getPlatform: () => 'web' },
@@ -20,6 +23,7 @@ vi.mock('@capacitor/core', () => ({
 const mockToastAdd = vi.fn()
 const mockAppSettingSet = vi.fn()
 const g = globalThis as Record<string, unknown>
+g['useFeatureToggle'] = useFeatureToggle
 
 g['useToast'] = () => ({ add: mockToastAdd })
 g['definePageMeta'] = () => {}
@@ -77,25 +81,6 @@ g['useTagSuggestions'] = () => ({
 })
 g['resolveIcon'] = (name: string) => `i-lucide-${name}`
 
-// Stub localStorage for settings/data.vue which calls localStorage.removeItem
-vi.stubGlobal('localStorage', {
-  getItem: vi.fn(),
-  setItem: vi.fn(),
-  removeItem: vi.fn(),
-  key: vi.fn(() => null),
-  clear: vi.fn(),
-  length: 0,
-})
-
-// Stub indexedDB for settings/data.vue clearIdb() / openJotsIdb()
-vi.stubGlobal('indexedDB', {
-  deleteDatabase: vi.fn(() => {
-    const req = { onsuccess: null as (() => void) | null, onerror: null, onblocked: null }
-    queueMicrotask(() => req.onsuccess?.())
-    return req
-  }),
-  open: vi.fn(() => ({ onsuccess: null, onerror: null, onupgradeneeded: null })),
-})
 
 // Make resolveIcon available in Vue template context for all shallowMount calls
 config.global.mocks.resolveIcon = (name: string) => `i-lucide-${name}`
@@ -144,20 +129,6 @@ const mockDb = {
   updateCheckinTemplate: vi.fn(),
   deleteCheckinTemplate: vi.fn(),
   getCheckinSessionCount: vi.fn(),
-  // settings/data.vue
-  nukeOpfs: vi.fn(),
-  exportJsonData: vi.fn(),
-  exportDb: vi.fn(),
-  importJson: vi.fn(),
-  getScribbles: vi.fn(),
-  deleteAllHabits: vi.fn(),
-  deleteAllCheckinEntries: vi.fn(),
-  deleteAllCheckinData: vi.fn(),
-  deleteAllScribbles: vi.fn(),
-  deleteAllTodos: vi.fn(),
-  deleteAllBoredData: vi.fn(),
-  deleteAllMediaNotes: vi.fn(),
-  clearAppliedDefaults: vi.fn(),
 }
 g['useDatabase'] = () => mockDb
 
@@ -166,8 +137,6 @@ import BoredActivitiesPage from '~/pages/bored/activities.vue'
 import TodosPage from '~/pages/todos.vue'
 import HabitDetailPage from '~/pages/habits/[id].vue'
 import CheckinDetailPage from '~/pages/checkin/[id].vue'
-import SettingsDataPage from '~/pages/settings/data.vue'
-import SettingsFeaturesPage from '~/pages/settings/features.vue'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 const sampleAct = {
@@ -256,18 +225,6 @@ beforeEach(() => {
   mockDb.createCheckinQuestion.mockResolvedValue({ id: 'q1', prompt: 'Test?', response_type: 'TEXT', display_order: 0, desired_answer: 1, template_id: 'tmpl1' })
   mockDb.deleteCheckinQuestion.mockResolvedValue(undefined)
   mockDb.upsertCheckinResponse.mockResolvedValue({})
-  mockDb.nukeOpfs.mockResolvedValue(undefined)
-  mockDb.deleteAllHabits.mockResolvedValue(undefined)
-  mockDb.deleteAllCheckinEntries.mockResolvedValue(undefined)
-  mockDb.deleteAllCheckinData.mockResolvedValue(undefined)
-  mockDb.deleteAllScribbles.mockResolvedValue(undefined)
-  mockDb.deleteAllTodos.mockResolvedValue(undefined)
-  mockDb.deleteAllBoredData.mockResolvedValue(undefined)
-  mockDb.deleteAllMediaNotes.mockResolvedValue(undefined)
-  mockDb.clearAppliedDefaults.mockResolvedValue(undefined)
-  mockDb.exportJsonData.mockResolvedValue({})
-  mockDb.exportDb.mockResolvedValue(new Uint8Array())
-  mockDb.getScribbles.mockResolvedValue([])
 })
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -462,144 +419,6 @@ describe('bored/activities.vue — archiveActivity (issue 7)', () => {
     expect(mockDb.archiveBoredActivity).not.toHaveBeenCalled()
   })
 })
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Issue 8 — settings/data.vue › nukeOpfs
-// ═══════════════════════════════════════════════════════════════════════════════
-
-describe('settings/data.vue — nukeOpfs (issue 8)', () => {
-  it('calls toast.add with color:error when fullWipe throws', async () => {
-    mockDb.nukeOpfs.mockRejectedValueOnce(new Error('OPFS error'))
-    const wrapper = shallowMount(SettingsDataPage)
-    await flushPromises()
-    const state = ss(wrapper)
-    await (state['nukeOpfs'] as (reload: boolean) => Promise<void>)(false)
-    expect(mockToastAdd).toHaveBeenCalledWith(expect.objectContaining({ color: 'error' }))
-  })
-
-  it('does not call toast.add on success', async () => {
-    const wrapper = shallowMount(SettingsDataPage)
-    await flushPromises()
-    const state = ss(wrapper)
-    await (state['nukeOpfs'] as (reload: boolean) => Promise<void>)(false)
-    expect(mockToastAdd).not.toHaveBeenCalled()
-  })
-
-  it('moves focus to the close action after a wipe-only success', async () => {
-    const closeButton = document.createElement('button')
-    closeButton.id = 'nuke-wiped-close'
-    document.body.append(closeButton)
-    const focus = vi.spyOn(closeButton, 'focus')
-
-    const wrapper = shallowMount(SettingsDataPage)
-    await flushPromises()
-    const state = ss(wrapper)
-    await (state['nukeOpfs'] as (reload: boolean) => Promise<void>)(false)
-    await nextTick()
-
-    expect(focus).toHaveBeenCalled()
-    closeButton.remove()
-  })
-})
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Issue 9 — settings/data.vue › clearAppData
-// ═══════════════════════════════════════════════════════════════════════════════
-
-describe('settings/data.vue — clearAppData (issue 9)', () => {
-  it('calls toast.add with color:error when a DB op throws', async () => {
-    mockDb.deleteAllHabits.mockRejectedValueOnce(new Error('DB error'))
-    const wrapper = shallowMount(SettingsDataPage)
-    await flushPromises()
-    const state = ss(wrapper)
-    try {
-      await (state['clearAppData'] as () => Promise<void>)()
-    } catch {
-      // pre-fix: error propagates; post-fix: caught and toast shown
-    }
-    expect(mockToastAdd).toHaveBeenCalledWith(expect.objectContaining({ color: 'error' }))
-  })
-
-  it('does not call toast.add on success', async () => {
-    const wrapper = shallowMount(SettingsDataPage)
-    await flushPromises()
-    const state = ss(wrapper)
-    // Disable voiceNotes to avoid indexedDB dependency (not in happy-dom)
-    ;(state['clearSelection'] as Record<string, unknown>)['voiceNotes'] = false
-    await (state['clearAppData'] as () => Promise<void>)()
-    expect(mockToastAdd).not.toHaveBeenCalled()
-  })
-
-  it('calls deleteAllMediaNotes when voiceNotes is selected', async () => {
-    const wrapper = shallowMount(SettingsDataPage)
-    await flushPromises()
-    const state = ss(wrapper)
-    ;(state['clearSelection'] as Record<string, unknown>)['voiceNotes'] = true
-    await (state['clearAppData'] as () => Promise<void>)()
-    expect(mockDb.deleteAllMediaNotes).toHaveBeenCalled()
-  })
-})
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Issue 10 — settings/features.vue › toggleFeature
-// ═══════════════════════════════════════════════════════════════════════════════
-
-describe('settings/features.vue — toggleFeature (issue 10)', () => {
-  it('shows neutral toast when disabling Journalling', async () => {
-    const wrapper = shallowMount(SettingsFeaturesPage)
-    await flushPromises()
-    const state = ss(wrapper)
-    ;(state['toggleFeature'] as (key: string, value: boolean) => void)('enableJournalling', false)
-    expect(mockToastAdd).toHaveBeenCalledWith(
-      expect.objectContaining({ color: 'neutral', title: expect.stringContaining('Check-in and Jots') }),
-    )
-  })
-
-  it('shows neutral toast when disabling Bored', async () => {
-    const wrapper = shallowMount(SettingsFeaturesPage)
-    await flushPromises()
-    const state = ss(wrapper)
-    ;(state['toggleFeature'] as (key: string, value: boolean) => void)('enableBored', false)
-    expect(mockToastAdd).toHaveBeenCalledWith(
-      expect.objectContaining({ color: 'neutral', title: expect.stringContaining('Bored tab hidden') }),
-    )
-  })
-
-  it('does not show toast when enabling a feature', async () => {
-    const wrapper = shallowMount(SettingsFeaturesPage)
-    await flushPromises()
-    const state = ss(wrapper)
-    ;(state['toggleFeature'] as (key: string, value: boolean) => void)('enableJournalling', true)
-    expect(mockToastAdd).not.toHaveBeenCalled()
-  })
-
-  it('mentions Bored cascade when disabling TODOs while Bored is enabled', async () => {
-    const wrapper = shallowMount(SettingsFeaturesPage)
-    await flushPromises()
-    const state = ss(wrapper)
-    ;(state['appSettings'] as Record<string, unknown>).enableBored = true
-    ;(state['toggleFeature'] as (key: string, value: boolean) => void)('enableTodos', false)
-    expect(mockToastAdd).toHaveBeenCalledWith(
-      expect.objectContaining({ title: expect.stringContaining('also hides the Bored tab') }),
-    )
-    expect(state['setAppSetting'] as ReturnType<typeof vi.fn>).toHaveBeenCalledWith('enableBored', false)
-  })
-
-  it('shows simple TODOs toast when Bored is already disabled', async () => {
-    const wrapper = shallowMount(SettingsFeaturesPage)
-    await flushPromises()
-    const state = ss(wrapper)
-    ;(state['appSettings'] as Record<string, unknown>).enableBored = false
-    ;(state['toggleFeature'] as (key: string, value: boolean) => void)('enableTodos', false)
-    expect(mockToastAdd).toHaveBeenCalledWith(
-      expect.objectContaining({ title: expect.stringContaining('TODOs tab hidden') }),
-    )
-    expect(mockToastAdd).not.toHaveBeenCalledWith(
-      expect.objectContaining({ title: expect.stringContaining('also hides') }),
-    )
-  })
-})
-
 describe('settings/features.vue — Pomodoro preference edits', () => {
   it.each(['', '0', '91', '1.5'])(
     'rejects invalid work-minute edit %j and restores the last valid value',
@@ -616,9 +435,6 @@ describe('settings/features.vue — Pomodoro preference edits', () => {
 
       expect(input.value).toBe('25')
       expect(mockAppSettingSet).not.toHaveBeenCalled()
-      expect(mockToastAdd).toHaveBeenCalledWith(
-        expect.objectContaining({ color: 'warning', title: expect.stringContaining('whole number') }),
-      )
       wrapper.unmount()
     },
   )

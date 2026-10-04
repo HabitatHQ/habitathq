@@ -50,6 +50,10 @@ export class BrowserSqliteAdapter
   #db: Sqlite3Db | null = null;
   // biome-ignore lint/suspicious/noExplicitAny: sqlite-wasm internals
   #sqlite3: any = null;
+  #pool: {
+    unlink(filename: string): boolean;
+    OpfsSAHPoolDb: new (filename: string) => Sqlite3Db;
+  } | null = null;
 
   constructor(config: BrowserSqliteConfig = { vfs: { type: "memory" } }) {
     this.#config = config;
@@ -63,27 +67,27 @@ export class BrowserSqliteAdapter
   }
 
   async open(): Promise<void> {
+    if (this.#db !== null) return;
     const vfs = this.#config.vfs;
     dbg("sqlite-browser", "open start", { type: vfs.type });
 
-    this.#sqlite3 = await sqlite3InitModule({ print: () => {}, printErr: () => {} });
+    this.#sqlite3 ??= await sqlite3InitModule({ print: () => {}, printErr: () => {} });
 
     if (vfs.type === "memory") {
-      // biome-ignore lint/suspicious/noExplicitAny: oo1 not in TS types
-      this.#db = new (this.#sqlite3 as any).oo1.DB(":memory:");
+      this.#db = new this.#sqlite3.oo1.DB(":memory:");
     } else if (vfs.type === "opfs") {
-      // biome-ignore lint/suspicious/noExplicitAny: oo1 not in TS types
-      this.#db = new (this.#sqlite3 as any).oo1.OpfsDb(vfs.filename);
+      this.#db = new this.#sqlite3.oo1.OpfsDb(vfs.filename);
     } else {
       dbg("sqlite-browser", "installing SAH pool VFS", {
         directory: vfs.directory,
         filename: vfs.filename,
       });
-      const poolUtil = await this.#sqlite3.installOpfsSAHPoolVfs({
+      this.#pool ??= await this.#sqlite3.installOpfsSAHPoolVfs({
         directory: vfs.directory,
         clearOnInit: false,
       });
-      this.#db = new poolUtil.OpfsSAHPoolDb(vfs.filename);
+      if (!this.#pool) throw new Error("SAH pool initialization failed");
+      this.#db = new this.#pool.OpfsSAHPoolDb(vfs.filename);
       this.#db.exec("PRAGMA foreign_keys = ON");
     }
 
@@ -187,12 +191,40 @@ export class BrowserSqliteAdapter
     }
   }
 
+  /** Close the database before deleting only its configured file, then reopen. */
+  async resetStorage(): Promise<void> {
+    const vfs = this.#config.vfs;
+    if (vfs.type === "opfs") {
+      const parts = vfs.filename.split("/").filter(Boolean);
+      const filename = parts[parts.length - 1];
+      if (filename === undefined || parts.some((part) => part === "." || part === "..")) {
+        throw new TypeError("Physical reset requires an explicit OPFS database file");
+      }
+      await this.close();
+      let directory = await navigator.storage.getDirectory();
+      for (const part of parts.slice(0, -1)) {
+        directory = await directory.getDirectoryHandle(part);
+      }
+      await directory.removeEntry(filename);
+    } else if (vfs.type === "opfs-sah-pool") {
+      if (!this.#pool) throw new Error("Open the SAH pool before resetting storage");
+      await this.close();
+      // unlink releases the closed database's virtual file back to this pool.
+      // Removing the origin directory would invalidate live SAHs and sibling data.
+      if (!this.#pool.unlink(vfs.filename)) {
+        throw new Error(`SAH pool could not delete database ${vfs.filename}`);
+      }
+    } else {
+      await this.close();
+    }
+    await this.open();
+  }
+
   async close(): Promise<void> {
     if (this.#db !== null) {
       dbg("sqlite-browser", "close");
       this.#db.close();
       this.#db = null;
-      this.#sqlite3 = null;
     }
   }
 }

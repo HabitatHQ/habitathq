@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { formatDurationSeconds as formatDuration } from '@habitathq/utils'
+import { formatCalendarDate, formatDurationSeconds as formatDuration } from '@habitathq/utils'
 import { filterWorkouts, SESSION_TYPES, type SessionFilter, sessionLabel } from '~/lib/history'
 import type { WorkoutRow } from '~/types/database'
 
@@ -43,11 +43,7 @@ const grouped = computed(() => {
 })
 
 function monthLabel(ym: string): string {
-  const [year, month] = ym.split('-')
-  return new Date(Number(year), Number(month) - 1, 1).toLocaleDateString('en-US', {
-    month: 'long',
-    year: 'numeric',
-  })
+  return formatCalendarDate(`${ym}-01`, { month: 'long', year: 'numeric' })
 }
 
 function duration(w: WorkoutRow): string {
@@ -131,7 +127,7 @@ function duration(w: WorkoutRow): string {
               <div class="min-w-0 flex-1">
                 <p class="text-sm font-medium">{{ sessionLabel(w) }}</p>
                 <p class="text-xs text-(--ui-text-muted)">
-                  {{ new Date(`${w.date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) }}
+                  {{ formatCalendarDate(w.date, { weekday: 'short', month: 'short', day: 'numeric' }) }}
                   · {{ duration(w) }}
                 </p>
                 <p v-if="w.notes" class="text-xs text-(--ui-text-muted) truncate mt-0.5">

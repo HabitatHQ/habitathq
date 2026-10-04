@@ -197,22 +197,20 @@ function disableStrictCspAndReload() {
 
 // ─── Force reload ──────────────────────────────────────────────────────────────
 
-const forceReloading = ref(false)
+const assetRefresh = useAsyncOperation({
+  action: () =>
+    refreshAppAssets({
+      scope: new URL(runtimeConfig.app.baseURL, window.location.origin).href,
+      cachePrefix: 'habitat-',
+    }),
+})
+const forceReloading = assetRefresh.busy
 
 async function forceReload() {
-  forceReloading.value = true
   try {
-    if ('serviceWorker' in navigator) {
-      const registrations = await navigator.serviceWorker.getRegistrations()
-      await Promise.all(registrations.map((r) => r.unregister()))
-    }
-    if ('caches' in window) {
-      const keys = await caches.keys()
-      await Promise.all(keys.map((k) => caches.delete(k)))
-    }
-    window.location.reload()
-  } catch {
-    forceReloading.value = false
+    await assetRefresh.run()
+  } catch (error) {
+    logError('[refreshAppAssets]', error)
   }
 }
 </script>
@@ -582,6 +580,7 @@ async function forceReload() {
             :icon="resolveIcon('arrow-path')" :loading="forceReloading" class="shrink-0"
             @click="forceReload"
           />
+          <AppOperationFeedback :busy="assetRefresh.busy.value" :error="assetRefresh.error.value" />
         </div>
 
       </UCard>

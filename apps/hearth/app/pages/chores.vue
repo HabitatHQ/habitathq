@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { formatCalendarDate, localCalendarDate } from '@habitathq/utils'
 import type { ChoreFrequency, ChoreWithStatus } from '~/types/database'
 
 const db = useDatabase()
-const today = new Date().toISOString().slice(0, 10)
+const today = localCalendarDate()
 
 const chores = ref<ChoreWithStatus[]>([])
 const loading = ref(true)
@@ -131,7 +132,10 @@ const FREQ_LABELS: Record<ChoreFrequency, string> = {
 const PERIOD_LABEL: Record<ChoreFrequency, string> = {
   daily: 'Today',
   weekly: 'This Week',
-  monthly: new Date().toLocaleString('default', { month: 'long' }),
+  monthly: formatCalendarDate(today, {
+    locale: Intl.DateTimeFormat().resolvedOptions().locale,
+    month: 'long',
+  }),
 }
 
 const COLORS = [

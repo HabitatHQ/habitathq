@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import { localDateString } from '@habitathq/utils'
+import {
+  addCalendarDays,
+  formatCalendarDate,
+  localCalendarDate,
+  parseDateString,
+} from '@habitathq/utils'
 import type { CheckinQuestion, CheckinResponse, CheckinTemplate } from '~/types/database'
 
 const db = useDatabase()
@@ -35,15 +40,16 @@ async function loadTemplate() {
 
 // ─── Date navigation ──────────────────────────────────────────────────────────
 
-const todayKey = localDateString(new Date())
+const todayKey = localCalendarDate()
 const initDateStr = route.query['date'] as string | undefined
-const initialDate = initDateStr ? new Date(`${initDateStr}T12:00:00`) : new Date()
+const initialDate = initDateStr ? parseDateString(initDateStr) : new Date()
 const currentDate = ref(initialDate)
-const dateKey = computed(() => localDateString(currentDate.value))
+const dateKey = computed(() => localCalendarDate(currentDate.value))
 const isToday = computed(() => dateKey.value === todayKey)
 
 const displayDate = computed(() =>
-  currentDate.value.toLocaleDateString('en-US', {
+  formatCalendarDate(dateKey.value, {
+    locale: 'en-US',
     weekday: 'long',
     month: 'long',
     day: 'numeric',
@@ -51,16 +57,12 @@ const displayDate = computed(() =>
 )
 
 function prevDay() {
-  const d = new Date(currentDate.value)
-  d.setDate(d.getDate() - 1)
-  currentDate.value = d
+  currentDate.value = parseDateString(addCalendarDays(dateKey.value, -1))
 }
 
 function nextDay() {
   if (isToday.value) return
-  const d = new Date(currentDate.value)
-  d.setDate(d.getDate() + 1)
-  currentDate.value = d
+  currentDate.value = parseDateString(addCalendarDays(dateKey.value, 1))
 }
 
 // ─── Responses ────────────────────────────────────────────────────────────────

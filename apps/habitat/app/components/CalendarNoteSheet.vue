@@ -1,8 +1,8 @@
 <script setup lang="ts">
+import { formatCalendarDate } from '@habitathq/utils'
 import { useTagSuggestions } from '~/composables/useTagSuggestions'
 import type { Scribble } from '~/types/database'
 import { CALENDAR_NOTE_TAG, hasCalendarNoteTag } from '~/utils/jots-helpers'
-import { dateForKey } from '~/utils/planner'
 
 type CalendarNotePayload = Pick<
   Scribble,
@@ -36,7 +36,8 @@ const isEditing = computed(() => props.note !== null)
 const title = computed(() => (isEditing.value ? 'Edit note' : 'Add a note'))
 const formattedDate = computed(() =>
   form.entryDate
-    ? dateForKey(form.entryDate).toLocaleDateString(undefined, {
+    ? formatCalendarDate(form.entryDate, {
+        locale: Intl.DateTimeFormat().resolvedOptions().locale,
         weekday: 'long',
         month: 'long',
         day: 'numeric',

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { formatDurationSeconds as formatDuration } from '@habitathq/utils'
+import { formatDurationSeconds as formatDuration, formatInstant } from '@habitathq/utils'
 import WorkoutRoutineReview from '~/components/routines/WorkoutRoutineReview.vue'
 import type { EquipmentProfile } from '~/lib/equipment'
 import { formatWeight } from '~/lib/format'
@@ -65,7 +65,12 @@ const recoveryStartedAt = computed(() => {
   const date = new Date(startedAt)
   return Number.isNaN(date.getTime())
     ? 'start time unavailable'
-    : date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+    : formatInstant(startedAt, {
+        locale: Intl.DateTimeFormat().resolvedOptions().locale,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      })
 })
 
 function syncRunFields() {

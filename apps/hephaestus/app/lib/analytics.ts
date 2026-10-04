@@ -1,20 +1,6 @@
-import { localDateString } from '@habitathq/utils'
+import { addCalendarDays, parseDateString } from '@habitathq/utils'
 import type { ExerciseRow, SetRow, WorkoutExerciseRow, WorkoutRow } from '~/types/database'
 import { calculateE1RM } from './e1rm'
-
-/** Add calendar days without converting through UTC. */
-export function addCalendarDays(dateKey: string, days: number): string {
-  const date = parseCalendarDate(dateKey)
-  date.setDate(date.getDate() + days)
-  return localDateString(date)
-}
-function parseCalendarDate(dateKey: string): Date {
-  return new Date(
-    Number(dateKey.slice(0, 4)),
-    Number(dateKey.slice(5, 7)) - 1,
-    Number(dateKey.slice(8, 10)),
-  )
-}
 
 export interface WeeklyVolumeStat {
   week: string // ISO week label e.g. '2026-W10'
@@ -63,11 +49,10 @@ export function buildWeekGrid(
   weeks: number,
   referenceDate: string,
 ): WeekDot[][] {
-  const refDate = parseCalendarDate(referenceDate)
+  const refDate = parseDateString(referenceDate)
   // Align to Monday of current week
   const dayOfWeek = (refDate.getDay() + 6) % 7 // 0=Mon, 6=Sun
-  const startDate = new Date(refDate)
-  startDate.setDate(startDate.getDate() - dayOfWeek - (weeks - 1) * 7)
+  const startDate = addCalendarDays(referenceDate, -dayOfWeek - (weeks - 1) * 7)
 
   const dateSet = new Set(workoutDates.filter((date) => date <= referenceDate))
   const grid: WeekDot[][] = []
@@ -75,9 +60,7 @@ export function buildWeekGrid(
   for (let w = 0; w < weeks; w++) {
     const week: WeekDot[] = []
     for (let d = 0; d < 7; d++) {
-      const current = new Date(startDate)
-      current.setDate(startDate.getDate() + w * 7 + d)
-      const dateStr = localDateString(current)
+      const dateStr = addCalendarDays(startDate, w * 7 + d)
       week.push({ date: dateStr, hasWorkout: dateSet.has(dateStr) })
     }
     grid.push(week)

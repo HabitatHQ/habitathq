@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDurationSeconds } from '@habitathq/utils'
 import type { IntervalType } from '~/lib/interval-templates'
 import { calculateIntervalTotalTime } from '~/lib/interval-templates'
 import type { IntervalTemplateRow } from '~/types/database'
@@ -29,14 +30,6 @@ async function handleDelete(id: string) {
   templates.value = templates.value.filter((template) => template.id !== id)
 }
 
-function formatDuration(secs: number): string {
-  const minutes = Math.floor(secs / 60)
-  const seconds = secs % 60
-  if (minutes === 0) return `${seconds}s`
-  if (seconds === 0) return `${minutes}min`
-  return `${minutes}m ${seconds}s`
-}
-
 function intervalType(value: string): IntervalType {
   if (value === 'tabata' || value === 'emom' || value === 'amrap' || value === 'mobility')
     return value
@@ -53,7 +46,7 @@ function totalTime(row: IntervalTemplateRow): string {
     time_cap_sec: row.type === 'amrap' ? row.work_sec : null,
   }
   const total = calculateIntervalTotalTime(template)
-  return total > 0 ? formatDuration(total) : '—'
+  return total > 0 ? formatDurationSeconds(total) : '—'
 }
 
 const typeColors: Record<string, string> = {

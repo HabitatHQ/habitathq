@@ -1,11 +1,6 @@
-import { localDateString } from '@habitathq/utils'
+import { addCalendarDays, localCalendarDate } from '@habitathq/utils'
 import { describe, expect, it } from 'vitest'
-import {
-  addCalendarDays,
-  aggregateMuscleFrequency,
-  buildExerciseHistory,
-  buildWeekGrid,
-} from '~/lib/analytics'
+import { aggregateMuscleFrequency, buildExerciseHistory, buildWeekGrid } from '~/lib/analytics'
 import type { ExerciseRow, SetRow, WorkoutExerciseRow } from '~/types/database'
 
 const REF_DATE = '2026-03-10'
@@ -17,7 +12,7 @@ describe('local calendar boundaries', () => {
   })
 
   it('formats a Date using its local calendar fields', () => {
-    expect(localDateString(new Date(2026, 2, 8, 23, 30))).toBe('2026-03-08')
+    expect(localCalendarDate(new Date(2026, 2, 8, 23, 30))).toBe('2026-03-08')
   })
 })
 

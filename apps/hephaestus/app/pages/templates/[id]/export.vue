@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { downloadBlob } from '@habitathq/shared/app/composables/downloadBlob'
 import type { PortableBundle } from '~/lib/data-transfer'
 
 const route = useRoute()
@@ -42,13 +43,10 @@ async function handleCopyJson() {
 }
 function handleDownload() {
   if (!exportJson.value) return
-  const blob = new Blob([exportJson.value], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = `${templateName.value.replace(/\s+/g, '-').toLowerCase()}.json`
-  anchor.click()
-  URL.revokeObjectURL(url)
+  downloadBlob(
+    new Blob([exportJson.value], { type: 'application/json' }),
+    `${templateName.value.replace(/\s+/g, '-').toLowerCase()}.json`,
+  )
 }
 function handleShowQr() {
   if (!exportJson.value) return

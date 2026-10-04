@@ -1,9 +1,11 @@
 /// <reference lib="webworker" />
+import { setCacheNameDetails } from 'workbox-core'
 import { cleanupOutdatedCaches, matchPrecache, precache } from 'workbox-precaching'
 
 declare const self: ServiceWorkerGlobalScope
 
 const registrationScope = new URL(self.registration.scope)
+setCacheNameDetails({ prefix: 'habitat', suffix: encodeURIComponent(registrationScope.href) })
 
 const RUNTIME_CACHE_PREFIX = 'habitat-runtime-assets'
 const RUNTIME_CACHE_VERSION = 'v1'

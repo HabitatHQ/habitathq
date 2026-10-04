@@ -1,5 +1,5 @@
+import { formatDateRelative } from '@habitathq/utils'
 import type { Todo } from '~/types/database'
-import { calendarDayDifference } from '~/utils/calendar-dates'
 
 // ─── Priority ordering ──────────────────────────────────────────────────────
 
@@ -79,13 +79,7 @@ export function priorityColor(p: string): string {
  * Examples: "Today", "Tomorrow", "in 3d", "2d ago", "Mar 2".
  */
 export function formatDueDate(d: string, today: string): string {
-  if (d === today) return 'Today'
-  const diff = calendarDayDifference(today, d)
-  if (diff === 1) return 'Tomorrow'
-  if (diff === -1) return 'Yesterday'
-  if (diff < 0) return `${Math.abs(diff)}d ago`
-  if (diff < 7) return `in ${diff}d`
-  return new Date(`${d}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  return formatDateRelative(d, today)
 }
 
 /** True when a todo is not done and its due date is before `today` (YYYY-MM-DD). */

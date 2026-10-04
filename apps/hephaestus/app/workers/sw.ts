@@ -1,9 +1,11 @@
 /// <reference lib="webworker" />
+import { setCacheNameDetails } from 'workbox-core'
 import { cleanupOutdatedCaches, matchPrecache, precache } from 'workbox-precaching'
 
 declare const self: ServiceWorkerGlobalScope
 
 const scope = new URL(self.registration.scope)
+setCacheNameDetails({ prefix: 'hephaestus', suffix: encodeURIComponent(scope.href) })
 // Nuxt's precache manifest identifies the index shell by the scope root URL.
 const shellUrl = scope.href
 

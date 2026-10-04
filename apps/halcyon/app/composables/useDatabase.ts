@@ -303,5 +303,6 @@ export function useDatabase() {
     // ── Export ────────────────────────────────────────────────────────────────
     exportVault: (vault_id: string): Promise<HalcyonExport> =>
       sendToWorker({ type: 'EXPORT_VAULT', payload: { vault_id } }),
+    resetDatabase: (): Promise<null> => sendToWorker({ type: 'RESET_DATABASE' }),
   }
 }

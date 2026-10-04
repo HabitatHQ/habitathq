@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDurationMinutes, formatDurationSeconds, formatRelativeTime } from '@habitathq/utils'
 import type { TemplateExerciseWithName } from '~/composables/useTemplates'
 import { estimateTemplateDuration } from '~/lib/template-stats'
 import type { SessionType, TemplateRow } from '~/types/database'
@@ -120,31 +121,13 @@ function toggleExerciseExpand(id: string) {
 }
 
 function restLabel(te: TemplateExerciseWithName): string {
-  if (te.set_rest_seconds) return 'Variable rest'
-  const s = te.rest_seconds
-  if (s < 60) return `${s}s`
-  return `${Math.floor(s / 60)}m ${s % 60 > 0 ? `${s % 60}s` : ''}`.trim()
+  return te.set_rest_seconds ? 'Variable rest' : formatDurationSeconds(te.rest_seconds)
 }
 
 const estimatedDuration = computed(() => {
   const totalSets = exercises.value.reduce((a, e) => a + (e.sets_planned ?? 3), 0)
   return estimateTemplateDuration(exercises.value.length, totalSets, 120)
 })
-
-function formatDur(secs: number): string {
-  const m = Math.round(secs / 60)
-  return `~${m} min`
-}
-
-function relativeDate(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const days = Math.floor(diff / 86_400_000)
-  if (days === 0) return 'Today'
-  if (days === 1) return 'Yesterday'
-  if (days < 7) return `${days}d ago`
-  if (days < 30) return `${Math.floor(days / 7)}w ago`
-  return `${Math.floor(days / 30)}mo ago`
-}
 </script>
 
 <template>
@@ -225,8 +208,8 @@ function relativeDate(iso: string): string {
         <!-- Stats strip -->
         <div class="flex items-center gap-4 text-xs text-(--ui-text-muted) flex-wrap">
           <span v-if="template.use_count > 0">{{ template.use_count }}× used</span>
-          <span v-if="template.last_used_at">Last: {{ relativeDate(template.last_used_at) }}</span>
-          <span>{{ formatDur(estimatedDuration) }}</span>
+          <span v-if="template.last_used_at">Last: {{ formatRelativeTime(template.last_used_at) }}</span>
+          <span>~{{ formatDurationMinutes(Math.round(estimatedDuration / 60)) }}</span>
         </div>
 
         <p v-if="template.description" class="text-sm text-(--ui-text-muted)">

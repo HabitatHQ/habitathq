@@ -1,16 +1,12 @@
 <script setup lang="ts">
-import { localDateString } from '@habitathq/utils'
+import { addCalendarDays, formatCalendarDate, localCalendarDate } from '@habitathq/utils'
 import type { HabitLog, HabitWithSchedule } from '~/types/database'
 
 const db = useDatabase()
 const { selectionChanged, notification } = useHaptics()
 
-const today = localDateString(new Date())
-const sevenDaysAgo = (() => {
-  const d = new Date()
-  d.setDate(d.getDate() - 6)
-  return localDateString(d)
-})()
+const today = localCalendarDate()
+const sevenDaysAgo = addCalendarDays(today, -6)
 
 const habits = ref<HabitWithSchedule[]>([])
 const todayLogs = ref<HabitLog[]>([])
@@ -90,12 +86,10 @@ const weeklySteps = computed(() => {
   if (!stepsHabit.value) return []
   const sid = stepsHabit.value.id
   return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(`${sevenDaysAgo}T00:00:00`)
-    d.setDate(d.getDate() + i)
-    const date = localDateString(d)
+    const date = addCalendarDays(sevenDaysAgo, i)
     return {
       date,
-      label: d.toLocaleDateString('en-US', { weekday: 'narrow' }),
+      label: formatCalendarDate(date, { locale: 'en-US', weekday: 'narrow' }),
       steps: logSumFor(
         sid,
         weekLogs.value.filter((l) => l.date === date),
@@ -168,12 +162,10 @@ const weeklySleep = computed(() => {
   if (!sleepHabit.value) return []
   const sid = sleepHabit.value.id
   return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(`${sevenDaysAgo}T00:00:00`)
-    d.setDate(d.getDate() + i)
-    const date = localDateString(d)
+    const date = addCalendarDays(sevenDaysAgo, i)
     return {
       date,
-      label: d.toLocaleDateString('en-US', { weekday: 'narrow' }),
+      label: formatCalendarDate(date, { locale: 'en-US', weekday: 'narrow' }),
       hours: logSumFor(
         sid,
         weekLogs.value.filter((l) => l.date === date),

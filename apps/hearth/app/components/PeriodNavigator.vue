@@ -1,8 +1,14 @@
 <script setup lang="ts">
-defineProps<{
+import { formatCalendarDate } from '@habitathq/utils'
+
+const props = defineProps<{
   period: string
   isCurrentPeriod: boolean
 }>()
+
+const periodLabel = computed(() =>
+  formatCalendarDate(`${props.period}-01`, { month: 'long', year: 'numeric' }),
+)
 
 const emit = defineEmits<{
   prev: []
@@ -20,7 +26,7 @@ const emit = defineEmits<{
       <AppIcon name="chevron-left" class="w-5 h-5" />
     </button>
     <h1 class="text-xs font-semibold text-(--ui-text-muted) tracking-wide uppercase">
-      {{ formatPeriod(period) }}
+      {{ periodLabel }}
     </h1>
     <button
       class="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg transition-colors"

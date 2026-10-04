@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { localDateString } from '@habitathq/utils'
+import { addCalendarDays, formatCalendarDate, localCalendarDate } from '@habitathq/utils'
 import type { ExerciseSessionStat } from '~/lib/analytics'
 import { formatWeight } from '~/lib/format'
 import type { ReadinessResult } from '~/lib/readiness'
@@ -15,12 +15,10 @@ const db = useDatabase()
 const progress = useProgress()
 const organization = useOrganization()
 function dateOffset(offset: number): string {
-  const date = new Date()
-  date.setDate(date.getDate() + offset)
-  return localDateString(date)
+  return addCalendarDays(localCalendarDate(), offset)
 }
 const reportStart = ref(dateOffset(-27))
-const reportEnd = ref(localDateString(new Date()))
+const reportEnd = ref(localCalendarDate())
 const prs = ref<ProgressPersonalRecordRow[]>([])
 const loading = ref(true)
 
@@ -137,7 +135,7 @@ const recentPRs = computed(() => prs.value.slice(0, 5))
                 {{ pr.exercise_name ?? 'Unknown exercise' }} · {{ pr.record_type }} PR
               </p>
               <p class="text-xs text-(--ui-text-muted)">
-                {{ new Date(pr.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) }}
+                {{ formatCalendarDate(pr.date, { month: 'short', day: 'numeric', year: 'numeric' }) }}
               </p>
             </div>
             <span class="text-sm font-bold tabular-nums text-(--color-accent)">

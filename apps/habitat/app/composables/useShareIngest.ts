@@ -1,5 +1,5 @@
 import { Capacitor } from '@capacitor/core'
-import { getBlobAdapter } from '~/composables/useJotsStore'
+import { getMediaStore } from '~/composables/useJotsStore'
 import type { Scribble } from '~/types/database'
 import { getShareTag, isShareTag } from '~/utils/share-helpers'
 
@@ -73,7 +73,7 @@ export function useShareIngest() {
       )
       const blob = await response.blob()
       const bytes = new Uint8Array(await blob.arrayBuffer())
-      await getBlobAdapter().put(id, bytes)
+      await getMediaStore().put(id, bytes)
       await db.createImageNote({
         id,
         mime_type: blob.type || 'image/png',

@@ -1,7 +1,7 @@
-import { localDateString } from '@habitathq/utils'
+import { localCalendarDate } from '@habitathq/utils'
 
 export function legacyUtcKeysForLocalDay(date: Date): string[] {
-  const localDay = localDateString(date)
+  const localDay = localCalendarDate(date)
   const start = new Date(date.getFullYear(), date.getMonth(), date.getDate())
   const end = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1)
   end.setMilliseconds(end.getMilliseconds() - 1)
@@ -23,7 +23,7 @@ export async function getTodayRowsWithLegacyUtcKeys<T extends { date: string }>(
     return (
       !Number.isNaN(timestamp.valueOf()) &&
       timestamp.toISOString().slice(0, 10) === row.date &&
-      localDateString(timestamp) === today
+      localCalendarDate(timestamp) === today
     )
   })
   return [...localRows, ...legacyRows]

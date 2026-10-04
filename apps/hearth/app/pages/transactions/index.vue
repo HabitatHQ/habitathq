@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { TransactionWithDetails } from '~/types/database'
-import { formatDateRelative } from '~/utils/format'
+import { formatHearthDateLabel } from '~/utils/format'
 
 const db = useDatabase()
 
@@ -103,7 +103,7 @@ const filtered = computed(() => {
 const grouped = computed(() => {
   const groups = new Map<string, TransactionWithDetails[]>()
   for (const tx of filtered.value) {
-    const label = formatDateRelative(tx.date)
+    const label = formatHearthDateLabel(tx.date)
     if (!groups.has(label)) groups.set(label, [])
     groups.get(label)?.push(tx)
   }

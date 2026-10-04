@@ -1,3 +1,5 @@
+import { differenceInCalendarDays, localCalendarDate, parseCalendarDate } from '@habitathq/utils'
+
 import { projectNextOccurrence } from './project'
 import type { DetectableTransaction, RecurringInterval, RecurringPattern } from './types'
 
@@ -26,14 +28,10 @@ function stddev(values: number[]): number {
   return Math.sqrt(variance)
 }
 
-function parseLocalDate(s: string): Date {
-  const [y, m, d] = s.split('-').map(Number) as [number, number, number]
-  return new Date(y, m - 1, d)
-}
-
 function daysBetween(a: string, b: string): number {
-  const msPerDay = 86400000
-  return Math.abs(parseLocalDate(a).getTime() - parseLocalDate(b).getTime()) / msPerDay
+  parseCalendarDate(a)
+  parseCalendarDate(b)
+  return Math.abs(differenceInCalendarDays(a, b))
 }
 
 /**
@@ -103,8 +101,7 @@ export function detectRecurringPatterns(
 
     const lastOccurrence = sorted[sorted.length - 1]!.date
     const expectedIntervalDays = meanInterval
-    const today = new Date()
-    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+    const todayStr = localCalendarDate()
     const daysSinceLast = daysBetween(lastOccurrence, todayStr)
     const recencyBonus =
       daysSinceLast <= expectedIntervalDays * 1.5

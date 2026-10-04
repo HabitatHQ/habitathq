@@ -49,7 +49,7 @@ const variantClass = computed(() => {
     :disabled="disabled || loading"
     @click="selectionChanged(); emit('click', $event)"
   >
-    <AppIcon v-if="loading" name="loader" :class="[iconSize, 'animate-spin']" />
+    <AppIcon v-if="loading" name="arrow-path" :class="[iconSize, 'animate-spin']" />
     <AppIcon v-else :name="icon" v-bind="color === undefined ? {} : { color }" :class="iconSize" />
   </button>
 </template>

@@ -1,20 +1,18 @@
-import { parseDateString } from '@habitathq/utils'
+import { differenceInCalendarDays, parseCalendarDate } from '@habitathq/utils'
 import type { Contact } from '~/types/database'
 import { nextBirthdayDate } from '~/utils/reminder-helpers'
 
 export function daysUntilBirthday(birthday: string | null, today: string): number {
   if (!birthday) return Number.POSITIVE_INFINITY
   const next = nextBirthdayDate(birthday, today)
-  const todayMs = parseDateString(today).getTime()
-  const nextMs = parseDateString(next).getTime()
-  return Math.round((nextMs - todayMs) / 86400000)
+  return differenceInCalendarDays(next, today)
 }
 
 export function turningAge(birthday: string | null, today: string): number | null {
   if (!birthday) return null
   const next = nextBirthdayDate(birthday, today)
-  const birthYear = Number(birthday.slice(0, 4))
-  const nextYear = Number(next.slice(0, 4))
+  const birthYear = parseCalendarDate(birthday).year
+  const nextYear = parseCalendarDate(next).year
   return nextYear - birthYear
 }
 

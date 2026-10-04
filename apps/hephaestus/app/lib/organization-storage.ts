@@ -6,13 +6,21 @@ function recurrenceDates(
 ): string[] {
   const dates: string[] = []
   for (let offset = 0; offset <= 27; offset++) {
-    const candidate = addDays(today, offset)
+    const candidate = addCalendarDays(today, offset)
     if (candidate < start || (end !== null && candidate > end)) continue
-    const weekday = ((new Date(`${candidate}T12:00:00Z`).getUTCDay() + 6) % 7) + 1
+    const weekday = ((parseDateString(candidate).getDay() + 6) % 7) + 1
     if (weekdays.includes(weekday)) dates.push(candidate)
   }
   return dates
 }
+
+import {
+  addCalendarDays,
+  differenceInCalendarDays,
+  isCalendarDate,
+  localCalendarDate,
+  parseDateString,
+} from '@habitathq/utils'
 
 import type { DbAdapter } from '@palladium/core'
 import type {
@@ -37,29 +45,15 @@ function text(value: unknown, label: string): string {
   return value.trim()
 }
 function date(value: unknown, label = 'Date'): string {
-  if (
-    typeof value !== 'string' ||
-    !/^\d{4}-\d\d-\d\d$/.test(value) ||
-    Number.isNaN(Date.parse(`${value}T12:00:00Z`)) ||
-    new Date(`${value}T12:00:00Z`).toISOString().slice(0, 10) !== value
-  )
+  if (typeof value !== 'string' || !isCalendarDate(value))
     throw new Error(`${label} must be a local YYYY-MM-DD date`)
   return value
 }
 function localToday(): string {
-  const now = new Date()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
-  return `${now.getFullYear()}-${month}-${day}`
-}
-function addDays(value: string, amount: number): string {
-  const result = new Date(`${value}T12:00:00Z`)
-  result.setUTCDate(result.getUTCDate() + amount)
-  return result.toISOString().slice(0, 10)
+  return localCalendarDate()
 }
 function monday(value: string): string {
-  const d = new Date(`${value}T12:00:00Z`)
-  return addDays(value, -((d.getUTCDay() + 6) % 7))
+  return addCalendarDays(value, -((parseDateString(value).getDay() + 6) % 7))
 }
 function fingerprint(value: unknown): string {
   return JSON.stringify(value)
@@ -464,12 +458,10 @@ const operations: {
     )
     if (!plan) throw new Error('Plan not found')
     const start = date(plan.start_local_date)
-    if (day < start) return { week: 0, weekStart: start, weekEnd: addDays(start, 6) }
-    const week =
-      Math.floor((Date.parse(`${day}T12:00:00Z`) - Date.parse(`${start}T12:00:00Z`)) / 604800000) +
-      1
-    const weekStart = addDays(start, (week - 1) * 7)
-    return { week, weekStart, weekEnd: addDays(weekStart, 6) }
+    if (day < start) return { week: 0, weekStart: start, weekEnd: addCalendarDays(start, 6) }
+    const week = Math.floor(differenceInCalendarDays(day, start) / 7) + 1
+    const weekStart = addCalendarDays(start, (week - 1) * 7)
+    return { week, weekStart, weekEnd: addCalendarDays(weekStart, 6) }
   },
   ORGANIZATION_REPORT: report,
 }
@@ -578,7 +570,7 @@ async function materializeProgramOccurrences(db: DbAdapter, today: string): Prom
   }>(
     'SELECT id,start_local_date,adopted_program_revision_id FROM training_plans WHERE active=1 AND adopted_program_revision_id IS NOT NULL',
   )
-  const horizonEnd = addDays(today, 27)
+  const horizonEnd = addCalendarDays(today, 27)
   for (const plan of plans) {
     const revision = await db.queryOne<{ design_json: string }>(
       'SELECT design_json FROM program_revisions WHERE id=?',
@@ -598,7 +590,10 @@ async function materializeProgramOccurrences(db: DbAdapter, today: string): Prom
       const slotId = slot.id
       const routineId = bindings.find((binding) => binding.program_slot_id === slotId)?.routine_id
       if (!routineId) continue
-      const occurrenceDate = addDays(plan.start_local_date, (slot.week - 1) * 7 + slot.day - 1)
+      const occurrenceDate = addCalendarDays(
+        plan.start_local_date,
+        (slot.week - 1) * 7 + slot.day - 1,
+      )
       if (occurrenceDate < today) continue
       desired.set(`program:${plan.id}:${slotId}`, { date: occurrenceDate, routineId, slotId })
     }
@@ -626,7 +621,7 @@ async function hasRuleCollision(
     'SELECT r.id,r.weekdays_json,r.start_date,r.end_date FROM organization_recurrence_rules r JOIN training_plans p ON p.id=r.plan_id WHERE p.active=1 AND r.active=1 AND r.routine_id=? AND r.start_date<=? AND (r.end_date IS NULL OR r.end_date>=?)',
     [routineId, candidate, candidate],
   )
-  const weekday = ((new Date(`${candidate}T12:00:00Z`).getUTCDay() + 6) % 7) + 1
+  const weekday = ((parseDateString(candidate).getDay() + 6) % 7) + 1
   if (rules.some((rule) => (JSON.parse(rule.weekdays_json) as number[]).includes(weekday)))
     return true
   const plans = await db.queryAll<{
@@ -656,7 +651,7 @@ async function hasRuleCollision(
       )
         continue
       if (
-        addDays(
+        addCalendarDays(
           plan.start_local_date,
           (Number(slotValue['week']) - 1) * 7 + Number(slotValue['day']) - 1,
         ) === candidate &&
@@ -682,7 +677,7 @@ async function reconcileOpen(db: DbAdapter, input: unknown): Promise<Appointment
     const item = appointmentFromRow(row)
     let destination: string | null = null
     for (let offset = 0; offset <= 27; offset++) {
-      const candidate = addDays(today, offset)
+      const candidate = addCalendarDays(today, offset)
       if (!(await hasRuleCollision(db, item.routineId, candidate, item.id))) {
         destination = candidate
         break
@@ -1241,7 +1236,11 @@ async function report(db: DbAdapter, input: unknown): Promise<OrganizationReport
   const measurements = reportMeasurements(sets, runs)
   const weeklyGoals: OrganizationReport['weeklyGoals'] = []
   for (const goal of goals) {
-    for (let weekStart = monday(start); weekStart <= end; weekStart = addDays(weekStart, 7)) {
+    for (
+      let weekStart = monday(start);
+      weekStart <= end;
+      weekStart = addCalendarDays(weekStart, 7)
+    ) {
       const count =
         (
           await db.queryOne<{ n: number }>(

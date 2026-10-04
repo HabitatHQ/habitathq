@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { localDateString } from '@habitathq/utils'
+import { addCalendarDays, localCalendarDate } from '@habitathq/utils'
 import { buildPomodoroConfig, type TimerMode } from '~/composables/useTimer'
 import type { BoredCategory, Todo } from '~/types/database'
 import { sortByPriority } from '~/utils/todos-helpers'
@@ -239,7 +239,7 @@ onMounted(async () => {
 })
 
 // Use local calendar date (not UTC) so "today" matches the device's clock
-const today = localDateString(new Date())
+const today = localCalendarDate()
 
 const overdue = computed(() =>
   sortByPriority(
@@ -252,9 +252,7 @@ const dueToday = computed(() =>
 )
 
 const upcoming = computed(() => {
-  const in30 = new Date()
-  in30.setDate(in30.getDate() + 30)
-  const limit = localDateString(in30)
+  const limit = addCalendarDays(today, 30)
   return sortByPriority(
     processedTodos.value.filter(
       (t) => !t.is_done && t.due_date !== null && t.due_date > today && t.due_date <= limit,

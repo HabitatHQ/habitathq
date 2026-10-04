@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatInstant } from '@habitathq/utils'
 import type { Habit } from '~/types/database'
 
 const db = useDatabase()
@@ -51,7 +52,7 @@ onMounted(loadHabits)
         <div class="flex-1 min-w-0">
           <p class="text-sm font-medium text-(--ui-text-muted) truncate">{{ habit.name }}</p>
           <p class="text-xs text-slate-600">
-            Archived {{ habit.archived_at ? fmtArchived(habit.archived_at) : '' }}
+            Archived {{ habit.archived_at ? formatInstant(habit.archived_at, { locale: 'en-US', timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, month: 'short', day: 'numeric', year: 'numeric' }) : '' }}
           </p>
         </div>
       </AppCard>

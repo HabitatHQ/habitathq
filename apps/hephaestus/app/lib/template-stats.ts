@@ -1,3 +1,5 @@
+import { differenceInCalendarDays, localCalendarDate } from '@habitathq/utils'
+
 export interface TemplateStats {
   lastUsedAt: string | null
   useCount: number
@@ -18,13 +20,13 @@ export interface StartOptions {
  * Expected = 1 session per 7 days within the window.
  */
 export function calculateConsistency(dates: string[], windowDays: number, refDate: Date): number {
-  const cutoff = new Date(refDate)
-  cutoff.setDate(cutoff.getDate() - windowDays)
-
-  const sessionsInWindow = dates.filter((d) => new Date(d) >= cutoff && new Date(d) <= refDate)
+  const referenceDate = localCalendarDate(refDate)
+  const sessionsInWindow = dates.filter((date) => {
+    const offset = differenceInCalendarDays(date, referenceDate)
+    return offset >= -windowDays && offset <= 0
+  })
   const expectedSessions = windowDays / 7
   if (expectedSessions === 0) return 0
-
   const score = (sessionsInWindow.length / expectedSessions) * 100
   return Math.min(100, Math.round(score))
 }

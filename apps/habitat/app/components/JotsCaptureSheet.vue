@@ -2,6 +2,7 @@
 // Image capture / gallery picker bottom sheet
 const emit = defineEmits<{ close: [] }>()
 const store = useJotsStore()
+const media = getMediaStore()
 const { impact, notification } = useHaptics()
 
 const errorMsg = ref<string | null>(null)
@@ -34,13 +35,13 @@ function pickFromCamera() {
 }
 
 function showPreview(file: File) {
-  if (imagePreview.value) URL.revokeObjectURL(imagePreview.value.url)
-  imagePreview.value = { url: URL.createObjectURL(file), file }
+  if (imagePreview.value) media.revokeObjectURL(imagePreview.value.url)
+  imagePreview.value = { url: media.createObjectURL(file), file }
 }
 
 function cancelPreview() {
   if (imagePreview.value) {
-    URL.revokeObjectURL(imagePreview.value.url)
+    media.revokeObjectURL(imagePreview.value.url)
     imagePreview.value = null
   }
 }
@@ -75,7 +76,7 @@ async function saveImage() {
 }
 
 onUnmounted(() => {
-  if (imagePreview.value) URL.revokeObjectURL(imagePreview.value.url)
+  if (imagePreview.value) media.revokeObjectURL(imagePreview.value.url)
 })
 </script>
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { formatDurationSeconds as formatDuration } from '@habitathq/utils'
+import { downloadBlob } from '@habitathq/shared/app/composables/downloadBlob'
+import { formatCalendarDate, formatDurationSeconds as formatDuration } from '@habitathq/utils'
 import { useHistoryCorrection } from '~/composables/useHistoryCorrection'
 import { formatWeight } from '~/lib/format'
 import { buildWorkoutCard } from '~/lib/workout-card'
@@ -168,7 +169,7 @@ const totalSets = computed(() =>
 
 const workoutDate = computed(() => {
   if (!workout.value) return ''
-  return new Date(`${workout.value.date}T12:00:00`).toLocaleDateString('en-US', {
+  return formatCalendarDate(workout.value.date, {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
@@ -200,14 +201,10 @@ const workoutCard = computed(() => {
 
 function downloadWorkoutCard() {
   if (!workoutCard.value) return
-  const url = URL.createObjectURL(
+  downloadBlob(
     new Blob([workoutCard.value.svg], { type: 'image/svg+xml;charset=utf-8' }),
+    `workout-summary-${workout.value?.date ?? 'completed'}.svg`,
   )
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = `workout-summary-${workout.value?.date ?? 'completed'}.svg`
-  anchor.click()
-  URL.revokeObjectURL(url)
 }
 
 function moodEmoji(rating: number | null): string {

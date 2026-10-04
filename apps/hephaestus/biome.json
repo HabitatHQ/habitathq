@@ -3,7 +3,7 @@
   "extends": ["../../biome.json"],
 
   "files": {
-    "includes": ["app/**/*.ts", "app/**/*.vue", "nuxt.config.ts", "tests/**/*.ts"]
+    "includes": ["app/**/*.ts", "app/**/*.vue", "nuxt.config.ts", "tests/**/*.ts", "!!dist"]
   },
 
   "overrides": [

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDurationSeconds } from '@habitathq/utils'
 import { buildEmom, buildTabata } from '~/lib/interval-templates'
 
 const db = useDatabase()
@@ -40,12 +41,6 @@ const totalTimeSec = computed(() => {
   if (mode.value === 'amrap') return timeCapSec.value
   return rounds.value * (workSec.value + restSec.value)
 })
-
-function formatTime(s: number): string {
-  const m = Math.floor(s / 60)
-  const sec = s % 60
-  return m > 0 ? `${m}m ${sec}s` : `${sec}s`
-}
 
 const canSave = computed(() => name.value.trim().length > 0)
 
@@ -171,7 +166,7 @@ async function handleSave() {
     <!-- Total duration preview -->
     <div class="rounded-xl bg-(--color-surface) p-4 text-center">
       <p class="text-xs text-(--ui-text-muted)">Total Duration</p>
-      <p class="text-2xl font-bold text-(--color-accent) mt-1">{{ formatTime(totalTimeSec) }}</p>
+      <p class="text-2xl font-bold text-(--color-accent) mt-1">{{ formatDurationSeconds(totalTimeSec) }}</p>
     </div>
   </article>
 </template>

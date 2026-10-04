@@ -62,20 +62,10 @@ startDbOwner<HabitatService>({
         switch (req.type) {
           case 'EXPORT_DB':
             return storage.serialize()
-          case 'NUKE_OPFS': {
-            // Delete ONLY Habitat's OPFS directory. The previous code iterated
-            // the origin's OPFS root and removed every entry — on a shared
-            // origin that also wipes sibling apps' databases. Scope to our dir.
-            //
-            // The adapter is intentionally left open here: this flow never
-            // closes it, so `dispatch` stays usable afterwards (the no-reload
-            // "Wipe only" path). A true in-place wipe that also reclaims the
-            // open SAH-pool files needs adapter-level support (`wipeFiles`) and
-            // is tracked as a follow-up.
-            const root = await navigator.storage.getDirectory()
-            await root.removeEntry(OPFS_DIR, { recursive: true }).catch(() => {})
+          case 'RESET_DATABASE':
+            await storage.resetStorage()
+            await applySchema(storage, SCHEMA_CONFIG)
             return null
-          }
           default:
             return shared.dispatch(adapter, req)
         }

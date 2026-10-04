@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { localCalendarDate } from '@habitathq/utils'
 import type { ParsedTransaction, ParserContext } from '~/lib/nlp/types'
 import type { Account, Category, Transaction, User } from '~/types/database'
 import { formatAmount, transactionAmountPrefix } from '~/utils/format'
@@ -96,7 +97,7 @@ function buildContext(): ParserContext {
       transfer: accounts.value[0]?.id ?? null,
     },
     currentUserId: currentUser.value?.id ?? '',
-    today: new Date().toISOString().slice(0, 10),
+    today: localCalendarDate(),
   }
 }
 
@@ -348,7 +349,7 @@ async function scanReceipt() {
     const ctx = buildContext()
     const amount = parsed.total
     const merchant = parsed.merchant ?? ''
-    const date = parsed.date ?? new Date().toISOString().slice(0, 10)
+    const date = parsed.date ?? localCalendarDate()
 
     // Try to resolve category from merchant
     let categoryId: string | null = null
@@ -582,7 +583,7 @@ async function scanReceipt() {
                 {{ card.currency }}
               </span>
               <span class="text-xs text-(--ui-text-dimmed)">
-                {{ formatDateRelative(card.date) }}
+                {{ formatHearthDateLabel(card.date) }}
               </span>
             </div>
           </div>

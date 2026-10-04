@@ -1,4 +1,4 @@
-import { localDateString } from '@habitathq/utils'
+import { addCalendarDays, localCalendarDate } from '@habitathq/utils'
 import type {
   CheckinQuestion,
   CheckinResponse,
@@ -18,10 +18,7 @@ import type {
  * importJson uses INSERT OR IGNORE, so a developer never gets duplicate rows.
  */
 function dateAt(offset: number): string {
-  const date = new Date()
-  date.setHours(12, 0, 0, 0)
-  date.setDate(date.getDate() + offset)
-  return localDateString(date)
+  return addCalendarDays(localCalendarDate(), offset)
 }
 
 function timestamp(date: string, time = '09:00:00'): string {

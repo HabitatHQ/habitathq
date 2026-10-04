@@ -30,8 +30,9 @@ test.describe('data portability safety', () => {
         mimeType: 'application/json',
         buffer: payload,
       })
-      page.once('dialog', (dialog) => dialog.accept())
       await page.getByRole('button', { name: 'Import without overwriting' }).click()
+      const confirmation = page.getByRole('alertdialog', { name: /import training configuration/i })
+      await confirmation.getByRole('button', { name: 'Import' }).click()
       await expect(page.getByRole('button', { name: 'Import without overwriting' })).toBeHidden()
     }
 
