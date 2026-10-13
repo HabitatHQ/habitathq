@@ -65,6 +65,9 @@ impl FilesystemBlobStore {
 
 impl BlobStore for FilesystemBlobStore {
     async fn put(&self, id: BlobId, data: &[u8]) -> Result<(), BlobError> {
+        if fs::try_exists(self.tombstone_path(id)).await? {
+            return Err(BlobError::NotFound(id));
+        }
         fs::create_dir_all(&self.root).await?;
         fs::write(self.blob_path(id), data).await?;
         Ok(())
@@ -155,6 +158,37 @@ mod tests {
         assert!(store.exists(id).await.unwrap());
         store.delete(id).await.unwrap();
         assert!(!store.exists(id).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn put_after_delete_rejects_replacement_until_purge() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = FilesystemBlobStore::new(dir.path());
+        let id = uuid::Uuid::new_v4();
+        store.put(id, b"original bytes").await.unwrap();
+        store.delete(id).await.unwrap();
+
+        assert!(matches!(
+            store.put(id, b"replacement bytes").await,
+            Err(BlobError::NotFound(deleted_id)) if deleted_id == id
+        ));
+        assert!(matches!(
+            store.get(id).await,
+            Err(BlobError::NotFound(deleted_id)) if deleted_id == id
+        ));
+        assert!(!store.exists(id).await.unwrap());
+        assert_eq!(
+            fs::read(store.blob_path(id)).await.unwrap(),
+            b"original bytes"
+        );
+
+        store.purge_deleted().await.unwrap();
+        assert!(!store.blob_path(id).exists());
+        assert!(!store.tombstone_path(id).exists());
+
+        let fresh_id = uuid::Uuid::new_v4();
+        store.put(fresh_id, b"fresh bytes").await.unwrap();
+        assert_eq!(store.get(fresh_id).await.unwrap(), b"fresh bytes");
     }
 
     #[tokio::test]

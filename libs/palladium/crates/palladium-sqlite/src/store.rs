@@ -543,6 +543,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rejects_malformed_insert_data_without_advancing_history(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let store = SqliteStore::in_memory().await?;
+        let scope = Scope::new("a");
+        let malformed = [
+            serde_json::Value::Null,
+            json!("scalar"),
+            json!(7),
+            json!(false),
+            json!([{"id": "018f0f50-7b8d-7a1c-8e2f-1234567890ab"}]),
+            json!({"title": "missing"}),
+            json!({"id": "018f0f50-7b8d-7a1c-8e2f-1234567890ac"}),
+            json!({"id": null}),
+            json!({"id": "not-a-uuid"}),
+            json!({"id": "018F0F50-7B8D-7A1C-8E2F-1234567890AB"}),
+            json!({"id": "018f0f507b8d7a1c8e2f1234567890ab"}),
+        ];
+        for data in malformed {
+            let row_id = Uuid::parse_str("018f0f50-7b8d-7a1c-8e2f-1234567890ab")?;
+            let change = Change::new(
+                Hlc::new(palladium_core::NodeId::new(), 1),
+                vec![Op::Insert {
+                    table: "todos".into(),
+                    row_id,
+                    data,
+                }],
+            );
+            assert!(matches!(
+                store.insert(&scope, &change, u64::MAX).await,
+                Err(Error::InvalidData(_))
+            ));
+            let page = store.page(&scope, None, 10).await?;
+            assert_eq!(page.changes, Vec::<Change>::new());
+            assert!(page.cursor.is_none());
+            assert!(page.caught_up);
+        }
+        let row_id = Uuid::parse_str("018f0f50-7b8d-7a1c-8e2f-1234567890ab")?;
+        let valid = Change::new(
+            Hlc::new(palladium_core::NodeId::new(), 2),
+            vec![Op::Insert {
+                table: "todos".into(),
+                row_id,
+                data: json!({"id": row_id, "nested": {"values": [1, null, true]}}),
+            }],
+        );
+        store.insert(&scope, &valid, u64::MAX).await?;
+        let page = store.page(&scope, None, 10).await?;
+        assert_eq!(page.changes, vec![valid]);
+        assert_eq!(page.cursor.map(|cursor| cursor.position()), Some(1));
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn page_cursor_uses_actual_interleaved_append_position(
     ) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let store = SqliteStore::in_memory().await?;

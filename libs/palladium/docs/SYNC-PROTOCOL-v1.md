@@ -9,6 +9,11 @@ V1 has no bare change-array response, no HLC history cursor, no legacy pending-o
 
 - A `Change` has a UUIDv4 `id`, one HLC, and an ordered canonical operation list. Replicated row IDs are canonical lowercase UUIDv7 strings. `NodeId` is UUIDv4 replica identity; it is not an authorization credential.
 - A syncable operation is `insert`, `update`, or `delete`. The engine validates a remote HLC and rejects a remote change whose operations are not canonical before its page transaction begins. Schema/table validation is performed while applying operations.
+- Insert `data` must be a JSON object containing a string `id` exactly equal to
+  its canonical lowercase UUIDv7 `row_id`. Both server admission and the client
+  page decoder reject null/scalar/array data, missing IDs, and mismatches before
+  history append or checkpoint advancement. Nested JSON fields remain valid
+  wire values; this does not prescribe an adapter's application-column encoding.
 - The server derives scope from authentication. Atrium additionally requires the `x-workspace` header and verifies workspace membership; callers do not submit a generic store scope in the change payload.
 - `PalladiumEngine.init({ version, schema })` derives and persists a local `schema_identity_v1` value. `SyncTransport` requires either an explicit `schemaFingerprint` or an initialized engine identity, and records that identity with durable outbox rows. Before posting an outbox row from a different identity, the transport moves it to `_sync_outbox_quarantine` rather than sending it. This implementation has no schema-identity field or negotiation in the v1 HTTP payload; server-side schema compatibility is therefore outside this wire contract.
 - A local schema identity may change during an upward, versioned `SchemaConfig` migration. Migration steps, current baseline DDL, `user_version`, and the new identity commit in one storage transaction; failure leaves the prior schema and identity intact. Same-version identity changes and downgrades are rejected. Pending outbox rows keep their original fingerprints and are quarantined, not relabeled, after an upgrade.
@@ -62,9 +67,22 @@ The TypeScript transport requires every displayed member, validates the envelope
 
 A page cursor is the server append position after the last scanned history entry. It can advance when ACL filtering hides all changes in the scanned window. `upperBound` is the append maximum captured before that page is selected; it is independent of the continuation cursor. `caughtUp` is false when the raw history window filled the requested limit or an Atrium grant still has a bounded backfill chunk pending. It is not a promise that later entries cannot be appended. Atrium currently emits `mustRefetch: false`; transports treat a true value as `degraded` and do not continue that page.
 
+PostgreSQL keeps schema-local `palladium_scope_locks` rows keyed by exact scope
+identity. Each append transaction locks its scope row before allocating an
+append sequence and holds the lock through commit or rollback. A page cannot
+checkpoint a higher same-scope append while an earlier allocated write remains
+in flight; different scopes do not share this row lock. Sequence gaps from
+rolled-back transactions remain valid and do not imply missing history.
+
 ### 2.4 Errors and event acknowledgement
 
 Non-success HTTP responses use JSON `{ "code": "stable_code", "message": "human explanation" }`. `SyncTransport.lastError` is a typed `SyncError` with phase, stable code, retryability, and—when available—HTTP status, response body, change ID, attempt, and retry time. Rate-limited uploads persist and honor `Retry-After` as `nextRetryAt`; terminal invalid receipts remain durable and are not posted again automatically. Known HTTP code handling includes authorization, request/cursor validation, conflict, clock, checkpoint, rate-limit, schema, and internal classifications; an unrecognized or malformed error body remains a terminal transport classification rather than a success.
+
+Fresh uploads with an excessively future HLC return `400 clock_skew`, including
+on Atrium. The transport retains the rejected change as blocking clock-recovery
+evidence; `recoverClock()` obtains authenticated server time, reconfirms rejection,
+and reauthors it with a new change ID before normal synchronization resumes.
+Idempotency conflicts and expired checkpoints remain HTTP `409` responses.
 
 Atrium event acknowledgements use `POST /v1/changes/events/ack` with:
 

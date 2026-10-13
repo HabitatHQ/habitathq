@@ -1,4 +1,4 @@
-import type { ChannelName, Notification } from "./types.js";
+import type { ChannelName, Notification, PermissionState } from "./types.js";
 
 export type NotificationEventMap = {
   beforesend: Readonly<{ notification: Notification; channels: ReadonlyArray<ChannelName> }>;
@@ -6,6 +6,7 @@ export type NotificationEventMap = {
   clicked: Readonly<{ channel: ChannelName; notification: Notification; actionId?: string }>;
   dismissed: Readonly<{ channel: ChannelName; notification: Notification }>;
   error: Readonly<{ channel: ChannelName; error: Error; notification: Notification }>;
+  permissionchange: Readonly<{ channel: ChannelName; permission: PermissionState }>;
 };
 
 export type NotificationEvent = keyof NotificationEventMap;

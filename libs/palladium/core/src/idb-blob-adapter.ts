@@ -8,6 +8,12 @@ export class IDBBlobAdapter implements BlobAdapter, BlobStoreLifecycle {
   readonly #databaseExclusive: boolean;
   #db: IDBDatabase | null = null;
   #disposed = false;
+  #deletion: Promise<void> | null = null;
+  #deletionId = 0;
+  #openWaiters: Array<() => void> = [];
+  #opening: Promise<IDBDatabase> | null = null;
+  #disposePromise: Promise<void> | null = null;
+  #activeTransactions = new Set<Promise<unknown>>();
 
   constructor(
     dbName = "palladium-blobs",
@@ -23,38 +29,81 @@ export class IDBBlobAdapter implements BlobAdapter, BlobStoreLifecycle {
 
   async #open(): Promise<IDBDatabase> {
     if (this.#disposed) throw new Error("IDBBlobAdapter has been disposed");
-    if (this.#db) return this.#db;
-    return new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open(this.#dbName, 1);
-      req.onupgradeneeded = () => {
-        const db = req.result;
-        if (!db.objectStoreNames.contains("blobs")) {
-          db.createObjectStore("blobs");
-        }
-        if (!db.objectStoreNames.contains("chunks")) {
-          db.createObjectStore("chunks");
-        }
-      };
-      req.onsuccess = () => {
-        const db = req.result;
-        db.onversionchange = () => {
-          db.close();
-          if (this.#db === db) this.#db = null;
+    while (true) {
+      const deletion = this.#deletion;
+      if (deletion) {
+        await new Promise<void>((resolve) => {
+          this.#openWaiters.push(resolve);
+        });
+        continue;
+      }
+      if (this.#db) return this.#db;
+      if (this.#opening) return this.#opening;
+      const opening = new Promise<IDBDatabase>((resolve, reject) => {
+        const deletionId = this.#deletionId;
+        const req = indexedDB.open(this.#dbName, 1);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains("blobs")) {
+            db.createObjectStore("blobs");
+          }
+          if (!db.objectStoreNames.contains("chunks")) {
+            db.createObjectStore("chunks");
+          }
         };
-        this.#db = db;
-        resolve(db);
-      };
-      req.onerror = () => {
-        reject(req.error);
-      };
-    });
+        req.onsuccess = () => {
+          if (deletionId !== this.#deletionId || this.#disposed) {
+            const stale = req.result;
+            if (stale && typeof stale === "object" && "close" in stale) {
+              try {
+                (stale as IDBDatabase).close();
+              } catch {
+                // Ignore: stale handle may already be torn down.
+              }
+            }
+            reject(
+              this.#disposed
+                ? new Error("IDBBlobAdapter has been disposed")
+                : new Error(
+                    `Opening IndexedDB "${this.#dbName}" was preempted by a pending deletion`,
+                  ),
+            );
+            return;
+          }
+          const db = req.result;
+          if (!db) {
+            reject(new Error(`Opening IndexedDB "${this.#dbName}" produced no result`));
+            return;
+          }
+          db.onversionchange = () => {
+            db.close();
+            if (this.#db === db) this.#db = null;
+          };
+          this.#db = db;
+          resolve(db);
+        };
+        req.onerror = () => {
+          reject(req.error);
+        };
+      });
+      this.#opening = opening;
+      void opening.then(
+        () => {
+          if (this.#opening === opening) this.#opening = null;
+        },
+        () => {
+          if (this.#opening === opening) this.#opening = null;
+        },
+      );
+      return opening;
+    }
   }
 
   async put(id: string, bytes: Uint8Array, options?: BlobAdapterOptions): Promise<void> {
     const key = this.#key(id);
     options?.signal?.throwIfAborted();
     const db = await this.#open();
-    await runTransaction(db, ["blobs", "chunks"], "readwrite", (tx) => {
+    await this.#runTransaction(db, ["blobs", "chunks"], "readwrite", (tx) => {
       const blobs = tx.objectStore("blobs");
       const chunks = tx.objectStore("chunks");
       const chunkCount =
@@ -75,14 +124,16 @@ export class IDBBlobAdapter implements BlobAdapter, BlobStoreLifecycle {
 
   async get(id: string, options?: BlobAdapterOptions): Promise<Uint8Array | null> {
     options?.signal?.throwIfAborted();
-    return readBlob(await this.#open(), this.#key(id));
+    const db = await this.#open();
+    this.#ensureActive();
+    return this.#trackTransaction(readBlob(db, this.#key(id)));
   }
 
   async delete(id: string, options?: BlobAdapterOptions): Promise<void> {
     options?.signal?.throwIfAborted();
     const key = this.#key(id);
     const db = await this.#open();
-    await runTransaction(db, ["blobs", "chunks"], "readwrite", (tx) => {
+    await this.#runTransaction(db, ["blobs", "chunks"], "readwrite", (tx) => {
       deleteChunks(tx.objectStore("chunks"), key, 0);
       tx.objectStore("blobs").delete(key);
     });
@@ -91,7 +142,9 @@ export class IDBBlobAdapter implements BlobAdapter, BlobStoreLifecycle {
   async has(id: string, options?: BlobAdapterOptions): Promise<boolean> {
     options?.signal?.throwIfAborted();
     const key = this.#key(id);
-    const val = await idbGet<unknown>(await this.#open(), "blobs", key);
+    const db = await this.#open();
+    this.#ensureActive();
+    const val = await this.#trackTransaction(idbGet<unknown>(db, "blobs", key));
     return val !== undefined;
   }
   async clear(options?: BlobAdapterOptions): Promise<void> {
@@ -102,7 +155,7 @@ export class IDBBlobAdapter implements BlobAdapter, BlobStoreLifecycle {
       );
     }
     const db = await this.#open();
-    await runTransaction(db, ["blobs", "chunks"], "readwrite", (tx) => {
+    await this.#runTransaction(db, ["blobs", "chunks"], "readwrite", (tx) => {
       const prefix = this.#namespace ? `${this.#namespace.length}:${this.#namespace}:` : "";
       const blobs = tx.objectStore("blobs");
       const chunks = tx.objectStore("chunks");
@@ -123,45 +176,85 @@ export class IDBBlobAdapter implements BlobAdapter, BlobStoreLifecycle {
   }
 
   /** Close and delete exactly the configured database. */
-  async deleteDatabase(): Promise<void> {
+  deleteDatabase(): Promise<void> {
     if (!this.#databaseExclusive) {
-      throw new Error(
-        "Database deletion requires explicit exclusive ownership of the configured database",
+      return Promise.reject(
+        new Error(
+          "Database deletion requires explicit exclusive ownership of the configured database",
+        ),
       );
     }
-    await this.close();
-    await new Promise<void>((resolve, reject) => {
-      const request = indexedDB.deleteDatabase(this.#dbName);
-      let settled = false;
-      request.onsuccess = () => {
-        if (!settled) {
-          settled = true;
-          resolve();
-        }
-      };
-      request.onerror = () => {
-        if (!settled) {
-          settled = true;
-          reject(request.error ?? new Error(`Failed to delete IndexedDB "${this.#dbName}"`));
-        }
-      };
-      request.onblocked = () => {
-        if (!settled) {
-          settled = true;
-          reject(
-            new Error(`Deletion of IndexedDB "${this.#dbName}" is blocked by another connection`),
-          );
-        }
-      };
+    if (this.#deletion) return this.#deletion;
+
+    this.#db?.close();
+    this.#db = null;
+    const deletionId = ++this.#deletionId;
+    const { promise, resolve: resolvePromise, reject: rejectPromise } = deferred<void>();
+    let settled = false;
+    const wake = (error?: unknown) => {
+      if (settled) return;
+      settled = true;
+      if (this.#deletionId === deletionId) {
+        this.#deletion = null;
+      }
+      const waiters = this.#openWaiters;
+      this.#openWaiters = [];
+      for (const resolve of waiters) resolve();
+      if (error === undefined) {
+        resolvePromise();
+      } else {
+        rejectPromise(error);
+      }
+    };
+    this.#deletion = promise;
+    Promise.resolve().then(() => {
+      let request: IDBRequest<IDBDatabase> | undefined;
+      try {
+        request = indexedDB.deleteDatabase(this.#dbName) as IDBRequest<IDBDatabase>;
+        request.onsuccess = () => wake();
+        request.onerror = () => {
+          wake(request?.error ?? new Error(`Failed to delete IndexedDB "${this.#dbName}"`));
+        };
+        // A blocked request remains live; only success or error releases queued opens.
+      } catch (error) {
+        wake(error);
+      }
     });
+    return promise;
   }
 
-  async dispose(): Promise<void> {
-    if (this.#disposed) return;
+  dispose(): Promise<void> {
+    if (this.#disposePromise) return this.#disposePromise;
     this.#disposed = true;
-    await this.close();
+    this.#db?.close();
+    this.#db = null;
+    this.#disposePromise = Promise.allSettled(this.#activeTransactions).then(() => undefined);
+    return this.#disposePromise;
   }
 
+  #runTransaction(
+    db: IDBDatabase,
+    stores: string[],
+    mode: IDBTransactionMode,
+    operation: (tx: IDBTransaction) => void,
+  ): Promise<void> {
+    this.#ensureActive();
+    return this.#trackTransaction(runTransaction(db, stores, mode, operation));
+  }
+
+  #trackTransaction<T>(operation: Promise<T>): Promise<T> {
+    this.#ensureActive();
+    this.#activeTransactions.add(operation);
+    void operation.then(
+      () => this.#activeTransactions.delete(operation),
+      () => this.#activeTransactions.delete(operation),
+    );
+    return operation;
+  }
+
+  #ensureActive(): void {
+    if (this.#disposed) throw new Error("IDBBlobAdapter has been disposed");
+  }
   #key(id: string): string {
     return this.#namespace ? `${this.#namespace.length}:${this.#namespace}:${id}` : id;
   }

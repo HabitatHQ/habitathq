@@ -17,6 +17,7 @@ export class WebPushChannel implements NotificationsChannel {
   readonly name = "webPush" as const;
   private readonly _opts: WebPushChannelOpts;
   private _subscription: PushSubscriptionJSON | null = null;
+  private _browserSubscriptionRemoved = false;
 
   constructor(opts: WebPushChannelOpts) {
     this._opts = opts;
@@ -66,8 +67,7 @@ export class WebPushChannel implements NotificationsChannel {
       const swUrl = this._opts.serviceWorkerUrl ?? "/sw.js";
       const scope = this._opts.serviceWorkerScope ?? "/";
       const registration = await navigator.serviceWorker.register(swUrl, { scope });
-      const swRegistration = await navigator.serviceWorker.ready;
-      const reg = swRegistration ?? registration;
+      const reg = registration;
 
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
@@ -84,16 +84,17 @@ export class WebPushChannel implements NotificationsChannel {
         keys: { p256dh, auth },
       };
 
-      this._subscription = subJson;
-
       if (this._opts.subscribeEndpoint !== undefined) {
-        await fetch(this._opts.subscribeEndpoint, {
+        const response = await fetch(this._opts.subscribeEndpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(subJson),
         });
+        if (!response.ok) return null;
       }
 
+      this._subscription = subJson;
+      this._browserSubscriptionRemoved = false;
       return subJson;
     } catch {
       return null;
@@ -101,24 +102,53 @@ export class WebPushChannel implements NotificationsChannel {
   }
 
   async unsubscribe(): Promise<void> {
-    if (!this.isAvailable() || this._subscription === null) return;
-    try {
-      const swRegistration = await navigator.serviceWorker.ready;
-      const sub = await swRegistration.pushManager.getSubscription();
-      if (sub !== null) {
-        await sub.unsubscribe();
+    if (!this.isAvailable()) return;
+
+    const scope = new URL(this._opts.serviceWorkerScope ?? "/", window.location.href).href;
+
+    if (!this._browserSubscriptionRemoved) {
+      const registration = await navigator.serviceWorker.getRegistration(
+        this._opts.serviceWorkerScope ?? "/",
+      );
+      if (registration !== undefined && registration.scope === scope) {
+        const sub = await registration.pushManager.getSubscription();
+        if (sub === null) {
+          this._browserSubscriptionRemoved = true;
+        } else {
+          const rawKey = sub.getKey("p256dh");
+          const rawAuth = sub.getKey("auth");
+          this._subscription = {
+            endpoint: sub.endpoint,
+            keys: {
+              p256dh: rawKey ? btoa(String.fromCharCode(...new Uint8Array(rawKey))) : "",
+              auth: rawAuth ? btoa(String.fromCharCode(...new Uint8Array(rawAuth))) : "",
+            },
+          };
+          if (!(await sub.unsubscribe())) {
+            throw new Error("Browser Push subscription removal was rejected");
+          }
+          this._browserSubscriptionRemoved = true;
+        }
+      } else if (this._subscription === null) {
+        return;
+      } else {
+        this._browserSubscriptionRemoved = true;
       }
-      if (this._opts.unsubscribeEndpoint !== undefined) {
-        await fetch(this._opts.unsubscribeEndpoint, {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(this._subscription),
-        });
-      }
-      this._subscription = null;
-    } catch {
-      this._subscription = null;
     }
+
+    if (this._subscription === null) return;
+    if (this._opts.unsubscribeEndpoint !== undefined) {
+      const response = await fetch(this._opts.unsubscribeEndpoint, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(this._subscription),
+      });
+      if (!response.ok) {
+        throw new Error(`Web Push unsubscribe failed: HTTP ${response.status}`);
+      }
+    }
+    this._subscription = null;
+    this._browserSubscriptionRemoved = false;
   }
 
   getSubscription(): PushSubscriptionJSON | null {

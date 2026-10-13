@@ -79,14 +79,25 @@ describe("liveQueryStore", () => {
 });
 
 describe("syncStatusStore", () => {
-  it("updates when engine status changes", async () => {
+  it("starts with current status on first and renewed subscriptions", async () => {
     const db = makeDb();
     await db.init(SCHEMA);
     const store = syncStatusStore(db);
 
-    const unsub = store.subscribe(() => {});
+    db.setStatus("offline");
+    const firstValues: string[] = [];
+    const unsubscribeFirst = store.subscribe((status) => firstValues.push(status));
+    expect(firstValues).toEqual(["offline"]);
     db.setStatus("syncing");
-    expect(get(store)).toBe("syncing");
-    unsub();
+    expect(firstValues).toEqual(["offline", "syncing"]);
+    unsubscribeFirst();
+
+    db.setStatus("offline");
+    const renewedValues: string[] = [];
+    const unsubscribeRenewed = store.subscribe((status) => renewedValues.push(status));
+    expect(renewedValues).toEqual(["offline"]);
+    db.setStatus("caught_up");
+    expect(renewedValues).toEqual(["offline", "caught_up"]);
+    unsubscribeRenewed();
   });
 });

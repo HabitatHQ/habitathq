@@ -214,6 +214,82 @@ describe("createNotifications", () => {
     expect(result).toBe("not-applicable");
   });
 
+  it.each(["granted", "denied"] as const)(
+    "emits permission changes from instance requests (%s)",
+    async (decision) => {
+      const browser = new MockChannel("browser", { permissionState: "default" });
+      vi.spyOn(browser, "requestPermission").mockImplementation(async () => {
+        browser.setPermissionState(decision);
+        return decision;
+      });
+      const inst = createNotifications({ channels: { browser } });
+      const listener = vi.fn();
+      inst.on("permissionchange", listener);
+      await inst.requestPermission("browser");
+      expect(listener).toHaveBeenCalledWith({ channel: "browser", permission: decision });
+      expect(browser.sentNotifications).toEqual([]);
+    },
+  );
+
+  it("rejects instance permission requests without emitting a transition", async () => {
+    const browser = new MockChannel("browser", { permissionState: "default" });
+    const error = new Error("permission request failed");
+    vi.spyOn(browser, "requestPermission").mockRejectedValue(error);
+    const inst = createNotifications({ channels: { browser } });
+    const listener = vi.fn();
+    inst.on("permissionchange", listener);
+    await expect(inst.requestPermission("browser")).rejects.toBe(error);
+    expect(listener).not.toHaveBeenCalled();
+    expect(browser.sentNotifications).toEqual([]);
+  });
+
+  it.each(["granted", "denied"] as const)(
+    "publishes automatic send-time permission %s even without delivery",
+    async (decision) => {
+      const browser = new MockChannel("browser", { permissionState: "default" });
+      vi.spyOn(browser, "requestPermission").mockImplementation(async () => {
+        browser.setPermissionState(decision);
+        return decision;
+      });
+      const inst = createNotifications({ channels: { browser } });
+      const permissions: string[] = [];
+      inst.on("permissionchange", ({ permission }) => permissions.push(permission));
+      const result = await inst.browser.send({ title: "permission first" });
+      expect(permissions).toEqual([decision]);
+      if (decision === "granted") {
+        expect(result).toEqual({ delivered: ["browser"], failed: [], skipped: [] });
+        expect(browser.sentNotifications).toEqual([{ title: "permission first" }]);
+      } else {
+        expect(result).toEqual({
+          delivered: [],
+          failed: [],
+          skipped: [{ channel: "browser", reason: 'Permission not granted for channel "browser"' }],
+        });
+        expect(browser.sentNotifications).toEqual([]);
+      }
+    },
+  );
+
+  it("browser shorthand publishes the same permission event", async () => {
+    const browser = new MockChannel("browser", { permissionState: "default" });
+    vi.spyOn(browser, "requestPermission").mockImplementation(async () => {
+      browser.setPermissionState("denied");
+      return "denied";
+    });
+    const inst = createNotifications({ channels: { browser } });
+    const listener = vi.fn();
+    inst.on("permissionchange", listener);
+    await inst.browser.requestPermission();
+    expect(listener).toHaveBeenCalledWith({ channel: "browser", permission: "denied" });
+  });
+  it("returns not-applicable from the instance API for absent channels without a transition", async () => {
+    const inst = createNotifications();
+    const listener = vi.fn();
+    inst.on("permissionchange", listener);
+    await expect(inst.requestPermission("browser")).resolves.toBe("not-applicable");
+    expect(listener).not.toHaveBeenCalled();
+  });
+
   it("use() middleware can transform notification", async () => {
     const toast = new MockChannel("toast");
     const inst = createNotifications({ channels: { toast } });

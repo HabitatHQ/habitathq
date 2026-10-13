@@ -654,7 +654,8 @@ export class SyncTransport<S extends SchemaMap> {
         }
       }
 
-      await this.#engine.setSyncState("schema_identity_v1", this.#schemaFingerprint);
+      // The schema identity belongs to PalladiumEngine.init(SchemaConfig).
+      // SyncTransport fingerprints only scope durable outbox compatibility.
       const savedAppendCursor = await this.#engine.getSyncState(STATE_APPEND_CURSOR);
       await this.#engine.adapter.exec(EVENT_DDL, []);
       if (isOpaqueCursor(savedAppendCursor)) {
@@ -668,11 +669,19 @@ export class SyncTransport<S extends SchemaMap> {
   }
 
   constructor(engine: PalladiumEngine<S>, options: SyncTransportOptions) {
-    const schemaFingerprint = options.schemaFingerprint ?? engine.initializedSchemaIdentity;
+    const engineSchemaIdentity = engine.initializedSchemaIdentity;
+    const schemaFingerprint = options.schemaFingerprint ?? engineSchemaIdentity;
     if (schemaFingerprint === null) {
       throw new Error(
         "SyncTransport requires schemaFingerprint or an engine initialized with SchemaConfig",
       );
+    }
+    if (
+      engineSchemaIdentity !== null &&
+      options.schemaFingerprint !== undefined &&
+      options.schemaFingerprint !== engineSchemaIdentity
+    ) {
+      throw new Error("SyncTransport schemaFingerprint must match the initialized engine schema");
     }
     this.#engine = engine;
     engine.acquireSyncTransport(this);

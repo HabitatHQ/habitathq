@@ -79,13 +79,209 @@ function sameOps<S extends SchemaMap>(a: ReadonlyArray<Op<S>>, b: ReadonlyArray<
 const SQL_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /**
- * Guard a table or column name that will be interpolated into SQL. Used at the
+/** Guard a table or column name that will be interpolated into SQL. Used at the
  * remote-apply boundary, where names come from an untrusted change — anything
  * that isn't a plain identifier is rejected before it can reach a query.
  */
 function assertSqlIdentifier(name: string): void {
   if (!SQL_IDENTIFIER.test(name)) {
     throw new Error(`invalid SQL identifier in remote change: ${JSON.stringify(name)}`);
+  }
+}
+
+/**
+ * Canonical identifier policy: one logical SQL cell = one canonical spelling.
+ *
+ * SQLite resolves table and column identifiers case-insensitively for *lookup*
+ * but a `SELECT` against `'Notes'` and a metadata row keyed by `'Notes'` are
+ * not naturally equivalent — `WHERE tbl = 'Notes'` and `WHERE tbl = 'notes'`
+ * target different rows. Issue #77 proved an older remote change addressed
+ * with a mixed-case alias could bypass the LWW register for the same cell and
+ * clobber a newer local value.
+ *
+ * Resolution: callers (and the wire) keep their original spelling, but every
+ * internal path that keys LWW metadata, pending buffers, tombstones, purges,
+ * shadow-table deletes, or outbox SQL uses the canonical lowercased table name
+ * and the canonical column spelling resolved against the declared schema. The
+ * Rust server is allowed to keep its current behaviour; wire canonicality is
+ * the caller's responsibility and is not asserted here.
+ */
+function canonicalTable(name: string): string {
+  return name.toLowerCase();
+}
+
+function canonicalColumn(column: string, columns: ReadonlySet<string>): string {
+  // Id column is special — engine ops always carry it under `id` and SQLite
+  // resolves it case-insensitively. Keep it as a plain lowercase canonical.
+  if (column.toLowerCase() === "id") return "id";
+  for (const declared of columns) {
+    if (declared.toLowerCase() === column.toLowerCase()) return declared;
+  }
+  // Caller supplied a column not present in the declared schema. Preserve the
+  // original spelling (it is still a valid identifier and the engine only
+  // rejects it on durable write failure, not at metadata bookkeeping time).
+  return column;
+}
+
+function schemaColumnsFor(schemaSql: string, table: string): ReadonlySet<string> {
+  const result = new Set<string>();
+  const re = /CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)/gi;
+  for (const m of schemaSql.matchAll(re)) {
+    if (m[1]?.toLowerCase() !== table.toLowerCase()) continue;
+    const body = m[2] ?? "";
+    for (const part of body.split(",")) {
+      const col = part.trim().split(/\s+/)[0] ?? "";
+      const match = /^[`"[]?([A-Za-z_][A-Za-z0-9_]*)[`"\]]?$/.exec(col);
+      if (match?.[1]) result.add(match[1]);
+    }
+  }
+  return result;
+}
+
+function canonicalOp<S extends SchemaMap>(
+  op: Op<S>,
+  tableColumns: (table: string) => ReadonlySet<string>,
+): Op<S> {
+  const table = canonicalTable(String(op.table));
+  if (op.type === "insert") {
+    const cols = tableColumns(table);
+    const data = { ...(op.data as Record<string, unknown>) } as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(data)) {
+      out[canonicalColumn(k, cols)] = v;
+    }
+    return { ...op, table: table as keyof S & string, data: out as S[typeof table] };
+  }
+  if (op.type === "update") {
+    const cols = tableColumns(table);
+    const patch = { ...(op.patch as Record<string, unknown>) };
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(patch)) {
+      out[canonicalColumn(k, cols)] = v;
+    }
+    return { ...op, table: table as keyof S & string, patch: out as Partial<S[typeof table]> };
+  }
+  return { ...op, table: table as keyof S & string };
+}
+
+/**
+ * Rewrite legacy metadata/pending rows that
+ * were persisted under a mixed-case alias so the new canonical LWW keys see
+ * them, merging on collision by preserving the highest HLC. Idempotent and
+ * safe to call on every `init()`.
+ */
+async function migrateShadowTablesToCanonical(
+  adpt: StorageAdapter,
+  tableColumns: (table: string) => ReadonlySet<string>,
+): Promise<void> {
+  // Pass 1 — `_sync_row_meta`. Walk every alias `tbl` spelling and merge each
+  // row into the canonical spelling. A blind UPDATE on the table column would
+  // hit the (tbl, row_id, col) UNIQUE constraint when a canonical row already
+  // exists; we must merge on collision by keeping the highest HLC.
+  const tblRows = await adpt.exec<{ tbl: string }>(`SELECT DISTINCT tbl FROM ${SYNC_ROW_META}`);
+  for (const { tbl } of tblRows) {
+    const canonical = canonicalTable(tbl);
+    if (canonical === tbl) continue;
+    const aliasRows = await adpt.exec<MetaRow & { row_id: string; col: string }>(
+      `SELECT row_id, col, hlc_wall_ms, hlc_counter, hlc_node_id
+         FROM ${SYNC_ROW_META} WHERE tbl = ?`,
+      [tbl],
+    );
+    for (const alias of aliasRows) {
+      const existing = await adpt.exec<MetaRow>(
+        `SELECT hlc_wall_ms, hlc_counter, hlc_node_id FROM ${SYNC_ROW_META}
+           WHERE tbl = ? AND row_id = ? AND col = ?`,
+        [canonical, alias.row_id, alias.col],
+      );
+      if (existing[0] === undefined) {
+        await adpt.exec(
+          `UPDATE ${SYNC_ROW_META} SET tbl = ? WHERE tbl = ? AND row_id = ? AND col = ?`,
+          [canonical, tbl, alias.row_id, alias.col],
+        );
+      } else {
+        const a = metaRowToHlc(alias);
+        const r = metaRowToHlc(existing[0]);
+        if (compareHlc(a, r) > 0) {
+          await adpt.exec(
+            `UPDATE ${SYNC_ROW_META}
+               SET hlc_wall_ms = ?, hlc_counter = ?, hlc_node_id = ?
+               WHERE tbl = ? AND row_id = ? AND col = ?`,
+            [a.wallMs, a.counter, a.nodeId, canonical, alias.row_id, alias.col],
+          );
+        }
+        await adpt.exec(`DELETE FROM ${SYNC_ROW_META} WHERE tbl = ? AND row_id = ? AND col = ?`, [
+          tbl,
+          alias.row_id,
+          alias.col,
+        ]);
+      }
+    }
+  }
+
+  // Pass 2 — `_sync_row_meta` `col` aliases. Same merge rule: highest HLC wins
+  // when both a canonical column and an alias column row exist for the same
+  // (tbl, row_id).
+  const colRows = await adpt.exec<{ tbl: string; col: string }>(
+    `SELECT DISTINCT tbl, col FROM ${SYNC_ROW_META}`,
+  );
+  for (const { tbl, col } of colRows) {
+    const canonical = canonicalColumn(col, tableColumns(tbl));
+    if (canonical === col) continue;
+    const owners = await adpt.exec<{ row_id: string }>(
+      `SELECT row_id FROM ${SYNC_ROW_META} WHERE tbl = ? AND col = ?`,
+      [tbl, col],
+    );
+    for (const { row_id } of owners) {
+      const other = await adpt.exec<MetaRow>(
+        `SELECT hlc_wall_ms, hlc_counter, hlc_node_id FROM ${SYNC_ROW_META}
+           WHERE tbl = ? AND row_id = ? AND col = ?`,
+        [tbl, row_id, canonical],
+      );
+      if (other[0] === undefined) {
+        await adpt.exec(
+          `UPDATE ${SYNC_ROW_META} SET col = ? WHERE tbl = ? AND row_id = ? AND col = ?`,
+          [canonical, tbl, row_id, col],
+        );
+      } else {
+        const alias = await adpt.exec<MetaRow>(
+          `SELECT hlc_wall_ms, hlc_counter, hlc_node_id FROM ${SYNC_ROW_META}
+             WHERE tbl = ? AND row_id = ? AND col = ?`,
+          [tbl, row_id, col],
+        );
+        if (alias[0]) {
+          const a = metaRowToHlc(alias[0]);
+          const r = metaRowToHlc(other[0]);
+          if (compareHlc(a, r) > 0) {
+            await adpt.exec(
+              `UPDATE ${SYNC_ROW_META}
+                 SET hlc_wall_ms = ?, hlc_counter = ?, hlc_node_id = ?
+                 WHERE tbl = ? AND row_id = ? AND col = ?`,
+              [a.wallMs, a.counter, a.nodeId, tbl, row_id, canonical],
+            );
+          }
+        }
+        await adpt.exec(`DELETE FROM ${SYNC_ROW_META} WHERE tbl = ? AND row_id = ? AND col = ?`, [
+          tbl,
+          row_id,
+          col,
+        ]);
+      }
+    }
+  }
+
+  // Pass 3 — `_sync_pending_remote_updates` `tbl` aliases. Pending rows carry
+  // a unique `pending_id` primary key and represent distinct logical
+  // updates. Coalescing by `(tbl, row_id, patch)` would risk losing
+  // non-overlapping fields, so we only rewrite the `tbl` column to
+  // canonical and never delete a pending row. The pending_id PK guarantees
+  // each row is unique, so the rewrite is always safe.
+  const pendingTblRows = await adpt.exec<{ tbl: string }>(
+    `SELECT DISTINCT tbl FROM ${PENDING_REMOTE_UPDATES}`,
+  );
+  for (const { tbl } of pendingTblRows) {
+    const canonical = canonicalTable(tbl);
+    if (canonical === tbl) continue;
+    await adpt.exec(`UPDATE ${PENDING_REMOTE_UPDATES} SET tbl = ? WHERE tbl = ?`, [canonical, tbl]);
   }
 }
 
@@ -277,6 +473,7 @@ export class PalladiumEngine<S extends SchemaMap> {
   readonly #localChangeCheckpoints = new Set<LocalChangeCheckpoint<S>>();
   readonly #blobRegistry = new BlobRegistry();
   #schemaIdentity: string | null = null;
+  #schemaSql: string | null = null;
   #syncTransportOwner: object | null = null;
   readonly blobs: BlobHandle;
 
@@ -608,16 +805,25 @@ export class PalladiumEngine<S extends SchemaMap> {
       });
       this.#knownTables = extractSchemaTables(schema.schema);
       this.#schemaIdentity = identity;
+      this.#schemaSql = schema.schema;
+      await this.#ensureSyncTables(this.adapter);
+      await migrateShadowTablesToCanonical(this.adapter, (table) =>
+        schemaColumnsFor(this.#schemaSql ?? schema.schema, table),
+      );
     }
+  }
+
+  #columnsFor(table: string): ReadonlySet<string> {
+    return schemaColumnsFor(this.#schemaSql ?? "", table);
   }
 
   /** Delete a local row without generating a sync/outbox change. */
   async purgeLocal<K extends keyof S & string>(table: K, id: string): Promise<void> {
-    const tableName = String(table);
+    const tableName = canonicalTable(String(table));
     await this.#serialize(async () => {
       await this.#purgeLocalTransaction(this.adapter, tableName, id);
     });
-    await this.#notifyLiveQueries([tableName.toLowerCase()]);
+    await this.#notifyLiveQueries([tableName]);
   }
 
   /** Whether a table was declared by the initialized schema. */
@@ -740,7 +946,7 @@ export class PalladiumEngine<S extends SchemaMap> {
   async #assertLocalRowsNotRetired(adpt: StorageAdapter, ops: ReadonlyArray<Op<S>>): Promise<void> {
     for (const op of ops) {
       if (op.type === "delete") continue;
-      const table = String(op.table);
+      const table = canonicalTable(String(op.table));
       const id =
         op.type === "insert" ? (op.data as unknown as Record<string, unknown>)["id"] : op.id;
       if (
@@ -821,7 +1027,7 @@ export class PalladiumEngine<S extends SchemaMap> {
       }
 
       if (localChange !== null && !this.#suppressLocalEmit) {
-        this.emitter.emit("changes:local", localChange);
+        this.#reportObserverErrors(this.emitter.emitSafely("changes:local", localChange));
       }
     });
 
@@ -899,12 +1105,18 @@ export class PalladiumEngine<S extends SchemaMap> {
   ): Promise<void> {
     await this.#ensureSyncTables(adpt);
     const scope = change.scope ?? "default";
-    const payload = JSON.stringify({ hlc: change.hlc, ops: canonicalOps });
+    // The duplicate-detection payload is the wire-form Change as the server
+    // sent it. Identifier canonicalization is an internal bookkeeping concern
+    // only; the wire/canonical-form boundary must stay observable to a future
+    // Rust admission contract.
+    const payload = JSON.stringify({ hlc: change.hlc, ops: change.ops });
     const duplicate = await this.#isDuplicateRemoteChange(adpt, scope, change.id, payload);
     // ACL purges clear row versions, not immutable change identities. Reconcile
     // a matching replay so a later grant can restore history; LWW keeps ordinary
     // duplicates idempotent and preserves newer local writes and tombstones.
-    await this.#reconcileRemoteChange(adpt, change.ops, change.hlc, touchedTables);
+    // `canonicalOps` is the identifier-canonical spelling used for SQL
+    // metadata, pending buffers, tombstones, and storage writes.
+    await this.#reconcileRemoteChange(adpt, canonicalOps, change.hlc, touchedTables);
     if (!duplicate) {
       await this.#recordRemoteChange(adpt, scope, change.id, payload);
     }
@@ -913,11 +1125,20 @@ export class PalladiumEngine<S extends SchemaMap> {
   }
 
   async #purgeLocalTransaction(adpt: StorageAdapter, tableName: string, id: string): Promise<void> {
+    // Delete all LWW registers and pending rows for this row regardless of
+    // case-alias spelling. A targeted `tbl = ?` rewrite would conflict with
+    // the (tbl, row_id, col) UNIQUE constraint when a canonical row already
+    // exists; an alias-spelling UPDATE+DELETE is also unnecessary because
+    // SQLite resolves the row by primary key — clearing by row_id plus a
+    // case-insensitive table match is sufficient and avoids a UNIQUE conflict.
     await adpt.remove(tableName, id);
-    await adpt.exec(`DELETE FROM ${SYNC_ROW_META} WHERE tbl = ? AND row_id = ?`, [tableName, id]);
-    await adpt.exec(`DELETE FROM ${PENDING_REMOTE_UPDATES} WHERE tbl = ? AND row_id = ?`, [
-      tableName,
+    await adpt.exec(`DELETE FROM ${SYNC_ROW_META} WHERE row_id = ? AND LOWER(tbl) = ?`, [
       id,
+      tableName,
+    ]);
+    await adpt.exec(`DELETE FROM ${PENDING_REMOTE_UPDATES} WHERE row_id = ? AND LOWER(tbl) = ?`, [
+      id,
+      tableName,
     ]);
   }
 
@@ -934,13 +1155,22 @@ export class PalladiumEngine<S extends SchemaMap> {
       if (!isUuidV7(op.id)) throw new TypeError("Remote row id must be a canonical UUIDv7");
     }
     if (ops.length === 0) return;
+    const identifierCanonicalOps: ReadonlyArray<Op<S>> = canonicalOps.map((op) =>
+      canonicalOp(op, (table) => this.#columnsFor(table)),
+    );
     const touchedTables = new Set<string>();
     await this.#serialize(async () => {
       if (!isTransactable(this.adapter)) {
         throw new Error("PalladiumEngine writes require transaction support");
       }
       const applyAll = async (adpt: StorageAdapter): Promise<void> => {
-        await this.#applyRemoteTransaction(adpt, change, canonicalOps, touchedTables, cursor);
+        await this.#applyRemoteTransaction(
+          adpt,
+          change,
+          identifierCanonicalOps,
+          touchedTables,
+          cursor,
+        );
       };
       const previousHlc = this.#currentHlc;
       this.#suppressLocalEmit = true;
@@ -988,7 +1218,10 @@ export class PalladiumEngine<S extends SchemaMap> {
       for (const op of change.ops) {
         if (!isUuidV7(op.id)) throw new TypeError("Remote row id must be a canonical UUIDv7");
       }
-      return { change, canonicalOps };
+      const identifierCanonicalOps = canonicalOps.map((op) =>
+        canonicalOp(op, (table) => this.#columnsFor(table)),
+      );
+      return { change, identifierCanonicalOps };
     });
     const touchedTables = new Set<string>();
     let allApplied = true;
@@ -998,7 +1231,7 @@ export class PalladiumEngine<S extends SchemaMap> {
       }
       this.#suppressLocalEmit = true;
       try {
-        for (const { change, canonicalOps } of prepared) {
+        for (const { change, identifierCanonicalOps } of prepared) {
           const changeTouchedTables = new Set<string>();
           const previousHlc = this.#currentHlc;
           try {
@@ -1006,7 +1239,7 @@ export class PalladiumEngine<S extends SchemaMap> {
               await this.#applyRemoteTransaction(
                 adpt,
                 change,
-                canonicalOps,
+                identifierCanonicalOps,
                 changeTouchedTables,
                 undefined,
               );
@@ -1024,8 +1257,9 @@ export class PalladiumEngine<S extends SchemaMap> {
         if (!allApplied) return;
         await this.adapter.transaction(async (adpt) => {
           for (const purge of purges) {
-            await this.#purgeLocalTransaction(adpt, String(purge.table), purge.id);
-            touchedTables.add(String(purge.table).toLowerCase());
+            const purgeTable = canonicalTable(String(purge.table));
+            await this.#purgeLocalTransaction(adpt, purgeTable, purge.id);
+            touchedTables.add(purgeTable);
           }
           await afterApply(adpt);
         });
@@ -1147,11 +1381,19 @@ export class PalladiumEngine<S extends SchemaMap> {
   }
 
   async #notifyLiveQueries(tables: string[]): Promise<void> {
-    const promises: Promise<void>[] = [];
-    for (const lq of this.#liveQueries) {
-      promises.push(lq.notifyTables(tables));
+    const results = await Promise.allSettled(
+      [...this.#liveQueries].map((lq) => lq.notifyTables(tables)),
+    );
+    const errors = results.flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : [],
+    );
+    this.#reportObserverErrors(errors);
+  }
+
+  #reportObserverErrors(errors: readonly unknown[]): void {
+    for (const error of errors) {
+      this.emitter.emitSafely("error", error instanceof Error ? error : new Error(String(error)));
     }
-    await Promise.all(promises);
   }
 
   // ── Column-LWW shadow-table helpers (`_sync_row_meta`, D3/D4) ──────────────
@@ -1245,7 +1487,7 @@ export class PalladiumEngine<S extends SchemaMap> {
 
   /** Stamp every column a *local* op writes with the change's HLC (no gating). */
   async #stampLocalMeta(adpt: StorageAdapter, op: Op<S>, hlc: Hlc): Promise<void> {
-    const table = String(op.table);
+    const table = canonicalTable(String(op.table));
     if (op.type === "insert") {
       const data = op.data as unknown as Record<string, unknown> & {
         id: string;

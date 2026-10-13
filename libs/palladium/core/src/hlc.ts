@@ -79,9 +79,14 @@ export function generateUuidV7(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+/** Freeze a newly-created HLC without allocating a defensive copy. */
+function freezeHlc(hlc: Hlc): Hlc {
+  return Object.freeze(hlc);
+}
+
 /** Create an initial HLC anchored to `nowMs` for the given node. */
 export function createHlc(nodeId: string, nowMs = Date.now()): Hlc {
-  return { wallMs: nowMs, counter: 0, nodeId };
+  return freezeHlc({ wallMs: nowMs, counter: 0, nodeId });
 }
 
 /**
@@ -106,11 +111,11 @@ function nextCounter(wallMs: number, counter: number): { wallMs: number; counter
  */
 export function sendHlc(prev: Hlc, nowMs = Date.now()): Hlc {
   if (nowMs > prev.wallMs) {
-    return { wallMs: nowMs, counter: 0, nodeId: prev.nodeId };
+    return freezeHlc({ wallMs: nowMs, counter: 0, nodeId: prev.nodeId });
   }
   // Same millisecond — increment counter (with overflow guard).
   const next = nextCounter(prev.wallMs, prev.counter);
-  return { ...next, nodeId: prev.nodeId };
+  return freezeHlc({ ...next, nodeId: prev.nodeId });
 }
 
 /**
@@ -124,18 +129,18 @@ export function recvHlc(local: Hlc, remote: Hlc, nowMs = Date.now()): Hlc {
   if (maxWall === local.wallMs && maxWall === remote.wallMs) {
     // Both clocks are at the same ms — pick max counter + 1 (with overflow guard).
     const next = nextCounter(maxWall, Math.max(local.counter, remote.counter));
-    return { ...next, nodeId: local.nodeId };
+    return freezeHlc({ ...next, nodeId: local.nodeId });
   }
   if (maxWall === local.wallMs) {
     const next = nextCounter(maxWall, local.counter);
-    return { ...next, nodeId: local.nodeId };
+    return freezeHlc({ ...next, nodeId: local.nodeId });
   }
   if (maxWall === remote.wallMs) {
     const next = nextCounter(maxWall, remote.counter);
-    return { ...next, nodeId: local.nodeId };
+    return freezeHlc({ ...next, nodeId: local.nodeId });
   }
   // Wall clock advanced past both — reset counter.
-  return { wallMs: maxWall, counter: 0, nodeId: local.nodeId };
+  return freezeHlc({ wallMs: maxWall, counter: 0, nodeId: local.nodeId });
 }
 
 /** Compare two HLCs. Returns -1 if a < b, 1 if a > b, 0 if equal. */
@@ -171,5 +176,5 @@ export function hlcFromString(s: string): Hlc {
   if (!Number.isFinite(wallMs) || wallMs < 0 || !Number.isFinite(counter) || counter < 0) {
     throw new Error(`Invalid HLC string: "${s}"`);
   }
-  return { wallMs, counter, nodeId };
+  return freezeHlc({ wallMs, counter, nodeId });
 }

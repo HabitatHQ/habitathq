@@ -10,20 +10,29 @@ export function useBlob<S extends SchemaMap>(
   engine: PalladiumEngine<S>,
   id: string | null,
 ): Uint8Array | null {
-  const [bytes, setBytes] = useState<Uint8Array | null>(null);
+  const [request, setRequest] = useState({ engine, id, generation: 0 });
+  const requestMatches = request.engine === engine && request.id === id;
+  const generation = requestMatches ? request.generation : request.generation + 1;
+  if (!requestMatches) {
+    setRequest({ engine, id, generation });
+  }
+
+  const [result, setResult] = useState<{
+    engine: PalladiumEngine<S>;
+    id: string;
+    generation: number;
+    bytes: Uint8Array | null;
+  } | null>(null);
 
   useEffect(() => {
-    if (id === null) {
-      setBytes(null);
-      return;
-    }
+    if (id === null) return;
     const controller = new AbortController();
 
     engine.blobs
       .get(id, "bytes", { signal: controller.signal })
-      .then((b) => {
+      .then((bytes) => {
         if (!controller.signal.aborted) {
-          setBytes(b);
+          setResult({ engine, id, generation, bytes });
         }
       })
       .catch(() => {
@@ -33,7 +42,12 @@ export function useBlob<S extends SchemaMap>(
     return () => {
       controller.abort();
     };
-  }, [engine, id]);
+  }, [engine, id, generation]);
 
-  return bytes;
+  return requestMatches &&
+    result?.engine === engine &&
+    result.id === id &&
+    result.generation === generation
+    ? result.bytes
+    : null;
 }

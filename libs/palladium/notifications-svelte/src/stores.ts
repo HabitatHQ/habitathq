@@ -17,11 +17,8 @@ export function createNotificationsStore(
     instance.getChannel("browser")?.permissionStatus() ?? "not-applicable";
   const _browserPermission = writable<PermissionState>(initial);
 
-  const unsub = instance.on("delivered", () => {
-    const ch = instance.getChannel("browser");
-    if (ch !== undefined) {
-      _browserPermission.set(ch.permissionStatus());
-    }
+  const unsub = instance.on("permissionchange", ({ channel, permission }) => {
+    if (channel === "browser") _browserPermission.set(permission);
   });
 
   return {

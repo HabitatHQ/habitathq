@@ -7,9 +7,10 @@
  * transaction API.
  *
  * SQL routing in exec():
- *   - SELECT / PRAGMA / EXPLAIN -> query()   (returns rows)
- *   - DML with bind params      -> run()     (INSERT/UPDATE/DELETE)
- *   - DDL / DML without params  -> execute() (CREATE TABLE, multi-statement)
+ *   - SELECT / PRAGMA / EXPLAIN / VALUES and CTE SELECTs -> query() (returns rows)
+ *   - DML with RETURNING (including CTE DML) -> run(..., returnMode: "all")
+ *   - Other DML with bind params -> run()
+ *   - DDL / DML without params, including multi-statement scripts -> execute()
  *
  * Usage:
  *   import { SQLiteConnection, CapacitorSQLite } from '@capacitor-community/sqlite';
@@ -20,7 +21,7 @@
 
 import type { StorageAdapter, TransactableStorageAdapter } from "@palladium/core";
 import { dbg } from "@palladium/core";
-import type { SQLiteConnection, SQLiteDBConnection } from "./types.js";
+import type { CapSQLiteChanges, SQLiteConnection, SQLiteDBConnection } from "./types.js";
 
 export type { SQLiteConnection, SQLiteDBConnection } from "./types.js";
 
@@ -53,18 +54,156 @@ function assertIdentifier(name: string): void {
   }
 }
 
-/** True for statements that return result rows via query(). */
-function isReadStatement(sql: string): boolean {
-  const trimmed = sql.trimStart().toUpperCase();
-  return (
-    trimmed.startsWith("SELECT") || trimmed.startsWith("PRAGMA") || trimmed.startsWith("EXPLAIN")
-  );
+type SqlToken = { readonly kind: "word" | "quoted" | "punctuation"; readonly value: string };
+
+/**
+ * Tokenize enough SQLite syntax to classify statements without interpreting
+ * words or delimiters inside comments, string literals, or quoted identifiers.
+ */
+function tokenizeSql(sql: string): SqlToken[] {
+  const tokens: SqlToken[] = [];
+  let i = 0;
+  while (i < sql.length) {
+    const c = sql[i] as string;
+    if (/\s/.test(c)) {
+      i++;
+      continue;
+    }
+    if (c === "-" && sql[i + 1] === "-") {
+      const end = sql.indexOf("\n", i + 2);
+      i = end === -1 ? sql.length : end + 1;
+      continue;
+    }
+    if (c === "/" && sql[i + 1] === "*") {
+      const end = sql.indexOf("*/", i + 2);
+      i = end === -1 ? sql.length : end + 2;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === "`" || c === "[") {
+      const close = c === "[" ? "]" : c;
+      let value = "";
+      i++;
+      while (i < sql.length) {
+        const next = sql[i] as string;
+        if (next === close) {
+          if (sql[i + 1] === close && close !== "]") {
+            value += close;
+            i += 2;
+            continue;
+          }
+          i++;
+          break;
+        }
+        value += next;
+        i++;
+      }
+      tokens.push({ kind: "quoted", value });
+      continue;
+    }
+    if (/[A-Za-z0-9_]/.test(c)) {
+      const start = i++;
+      while (i < sql.length && /[A-Za-z0-9_]/.test(sql[i] as string)) i++;
+      tokens.push({ kind: "word", value: sql.slice(start, i).toUpperCase() });
+      continue;
+    }
+    tokens.push({ kind: "punctuation", value: c });
+    i++;
+  }
+  return tokens;
+}
+
+/** Find the index after a balanced parenthesized token group. */
+function afterParentheses(tokens: readonly SqlToken[], open: number): number {
+  if (tokens[open]?.value !== "(") return -1;
+  let depth = 0;
+  for (let i = open; i < tokens.length; i++) {
+    if (tokens[i]?.value === "(") depth++;
+    else if (tokens[i]?.value === ")" && --depth === 0) return i + 1;
+  }
+  return -1;
+}
+
+/** Return the first token after a CTE list, or -1 for malformed/unrecognized syntax. */
+function cteBodyStart(tokens: readonly SqlToken[]): number {
+  let i = 1;
+  if (tokens[i]?.value === "RECURSIVE") i++;
+  while (i < tokens.length) {
+    // The name itself can be a bare or quoted identifier.
+    if (tokens[i]?.kind !== "word" && tokens[i]?.kind !== "quoted") return -1;
+    i++;
+    if (tokens[i]?.value === "(") {
+      i = afterParentheses(tokens, i);
+      if (i < 0) return -1;
+    }
+    if (tokens[i]?.value !== "AS") return -1;
+    i++;
+    if (tokens[i]?.value === "NOT") {
+      i++;
+      if (tokens[i]?.value !== "MATERIALIZED") return -1;
+      i++;
+    } else if (tokens[i]?.value === "MATERIALIZED") {
+      i++;
+    }
+    if (tokens[i]?.value !== "(") return -1;
+    i = afterParentheses(tokens, i);
+    if (i < 0) return -1;
+    if (tokens[i]?.value !== ",") return i;
+    i++;
+  }
+  return -1;
+}
+
+/** True when RETURNING is a top-level keyword in the statement token sequence. */
+function hasTopLevelReturning(tokens: readonly SqlToken[]): boolean {
+  let depth = 0;
+  for (const token of tokens) {
+    if (token.value === "(") depth++;
+    else if (token.value === ")") depth--;
+    else if (depth === 0 && token.kind === "word" && token.value === "RETURNING") return true;
+  }
+  return false;
+}
+
+/** Classify SQL for the plugin APIs while preserving complete scripts for execute(). */
+function classification(
+  sql: string,
+): { kind: "read" } | { kind: "returning" } | { kind: "command" } {
+  const tokens = tokenizeSql(sql);
+  const statements: SqlToken[][] = [[]];
+  for (const token of tokens) {
+    if (token.value === ";") statements.push([]);
+    else statements[statements.length - 1]?.push(token);
+  }
+  const nonEmpty = statements.filter((statement) => statement.length > 0);
+  if (nonEmpty.length !== 1) return { kind: "command" };
+
+  const statement = nonEmpty[0] as SqlToken[];
+  let start = 0;
+  let verb = statement[0]?.value ?? "";
+  if (verb === "WITH") {
+    start = cteBodyStart(statement);
+    if (start < 0) return { kind: "command" };
+    verb = statement[start]?.value ?? "";
+  }
+
+  if (verb === "SELECT" || verb === "VALUES" || verb === "PRAGMA" || verb === "EXPLAIN") {
+    return { kind: "read" };
+  }
+  if (
+    (verb === "INSERT" || verb === "UPDATE" || verb === "DELETE") &&
+    hasTopLevelReturning(statement.slice(start))
+  ) {
+    return { kind: "returning" };
+  }
+  return { kind: "command" };
 }
 
 export class CapacitorSqliteAdapter implements TransactableStorageAdapter {
   readonly #conn: SQLiteConnection;
   readonly #config: CapacitorSqliteConfig;
   #db: SQLiteDBConnection | null = null;
+  #opening: Promise<SQLiteDBConnection> | null = null;
+  #closing: Promise<void> | null = null;
 
   constructor(connection: SQLiteConnection, config: CapacitorSqliteConfig) {
     this.#conn = connection;
@@ -79,38 +218,65 @@ export class CapacitorSqliteAdapter implements TransactableStorageAdapter {
   }
 
   async open(): Promise<void> {
+    if (this.#closing !== null) await this.#closing;
+    if (this.#opening !== null) {
+      await this.#opening;
+      return;
+    }
+    const opening = this.#openConnection();
+    this.#opening = opening;
+    try {
+      this.#db = await opening;
+    } finally {
+      if (this.#opening === opening) this.#opening = null;
+    }
+  }
+
+  async #openConnection(): Promise<SQLiteDBConnection> {
     dbg("sqlite-capacitor", "open start", { dbName: this.#config.dbName });
+    const current = this.#db;
+    if (current !== null) {
+      const state = await current.isDBOpen?.();
+      if (state?.result ?? true) return current;
+      this.#db = null;
+      await current.open();
+      dbg("sqlite-capacitor", "open complete", { dbName: this.#config.dbName, reused: true });
+      return current;
+    }
     await this.#conn.checkConnectionsConsistency();
     const { dbName, version = 1 } = this.#config;
     const isConn = (await this.#conn.isConnection(dbName, false)).result ?? false;
-    if (isConn) {
-      this.#db = await this.#conn.retrieveConnection(dbName, false);
-    } else {
-      this.#db = await this.#conn.createConnection(dbName, false, "no-encryption", version, false);
-    }
-    await this.#db.open();
+    const db = isConn
+      ? await this.#conn.retrieveConnection(dbName, false)
+      : await this.#conn.createConnection(dbName, false, "no-encryption", version, false);
+    const state = await db.isDBOpen?.();
+    if (!(state?.result ?? false)) await db.open();
     dbg("sqlite-capacitor", "open complete", { dbName, reused: isConn });
+    return db;
   }
 
   async exec<T = Record<string, unknown>>(
     sql: string,
     params: readonly unknown[] = [],
   ): Promise<T[]> {
-    if (isReadStatement(sql)) {
-      const result = await this.#database.query(
-        sql,
-        encodeBindings(params, this.#config.blobBindingFormat ?? "byte-array"),
-      );
+    const route = classification(sql);
+    const bindings = encodeBindings(params, this.#config.blobBindingFormat ?? "byte-array");
+
+    if (route.kind === "read") {
+      const result = await this.#database.query(sql, bindings);
       return (result.values ?? []) as T[];
+    }
+
+    if (route.kind === "returning") {
+      const result = (await this.#database.run(sql, bindings, false, "all")) as
+        | CapSQLiteChanges
+        | undefined;
+      return ((result?.changes?.values as T[] | undefined) ?? []) as T[];
     }
 
     if (params.length > 0) {
       dbg("sqlite-capacitor", "exec via run()", { sql: sql.slice(0, 60) });
-      await this.#database.run(
-        sql,
-        encodeBindings(params, this.#config.blobBindingFormat ?? "byte-array"),
-        false,
-      );
+      await this.#database.run(sql, bindings, false);
       return [];
     }
 
@@ -193,20 +359,36 @@ export class CapacitorSqliteAdapter implements TransactableStorageAdapter {
 
   /** Delete only the configured native database after releasing its connection. */
   async resetStorage(): Promise<void> {
+    if (this.#opening !== null) await this.#opening;
     const database = this.#database;
     if (typeof database.delete !== "function") {
       throw new Error("SQLite connection does not support physical database reset");
     }
     await this.close();
     await database.delete();
+    this.#db = null;
     await this.open();
   }
 
   async close(): Promise<void> {
-    if (this.#db !== null) {
-      dbg("sqlite-capacitor", "close", { dbName: this.#config.dbName });
-      await this.#conn.closeConnection(this.#config.dbName, false);
-      this.#db = null;
+    if (this.#opening !== null) await this.#opening;
+    if (this.#closing !== null) {
+      await this.#closing;
+      return;
     }
+    if (this.#db === null) {
+      this.#closing = null;
+      return;
+    }
+    const closing = (async () => {
+      try {
+        await this.#conn.closeConnection(this.#config.dbName, false);
+      } finally {
+        this.#db = null;
+        this.#closing = null;
+      }
+    })();
+    this.#closing = closing;
+    await closing;
   }
 }

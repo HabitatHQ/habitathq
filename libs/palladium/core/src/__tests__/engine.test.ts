@@ -156,6 +156,40 @@ describe("createEngine (SQLite)", () => {
     expect(received[0]?.[0]).toMatchObject({ id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab" });
   });
 
+  it.each([
+    ["bare", sql`SELECT * FROM tasks`],
+    ["double-quoted", sql`SELECT * FROM "tasks"`],
+    ["bracketed", sql`SELECT * FROM [tasks]`],
+    ["backtick-quoted", sql`SELECT * FROM \`tasks\``],
+    ["schema-qualified", sql`SELECT * FROM main.tasks`],
+    ["quoted schema", sql`SELECT * FROM "main".tasks`],
+    ["quoted table", sql`SELECT * FROM main."tasks"`],
+    ["quoted schema and table", sql`SELECT * FROM "main"."tasks"`],
+    ["bracketed schema and table", sql`SELECT * FROM [main].[tasks]`],
+    ["backtick-quoted schema and table", sql`SELECT * FROM \`main\`.\`tasks\``],
+  ])(
+    "liveQuery refreshes rows after insert and update using %s identifiers",
+    async (_label, query) => {
+      const db = makeDb();
+      await db.init(SCHEMA);
+      const live = db.liveQuery<Schema["tasks"]>(query);
+      const received: Schema["tasks"][][] = [];
+      live.on("change", (rows) => received.push(rows));
+      const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+
+      await db.insert("tasks", { id, name: "inserted", done: 0 });
+      const insertedRows = await live.exec();
+      expect(insertedRows).toEqual([{ id, name: "inserted", done: 0 }]);
+      expect(received).toEqual([insertedRows]);
+
+      await db.tx((tx) => tx.update("tasks", id, { name: "updated", done: 1 }));
+      const updatedRows = await live.exec();
+      expect(updatedRows).toEqual([{ id, name: "updated", done: 1 }]);
+      expect(received).toEqual([insertedRows, updatedRows]);
+      await db.adapter.close();
+    },
+  );
+
   it("liveQuery does not fire for writes to an unrelated table", async () => {
     const db = makeDb();
     await db.init(SCHEMA);
@@ -797,6 +831,148 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
       await db.adapter.close();
     }
   });
+  it("preserves manual refresh listener rejection (issue #86)", async () => {
+    const db = makeDbWithSchema();
+    await db.init(SCHEMA);
+    const failure = new Error("manual refresh failure");
+    const lq = db.liveQuery<Schema["tasks"]>(sql`SELECT * FROM tasks`);
+    lq.on("change", () => {
+      throw failure;
+    });
+    await expect(lq.refresh()).rejects.toBe(failure);
+    lq.cancel();
+  });
+
+  it("isolates throwing changes:local listener from insert promise (issue #86)", async () => {
+    const db = makeDbWithSchema();
+    await db.init(SCHEMA);
+    const later = vi.fn();
+    const reported: Error[] = [];
+    db.on("error", () => {
+      throw new Error("error listener failure");
+    });
+    db.on("error", (error) => reported.push(error));
+    db.on("changes:local", () => {
+      throw new Error("changes:local listener failure");
+    });
+    db.on("changes:local", later);
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890aa";
+    await expect(db.insert("tasks", { id, name: "isolated", done: 0 })).resolves.toBeUndefined();
+    const rows = await db.exec<Schema["tasks"]>(sql`SELECT name FROM tasks WHERE id = ${id}`);
+    expect(rows).toEqual([{ name: "isolated" }]);
+    expect(later).toHaveBeenCalledOnce();
+    expect(reported).toHaveLength(1);
+    expect(reported[0]?.message).toBe("changes:local listener failure");
+  });
+
+  it("isolates throwing changes:local listener from update and delete (issue #86)", async () => {
+    const db = makeDbWithSchema();
+    await db.init(SCHEMA);
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890aa";
+    await db.insert("tasks", { id, name: "baseline", done: 0 });
+    db.on("changes:local", () => {
+      throw new Error("changes:local listener failure");
+    });
+    await expect(db.update("tasks", id, { name: "updated", done: 1 })).resolves.toBeUndefined();
+    let rows = await db.exec<Schema["tasks"]>(sql`SELECT name, done FROM tasks WHERE id = ${id}`);
+    expect(rows).toEqual([{ name: "updated", done: 1 }]);
+    await expect(db.delete("tasks", id)).resolves.toBeUndefined();
+    rows = await db.exec<Schema["tasks"]>(sql`SELECT name FROM tasks WHERE id = ${id}`);
+    expect(rows).toEqual([]);
+  });
+
+  it("isolates throwing live-query listener from insert promise (issue #86)", async () => {
+    const db = makeDbWithSchema();
+    await db.init(SCHEMA);
+    const lq = db.liveQuery<Schema["tasks"]>(sql`SELECT * FROM tasks`);
+    const other = db.liveQuery<Schema["tasks"]>(sql`SELECT * FROM tasks`);
+    const otherListener = vi.fn();
+    other.on("change", otherListener);
+    const later = vi.fn();
+    lq.on("change", () => {
+      throw new Error("live-query listener failure");
+    });
+    lq.on("change", later);
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890aa";
+    await expect(
+      db.insert("tasks", { id, name: "isolated-live", done: 0 }),
+    ).resolves.toBeUndefined();
+    expect(later).toHaveBeenCalledOnce();
+    const rows = await db.exec<Schema["tasks"]>(sql`SELECT name FROM tasks WHERE id = ${id}`);
+    expect(rows).toEqual([{ name: "isolated-live" }]);
+    expect(otherListener).toHaveBeenCalledOnce();
+    other.cancel();
+    lq.cancel();
+  });
+
+  it("isolates throwing live-query listener from remote apply (issue #86)", async () => {
+    const db = makeDbWithSchema();
+    await db.init(SCHEMA);
+    const lq = db.liveQuery<Schema["tasks"]>(sql`SELECT * FROM tasks`);
+    const later = vi.fn();
+    lq.on("change", () => {
+      throw new Error("live-query listener failure");
+    });
+    lq.on("change", later);
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890aa";
+    await expect(
+      db.applyRemote({
+        id: "00000000-0000-4000-8000-000000000099",
+        hlc: {
+          wallMs: 1_700_000_000_000,
+          counter: 0,
+          nodeId: "00000000-0000-4000-8000-0000000aa086",
+        },
+        ops: [
+          {
+            type: "insert",
+            table: "tasks",
+            id,
+            data: { id, name: "remote-isolated", done: 0 },
+          },
+        ],
+      }),
+    ).resolves.toBeUndefined();
+    expect(later).toHaveBeenCalledOnce();
+    const rows = await db.exec<Schema["tasks"]>(sql`SELECT name FROM tasks WHERE id = ${id}`);
+    expect(rows).toEqual([{ name: "remote-isolated" }]);
+    lq.cancel();
+  });
+
+  it("isolates throwing error-listener and still resolves mutation (issue #86)", async () => {
+    const db = makeDbWithSchema();
+    await db.init(SCHEMA);
+    db.on("error", () => {
+      throw new Error("error listener failure");
+    });
+    db.on("changes:local", () => {
+      throw new Error("changes:local listener failure");
+    });
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890aa";
+    await expect(
+      db.insert("tasks", { id, name: "error-isolated", done: 0 }),
+    ).resolves.toBeUndefined();
+    const rows = await db.exec<Schema["tasks"]>(sql`SELECT name FROM tasks WHERE id = ${id}`);
+    expect(rows).toEqual([{ name: "error-isolated" }]);
+  });
+
+  it("keeps storage failure rejecting and rolling back when a later observer throws (issue #86)", async () => {
+    const db = makeDbWithSchema();
+    await db.init(SCHEMA);
+    db.on("changes:local", () => {
+      throw new Error("changes:local listener failure");
+    });
+    db.registerLocalChangeCheckpoint(async () => {
+      throw new Error("checkpoint failure");
+    });
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890aa";
+    await expect(db.insert("tasks", { id, name: "blocked", done: 0 })).rejects.toThrow(
+      "checkpoint failure",
+    );
+    const rows = await db.exec<Schema["tasks"]>(sql`SELECT name FROM tasks WHERE id = ${id}`);
+    expect(rows).toEqual([]);
+  });
+
   it("ACL purge clears retirement metadata so grant replay rebuilds the authoritative tombstone", async () => {
     const db = makeDb();
     await db.init(SCHEMA);

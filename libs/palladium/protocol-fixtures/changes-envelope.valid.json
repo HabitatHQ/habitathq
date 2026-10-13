@@ -13,7 +13,11 @@
           "op": "insert",
           "table": "notes",
           "row_id": "00000000-0000-7000-8000-000000000021",
-          "data": { "title": "hello" }
+          "data": {
+            "id": "00000000-0000-7000-8000-000000000021",
+            "title": "hello",
+            "metadata": { "flags": [true, null, 42, "text"] }
+          }
         }
       ]
     }

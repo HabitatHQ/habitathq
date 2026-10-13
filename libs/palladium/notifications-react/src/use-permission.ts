@@ -11,15 +11,18 @@ export function usePermission(channelName: ChannelName): PermissionState {
   });
 
   useEffect(() => {
-    const ch = instance.getChannel(channelName);
-    if (ch === undefined) {
+    const channel = instance.getChannel(channelName);
+    if (channel === undefined) {
       setPermission("not-applicable");
       return;
     }
-    setPermission(ch.permissionStatus());
-    return instance.on("delivered", () => {
-      setPermission(ch.permissionStatus());
-    });
+    setPermission(channel.permissionStatus());
+    return instance.on(
+      "permissionchange",
+      ({ channel: changedChannel, permission: nextPermission }) => {
+        if (changedChannel === channelName) setPermission(nextPermission);
+      },
+    );
   }, [instance, channelName]);
 
   return permission;
@@ -28,8 +31,6 @@ export function usePermission(channelName: ChannelName): PermissionState {
 export function useRequestPermission(channelName: ChannelName): () => Promise<PermissionState> {
   const instance = useNotificationsInstance();
   return useCallback(async () => {
-    const ch = instance.getChannel(channelName);
-    if (ch === undefined) return "not-applicable";
-    return ch.requestPermission();
+    return instance.requestPermission(channelName);
   }, [instance, channelName]);
 }

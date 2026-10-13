@@ -70,23 +70,89 @@ class TestSqliteStorage implements StorageAdapter {
 }
 
 describe("SqliteBlobAdapter", () => {
-  it("recreates a namespaced table after first-use creation rolls back", async () => {
-    const storage = new TestSqliteStorage();
-    const media = new SqliteBlobAdapter(storage, { table: "media", namespace: "app" });
-    try {
-      await expect(
-        storage.transaction(async (tx) => {
-          await media.put("rolled-back", new Uint8Array([255]), { transaction: tx });
-          throw new Error("rollback");
-        }),
-      ).rejects.toThrow("rollback");
-      expect(await media.get("rolled-back")).toBeNull();
-      await media.put("retry", new Uint8Array([0, 128, 255]));
-      expect(await media.get("retry")).toEqual(new Uint8Array([0, 128, 255]));
-    } finally {
-      await storage.close();
-    }
-  });
+  it.each([true, false])(
+    "recreates a namespaced table after first-use DDL rolls back (explicit transaction: %s)",
+    async (explicitTransaction) => {
+      const storage = new NodeSqliteAdapter();
+      await storage.open();
+      const media = new SqliteBlobAdapter(storage, { table: "media", namespace: "app" });
+      try {
+        await expect(
+          storage.transaction(async (tx) => {
+            await media.put(
+              "rolled-back",
+              new Uint8Array([255]),
+              explicitTransaction ? { transaction: tx } : undefined,
+            );
+            throw new Error("rollback");
+          }),
+        ).rejects.toThrow("rollback");
+        expect(
+          await storage.exec(
+            "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'media'",
+          ),
+        ).toEqual([]);
+        expect(await media.get("rolled-back")).toBeNull();
+        await media.put("retry", new Uint8Array([0, 128, 255]));
+        expect(await media.get("retry")).toEqual(new Uint8Array([0, 128, 255]));
+      } finally {
+        await storage.close();
+      }
+    },
+  );
+
+  it.each(["put", "get", "has", "delete", "clear"] as const)(
+    "recovers when %s is the first operation after same-object memory database replacement",
+    async (firstOperation) => {
+      const storage = new NodeSqliteAdapter();
+      await storage.open();
+      const appA = new SqliteBlobAdapter(storage, { table: "media", namespace: "app-a" });
+      const appB = new SqliteBlobAdapter(storage, { table: "media", namespace: "app-b" });
+      try {
+        await appA.put("before-reset", new Uint8Array([1]));
+        await appB.put("before-reset", new Uint8Array([2]));
+        await storage.close();
+        await storage.open();
+
+        switch (firstOperation) {
+          case "put":
+            await appA.put("after-reset", new Uint8Array([0, 128, 255]));
+            expect(await appA.get("after-reset")).toEqual(new Uint8Array([0, 128, 255]));
+            break;
+          case "get":
+            expect(await appA.get("before-reset")).toBeNull();
+            break;
+          case "has":
+            expect(await appA.has("before-reset")).toBe(false);
+            break;
+          case "delete":
+            await appA.delete("before-reset");
+            break;
+          case "clear":
+            await appA.clear();
+            break;
+        }
+
+        expect(await appA.get("before-reset")).toBeNull();
+        expect(await appB.has("before-reset")).toBe(false);
+        await appA.put("shared-id", new Uint8Array([3, 255]));
+        expect(await appB.get("shared-id")).toBeNull();
+        await appB.put("shared-id", new Uint8Array([4, 128]));
+        expect(await appA.get("shared-id")).toEqual(new Uint8Array([3, 255]));
+        expect(await appB.get("shared-id")).toEqual(new Uint8Array([4, 128]));
+        expect(await appA.has("shared-id")).toBe(true);
+        await appA.delete("shared-id");
+        expect(await appA.has("shared-id")).toBe(false);
+        expect(await appB.get("shared-id")).toEqual(new Uint8Array([4, 128]));
+        await appA.put("clear-me", new Uint8Array([5]));
+        await appA.clear();
+        expect(await appA.get("clear-me")).toBeNull();
+        expect(await appB.get("shared-id")).toEqual(new Uint8Array([4, 128]));
+      } finally {
+        await storage.close();
+      }
+    },
+  );
 
   it("round-trips BLOB bytes and isolates storage namespaces", async () => {
     const storage = new TestSqliteStorage();

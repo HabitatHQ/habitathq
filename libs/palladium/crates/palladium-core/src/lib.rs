@@ -104,6 +104,20 @@ pub fn validate_structure(change: &Change) -> std::result::Result<(), String> {
             return Err(format!("row id {} is not UUIDv7", op.row_id()));
         }
         let key = (op.table(), op.row_id());
+        if let Op::Insert { row_id, data, .. } = op {
+            let Some(data_id) = data
+                .as_object()
+                .and_then(|object| object.get("id"))
+                .and_then(serde_json::Value::as_str)
+            else {
+                return Err("insert data must be an object with a string id".to_owned());
+            };
+            let mut id_buffer = uuid::Uuid::encode_buffer();
+            let canonical_row_id = row_id.hyphenated().encode_lower(&mut id_buffer);
+            if data_id != canonical_row_id {
+                return Err("insert data id does not match row id".to_owned());
+            }
+        }
         match op {
             Op::Insert { .. } | Op::Delete { .. } => {
                 if operation_states.insert(key, None).is_some() {

@@ -22,6 +22,182 @@
     "expected_classification": "invalid_op"
   },
   {
+    "name": "insert-data-null",
+    "input": {
+      "id": "00000000-0000-4000-8000-000000000066",
+      "hlc": { "wallMs": 1000, "counter": 0, "nodeId": "00000000-0000-4000-8000-000000000011" },
+      "ops": [
+        {
+          "op": "insert",
+          "table": "notes",
+          "row_id": "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          "data": null
+        }
+      ]
+    },
+    "expected_classification": "invalid_op"
+  },
+  {
+    "name": "insert-data-string",
+    "input": {
+      "id": "00000000-0000-4000-8000-000000000066",
+      "hlc": { "wallMs": 1000, "counter": 0, "nodeId": "00000000-0000-4000-8000-000000000011" },
+      "ops": [
+        {
+          "op": "insert",
+          "table": "notes",
+          "row_id": "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          "data": "invalid"
+        }
+      ]
+    },
+    "expected_classification": "invalid_op"
+  },
+  {
+    "name": "insert-data-number",
+    "input": {
+      "id": "00000000-0000-4000-8000-000000000066",
+      "hlc": { "wallMs": 1000, "counter": 0, "nodeId": "00000000-0000-4000-8000-000000000011" },
+      "ops": [
+        {
+          "op": "insert",
+          "table": "notes",
+          "row_id": "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          "data": 42
+        }
+      ]
+    },
+    "expected_classification": "invalid_op"
+  },
+  {
+    "name": "insert-data-boolean",
+    "input": {
+      "id": "00000000-0000-4000-8000-000000000066",
+      "hlc": { "wallMs": 1000, "counter": 0, "nodeId": "00000000-0000-4000-8000-000000000011" },
+      "ops": [
+        {
+          "op": "insert",
+          "table": "notes",
+          "row_id": "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          "data": false
+        }
+      ]
+    },
+    "expected_classification": "invalid_op"
+  },
+  {
+    "name": "insert-data-array",
+    "input": {
+      "id": "00000000-0000-4000-8000-000000000066",
+      "hlc": { "wallMs": 1000, "counter": 0, "nodeId": "00000000-0000-4000-8000-000000000011" },
+      "ops": [
+        {
+          "op": "insert",
+          "table": "notes",
+          "row_id": "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          "data": [{ "id": "018f0f50-7b8d-7a1c-8e2f-1234567890ab" }]
+        }
+      ]
+    },
+    "expected_classification": "invalid_op"
+  },
+  {
+    "name": "insert-data-missing-id",
+    "input": {
+      "id": "00000000-0000-4000-8000-000000000066",
+      "hlc": { "wallMs": 1000, "counter": 0, "nodeId": "00000000-0000-4000-8000-000000000011" },
+      "ops": [
+        {
+          "op": "insert",
+          "table": "notes",
+          "row_id": "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          "data": { "title": "missing id" }
+        }
+      ]
+    },
+    "expected_classification": "invalid_op"
+  },
+  {
+    "name": "insert-data-mismatched-id",
+    "input": {
+      "id": "00000000-0000-4000-8000-000000000066",
+      "hlc": { "wallMs": 1000, "counter": 0, "nodeId": "00000000-0000-4000-8000-000000000011" },
+      "ops": [
+        {
+          "op": "insert",
+          "table": "notes",
+          "row_id": "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          "data": { "id": "018f0f50-7b8d-7a1c-8e2f-1234567890ac" }
+        }
+      ]
+    },
+    "expected_classification": "invalid_op"
+  },
+  {
+    "name": "insert-data-non-string-id",
+    "input": {
+      "id": "00000000-0000-4000-8000-000000000066",
+      "hlc": { "wallMs": 1000, "counter": 0, "nodeId": "00000000-0000-4000-8000-000000000011" },
+      "ops": [
+        {
+          "op": "insert",
+          "table": "notes",
+          "row_id": "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          "data": { "id": null }
+        }
+      ]
+    },
+    "expected_classification": "invalid_op"
+  },
+  {
+    "name": "insert-data-malformed-id",
+    "input": {
+      "id": "00000000-0000-4000-8000-000000000066",
+      "hlc": { "wallMs": 1000, "counter": 0, "nodeId": "00000000-0000-4000-8000-000000000011" },
+      "ops": [
+        {
+          "op": "insert",
+          "table": "notes",
+          "row_id": "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          "data": { "id": "not-a-uuid" }
+        }
+      ]
+    },
+    "expected_classification": "invalid_op"
+  },
+  {
+    "name": "insert-data-uppercase-id",
+    "input": {
+      "id": "00000000-0000-4000-8000-000000000066",
+      "hlc": { "wallMs": 1000, "counter": 0, "nodeId": "00000000-0000-4000-8000-000000000011" },
+      "ops": [
+        {
+          "op": "insert",
+          "table": "notes",
+          "row_id": "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          "data": { "id": "018F0F50-7B8D-7A1C-8E2F-1234567890AB" }
+        }
+      ]
+    },
+    "expected_classification": "invalid_op"
+  },
+  {
+    "name": "insert-data-unhyphenated-id",
+    "input": {
+      "id": "00000000-0000-4000-8000-000000000066",
+      "hlc": { "wallMs": 1000, "counter": 0, "nodeId": "00000000-0000-4000-8000-000000000011" },
+      "ops": [
+        {
+          "op": "insert",
+          "table": "notes",
+          "row_id": "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          "data": { "id": "018f0f507b8d7a1c8e2f1234567890ab" }
+        }
+      ]
+    },
+    "expected_classification": "invalid_op"
+  },
+  {
     "name": "invalid-cursor",
     "input": {
       "version": 1,

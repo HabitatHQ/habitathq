@@ -309,6 +309,108 @@ describe("durable sync state — schema identity", () => {
     await db.adapter.close();
   });
 
+  it("rejects an unrelated transport fingerprint without changing durable state or preventing reopen", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "palladium-transport-identity-"));
+    const file = join(dir, "db.sqlite");
+    const first = new PalladiumEngine<Schema>(
+      new NodeSqliteAdapter({ vfs: { type: "file", filename: file } }),
+      { nodeId: ALICE },
+    );
+    let transport: SyncTransport<Schema> | undefined;
+    let reopened: PalladiumEngine<Schema> | undefined;
+    try {
+      await first.init(SCHEMA);
+      const identity = first.initializedSchemaIdentity;
+      const state = await first.adapter.exec("SELECT key, value FROM _sync_state ORDER BY key");
+      const tables = await first.adapter.exec(
+        "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
+      );
+      expect(() => {
+        transport = new SyncTransport(first, {
+          serverUrl: SERVER_URL,
+          schemaFingerprint: "unrelated-deployment-label",
+        });
+      }).toThrow();
+      expect(await first.getSyncState("schema_identity_v1")).toBe(identity);
+      expect(await first.adapter.exec("SELECT key, value FROM _sync_state ORDER BY key")).toEqual(
+        state,
+      );
+      expect(
+        await first.adapter.exec(
+          "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
+        ),
+      ).toEqual(tables);
+
+      // Rejection must not reserve the engine's single transport slot.
+      transport = new SyncTransport(first, { serverUrl: SERVER_URL });
+      await transport.dispose();
+      transport = undefined;
+      await first.adapter.close();
+
+      reopened = new PalladiumEngine<Schema>(
+        new NodeSqliteAdapter({ vfs: { type: "file", filename: file } }),
+      );
+      await reopened.init(SCHEMA);
+      expect(reopened.initializedSchemaIdentity).toBe(identity);
+      expect(await reopened.getSyncState("schema_identity_v1")).toBe(identity);
+    } finally {
+      await transport?.dispose();
+      await reopened?.adapter.close();
+      await first.adapter.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves the file-backed schema identity with a matching explicit transport fingerprint", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "palladium-matching-transport-identity-"));
+    const file = join(dir, "db.sqlite");
+    const first = new PalladiumEngine<Schema>(
+      new NodeSqliteAdapter({ vfs: { type: "file", filename: file } }),
+    );
+    let transport: SyncTransport<Schema> | undefined;
+    let reopened: PalladiumEngine<Schema> | undefined;
+    try {
+      await first.init(SCHEMA);
+      const identity = first.initializedSchemaIdentity;
+      if (identity === null) throw new Error("Expected initialized schema identity");
+      transport = new SyncTransport(first, {
+        serverUrl: SERVER_URL,
+        schemaFingerprint: identity,
+        fetch: async () =>
+          new Response(
+            JSON.stringify({
+              version: 1,
+              changes: [],
+              purges: [],
+              events: [],
+              cursor: "0",
+              upperBound: "0",
+              caughtUp: true,
+              control: { mustRefetch: false },
+            }),
+            { status: 200 },
+          ),
+      });
+      await transport.poll();
+      expect(await first.getSyncState("schema_identity_v1")).toBe(identity);
+      await transport.dispose();
+      transport = undefined;
+      await first.adapter.close();
+
+      reopened = new PalladiumEngine<Schema>(
+        new NodeSqliteAdapter({ vfs: { type: "file", filename: file } }),
+      );
+      await reopened.init(SCHEMA);
+      expect(reopened.initializedSchemaIdentity).toBe(identity);
+      expect(await reopened.getSyncState("schema_identity_v1")).toBe(identity);
+    } finally {
+      await transport?.dispose();
+      await reopened?.adapter.close();
+      await first.adapter.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("rejects a different schema identity for an existing database", async () => {
     const dir = mkdtempSync(join(tmpdir(), "palladium-schema-identity-"));
     const file = join(dir, "db.sqlite");

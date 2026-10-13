@@ -7,12 +7,13 @@ mod shares;
 mod workspaces;
 
 use axum::{
+    extract::DefaultBodyLimit,
     routing::{get, patch, post, put},
     Router,
 };
 use tower_http::cors::CorsLayer;
 
-use crate::state::AtriumState;
+use crate::{db::MAX_BLOB_BYTES, state::AtriumState};
 
 /// Build Atrium's client-facing router.
 ///
@@ -53,7 +54,13 @@ pub fn create_router(state: AtriumState, cors: CorsLayer) -> Router {
         .route("/v1/records/:root_id/sharing", patch(shares::set_sharing))
         .route(
             "/v1/blobs/:blob_id",
-            put(blobs::put_blob).get(blobs::get_blob),
+            // Blob payloads travel outside the JSON change stream and may be up
+            // to `MAX_BLOB_BYTES` (16 MiB); the default `Bytes` extractor caps
+            // bodies at 2 MiB, so the PUT method router is given an explicit
+            // body limit. GET and all other JSON routes keep their default.
+            put(blobs::put_blob)
+                .layer(DefaultBodyLimit::max(MAX_BLOB_BYTES))
+                .get(blobs::get_blob),
         )
         .with_state(state)
         .layer(cors)

@@ -1644,6 +1644,25 @@ describe("SyncTransport — Atrium append cursor", () => {
   });
 });
 
+describe("SyncTransport — schema fingerprint ownership", () => {
+  it("accepts an explicit fingerprint for an engine without SchemaConfig without setting local schema identity", async () => {
+    const db = new PalladiumEngine<Schema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }), {
+      nodeId: ALICE,
+    });
+    await db.init();
+    const { fetch } = makeFakeFetch(() => jsonResponse(page()));
+    const transport = new SyncTransport(db, {
+      serverUrl: SERVER_URL,
+      fetch,
+      schemaFingerprint: "external-transport-namespace",
+    });
+    await transport.poll();
+    expect(await db.getSyncState("schema_identity_v1")).toBeNull();
+    await transport.dispose();
+    await db.adapter.close();
+  });
+});
+
 describe("SyncTransport — outbox schema compatibility", () => {
   it("posts a fingerprint-mismatched change when its columns still exist", async () => {
     const db = await makeEngine(ALICE);
@@ -1658,7 +1677,6 @@ describe("SyncTransport — outbox schema compatibility", () => {
     const transport = new SyncTransport(db, {
       serverUrl: SERVER_URL,
       fetch,
-      schemaFingerprint: "current",
     });
     await transport.start();
     await transport.stop();
@@ -1704,7 +1722,6 @@ describe("SyncTransport — outbox schema compatibility", () => {
     const transport = new SyncTransport(db, {
       serverUrl: SERVER_URL,
       fetch,
-      schemaFingerprint: "current",
     });
     await transport.start();
     await transport.stop();

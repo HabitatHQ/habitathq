@@ -78,6 +78,11 @@ export interface DbOwnerConfig<S extends object> {
   /**
    * The service method names to expose to the main thread and forward to the
    * leader. Must list exactly the callable methods of `S` (not `open`).
+   *
+   * A follower call whose leader does not reply within 10 seconds rejects with
+   * an outcome-unknown timeout. The leader may have completed the operation;
+   * this invocation is not retried automatically. A later caller invocation
+   * may rediscover the leader and execute independently.
    */
   readonly methods: readonly (keyof S & string)[];
   /**
@@ -112,15 +117,22 @@ export type WorkerFacade<S extends object> = S & BusFacade;
 
 // Timing for follower→leader forwarding (see withLeader).
 const CALL_DEADLINE_MS = 15_000; // total time to find a leader (covers slow first open + failover)
-const CALL_TIMEOUT_MS = 10_000; // per-attempt timeout before assuming the leader is gone
-const RETRY_INTERVAL_MS = 200; // pause between rediscovery attempts
+const CALL_TIMEOUT_MS = 10_000; // per-attempt reply deadline
+const RETRY_INTERVAL_MS = 200; // pause between leader discovery attempts
 
 class TimeoutError extends Error {}
+
+class OutcomeUnknownError extends Error {
+  constructor() {
+    super("palladium/worker: leader RPC timed out; operation outcome is unknown");
+    this.name = "OutcomeUnknownError";
+  }
+}
 
 type LeaderProxyAttempt =
   | { readonly kind: "absent" }
   | { readonly kind: "result"; readonly value: unknown }
-  | { readonly kind: "timeout"; readonly error: TimeoutError };
+  | { readonly kind: "timeout"; readonly error: OutcomeUnknownError };
 
 function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -319,8 +331,9 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
         value: await withTimeout(invoke(proxy, method, args), CALL_TIMEOUT_MS),
       };
     } catch (err) {
-      // A timeout means the leader is unreachable → rediscover and retry.
-      // Any other rejection is an application error → propagate immediately.
+      // A timeout cannot show whether the leader executed the operation.
+      // Clear the stale endpoint so a later, distinct call can rediscover it,
+      // but never replay this caller's dispatched request.
       if (!(err instanceof TimeoutError)) throw err;
       report("leader_rpc_timeout", {
         error: err.message,
@@ -328,13 +341,12 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
       });
       leaderId = null;
       leaderProxy = null;
-      return { kind: "timeout", error: err };
+      return { kind: "timeout", error: new OutcomeUnknownError() };
     }
   }
 
   async function withLeader(method: string, args: unknown[]): Promise<unknown> {
     const deadline = Date.now() + CALL_DEADLINE_MS;
-    let lastErr: unknown;
     while (Date.now() < deadline) {
       if (role === "leader" && service) {
         // Local call: application errors propagate directly (never retried).
@@ -342,11 +354,11 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
       }
       const attempt = await invokeLeaderProxy(method, args);
       if (attempt.kind === "result") return attempt.value;
-      if (attempt.kind === "timeout") lastErr = attempt.error;
+      if (attempt.kind === "timeout") throw attempt.error;
       post({ type: CONTROL.WHO_IS_LEADER });
       await delay(RETRY_INTERVAL_MS);
     }
-    const error = lastErr ?? new Error(`palladium/worker: no leader for "${config.dbName}"`);
+    const error = new Error(`palladium/worker: no leader for "${config.dbName}"`);
     report("leader_unavailable", { error: errMsg(error) });
     throw error;
   }

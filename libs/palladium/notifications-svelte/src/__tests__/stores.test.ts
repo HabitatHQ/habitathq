@@ -64,12 +64,6 @@ describe("createNotificationsStore", () => {
     const store = createNotificationsStore(inst);
     expect(() => store.destroy()).not.toThrow();
   });
-
-  it("subscribes to 'delivered' events on instance", () => {
-    const inst = createMockInstance();
-    createNotificationsStore(inst);
-    expect(inst.on).toHaveBeenCalledWith("delivered", expect.any(Function));
-  });
 });
 
 describe("createNotify", () => {

@@ -38,6 +38,45 @@ describe("sql tag", () => {
     expect(q.tables).toContain("tasks");
   });
 
+  it.each([
+    ["bare", sql`SELECT * FROM tasks`],
+    ["double-quoted", sql`SELECT * FROM "tasks"`],
+    ["bracketed", sql`SELECT * FROM [tasks]`],
+    ["backtick-quoted", sql`SELECT * FROM \`tasks\``],
+    ["schema-qualified", sql`SELECT * FROM main.tasks`],
+    ["quoted schema", sql`SELECT * FROM "main".tasks`],
+    ["quoted table", sql`SELECT * FROM main."tasks"`],
+    ["double-quoted schema and table", sql`SELECT * FROM "main"."Tasks"`],
+    ["bracketed schema and table", sql`SELECT * FROM [main].[tasks]`],
+    ["backtick-quoted schema and table", sql`SELECT * FROM \`main\`.\`tasks\``],
+    ["spaced qualification", sql`SELECT * FROM "main" . [tasks] AS t`],
+  ])("extracts the table dependency for %s identifiers", (_label, query) => {
+    expect(query.tables).toEqual(["tasks"]);
+  });
+
+  it("unescapes quoted identifier dependencies without losing embedded dots", () => {
+    const query = sql`SELECT * FROM "main"."task""items" JOIN \`task\`\`items\` ON 1 = 1 JOIN [task.items] ON 1 = 1`;
+    expect(query.tables).toEqual(['task"items', "task`items", "task.items"]);
+  });
+
+  it("extracts quoted JOIN tables without treating schema names or aliases as tables", () => {
+    const query = sql`SELECT t.id FROM "main"."tasks" AS t LEFT JOIN [main].[comments] AS c ON c.id = t.id JOIN \`main\`.\`tasks\` AS sibling ON sibling.id = t.id`;
+    expect(query.tables).toEqual(["tasks", "comments"]);
+  });
+
+  it("sql.join re-extracts quoted dependencies across fragment boundaries", () => {
+    const query = sql.join(
+      [
+        sql`SELECT t.id FROM`,
+        sql`"main"."tasks" AS t JOIN`,
+        sql`[main].[comments] AS c ON c.id = t.id WHERE t.done = ${0}`,
+      ],
+      " ",
+    );
+    expect(query.tables).toEqual(["tasks", "comments"]);
+    expect(query.params).toEqual([0]);
+  });
+
   it("extracts tables from both FROM and JOIN clauses", () => {
     const q = sql`SELECT t.id, u.name FROM tasks t JOIN users u ON t.user_id = u.id WHERE t.done = ${false}`;
     expect(q.tables).toContain("tasks");
