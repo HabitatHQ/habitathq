@@ -107,7 +107,7 @@ function assertSqlIdentifier(name: string): void {
  * the caller's responsibility and is not asserted here.
  */
 function canonicalTable(name: string): string {
-  return name.toLowerCase();
+  return name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 }
 
 function canonicalColumn(column: string, columns: ReadonlySet<string>): string {
@@ -803,13 +803,24 @@ export class PalladiumEngine<S extends SchemaMap> {
           await this.setSyncState(STATE_SCHEMA_IDENTITY, identity, transaction);
         });
       });
-      this.#knownTables = extractSchemaTables(schema.schema);
+      const initializedSchemaSql = schema.schema;
+      this.#knownTables = extractSchemaTables(initializedSchemaSql);
       this.#schemaIdentity = identity;
-      this.#schemaSql = schema.schema;
+      this.#schemaSql = initializedSchemaSql;
       await this.#ensureSyncTables(this.adapter);
-      await migrateShadowTablesToCanonical(this.adapter, (table) =>
-        schemaColumnsFor(this.#schemaSql ?? schema.schema, table),
-      );
+      await this.#serialize(async () => {
+        if (isTransactable(this.adapter)) {
+          await this.adapter.transaction((transaction) =>
+            migrateShadowTablesToCanonical(transaction, (table) =>
+              schemaColumnsFor(initializedSchemaSql, table),
+            ),
+          );
+        } else {
+          await migrateShadowTablesToCanonical(this.adapter, (table) =>
+            schemaColumnsFor(initializedSchemaSql, table),
+          );
+        }
+      });
     }
   }
 

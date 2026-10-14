@@ -624,4 +624,54 @@ describe("column-level LWW", () => {
       await cleanup();
     }
   });
+
+  it("rolls back a failed alias migration so reopening can finish it atomically", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "palladium-alias-rollback-"));
+    const adapter = new NodeSqliteAdapter({
+      vfs: { type: "file", filename: join(dir, "db.sqlite") },
+    });
+    try {
+      await adapter.open();
+      await adapter.exec(SCHEMA.schema);
+      await adapter.exec(
+        "CREATE TABLE _sync_row_meta (tbl TEXT NOT NULL, row_id TEXT NOT NULL, col TEXT NOT NULL, hlc_wall_ms INTEGER NOT NULL, hlc_counter INTEGER NOT NULL, hlc_node_id TEXT NOT NULL, PRIMARY KEY (tbl, row_id, col))",
+      );
+      await adapter.exec(
+        "CREATE TABLE _sync_pending_remote_updates (pending_id TEXT PRIMARY KEY, tbl TEXT NOT NULL, row_id TEXT NOT NULL, patch TEXT NOT NULL, hlc_wall_ms INTEGER NOT NULL, hlc_counter INTEGER NOT NULL, hlc_node_id TEXT NOT NULL)",
+      );
+      await adapter.exec("CREATE TABLE _sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+      await adapter.exec("INSERT INTO _sync_row_meta VALUES ('NOTES', 'row', 'TITLE', 1, 0, ?)", [
+        BOB,
+      ]);
+      await adapter.exec(
+        "INSERT INTO _sync_pending_remote_updates VALUES ('pending', 'NOTES', 'row', '{}', 1, 0, ?)",
+        [BOB],
+      );
+      await adapter.exec(
+        "CREATE TRIGGER reject_alias_migration BEFORE UPDATE OF col ON _sync_row_meta BEGIN SELECT RAISE(ABORT, 'migration stopped'); END",
+      );
+      await adapter.close();
+
+      const firstOpen = new PalladiumEngine<Schema>(adapter, { nodeId: BOB });
+      await expect(firstOpen.init(SCHEMA)).rejects.toThrow("migration stopped");
+      expect(await adapter.exec("SELECT tbl FROM _sync_row_meta")).toEqual([{ tbl: "NOTES" }]);
+      expect(await adapter.exec("SELECT tbl FROM _sync_pending_remote_updates")).toEqual([
+        { tbl: "NOTES" },
+      ]);
+
+      await adapter.exec("DROP TRIGGER reject_alias_migration");
+      await adapter.close();
+      const reopened = new PalladiumEngine<Schema>(adapter, { nodeId: BOB });
+      await reopened.init(SCHEMA);
+      expect(await adapter.exec("SELECT tbl, col FROM _sync_row_meta")).toEqual([
+        { tbl: "notes", col: "title" },
+      ]);
+      expect(await adapter.exec("SELECT tbl FROM _sync_pending_remote_updates")).toEqual([
+        { tbl: "notes" },
+      ]);
+    } finally {
+      await adapter.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

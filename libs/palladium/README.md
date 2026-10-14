@@ -66,15 +66,17 @@ are snapshots, not references to the engine's clock. A transport fingerprint
 override does not overwrite the local schema identity used when reopening.
 
 Quoted and schema-qualified SQL table names participate in live-query
-invalidation. LWW metadata and logical-reset table identities use canonical
-SQLite names. Logical reset rejects foreign-key cascades into preserved or
-unowned tables instead of deleting those records.
+invalidation. LWW metadata and logical-reset table identities use SQLite's
+ASCII-only case folding, preserving distinct Unicode identifiers. Legacy metadata
+canonicalization is serialized and transactional. Logical reset rejects
+foreign-key cascades and DELETE-trigger writes into preserved or unowned tables;
+INSERT/UPDATE-only triggers do not prevent deletion.
 
 Blocked IndexedDB deletion remains pending until the browser's deletion request
-settles. Blob-adapter disposal rejects pending operations and aborts owned
-transactions. An empty localStorage blob prefix is invalid; memory blob reads
-and writes isolate their bytes from caller mutation. SQLite blob storage checks
-table readiness again after database replacement.
+settles. IndexedDB disposal closes its database handle and waits for active
+transactions to settle. An empty localStorage blob prefix is invalid; memory blob
+reads and writes isolate their bytes from caller mutation. SQLite blob storage
+checks table readiness again after database replacement.
 
 Capacitor queries preserve rows from commented SQL, CTEs, and DML `RETURNING`.
 Capacitor physical opens are single-flight and publish the connection only
@@ -85,7 +87,8 @@ device evidence is explicitly stated.
 
 A timed-out worker mutation is not automatically replayed: its commit outcome
 is unknown to the caller. Terminal database startup failure rejects both queued
-and future RPCs rather than leaving them pending.
+and future RPCs rather than leaving them pending, even if the error-reporting
+callback throws.
 
 Atrium blob uploads accept up to 16 MiB, including the boundary. Larger requests
 return HTTP 413 without creating a blob or replacing existing bytes; ordinary
@@ -110,6 +113,8 @@ Notification permissions are instance-level state changes, independent of
 delivery. Use `instance.requestPermission(channel)` or
 `instance.browser.requestPermission()` so every active React, Vue and Svelte
 consumer receives the typed `permissionchange` event, including denials.
+Permission observers are isolated individually: a throwing observer cannot reject
+the completed permission request, skip later consumers, or prevent delivery.
 Automatic send-time permission requests use the same path. Requests through a
 raw adapter returned by `getChannel()` are lower-level and do not emit instance
 events. Dispose Svelte notification stores and call

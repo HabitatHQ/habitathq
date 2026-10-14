@@ -335,6 +335,7 @@ impl ChangeRow {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "integration-tests")]
     use super::*;
     #[cfg(feature = "integration-tests")]
     use palladium_core::{Change, ChangeStore, Hlc, InsertOutcome, NodeId, Op, Scope};
@@ -461,6 +462,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "integration-tests")]
     #[sqlx::test]
     async fn invalid_insert_data_does_not_advance_postgres_history(
         pool: sqlx::PgPool,

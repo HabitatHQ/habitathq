@@ -93,7 +93,11 @@ export function createDatabasePlugin(config: DatabasePluginConfig) {
     const reportFailure = (message: string): void => {
       if (failureNotified) return;
       failureNotified = true;
-      onError(message);
+      try {
+        onError(message);
+      } catch {
+        // Reporting is advisory and must not prevent startup from settling.
+      }
     };
 
     // ── Native path ────────────────────────────────────────────────────

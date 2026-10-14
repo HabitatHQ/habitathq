@@ -90,12 +90,85 @@ async function assertResetEffectsAreOwned(
     if (typeof trigger.tbl_name !== "string" || typeof trigger.sql !== "string") {
       throw new TypeError("Logical reset executor returned invalid trigger metadata");
     }
-    if (deleted.has(sqliteTableIdentity(trigger.tbl_name)) && !isAbortOnlyTrigger(trigger.sql)) {
+    if (
+      deleted.has(sqliteTableIdentity(trigger.tbl_name)) &&
+      triggerHasDeleteEvent(trigger.sql) &&
+      !isAbortOnlyTrigger(trigger.sql)
+    ) {
       throw new Error(
         `Logical reset may mutate other tables through a trigger on ${JSON.stringify(trigger.tbl_name)}`,
       );
     }
   }
+}
+
+function triggerHasDeleteEvent(sql: string): boolean {
+  const tokens = sqliteSqlTokens(sql);
+  let index = tokens.indexOf("TRIGGER");
+  if (index < 0) return true;
+  index += 1;
+  while (tokens[index] === "IF" || tokens[index] === "NOT" || tokens[index] === "EXISTS")
+    index += 1;
+  index += 1; // trigger name
+  if (tokens[index] === ".") index += 2; // optional schema-qualified name
+  if (tokens[index] === "BEFORE" || tokens[index] === "AFTER") index += 1;
+  else if (tokens[index] === "INSTEAD") index += tokens[index + 1] === "OF" ? 2 : 1;
+  const event = tokens[index];
+  if (event === "DELETE") return true;
+  if (event !== "INSERT" && event !== "UPDATE") return true;
+  return false;
+}
+
+function sqliteSqlTokens(sql: string): string[] {
+  const tokens: string[] = [];
+  for (let index = 0; index < sql.length; ) {
+    const char = sql[index] ?? "";
+    if (/\s/.test(char)) {
+      index += 1;
+      continue;
+    }
+    if (char === "-" && sql[index + 1] === "-") {
+      index += 2;
+      while (index < sql.length && sql[index] !== "\n") index += 1;
+      continue;
+    }
+    if (char === "/" && sql[index + 1] === "*") {
+      index += 2;
+      while (index < sql.length && !(sql[index] === "*" && sql[index + 1] === "/")) index += 1;
+      index = Math.min(index + 2, sql.length);
+      continue;
+    }
+    if (char === "'" || char === '"' || char === "`" || char === "[") {
+      const closer = char === "[" ? "]" : char;
+      index += 1;
+      while (index < sql.length) {
+        if (sql[index] === closer) {
+          if (sql[index + 1] === closer && char !== "[") {
+            index += 2;
+            continue;
+          }
+          if (char === "[" && sql[index + 1] === "]") {
+            index += 2;
+            continue;
+          }
+          index += 1;
+          break;
+        }
+        index += 1;
+      }
+      tokens.push("QUOTED");
+      continue;
+    }
+    const word = /^[A-Za-z_\u0080-\uFFFF][A-Za-z0-9_$\u0080-\uFFFF]*/.exec(sql.slice(index))?.[0];
+    if (word !== undefined) {
+      tokens.push(word.toUpperCase());
+      index += word.length;
+      continue;
+    }
+    tokens.push(char);
+    index += 1;
+  }
+  return tokens;
 }
 
 function isAbortOnlyTrigger(sql: string): boolean {
@@ -105,7 +178,8 @@ function isAbortOnlyTrigger(sql: string): boolean {
 }
 
 function sqliteTableIdentity(name: string): string {
-  return name.toLowerCase();
+  // SQLite folds only ASCII letters: e.g. `keys` and `Keys` are distinct tables.
+  return name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 }
 
 /** Tables an application owns and the owned tables it intentionally preserves. */

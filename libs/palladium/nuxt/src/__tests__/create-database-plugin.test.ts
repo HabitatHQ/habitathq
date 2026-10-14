@@ -70,9 +70,13 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("createDatabasePlugin — worker terminal failures", () => {
+describe.each([false, true])("worker terminal failures (reporter throws: %s)", (throws) => {
+  const reporter = () =>
+    vi.fn(() => {
+      if (throws) throw new Error("reporter failed");
+    });
   it("rejects queued and future RPCs after INIT_ERROR and reports it once", async () => {
-    const onError = vi.fn();
+    const onError = reporter();
     const { initialize, sendToWorker } = createDatabasePlugin({
       appName: "TestApp",
       createWorker: () => new FakeWorker() as unknown as Worker,
@@ -97,7 +101,7 @@ describe("createDatabasePlugin — worker terminal failures", () => {
   });
 
   it("rejects queued and future RPCs after LOCK_UNAVAILABLE", async () => {
-    const onError = vi.fn();
+    const onError = reporter();
     const { initialize, sendToWorker } = createDatabasePlugin({
       appName: "TestApp",
       createWorker: () => new FakeWorker() as unknown as Worker,
@@ -121,7 +125,7 @@ describe("createDatabasePlugin — worker terminal failures", () => {
   });
 
   it("rejects queued and future RPCs after worker.onerror", async () => {
-    const onError = vi.fn();
+    const onError = reporter();
     const { initialize, sendToWorker } = createDatabasePlugin({
       appName: "TestApp",
       createWorker: () => new FakeWorker() as unknown as Worker,
@@ -145,7 +149,7 @@ describe("createDatabasePlugin — worker terminal failures", () => {
   });
 
   it("rejects queued and future RPCs after the startup timeout fires", async () => {
-    const onError = vi.fn();
+    const onError = reporter();
     const { initialize, sendToWorker } = createDatabasePlugin({
       appName: "TestApp",
       createWorker: () => new FakeWorker() as unknown as Worker,
@@ -168,7 +172,7 @@ describe("createDatabasePlugin — worker terminal failures", () => {
   });
 
   it("ignores a late READY after INIT_ERROR and keeps onError single-fired", async () => {
-    const onError = vi.fn();
+    const onError = reporter();
     const { initialize, sendToWorker } = createDatabasePlugin({
       appName: "TestApp",
       createWorker: () => new FakeWorker() as unknown as Worker,
@@ -193,9 +197,11 @@ describe("createDatabasePlugin — worker terminal failures", () => {
   });
 });
 
-describe("createDatabasePlugin — native terminal failures", () => {
+describe.each([false, true])("native terminal failures (reporter throws: %s)", (throws) => {
   it("rejects future RPCs and reports the native init rejection once", async () => {
-    const onError = vi.fn();
+    const onError = vi.fn(() => {
+      if (throws) throw new Error("reporter failed");
+    });
     const initDeferred = defer<void>();
     const native = {
       init: vi.fn(() => initDeferred.promise),
@@ -209,11 +215,13 @@ describe("createDatabasePlugin — native terminal failures", () => {
     });
 
     const initPromise = initialize(true, onError);
+    const queued = sendToWorker({ type: "QUERY" });
     initDeferred.reject(new Error("native open failed"));
     await initPromise;
 
+    await expect(queued).rejects.toThrow("native open failed");
     await expect(sendToWorker<{ ok: true }>({ type: "QUERY" })).rejects.toThrow(
-      /native open failed|unavailable|failed/i,
+      "native open failed",
     );
 
     expect(native.init).toHaveBeenCalledTimes(1);

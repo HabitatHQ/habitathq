@@ -39,7 +39,15 @@ export class NotificationsEventEmitter {
     const handlers = this._listeners.get(event);
     if (handlers !== undefined) {
       for (const handler of handlers) {
-        (handler as NotificationEventHandler<E>)(payload);
+        if (event === "permissionchange") {
+          try {
+            (handler as NotificationEventHandler<E>)(payload);
+          } catch {
+            // Permission is already settled; observer errors must not change its result.
+          }
+        } else {
+          (handler as NotificationEventHandler<E>)(payload);
+        }
       }
     }
   }

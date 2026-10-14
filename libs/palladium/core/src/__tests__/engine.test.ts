@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { describe, expect, it, vi } from "vitest";
 import { createEngine, PalladiumEngine, type RemoteChange } from "../engine.js";
@@ -483,6 +486,115 @@ describe("createEngine (SQLite)", () => {
     await refresh;
     expect(emissions).toEqual([[]]);
     live.cancel();
+  });
+  it("keeps mutations queued until the canonical alias migration commits", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "palladium-migration-serialize-"));
+    const adapter = new NodeSqliteAdapter({
+      vfs: { type: "file", filename: join(dir, "db.sqlite") },
+    });
+    const db = new PalladiumEngine<Schema>(adapter);
+    let releaseMigration: (() => void) | undefined;
+    try {
+      await db.init(SCHEMA);
+      await adapter.exec("INSERT INTO _sync_row_meta VALUES ('TASKS', 'row', 'NAME', 1, 0, ?)", [
+        "00000000-0000-4000-8000-000000000001",
+      ]);
+      await adapter.close();
+      let enteredMigration: (() => void) | undefined;
+      const migrationEntered = new Promise<void>((resolve) => {
+        enteredMigration = resolve;
+      });
+      const migrationGate = new Promise<void>((resolve) => {
+        releaseMigration = resolve;
+      });
+      const originalTransaction = adapter.transaction.bind(adapter);
+      vi.spyOn(adapter, "transaction").mockImplementation((callback) =>
+        originalTransaction((tx) => {
+          const originalExec = tx.exec.bind(tx);
+          tx.exec = async (statement, params) => {
+            if (statement.includes("SELECT DISTINCT tbl FROM _sync_row_meta")) {
+              enteredMigration?.();
+              await migrationGate;
+            }
+            return originalExec(statement, params);
+          };
+          return callback(tx).finally(() => {
+            tx.exec = originalExec;
+          });
+        }),
+      );
+
+      const initialization = db.init(SCHEMA);
+      await migrationEntered;
+      let mutationFinished = false;
+      const mutation = db
+        .insert("tasks", {
+          id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          name: "queued",
+          done: 0,
+        })
+        .then(() => {
+          mutationFinished = true;
+        });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(mutationFinished).toBe(false);
+      releaseMigration?.();
+      await Promise.all([initialization, mutation]);
+      expect(await db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks`)).toEqual([
+        { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab", name: "queued", done: 0 },
+      ]);
+      expect(
+        await db.exec<{ tbl: string; col: string }>(
+          sql`SELECT tbl, col FROM _sync_row_meta WHERE row_id = ${"row"}`,
+        ),
+      ).toEqual([{ tbl: "tasks", col: "name" }]);
+    } finally {
+      releaseMigration?.();
+      await db.adapter.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  it("does not let a distinct Unicode table's legacy metadata suppress an ASCII table update", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "palladium-catalog-identity-"));
+    const adapter = new NodeSqliteAdapter({
+      vfs: { type: "file", filename: join(dir, "db.sqlite") },
+    });
+    const keySchema: SchemaConfig = {
+      version: 1,
+      schema: "CREATE TABLE IF NOT EXISTS keys (id TEXT PRIMARY KEY, value TEXT NOT NULL)",
+    };
+    type KeySchema = { keys: { id: string; value: string } };
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    const nodeId = "00000000-0000-4000-8000-000000000001";
+    try {
+      const firstOpen = new PalladiumEngine<KeySchema>(adapter, { nodeId });
+      await firstOpen.init(keySchema);
+      await adapter.exec('CREATE TABLE "Keys" (id TEXT PRIMARY KEY, value TEXT NOT NULL)');
+      await adapter.exec("INSERT INTO keys VALUES (?, ?)", [id, "original"]);
+      await adapter.exec('INSERT INTO "Keys" VALUES (?, ?)', [id, "unowned"]);
+      await adapter.exec("INSERT INTO _sync_row_meta VALUES (?, ?, 'value', 2000, 0, ?)", [
+        "Keys",
+        id,
+        nodeId,
+      ]);
+      await adapter.close();
+
+      const reopened = new PalladiumEngine<KeySchema>(adapter, { nodeId });
+      await reopened.init(keySchema);
+      await reopened.applyRemote({
+        hlc: { wallMs: 1000, counter: 0, nodeId },
+        ops: [{ type: "update", table: "keys", id, patch: { value: "updated" } }],
+      });
+      expect(await reopened.exec(sql`SELECT value FROM keys WHERE id = ${id}`)).toEqual([
+        { value: "updated" },
+      ]);
+      expect(await adapter.exec('SELECT value FROM "Keys" WHERE id = ?', [id])).toEqual([
+        { value: "unowned" },
+      ]);
+    } finally {
+      await adapter.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

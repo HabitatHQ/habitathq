@@ -223,6 +223,9 @@ describe("createNotifications", () => {
         return decision;
       });
       const inst = createNotifications({ channels: { browser } });
+      inst.on("permissionchange", () => {
+        throw new Error("permission observer failed");
+      });
       const listener = vi.fn();
       inst.on("permissionchange", listener);
       await inst.requestPermission("browser");
@@ -252,6 +255,9 @@ describe("createNotifications", () => {
         return decision;
       });
       const inst = createNotifications({ channels: { browser } });
+      inst.on("permissionchange", () => {
+        throw new Error("permission observer failed");
+      });
       const permissions: string[] = [];
       inst.on("permissionchange", ({ permission }) => permissions.push(permission));
       const result = await inst.browser.send({ title: "permission first" });

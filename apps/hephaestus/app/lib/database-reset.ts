@@ -60,7 +60,7 @@ export async function resetDatabase(db: DbAdapter): Promise<void> {
       transaction: (run) =>
         db.transaction((tx) =>
           run({
-            exec: (sql, bind) => tx.exec(sql, bind),
+            exec: (sql, bind) => tx.queryAll(sql, bind),
             deferForeignKeys: () => tx.exec('PRAGMA defer_foreign_keys = ON'),
           }),
         ),

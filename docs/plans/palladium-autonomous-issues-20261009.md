@@ -1,6 +1,6 @@
 # Sequential autonomous Palladium issue fixes
 
-Baseline: origin/main ad84837, isolated worktree .worktrees/palladium-issues-20261009. Existing dirty app files and audit fixture are untouched. Initial implementation was local-only; subsequent authorization covers committing, pushing a dedicated branch, and opening a PR—not merging, manually closing issues, or installing dependencies.
+Baseline: origin/main ad84837, isolated worktree .worktrees/palladium-issues-20261009. Existing dirty app files and audit fixture are untouched. Initial implementation was local-only; subsequent authorization covers committing, pushing a dedicated branch, opening a PR, and merging after checks and review gates pass. Dependency installation and unrelated issue closures remain out of scope.
 
 ## Queue
 
@@ -54,12 +54,16 @@ The #82 startup path was exercised through queued and future calls against a
 failing real browser worker. Native checks so far use compatible SQLite-backed
 fixtures, not a physical device.
 
-#65 was additionally exercised with a rebuilt loopback Atrium server and the
+### #65 — Atrium clock recovery
+
+Additionally exercised with a rebuilt loopback Atrium server and the
 actual TypeScript transport: HTTP `400 clock_skew` retained blocking quarantine;
 `recoverClock()` reauthored the change; a subsequent sync uploaded it and reached
 `caught_up`.
 
-#66 now rejects malformed inserts before history admission. Before the fix,
+### #66 — Insert admission
+
+Malformed inserts are now rejected before history admission. Before the fix,
 the shared Rust validator classified them as valid, the SQLite store accepted
 them, and Atrium returned HTTP `201` instead of `400`. Full core/SQLite/Atrium
 suites passed (132 tests), as did the live PostgreSQL admission regression and
@@ -69,7 +73,9 @@ upload was fetched into a real Node SQLite-backed client with its checkpoint
 matching the upload receipt.
 
 
-#67 was reproduced against native PostgreSQL 16.14: a page checkpointed writer
+### #67 — PostgreSQL append ordering
+
+Reproduced against native PostgreSQL 16.14: a page checkpointed writer
 B while lower-position writer A was still in flight, and continuation after A
 committed omitted A. Per-scope row locking now precedes sequence allocation.
 All seven PostgreSQL unit/integration tests and its doc test passed, including
@@ -83,19 +89,25 @@ Device availability was checked: `adb devices` showed no connected device, and
 `xcrun simctl` was unavailable. Android/iOS physical handle observations remain
 outside the local fixture evidence.
 
-#68 reproduced the unintended HTTP 413 at 16 MiB before the method-specific
+### #68 — Blob upload limits
+
+Reproduced the unintended HTTP 413 at 16 MiB before the method-specific
 body-limit fix. The full Atrium suites passed (48 tests). A rebuilt TCP server
 accepted 2 MiB, 2 MiB + 1, and 16 MiB with exact byte round-trips; 16 MiB + 1
 returned 413 and remained absent. An oversized overwrite left existing bytes
 intact, and a valid oversized JSON change still returned 413.
 
-#94 reproduced successful replacement of a soft-deleted filesystem blob before
+### #94 — Filesystem tombstones
+
+Reproduced successful replacement of a soft-deleted filesystem blob before
 the fix. The retained-tombstone guard now returns the existing NotFound error
 without replacing original bytes. The blob crate suites passed (23 tests), and
 a standalone filesystem program proved rejection, retained original bytes,
 purge removal, and readable fresh-ID writes.
 
-#75 fixed by CapacitorSqliteAdapter: open() is single-flight, publishes #db only
+### #75 — Native open lifecycle
+
+Fixed by CapacitorSqliteAdapter: open() is single-flight, publishes #db only
 on a successful physical open, retries on failure without leaking the partial
 state, and close() awaits any in-flight open before releasing the handle. The
 optional isDBOpen() provider check avoids needless physical reopens when the
@@ -139,5 +151,59 @@ because no `adb` and no `xcrun simctl` were available.
 
 The deferred prerequisites above remain unchanged. Temporary smoke sources,
 owned loopback services, and disposable PostgreSQL data are removed after
-verification. Publication is limited to a dedicated branch and pull request;
-production changes, merging, and manual GitHub issue closures are not authorized.
+verification. The review-remediation authorization also covers committing and
+pushing fixes, addressing review threads, and merging after final-head gates pass.
+
+## PR review remediation
+
+1. Correct reset catalog identity using SQLite ASCII-only folding; allow triggers
+   that cannot fire on deletion without weakening checks on DELETE-trigger effects.
+   Serialize and atomically commit canonical metadata migration.
+2. Isolate permission-change observers individually and contain startup error
+   callback failures so successful permission changes and terminal initialization
+   settlement remain observable.
+3. Gate PostgreSQL database-dependent regressions consistently. Adapt every reset
+   caller to the schema-inspection row contract, including Hephaestus's query/exec
+   bridge, and correct the disposal documentation.
+4. Exercise regressions and actual API/SQLite/browser paths, build current package
+   declarations, run affected package/app/Rust gates, and publish additive commits.
+5. Address valid final-head review findings, verify CI and repository merge
+   requirements, merge using the exact verified head, and confirm GitHub state.
+
+The request does not require splitting previously authorized work into new PRs,
+changing incidental error wording, or adding unrelated dependency upgrades.
+
+### Review-remediation verification
+
+- Corrected SQLite ASCII identifier ownership and trigger-event parsing. Core
+  regressions cover distinct Unicode table names, safe INSERT/UPDATE triggers,
+  rollback on failed metadata migration, reopen, and mutations queued behind it.
+  Core suite: 456 passed.
+- Permission observer exceptions no longer prevent later observers or convert
+  granted/denied permissions into channel failures. Notification core: 88 passed.
+  Startup reporters may throw without leaving initialization unsettled: Nuxt
+  covers worker initialization errors, lock conflicts, crashes, timeouts, native
+  failures, and late READY with both normal and throwing reporters; 14 passed.
+- Built public-API smoke used real timers and exercised all five terminal startup
+  paths with a throwing reporter. Queued/future RPCs retained the terminal error,
+  late READY could not revive them, later permission observers ran, and a granted
+  send delivered exactly once.
+- File-backed SQLite public-API smoke proved migration rollback, canonical reopen,
+  stale-write rejection, preserved unowned Unicode child rows, and reset with a
+  harmless INSERT trigger.
+- Hephaestus reset now supplies schema rows through its query/exec bridge. Its
+  eight database-boundary regressions passed; full app verification passed
+  typechecks and 519 unit tests. In the production PWA, a UI-authored sentinel
+  disappeared after reset, preferences remained intact, and a new post-reset
+  exercise persisted across reload; fresh accessibility and screenshot evidence
+  confirmed the rendered result.
+- Core/notification/Nuxt builds and typechecks passed. PostgreSQL without default
+  features passed two unit tests and its doctest; Rust formatting and workspace
+  all-feature/all-target Clippy with warnings denied passed. Dependency-boundary
+  verification reported no violations. Informational app component-name and
+  existing package complexity warnings remain; no suppressions were added.
+- Final maintained-package run passed 853 tests, plus the separately exercised
+  14 Nuxt tests: 867 total. All maintained package builds, typechecks, and lint
+  completed without errors. The rebuilt production PWA data-portability E2E
+  passed. Final Rust workspace run passed 217 tests, including all seven live
+  PostgreSQL regressions and the Docker-backed OIDC fixture.

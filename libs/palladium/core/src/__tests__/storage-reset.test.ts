@@ -127,6 +127,32 @@ describe("resetOwnedTables", () => {
     },
   );
 
+  it("rejects a cascade into a distinct Unicode catalog name without deleting any rows", async () => {
+    const adapter = makeAdapter();
+    await adapter.open();
+    try {
+      await adapter.exec("PRAGMA foreign_keys = ON");
+      await adapter.runMigrations([
+        "CREATE TABLE earlier (id TEXT PRIMARY KEY)",
+        "CREATE TABLE keys (id TEXT PRIMARY KEY)",
+        'CREATE TABLE "Keys" (id TEXT PRIMARY KEY, parent_id TEXT REFERENCES keys(id) ON DELETE CASCADE)',
+      ]);
+      await adapter.exec("INSERT INTO earlier VALUES ('e')");
+      await adapter.exec("INSERT INTO keys VALUES ('p')");
+      await adapter.exec("INSERT INTO \"Keys\" VALUES ('c', 'p')");
+
+      await expect(
+        resetOwnedTables(adapter, { ownedTables: ["earlier", "keys"] }),
+      ).rejects.toThrow();
+
+      expect(await adapter.exec("SELECT * FROM earlier")).toEqual([{ id: "e" }]);
+      expect(await adapter.exec("SELECT * FROM keys")).toEqual([{ id: "p" }]);
+      expect(await adapter.exec('SELECT * FROM "Keys"')).toEqual([{ id: "c", parent_id: "p" }]);
+    } finally {
+      await adapter.close();
+    }
+  });
+
   it.each(["preserved", "unowned"] as const)(
     "rejects recursive cascades reaching a %s grandchild without changing the chain",
     async (ownership) => {
@@ -198,6 +224,45 @@ describe("resetOwnedTables", () => {
     },
   );
 
+  it.each([
+    [
+      "INSERT",
+      "CREATE TRIGGER [DELETE BEGIN ON] AFTER INSERT ON parents BEGIN UPDATE notes SET body = 'changed'; END",
+    ],
+    [
+      "UPDATE OF",
+      "CREATE TRIGGER update_notes AFTER UPDATE OF id ON parents BEGIN UPDATE notes SET body = 'changed'; END",
+    ],
+    [
+      "INSERT with an unquoted Unicode name",
+      "CREATE TRIGGER K_trigger AFTER INSERT ON parents BEGIN UPDATE notes SET body = 'changed'; END",
+    ],
+    [
+      "UPDATE with comments in the header",
+      "CREATE TRIGGER /* DELETE ON */ 'BEGIN ON' BEFORE /* DELETE */ UPDATE ON parents BEGIN UPDATE notes SET body = 'changed'; END",
+    ],
+  ])("allows harmless %s triggers while resetting", async (_kind, triggerSql) => {
+    const adapter = makeAdapter();
+    await adapter.open();
+    try {
+      await adapter.runMigrations([
+        "CREATE TABLE parents (id TEXT PRIMARY KEY)",
+        "CREATE TABLE notes (id TEXT PRIMARY KEY, body TEXT NOT NULL)",
+        triggerSql,
+      ]);
+      await adapter.exec("INSERT INTO parents VALUES ('p')");
+      await adapter.exec("INSERT INTO notes VALUES ('n', 'original')");
+      await expect(resetOwnedTables(adapter, { ownedTables: ["parents"] })).resolves.toEqual({
+        deletedTables: ["parents"],
+        preservedTables: [],
+      });
+      expect(await adapter.exec("SELECT * FROM parents")).toEqual([]);
+      expect(await adapter.exec("SELECT * FROM notes")).toEqual([{ id: "n", body: "original" }]);
+    } finally {
+      await adapter.close();
+    }
+  });
+
   it.each(["preserved", "unowned"] as const)(
     "rejects a DELETE trigger updating a %s table and rolls back earlier deletes",
     async (ownership) => {
@@ -209,7 +274,7 @@ describe("resetOwnedTables", () => {
           "CREATE TABLE earlier (id TEXT PRIMARY KEY)",
           "CREATE TABLE parents (id TEXT PRIMARY KEY)",
           "CREATE TABLE notes (id TEXT PRIMARY KEY, body TEXT NOT NULL)",
-          "CREATE TRIGGER rewrite_notes AFTER DELETE ON parents BEGIN UPDATE notes SET body = 'changed'; END",
+          "CREATE TRIGGER /* INSERT ON */ \"ON INSERT\" AFTER /* UPDATE */ DELETE ON parents BEGIN UPDATE notes SET body = 'changed'; END",
         ]);
         await adapter.exec("INSERT INTO earlier VALUES ('e')");
         await adapter.exec("INSERT INTO parents VALUES ('p')");
