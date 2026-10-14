@@ -123,19 +123,30 @@ function canonicalColumn(column: string, columns: ReadonlySet<string>): string {
   return column;
 }
 
-function schemaColumnsFor(schemaSql: string, table: string): ReadonlySet<string> {
-  const result = new Set<string>();
-  const re = /CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)/gi;
-  for (const m of schemaSql.matchAll(re)) {
-    if (m[1]?.toLowerCase() !== table.toLowerCase()) continue;
-    const body = m[2] ?? "";
-    for (const part of body.split(",")) {
-      const col = part.trim().split(/\s+/)[0] ?? "";
-      const match = /^[`"[]?([A-Za-z_][A-Za-z0-9_]*)[`"\]]?$/.exec(col);
-      if (match?.[1]) result.add(match[1]);
+const EMPTY_COLUMNS: ReadonlySet<string> = new Set();
+
+async function readSchemaColumns(
+  adapter: StorageAdapter,
+): Promise<ReadonlyMap<string, ReadonlySet<string>>> {
+  // Read the applied schema, including migrations and parameterized types,
+  // rather than trying to parse CREATE TABLE SQL.
+  const rows = await adapter.exec<{ tbl: string; col: string }>(
+    `SELECT schema_table.name AS tbl, schema_column.name AS col
+     FROM main.sqlite_master AS schema_table
+     JOIN pragma_table_xinfo(schema_table.name) AS schema_column
+     WHERE schema_table.type = 'table'`,
+  );
+  const tables = new Map<string, Set<string>>();
+  for (const { tbl, col } of rows) {
+    const table = canonicalTable(tbl);
+    let columns = tables.get(table);
+    if (columns === undefined) {
+      columns = new Set();
+      tables.set(table, columns);
     }
+    columns.add(col);
   }
-  return result;
+  return tables;
 }
 
 function canonicalOp<S extends SchemaMap>(
@@ -473,7 +484,7 @@ export class PalladiumEngine<S extends SchemaMap> {
   readonly #localChangeCheckpoints = new Set<LocalChangeCheckpoint<S>>();
   readonly #blobRegistry = new BlobRegistry();
   #schemaIdentity: string | null = null;
-  #schemaSql: string | null = null;
+  #tableColumns: ReadonlyMap<string, ReadonlySet<string>> = new Map();
   #syncTransportOwner: object | null = null;
   readonly blobs: BlobHandle;
 
@@ -806,26 +817,25 @@ export class PalladiumEngine<S extends SchemaMap> {
       const initializedSchemaSql = schema.schema;
       this.#knownTables = extractSchemaTables(initializedSchemaSql);
       this.#schemaIdentity = identity;
-      this.#schemaSql = initializedSchemaSql;
       await this.#ensureSyncTables(this.adapter);
       await this.#serialize(async () => {
+        const tableColumns = await readSchemaColumns(this.adapter);
+        const columnsFor = (table: string): ReadonlySet<string> =>
+          tableColumns.get(canonicalTable(table)) ?? EMPTY_COLUMNS;
         if (isTransactable(this.adapter)) {
           await this.adapter.transaction((transaction) =>
-            migrateShadowTablesToCanonical(transaction, (table) =>
-              schemaColumnsFor(initializedSchemaSql, table),
-            ),
+            migrateShadowTablesToCanonical(transaction, columnsFor),
           );
         } else {
-          await migrateShadowTablesToCanonical(this.adapter, (table) =>
-            schemaColumnsFor(initializedSchemaSql, table),
-          );
+          await migrateShadowTablesToCanonical(this.adapter, columnsFor);
         }
+        this.#tableColumns = tableColumns;
       });
     }
   }
 
   #columnsFor(table: string): ReadonlySet<string> {
-    return schemaColumnsFor(this.#schemaSql ?? "", table);
+    return this.#tableColumns.get(canonicalTable(table)) ?? EMPTY_COLUMNS;
   }
 
   /** Delete a local row without generating a sync/outbox change. */
@@ -1587,15 +1597,18 @@ export class PalladiumEngine<S extends SchemaMap> {
     const pending = await this.#pendingRemoteUpdates(adpt, table, data.id);
     await this.#clearPendingRemoteUpdates(adpt, table, data.id);
     for (const row of pending) {
-      await this.#applyRemoteUpdate(
+      // Legacy buffered patches may predate column canonicalization.
+      await this.#applyRemoteOp(
         adpt,
-        table,
-        {
-          type: "update",
-          table: op.table,
-          id: data.id,
-          patch: JSON.parse(row.patch) as Record<string, unknown>,
-        } as Extract<Op<S>, { type: "update" }>,
+        canonicalOp(
+          {
+            type: "update",
+            table: op.table,
+            id: data.id,
+            patch: JSON.parse(row.patch) as Record<string, unknown>,
+          } as Extract<Op<S>, { type: "update" }>,
+          (name) => this.#columnsFor(name),
+        ),
         metaRowToHlc(row),
       );
     }

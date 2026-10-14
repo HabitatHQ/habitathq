@@ -674,4 +674,80 @@ describe("column-level LWW", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it.each([
+    "CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, amount DECIMAL(10,2), Title TEXT NOT NULL)",
+    'CREATE TABLE "notes" (id TEXT PRIMARY KEY, amount DECIMAL(10,2), "Title" TEXT NOT NULL)',
+    "CREATE TABLE notes (id TEXT PRIMARY KEY, amount DECIMAL(10,2)); ALTER TABLE notes ADD COLUMN Title TEXT NOT NULL DEFAULT ''",
+  ])("resolves LWW columns from applied SQLite schema: %s", async (schema) => {
+    interface MixedSchema {
+      notes: { id: string; amount: number; Title?: string; title?: string };
+    }
+    const engine = new PalladiumEngine<MixedSchema>(
+      new NodeSqliteAdapter({ vfs: { type: "memory" } }),
+      { nodeId: ALICE },
+    );
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    try {
+      await engine.init({ version: 1, schema });
+      await engine.insert("notes", { id, amount: 1, Title: "newer local" });
+      const local = engine.currentHlc;
+      if (local === null) throw new Error("Local insert did not stamp its clock");
+      await engine.applyRemote({
+        hlc: hlc(local.wallMs - 1, 0, BOB),
+        ops: [{ type: "update", table: "notes", id, patch: { title: "stale remote" } }],
+      });
+      expect(await engine.exec(sql`SELECT Title FROM notes WHERE id = ${id}`)).toEqual([
+        { Title: "newer local" },
+      ]);
+      expect(
+        await engine.exec(
+          sql`SELECT col FROM _sync_row_meta WHERE row_id = ${id} AND LOWER(col) = 'title'`,
+        ),
+      ).toEqual([{ col: "Title" }]);
+    } finally {
+      await engine.adapter.close();
+    }
+  });
+
+  it.each(["notes", "NOTES"])(
+    "canonicalizes legacy pending patch columns before replay from %s",
+    async (table) => {
+      const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+      const { db: engine, cleanup } = await makeSeededEngine(BOB, async (adapter) => {
+        await adapter.exec(
+          "INSERT INTO _sync_pending_remote_updates VALUES ('older-title', ?, ?, ?, 1000, 0, ?), ('newer-body', ?, ?, ?, 3000, 0, ?)",
+          [table, id, '{"TITLE":"stale pending"}', BOB, table, id, '{"BODY":"newer pending"}', BOB],
+        );
+      });
+      try {
+        await engine.applyRemote({
+          hlc: hlc(2_000),
+          ops: [
+            {
+              type: "insert",
+              table: "notes",
+              id,
+              data: { id, title: "newer insert", body: "older insert", updated_at: 1 },
+            },
+          ],
+        });
+        expect(await engine.exec(sql`SELECT title, body FROM notes WHERE id = ${id}`)).toEqual([
+          { title: "newer insert", body: "newer pending" },
+        ]);
+        expect(
+          await engine.exec(
+            sql`SELECT col FROM _sync_row_meta WHERE row_id = ${id} AND col IN ('TITLE', 'BODY')`,
+          ),
+        ).toEqual([]);
+        expect(
+          await engine.exec(
+            sql`SELECT pending_id FROM _sync_pending_remote_updates WHERE row_id = ${id}`,
+          ),
+        ).toEqual([]);
+      } finally {
+        await cleanup();
+      }
+    },
+  );
 });

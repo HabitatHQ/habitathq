@@ -37,6 +37,10 @@ For maintained Palladium TypeScript packages, use `just test-ts` (builds package
 dependencies first) and `just lint-palladium-ts` (the root Biome version).
 Examples and live-server E2E remain separate from this unit gate.
 
+For issue-specific checks, failure localization, isolated PostgreSQL setup, and
+production-browser smoke steps, see the
+[remediation verification/debugging runbook](../../docs/plans/palladium-autonomous-issues-20261009.md#verification-and-debugging-runbook).
+
 ### Storage ownership and Kysely
 
 `PalladiumDialect` transactions use the adapter's real transaction boundary and
@@ -68,7 +72,9 @@ override does not overwrite the local schema identity used when reopening.
 Quoted and schema-qualified SQL table names participate in live-query
 invalidation. LWW metadata and logical-reset table identities use SQLite's
 ASCII-only case folding, preserving distinct Unicode identifiers. Legacy metadata
-canonicalization is serialized and transactional. Logical reset rejects
+canonicalization is serialized and transactional. Column names come from the
+applied SQLite schema, including migrated columns and parameterized types;
+legacy buffered patch keys are canonicalized before replay. Logical reset rejects
 foreign-key cascades and DELETE-trigger writes into preserved or unowned tables;
 INSERT/UPDATE-only triggers do not prevent deletion.
 
