@@ -271,8 +271,9 @@ cargo clippy --locked --workspace --all-features --all-targets -- -D warnings
 ```
 
 Success requires completed suites, not a zero-test filter or merely a successful
-build. Current evidence is 872 Palladium package tests, 519 Hephaestus tests, and
-the integration counts above; future intentional additions may change counts.
+build. Current evidence is 858 maintained-package tests plus 14 Nuxt tests (872
+combined), 519 Hephaestus tests, and the integration counts above; future
+intentional additions may change counts.
 Package lint has documented non-fatal warnings. `pnpm dedupe:check` is a separate
 known non-green baseline: record its proposed changes, do not silently upgrade
 unrelated dependencies or bypass it.
