@@ -34,8 +34,10 @@ export function createDatabasePlugin(config: DatabasePluginConfig) {
   const pending = new Map<string, PendingEntry>();
   let nativeReady = false;
   let workerDead = false;
+  let unavailableReason: string | null = null;
 
   function drainPending(reason: string): void {
+    if (pending.size === 0) return;
     const err = new Error(reason);
     for (const [id, entry] of pending) {
       entry.reject(err);
@@ -43,9 +45,20 @@ export function createDatabasePlugin(config: DatabasePluginConfig) {
     }
   }
 
+  function markUnavailable(reason: string): boolean {
+    if (unavailableReason !== null) return false;
+    unavailableReason = reason;
+    workerDead = true;
+    drainPending(reason);
+    return true;
+  }
+
   // ── RPC ────────────────────────────────────────────────────────────────
 
   function sendToWorker<T>(req: Record<string, unknown>): Promise<T> {
+    if (unavailableReason !== null) {
+      return Promise.reject(new Error(unavailableReason));
+    }
     if (nativeReady && native) {
       return native.dispatch(req) as Promise<T>;
     }
@@ -68,19 +81,33 @@ export function createDatabasePlugin(config: DatabasePluginConfig) {
    *   shell. The caller checks this (e.g. via `Capacitor.isNativePlatform()`)
    *   so this package has no dependency on `@capacitor/core`.
    * @param onError — called with a user-visible message when the database
-   *   cannot be initialised (lock conflict, timeout, crash).
+   *   cannot be initialised (lock conflict, timeout, crash). Invoked at
+   *   most once per plugin instance; late worker signals cannot revive a
+   *   failed initialization.
    */
   async function initialize(
     isNativePlatform: boolean,
     onError: (msg: string) => void,
   ): Promise<void> {
+    let failureNotified = false;
+    const reportFailure = (message: string): void => {
+      if (failureNotified) return;
+      failureNotified = true;
+      try {
+        onError(message);
+      } catch {
+        // Reporting is advisory and must not prevent startup from settling.
+      }
+    };
+
     // ── Native path ────────────────────────────────────────────────────
     if (isNativePlatform && native) {
       try {
         await native.init();
         nativeReady = true;
       } catch (err) {
-        onError(`Database failed to start: ${err instanceof Error ? err.message : String(err)}`);
+        const message = `Database failed to start: ${err instanceof Error ? err.message : String(err)}`;
+        if (markUnavailable(message)) reportFailure(message);
       }
       return;
     }
@@ -94,6 +121,7 @@ export function createDatabasePlugin(config: DatabasePluginConfig) {
       (e: MessageEvent<WorkerResponseEnvelope | WorkerLifecycleMessage>) => {
         const msg = e.data;
         if ("type" in msg) return; // lifecycle signals handled below
+        if (unavailableReason !== null) return; // drop late responses after terminal failure
         const r = msg as WorkerResponseEnvelope;
         const p = pending.get(r.id);
         if (!p) return;
@@ -104,44 +132,54 @@ export function createDatabasePlugin(config: DatabasePluginConfig) {
 
     // Block until the worker signals readiness (or fails).
     await new Promise<void>((resolve) => {
-      const t = setTimeout(() => {
-        onError("Database took too long to start. Try closing other tabs or refreshing.");
+      let settled = false;
+      let t: number | NodeJS.Timeout | undefined;
+      let lifecycleHandler: ((e: MessageEvent<WorkerLifecycleMessage>) => void) | undefined;
+
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(t);
+        if (lifecycleHandler) {
+          worker?.removeEventListener("message", lifecycleHandler);
+        }
         resolve();
+      };
+
+      t = setTimeout(() => {
+        const message = "Database took too long to start. Try closing other tabs or refreshing.";
+        if (markUnavailable(message)) reportFailure(message);
+        settle();
       }, startupTimeoutMs);
 
-      worker?.addEventListener(
-        "message",
-        function handler(e: MessageEvent<WorkerLifecycleMessage>) {
-          const type = (e.data as { type?: string }).type;
-          if (type === "READY") {
-            clearTimeout(t);
-            worker?.removeEventListener("message", handler);
-            resolve();
-          } else if (type === "LOCK_UNAVAILABLE") {
-            clearTimeout(t);
-            worker?.removeEventListener("message", handler);
-            onError(
-              `${appName} is already open in another tab. Close that tab and refresh this one.`,
-            );
-            resolve();
-          } else if (type === "INIT_ERROR") {
-            clearTimeout(t);
-            worker?.removeEventListener("message", handler);
-            onError(
-              `Database failed to start: ${(e.data as { message?: string }).message ?? "unknown error"}`,
-            );
-            resolve();
-          }
-        },
-      );
+      lifecycleHandler = (e: MessageEvent<WorkerLifecycleMessage>) => {
+        if (unavailableReason !== null) return; // ignore late signals after a terminal failure
+        const type = (e.data as { type?: string }).type;
+        if (type === "READY") {
+          settle();
+          return;
+        }
+        if (type === "LOCK_UNAVAILABLE") {
+          const message = `${appName} is already open in another tab. Close that tab and refresh this one.`;
+          if (markUnavailable(message)) reportFailure(message);
+          settle();
+          return;
+        }
+        if (type === "INIT_ERROR") {
+          const message = `Database failed to start: ${(e.data as { message?: string }).message ?? "unknown error"}`;
+          if (markUnavailable(message)) reportFailure(message);
+          settle();
+        }
+      };
+
+      worker?.addEventListener("message", lifecycleHandler);
 
       if (worker) {
         worker.onerror = () => {
-          clearTimeout(t);
-          workerDead = true;
-          drainPending("Database worker crashed.");
-          onError("Database failed to initialize. Try refreshing.");
-          resolve();
+          const userMessage = "Database failed to initialize. Try refreshing.";
+          const drainReason = "Database worker crashed.";
+          if (markUnavailable(drainReason)) reportFailure(userMessage);
+          settle();
         };
       }
     });

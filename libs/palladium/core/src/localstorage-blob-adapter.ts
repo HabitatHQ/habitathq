@@ -6,6 +6,9 @@ export class LocalStorageBlobAdapter implements BlobAdapter, BlobStoreLifecycle 
   #disposed = false;
 
   constructor(prefix = "palladium-blob:") {
+    if (prefix.length === 0) {
+      throw new Error("LocalStorageBlobAdapter prefix must not be empty");
+    }
     this.#prefix = prefix;
   }
 

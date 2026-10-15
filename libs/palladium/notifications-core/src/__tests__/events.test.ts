@@ -95,4 +95,21 @@ describe("NotificationsEventEmitter", () => {
     emitter.emit("clicked", payload);
     expect(handler).toHaveBeenCalledWith(payload);
   });
+
+  it("preserves ordinary event error propagation", () => {
+    const emitter = new NotificationsEventEmitter();
+    const failure = new Error("delivery observer failed");
+    const later = vi.fn();
+    emitter.on("delivered", () => {
+      throw failure;
+    });
+    emitter.on("delivered", later);
+    expect(() =>
+      emitter.emit("delivered", {
+        channel: "toast",
+        notification: { title: "Test" },
+      }),
+    ).toThrow(failure);
+    expect(later).not.toHaveBeenCalled();
+  });
 });

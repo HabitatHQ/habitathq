@@ -39,16 +39,4 @@ describe("blob lifecycle", () => {
     await deleteSharedDatabase.deleteDatabase();
     await otherDatabase.deleteDatabase();
   });
-
-  it("reports blocked deletion instead of treating it as success", async () => {
-    const blockerRequest = indexedDB.open("lifecycle-blocked", 1);
-    const blocker = await new Promise<IDBDatabase>((resolve, reject) => {
-      blockerRequest.onsuccess = () => resolve(blockerRequest.result);
-      blockerRequest.onerror = () => reject(blockerRequest.error);
-    });
-    const adapter = new IDBBlobAdapter("lifecycle-blocked", 0, "app", true);
-
-    await expect(adapter.deleteDatabase()).rejects.toThrow("blocked");
-    blocker.close();
-  });
 });

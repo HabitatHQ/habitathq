@@ -1390,7 +1390,7 @@ impl AtriumDb {
         }
         if change.hlc.millis() > now_millis.saturating_add(palladium_core::V1_MAX_FUTURE_HLC_MILLIS)
         {
-            return Err(AtriumError::Conflict("clock_skew".to_owned()));
+            return Err(AtriumError::BadRequest("clock_skew".to_owned()));
         }
         sqlx::query(
             "INSERT OR IGNORE INTO member_nodes (workspace_id, user_id, node_id)

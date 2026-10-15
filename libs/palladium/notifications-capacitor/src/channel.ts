@@ -9,14 +9,19 @@ import type { CapacitorNotificationChannelOpts } from "./types.js";
 let _idCounter = 1;
 
 function toNumericId(id: string | undefined): number {
-  if (id === undefined) return _idCounter++;
+  if (id === undefined) {
+    const numericId = _idCounter;
+    _idCounter = _idCounter === 0x7fffffff ? 1 : _idCounter + 1;
+    return numericId;
+  }
   // djb2 hash to numeric id
   let hash = 5381;
   for (let i = 0; i < id.length; i++) {
     const code = id.charCodeAt(i);
     hash = ((hash << 5) + hash + code) >>> 0;
   }
-  return hash === 0 ? 1 : hash;
+  const numericId = hash & 0x7fffffff;
+  return numericId === 0 ? 1 : numericId;
 }
 
 export class CapacitorNotificationChannel implements NotificationsChannel {

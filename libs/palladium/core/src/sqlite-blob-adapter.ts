@@ -23,7 +23,6 @@ export class SqliteBlobAdapter implements BlobAdapter, BlobStoreLifecycle {
   readonly #idColumn: string;
   readonly #dataColumn: string;
   #disposed = false;
-  #ready: Promise<void> | null = null;
 
   constructor(storage: StorageAdapter | DbAdapter, options: SqliteBlobAdapterOptions) {
     assertIdentifier(options.table, "table");
@@ -46,7 +45,7 @@ export class SqliteBlobAdapter implements BlobAdapter, BlobStoreLifecycle {
   async put(id: string, bytes: Uint8Array, options?: BlobAdapterOptions): Promise<void> {
     options?.signal?.throwIfAborted();
     const db = this.#database(options);
-    await this.#ensureTable(db, options?.transaction !== undefined);
+    await this.#ensureTable(db);
     if (this.#namespace === null) {
       const rows = await this.#query(
         db,
@@ -70,7 +69,7 @@ export class SqliteBlobAdapter implements BlobAdapter, BlobStoreLifecycle {
   async get(id: string, options?: BlobAdapterOptions): Promise<Uint8Array | null> {
     options?.signal?.throwIfAborted();
     const db = this.#database(options);
-    await this.#ensureTable(db, options?.transaction !== undefined);
+    await this.#ensureTable(db);
     const rows = await this.#query<{ data: Uint8Array | number[] | null }>(
       db,
       `SELECT "${this.#dataColumn}" AS data FROM "${this.#table}" WHERE ${this.#where()}`,
@@ -93,14 +92,14 @@ export class SqliteBlobAdapter implements BlobAdapter, BlobStoreLifecycle {
   async delete(id: string, options?: BlobAdapterOptions): Promise<void> {
     options?.signal?.throwIfAborted();
     const db = this.#database(options);
-    await this.#ensureTable(db, options?.transaction !== undefined);
+    await this.#ensureTable(db);
     await db.exec(`DELETE FROM "${this.#table}" WHERE ${this.#where()}`, this.#bindings(id));
   }
 
   async has(id: string, options?: BlobAdapterOptions): Promise<boolean> {
     options?.signal?.throwIfAborted();
     const db = this.#database(options);
-    await this.#ensureTable(db, options?.transaction !== undefined);
+    await this.#ensureTable(db);
     const rows = await this.#query(
       db,
       `SELECT 1 AS found FROM "${this.#table}" WHERE ${this.#where()} LIMIT 1`,
@@ -112,7 +111,7 @@ export class SqliteBlobAdapter implements BlobAdapter, BlobStoreLifecycle {
   async clear(options?: BlobAdapterOptions): Promise<void> {
     options?.signal?.throwIfAborted();
     const db = this.#database(options);
-    await this.#ensureTable(db, options?.transaction !== undefined);
+    await this.#ensureTable(db);
     await db.exec(
       `DELETE FROM "${this.#table}"${this.#namespace === null ? "" : " WHERE namespace = ?"}`,
       this.#namespace === null ? [] : [this.#namespace],
@@ -147,17 +146,11 @@ export class SqliteBlobAdapter implements BlobAdapter, BlobStoreLifecycle {
     return "queryAll" in db ? db.queryAll<T>(sql, bind) : db.exec<T>(sql, bind);
   }
 
-  #ensureTable(db: StorageAdapter | DbAdapter, transactional: boolean): Promise<void> {
+  #ensureTable(db: StorageAdapter | DbAdapter): Promise<void> {
     if (this.#namespace === null) return Promise.resolve();
-    if (!transactional) {
-      this.#ready ??= this.#createTable(db).catch((error: unknown) => {
-        this.#ready = null;
-        throw error;
-      });
-      return this.#ready;
-    }
-    // Transactional DDL may roll back even when its executor is this.#storage;
-    // never cache that table as ready beyond the caller's transaction.
+    // SQLite's IF NOT EXISTS is inexpensive and keeps readiness scoped to the
+    // current database contents. A reset or rollback can remove DDL while the
+    // storage object itself remains the same.
     return this.#createTable(db);
   }
 

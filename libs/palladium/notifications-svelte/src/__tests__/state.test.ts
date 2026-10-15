@@ -48,10 +48,4 @@ describe("NotificationsState", () => {
     const state = new NotificationsState(inst);
     expect(typeof state.browserPermission.subscribe).toBe("function");
   });
-
-  it("subscribes to 'delivered' events on construction", () => {
-    const inst = createMockInstance();
-    new NotificationsState(inst);
-    expect(inst.on).toHaveBeenCalledWith("delivered", expect.any(Function));
-  });
 });

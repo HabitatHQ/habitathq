@@ -9,17 +9,24 @@ const mockPushSubscription = {
   unsubscribe: vi.fn().mockResolvedValue(true),
 };
 
+const expectedSubscription = {
+  endpoint: mockPushSubscription.endpoint,
+  keys: { p256dh: "AQID", auth: "BAUG" },
+};
+
 const mockPushManager = {
   subscribe: vi.fn().mockResolvedValue(mockPushSubscription),
   getSubscription: vi.fn().mockResolvedValue(mockPushSubscription),
 };
 
 const mockRegistration = {
+  scope: "https://example.test/",
   pushManager: mockPushManager,
 };
 
 const mockServiceWorker = {
   register: vi.fn().mockResolvedValue(mockRegistration),
+  getRegistration: vi.fn().mockResolvedValue(mockRegistration),
   ready: Promise.resolve(mockRegistration),
 };
 
@@ -31,11 +38,13 @@ class MockNotificationStatic {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks();
   MockNotificationStatic.permission = "granted";
+  mockRegistration.scope = new URL("/", window.location.href).href;
   vi.stubGlobal("Notification", MockNotificationStatic);
   vi.stubGlobal("navigator", { serviceWorker: mockServiceWorker });
   vi.stubGlobal("PushManager", {});
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
   vi.stubGlobal("btoa", (s: string) => Buffer.from(s, "binary").toString("base64"));
   // Ensure window is defined with PushManager
   if (typeof window === "undefined") {
@@ -44,6 +53,7 @@ beforeEach(() => {
   mockPushManager.subscribe.mockResolvedValue(mockPushSubscription);
   mockPushSubscription.unsubscribe.mockResolvedValue(true);
   mockPushManager.getSubscription.mockResolvedValue(mockPushSubscription);
+  mockServiceWorker.getRegistration.mockResolvedValue(mockRegistration);
 });
 
 afterEach(() => {
@@ -74,63 +84,264 @@ describe("WebPushChannel", () => {
     expect(ch.permissionStatus()).toBe("denied");
   });
 
-  it("subscribe() registers service worker", async () => {
+  it("subscribe() caches the browser subscription without a registration endpoint", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("No backend configured")));
     const ch = new WebPushChannel({ vapidPublicKey: "dGVzdA==" });
-    await ch.subscribe();
-    expect(mockServiceWorker.register).toHaveBeenCalledWith("/sw.js", { scope: "/" });
+
+    expect(await ch.subscribe()).toEqual(expectedSubscription);
+    expect(ch.getSubscription()).toEqual(expectedSubscription);
+    expect(await ch.send({ title: "Push message" })).toEqual({ status: "delivered" });
   });
 
-  it("subscribe() returns PushSubscriptionJSON", async () => {
-    const ch = new WebPushChannel({ vapidPublicKey: "dGVzdA==" });
-    const result = await ch.subscribe();
-    expect(result).not.toBeNull();
-    expect(typeof result?.endpoint).toBe("string");
-    expect(typeof result?.keys.p256dh).toBe("string");
-    expect(typeof result?.keys.auth).toBe("string");
-  });
+  it.each([200, 201, 204])(
+    "subscribe() caches endpoint and keys after backend registration HTTP %i",
+    async (status) => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status })));
+      const ch = new WebPushChannel({
+        vapidPublicKey: "dGVzdA==",
+        subscribeEndpoint: "/api/push/subscribe",
+      });
 
-  it("subscribe() POSTs to subscribeEndpoint when configured", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal("fetch", fetchMock);
+      expect(await ch.subscribe()).toEqual(expectedSubscription);
+      expect(ch.getSubscription()).toEqual(expectedSubscription);
+      expect(await ch.send({ title: "Push message" })).toEqual({ status: "delivered" });
+    },
+  );
+
+  it.each([400, 401, 500])(
+    "subscribe() leaves the channel unsubscribed after backend registration HTTP %i",
+    async (status) => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status })));
+      const ch = new WebPushChannel({
+        vapidPublicKey: "dGVzdA==",
+        subscribeEndpoint: "/api/push/subscribe",
+      });
+
+      expect(await ch.subscribe()).toBeNull();
+      expect(ch.getSubscription()).toBeNull();
+      expect(await ch.send({ title: "Push message" })).toEqual({
+        status: "skipped",
+        reason: "Not subscribed to web push",
+      });
+    },
+  );
+
+  it("subscribe() leaves the channel unsubscribed after a registration network failure", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
     const ch = new WebPushChannel({
       vapidPublicKey: "dGVzdA==",
       subscribeEndpoint: "/api/push/subscribe",
     });
-    await ch.subscribe();
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/push/subscribe",
-      expect.objectContaining({ method: "POST" }),
+
+    expect(await ch.subscribe()).toBeNull();
+    expect(ch.getSubscription()).toBeNull();
+    expect(await ch.send({ title: "Push message" })).toEqual({
+      status: "skipped",
+      reason: "Not subscribed to web push",
+    });
+  });
+
+  it.each([400, 401, 500, "network"] as const)(
+    "subscribe() preserves the registered subscription after a later %s failure",
+    async (failure) => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+      vi.stubGlobal("fetch", fetchMock);
+      const ch = new WebPushChannel({
+        vapidPublicKey: "dGVzdA==",
+        subscribeEndpoint: "/api/push/subscribe",
+      });
+      expect(await ch.subscribe()).toEqual(expectedSubscription);
+
+      mockPushManager.subscribe.mockResolvedValueOnce({
+        ...mockPushSubscription,
+        endpoint: "https://push.example.test/replacement",
+        getKey: vi.fn(() => new Uint8Array([7, 8, 9]).buffer),
+      });
+      if (failure === "network") {
+        fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+      } else {
+        fetchMock.mockResolvedValueOnce(new Response(null, { status: failure }));
+      }
+
+      expect(await ch.subscribe()).toBeNull();
+      expect(ch.getSubscription()).toEqual(expectedSubscription);
+      expect(await ch.send({ title: "Push message" })).toEqual({ status: "delivered" });
+    },
+  );
+
+  it("unsubscribe() discovers and cancels a persisted subscription on a fresh channel", async () => {
+    let browserSubscriptionPresent = true;
+    const unsubscribeMock = vi.fn(async () => {
+      browserSubscriptionPresent = false;
+      return true;
+    });
+    const persistedSubscription = {
+      endpoint: expectedSubscription.endpoint,
+      getKey: vi.fn((name: string) =>
+        name === "p256dh" ? new Uint8Array([1, 2, 3]).buffer : new Uint8Array([4, 5, 6]).buffer,
+      ),
+      unsubscribe: unsubscribeMock,
+    };
+    mockPushManager.getSubscription.mockImplementation(async () =>
+      browserSubscriptionPresent ? persistedSubscription : null,
     );
-  });
-
-  it("subscribe() does not POST when no subscribeEndpoint", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal("fetch", fetchMock);
-    const ch = new WebPushChannel({ vapidPublicKey: "dGVzdA==" });
-    await ch.subscribe();
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("unsubscribe() calls sub.unsubscribe()", async () => {
-    const ch = new WebPushChannel({ vapidPublicKey: "dGVzdA==" });
-    await ch.subscribe();
-    await ch.unsubscribe();
-    expect(mockPushSubscription.unsubscribe).toHaveBeenCalled();
-  });
-
-  it("unsubscribe() DELETEs to unsubscribeEndpoint when configured", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
     const ch = new WebPushChannel({
       vapidPublicKey: "dGVzdA==",
       unsubscribeEndpoint: "/api/push/unsubscribe",
     });
-    await ch.subscribe();
-    await ch.unsubscribe();
+
+    await expect(ch.unsubscribe()).resolves.toBeUndefined();
+    expect(unsubscribeMock).toHaveBeenCalledOnce();
+    expect(browserSubscriptionPresent).toBe(false);
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/push/unsubscribe",
-      expect.objectContaining({ method: "DELETE" }),
+      expect.objectContaining({
+        method: "DELETE",
+        body: JSON.stringify(expectedSubscription),
+      }),
     );
+    expect(ch.getSubscription()).toBeNull();
+    await ch.unsubscribe();
+    expect(unsubscribeMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("unsubscribe() uses only an exact custom-scope registration, not a covering root registration", async () => {
+    const scopedUnsubscribe = vi.fn().mockResolvedValue(true);
+    const scopedManager = {
+      getSubscription: vi.fn().mockResolvedValue({
+        ...mockPushSubscription,
+        unsubscribe: scopedUnsubscribe,
+      }),
+    };
+    const unrelatedUnsubscribe = vi.fn().mockResolvedValue(true);
+    const unrelatedManager = {
+      getSubscription: vi.fn().mockResolvedValue({
+        ...mockPushSubscription,
+        endpoint: "https://push.example.test/unrelated",
+        unsubscribe: unrelatedUnsubscribe,
+      }),
+    };
+    const scopedRegistration = {
+      scope: new URL("/app/", window.location.href).href,
+      pushManager: scopedManager,
+    };
+    mockServiceWorker.getRegistration.mockResolvedValueOnce(scopedRegistration);
+    vi.stubGlobal("navigator", {
+      serviceWorker: {
+        ...mockServiceWorker,
+        ready: Promise.resolve({
+          scope: new URL("/", window.location.href).href,
+          pushManager: unrelatedManager,
+        }),
+      },
+    });
+    const ch = new WebPushChannel({
+      vapidPublicKey: "test",
+      serviceWorkerScope: "/app/",
+    });
+    await ch.unsubscribe();
+
+    expect(scopedUnsubscribe).toHaveBeenCalledOnce();
+    expect(unrelatedUnsubscribe).not.toHaveBeenCalled();
+  });
+
+  it("unsubscribe() does nothing when no registration exists", async () => {
+    mockServiceWorker.getRegistration.mockResolvedValue(undefined);
+    const ch = new WebPushChannel({ vapidPublicKey: "test" });
+    await expect(ch.unsubscribe()).resolves.toBeUndefined();
+    await expect(ch.unsubscribe()).resolves.toBeUndefined();
+    expect(mockPushManager.getSubscription).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["false", false],
+    ["error", new Error("browser unsubscribe failed")],
+  ] as const)(
+    "unsubscribe() rejects and retains retryable state when browser removal returns %s",
+    async (_, result) => {
+      const unsubscribeMock =
+        result === false ? vi.fn().mockResolvedValue(false) : vi.fn().mockRejectedValue(result);
+      mockPushManager.getSubscription.mockResolvedValueOnce({
+        endpoint: expectedSubscription.endpoint,
+        getKey: vi.fn((name: string) =>
+          name === "p256dh" ? new Uint8Array([1, 2, 3]).buffer : new Uint8Array([4, 5, 6]).buffer,
+        ),
+        unsubscribe: unsubscribeMock,
+      });
+      const ch = new WebPushChannel({ vapidPublicKey: "test" });
+      await expect(ch.unsubscribe()).rejects.toBeTruthy();
+      expect(ch.getSubscription()).toEqual(expectedSubscription);
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([500, "network"] as const)(
+    "unsubscribe() retains endpoint and keys after backend %s failure and retries without browser removal",
+    async (failure) => {
+      let backendRegistered = true;
+      let deleteAttempts = 0;
+      const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const payload = JSON.parse(String(init?.body)) as typeof expectedSubscription;
+        expect(payload).toEqual(expectedSubscription);
+        deleteAttempts += 1;
+        if (deleteAttempts === 1) {
+          if (failure === "network") throw new TypeError("Failed to fetch");
+          return new Response(null, { status: failure });
+        }
+        backendRegistered = false;
+        return new Response(null, { status: 204 });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      let browserSubscriptionPresent = true;
+      const unsubscribeMock = vi.fn(async () => {
+        browserSubscriptionPresent = false;
+        return true;
+      });
+      const browserSubscription = {
+        endpoint: expectedSubscription.endpoint,
+        getKey: vi.fn((name: string) =>
+          name === "p256dh" ? new Uint8Array([1, 2, 3]).buffer : new Uint8Array([4, 5, 6]).buffer,
+        ),
+        unsubscribe: unsubscribeMock,
+      };
+      mockPushManager.getSubscription.mockImplementation(async () =>
+        browserSubscriptionPresent ? browserSubscription : null,
+      );
+      const ch = new WebPushChannel({
+        vapidPublicKey: "test",
+        unsubscribeEndpoint: "/api/push/unsubscribe",
+      });
+      await expect(ch.unsubscribe()).rejects.toBeTruthy();
+      expect(unsubscribeMock).toHaveBeenCalledOnce();
+      expect(browserSubscriptionPresent).toBe(false);
+      expect(ch.getSubscription()).toEqual(expectedSubscription);
+      expect(backendRegistered).toBe(true);
+
+      await expect(ch.unsubscribe()).resolves.toBeUndefined();
+      expect(unsubscribeMock).toHaveBeenCalledOnce();
+      expect(mockPushManager.getSubscription).toHaveBeenCalledOnce();
+      expect(fetchMock).toHaveBeenLastCalledWith(
+        "/api/push/unsubscribe",
+        expect.objectContaining({
+          method: "DELETE",
+          body: JSON.stringify(expectedSubscription),
+        }),
+      );
+      expect(backendRegistered).toBe(false);
+      expect(ch.getSubscription()).toBeNull();
+    },
+  );
+
+  it("unsubscribe() is a no-op when there is no subscription or cached payload", async () => {
+    mockServiceWorker.getRegistration.mockResolvedValue(undefined);
+    const ch = new WebPushChannel({ vapidPublicKey: "test" });
+    await ch.unsubscribe();
+    await ch.unsubscribe();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("getSubscription() returns null initially", () => {

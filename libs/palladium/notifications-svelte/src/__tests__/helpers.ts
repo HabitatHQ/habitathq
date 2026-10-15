@@ -38,6 +38,7 @@ export function createMockInstance(): NotificationsInstance {
       permissionStatus: vi.fn().mockReturnValue("granted"),
     },
     use: vi.fn(),
+    requestPermission: vi.fn().mockResolvedValue("granted"),
     on: vi.fn().mockReturnValue(() => {}),
     getChannel: vi.fn().mockReturnValue(undefined) as (
       name: ChannelName,

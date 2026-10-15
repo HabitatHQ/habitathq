@@ -58,7 +58,7 @@ impl IntoResponse for AtriumError {
             Self::BadRequest(message) => {
                 let code = match message.as_str() {
                     "invalid_cursor" => "invalid_cursor",
-                    "invalid_hlc" => "invalid_hlc",
+                    "clock_skew" => "clock_skew",
                     "unsupported_version" => "unsupported_version",
                     value if value.ends_with("x-palladium-node header") => "bad_request",
                     _ => "invalid_request",
@@ -68,7 +68,6 @@ impl IntoResponse for AtriumError {
             Self::Conflict(message) => {
                 let code = match message.as_str() {
                     "change_conflict" => "idempotency_conflict",
-                    "clock_skew" => "clock_skew",
                     "expired_checkpoint" => "expired_checkpoint",
                     _ => "conflict",
                 };

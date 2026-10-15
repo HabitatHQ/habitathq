@@ -8,13 +8,14 @@ export class MemoryBlobAdapter implements BlobAdapter, BlobStoreLifecycle {
   async put(id: string, bytes: Uint8Array, options?: BlobAdapterOptions): Promise<void> {
     this.#assertOpen();
     options?.signal?.throwIfAborted();
-    this.#store.set(id, bytes);
+    this.#store.set(id, new Uint8Array(bytes));
   }
 
   async get(id: string, options?: BlobAdapterOptions): Promise<Uint8Array | null> {
     this.#assertOpen();
     options?.signal?.throwIfAborted();
-    return this.#store.get(id) ?? null;
+    const bytes = this.#store.get(id);
+    return bytes ? new Uint8Array(bytes) : null;
   }
 
   async delete(id: string, options?: BlobAdapterOptions): Promise<void> {

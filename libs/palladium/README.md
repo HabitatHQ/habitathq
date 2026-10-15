@@ -37,6 +37,10 @@ For maintained Palladium TypeScript packages, use `just test-ts` (builds package
 dependencies first) and `just lint-palladium-ts` (the root Biome version).
 Examples and live-server E2E remain separate from this unit gate.
 
+For issue-specific checks, failure localization, isolated PostgreSQL setup, and
+production-browser smoke steps, see the
+[remediation verification/debugging runbook](../../docs/plans/palladium-autonomous-issues-20261009.md#verification-and-debugging-runbook).
+
 ### Storage ownership and Kysely
 
 `PalladiumDialect` transactions use the adapter's real transaction boundary and
@@ -57,6 +61,95 @@ replicated writes; Kysely transactions are for explicitly low-level SQL work.
 IndexedDB blob replacement and deletion commit metadata and chunks atomically.
 Failed writes preserve the previous blob, and concurrent reads use a consistent
 metadata/chunk snapshot.
+
+### Mutation, reset, and adapter lifecycle
+
+Post-commit observer failures do not reject an already-committed mutation or
+prevent other observers and live queries from receiving it. Public HLC values
+are snapshots, not references to the engine's clock. A transport fingerprint
+override does not overwrite the local schema identity used when reopening.
+
+Quoted and schema-qualified SQL table names participate in live-query
+invalidation. LWW metadata and logical-reset table identities use SQLite's
+ASCII-only case folding, preserving distinct Unicode identifiers. Legacy metadata
+canonicalization is serialized and transactional. Column names come from the
+applied SQLite schema, including migrated columns and parameterized types;
+legacy buffered patch keys are canonicalized before replay. Logical reset rejects
+foreign-key cascades and DELETE-trigger writes into preserved or unowned tables;
+INSERT/UPDATE-only triggers do not prevent deletion.
+
+Blocked IndexedDB deletion remains pending until the browser's deletion request
+settles. IndexedDB disposal closes its database handle and waits for active
+transactions to settle. An empty localStorage blob prefix is invalid; memory blob
+reads and writes isolate their bytes from caller mutation. SQLite blob storage
+checks table readiness again after database replacement.
+
+Capacitor queries preserve rows from commented SQL, CTEs, and DML `RETURNING`.
+Capacitor physical opens are single-flight and publish the connection only
+after a successful open. Repeated opens reuse a live handle, failed opens can
+be retried, and close waits for an in-flight open before releasing the handle.
+Native verification uses SQLite-backed compatible connections unless physical
+device evidence is explicitly stated.
+
+A timed-out worker mutation is not automatically replayed: its commit outcome
+is unknown to the caller. Terminal database startup failure rejects both queued
+and future RPCs rather than leaving them pending, even if the error-reporting
+callback throws.
+
+Atrium blob uploads accept up to 16 MiB, including the boundary. Larger requests
+return HTTP 413 without creating a blob or replacing existing bytes; ordinary
+JSON routes retain their 2 MiB request-body limit.
+
+Filesystem blob writes reject retained soft-deleted IDs with `BlobError::NotFound`.
+The tombstone and original bytes remain intact until `purge_deleted()` removes
+them; a rejected write does not implicitly restore a deleted blob.
+
+### Reactive binding lifecycle
+
+React blob hooks key their result by engine and blob ID. A newly committed
+request renders `null` while loading or after a read failure; late results from
+superseded requests cannot replace it. Object URLs are revoked when their
+owning effect is cleaned up, not by an abandoned concurrent render.
+
+Svelte `syncStatusStore` samples the engine's current status on every first
+subscription after an inactive period, then listens for status changes until
+the last subscriber leaves.
+
+Notification permissions are instance-level state changes, independent of
+delivery. Use `instance.requestPermission(channel)` or
+`instance.browser.requestPermission()` so every active React, Vue and Svelte
+consumer receives the typed `permissionchange` event, including denials.
+Permission observers are isolated individually: a throwing observer cannot reject
+the completed permission request, skip later consumers, or prevent delivery.
+Automatic send-time permission requests use the same path. Requests through a
+raw adapter returned by `getChannel()` are lower-level and do not emit instance
+events. Dispose Svelte notification stores and call
+`NotificationsState.destroy()` when their owning scope ends; Vue composables
+and React hooks unsubscribe with their component scopes.
+
+Capacitor local-notification IDs use deterministic positive signed-32-bit
+hashes (`1..2147483647`); zero is reserved and generated IDs wrap at the upper
+bound. Reusing a logical string ID targets the same numeric ID, but hashing
+does not guarantee collision-free IDs. Previously scheduled iOS notifications
+whose old numeric IDs exceeded this range require cancellation by their old
+platform IDs when upgrading.
+
+Web Push `subscribe()` publishes its cached subscription only after a configured
+registration endpoint acknowledges it with HTTP success. Failed registration
+returns `null` without replacing an earlier acknowledged subscription.
+`unsubscribe()` discovers persisted subscriptions in the exact configured
+service-worker scope, including on a fresh channel after reload. Browser or
+backend removal failure rejects the promise; backend failure retains the
+endpoint and keys for retry without repeating an already-successful browser
+unsubscribe. Only successful completion clears the retry payload.
+
+While the document is visible, `foregroundBehavior` applies per channel after
+middleware selection and also to fallback delivery. `"show"` preserves ordinary
+delivery; `"suppress"` skips the channel before requesting permission or sending;
+`"toast-only"` redirects to a configured toast channel without sending through
+the original channel. Redirects are deduplicated and respect the toast channel's
+own policy. A missing toast channel is not created implicitly. Hidden documents
+retain normal delivery; server-side rendering still performs no delivery.
 
 ## Local Authentik OIDC
 

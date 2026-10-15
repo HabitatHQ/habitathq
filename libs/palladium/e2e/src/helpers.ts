@@ -20,7 +20,7 @@ export function insertOp(
   rowId: string,
   data: Record<string, unknown> = {},
 ): ServerOp {
-  return { op: "insert", table, row_id: rowId, data };
+  return { op: "insert", table, row_id: rowId, data: { id: rowId, ...data } };
 }
 
 /** Create a minimal valid `ServerChange`. */

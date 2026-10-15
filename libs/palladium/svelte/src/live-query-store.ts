@@ -65,6 +65,7 @@ export function syncStatusStore(
 ) {
   return readable<SyncStatus>(engine.getSyncStatus(), (set) => {
     const unsub = engine.on("sync:status", set);
+    set(engine.getSyncStatus());
     return unsub;
   });
 }

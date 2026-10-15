@@ -6,6 +6,7 @@ export class NotificationsState {
   readonly #instance: NotificationsInstance;
   readonly #permWritable = writable<PermissionState>("not-applicable");
   readonly browserPermission: Readable<PermissionState> = this.#permWritable;
+  readonly #unsubscribePermission: () => void;
 
   constructor(instance: NotificationsInstance) {
     this.#instance = instance;
@@ -13,12 +14,12 @@ export class NotificationsState {
     if (ch !== undefined) {
       this.#permWritable.set(ch.permissionStatus());
     }
-    instance.on("delivered", () => {
-      const channel = instance.getChannel("browser");
-      if (channel !== undefined) {
-        this.#permWritable.set(channel.permissionStatus());
-      }
+    this.#unsubscribePermission = instance.on("permissionchange", ({ channel, permission }) => {
+      if (channel === "browser") this.#permWritable.set(permission);
     });
+  }
+  destroy(): void {
+    this.#unsubscribePermission();
   }
 
   notify(title: string): ReturnType<NotificationsInstance["notify"]> {

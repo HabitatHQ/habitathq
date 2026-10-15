@@ -49,6 +49,24 @@ export class EventEmitter<Events extends object> {
     }
   }
 
+  /** Emit to every listener and return callback failures without throwing. */
+  emitSafely<K extends keyof Events>(
+    ...args: Events[K] extends undefined ? [event: K] : [event: K, payload: Events[K]]
+  ): unknown[] {
+    const [event, payload] = args;
+    const listeners = this.#listeners[event];
+    if (listeners === undefined) return [];
+    const errors: unknown[] = [];
+    for (const listener of listeners) {
+      try {
+        (listener as (p: Events[K]) => void)(payload as Events[K]);
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    return errors;
+  }
+
   /** Remove all listeners for an event (or all events if no event given). */
   removeAllListeners<K extends keyof Events>(event?: K): void {
     if (event === undefined) {

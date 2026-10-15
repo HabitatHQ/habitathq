@@ -1,15 +1,8 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { PalladiumEngine, SyncTransport, sql } from "@palladium/core";
+import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { describe, expect, it } from "vitest";
-
-interface FixtureEnvelope {
-  readonly version: 1;
-  readonly changes: readonly Record<string, unknown>[];
-  readonly cursor: string | null;
-  readonly purges: readonly Record<string, unknown>[];
-  readonly caughtUp: boolean;
-  readonly control: { readonly mustRefetch: boolean };
-}
 
 interface InvalidFixture {
   readonly name: string;
@@ -17,49 +10,106 @@ interface InvalidFixture {
   readonly expected_classification: "invalid_hlc" | "invalid_op" | "invalid_cursor";
 }
 
+type Schema = { notes: { id: string; title: string } };
+
+const SCHEMA = {
+  version: 1,
+  schema: "CREATE TABLE notes (id TEXT PRIMARY KEY, title TEXT NOT NULL)",
+};
+
+const NODE_ID = "00000000-0000-4000-8000-000000000011";
+
 const root = fileURLToPath(new URL("../../../protocol-fixtures/", import.meta.url));
-const valid = JSON.parse(
-  readFileSync(`${root}/changes-envelope.valid.json`, "utf8"),
-) as FixtureEnvelope;
 const invalid = JSON.parse(
   readFileSync(`${root}/wire-invalid.json`, "utf8"),
 ) as readonly InvalidFixture[];
-interface Receipt {
-  readonly version: 1;
-  readonly outcome: "inserted" | "duplicate";
-  readonly cursor: string;
+
+async function makeEngine(): Promise<PalladiumEngine<Schema>> {
+  const engine = new PalladiumEngine<Schema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }), {
+    nodeId: NODE_ID,
+  });
+  await engine.init(SCHEMA);
+  return engine;
 }
 
-const receipt = JSON.parse(readFileSync(`${root}/receipt.valid.json`, "utf8")) as Receipt;
+function response(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function validPage() {
+  return {
+    version: 1,
+    changes: [
+      {
+        id: "00000000-0000-4000-8000-000000000099",
+        hlc: { wallMs: Date.now(), counter: 0, nodeId: NODE_ID },
+        ops: [
+          {
+            op: "insert",
+            table: "notes",
+            row_id: "018f0f50-7b8d-7a1c-8e2f-1234567890ae",
+            data: {
+              id: "018f0f50-7b8d-7a1c-8e2f-1234567890ae",
+              title: "accepted after invalid fixture",
+            },
+          },
+        ],
+      },
+    ],
+    cursor: "2",
+    upperBound: "2",
+    purges: [],
+    events: [],
+    caughtUp: true,
+    control: { mustRefetch: false },
+  };
+}
 
 describe("language-neutral sync wire fixtures", () => {
-  it("round-trips a versioned page with bounded append cursor", () => {
-    expect(JSON.parse(JSON.stringify(valid))).toEqual(valid);
-    expect(valid.version).toBe(1);
-    expect(valid.caughtUp).toBe(true);
-    expect(valid.control.mustRefetch).toBe(false);
-    expect(valid.changes).toHaveLength(1);
-    const op = valid.changes[0]?.["ops"];
-    expect(op).toEqual(expect.any(Array));
-    const rowId = (op as Array<Record<string, unknown>>)[0]?.["row_id"];
-    expect(rowId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u);
-  });
-  it("round-trips a typed upload receipt", () => {
-    expect(JSON.parse(JSON.stringify(receipt))).toEqual(receipt);
-    expect(receipt.version).toBe(1);
-    expect(["inserted", "duplicate"]).toContain(receipt.outcome);
-    expect(receipt.cursor).toMatch(/^\S+$/u);
-  });
+  it("rejects shared malformed operation fixtures without checkpointing, then applies a valid change", async () => {
+    const fixtures = invalid.filter(
+      ({ expected_classification }) => expected_classification === "invalid_op",
+    );
+    let current: unknown = null;
+    const fetch: typeof globalThis.fetch = async (input) => {
+      const url =
+        typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
+      if (new URL(url).pathname === "/v1/clock") {
+        return response({ version: 1, nowMs: Date.now(), maxFutureMs: 300_000 });
+      }
+      return response(current);
+    };
+    const engine = await makeEngine();
+    const transport = new SyncTransport(engine, { serverUrl: "http://localhost:13742", fetch });
+    try {
+      for (const fixture of fixtures) {
+        current = {
+          version: 1,
+          changes: [fixture.input],
+          cursor: "1",
+          upperBound: "1",
+          purges: [],
+          events: [],
+          caughtUp: true,
+          control: { mustRefetch: false },
+        };
+        await transport.poll();
+        expect(transport.lastError).toMatchObject({ phase: "protocol", code: "invalid_operation" });
+        expect(await engine.getSyncState("append_cursor_v1")).toBeNull();
+        expect(await engine.exec<Schema["notes"]>(sql`SELECT * FROM notes`)).toEqual([]);
+      }
 
-  it.each(invalid)("classifies $name input", ({ input, expected_classification }) => {
-    if (expected_classification === "invalid_cursor") {
-      expect(input["cursor"]).not.toMatch(/^(0|[1-9][0-9]*)$/u);
-    } else if (expected_classification === "invalid_hlc") {
-      const hlc = input["hlc"] as Record<string, unknown>;
-      expect(hlc["wallMs"]).toBeLessThan(0);
-    } else {
-      const ops = input["ops"] as Array<Record<string, unknown>>;
-      expect(ops[0]?.["op"]).not.toMatch(/^(insert|update|delete)$/u);
+      current = validPage();
+      await transport.poll();
+      expect(await engine.getSyncState("append_cursor_v1")).toBe("2");
+      expect(await engine.exec<Schema["notes"]>(sql`SELECT id, title FROM notes`)).toEqual([
+        { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ae", title: "accepted after invalid fixture" },
+      ]);
+    } finally {
+      await transport.dispose();
     }
   });
 });

@@ -13,7 +13,7 @@ export interface CapSQLiteValues {
 }
 
 export interface CapSQLiteChanges {
-  changes?: { changes?: number; lastId?: number } | null;
+  changes?: { changes?: number; lastId?: number; values?: unknown[] } | null;
   message?: string;
 }
 
@@ -25,10 +25,17 @@ export interface CapSQLiteResult {
 /** Structural type for SQLiteDBConnection from @capacitor-community/sqlite. */
 export interface SQLiteDBConnection {
   open(): Promise<void>;
+  /** Native SQLiteDBConnection reports its actual physical open state. */
+  isDBOpen?(): Promise<CapSQLiteResult>;
   /** Optional in desktop shims; native SQLiteDBConnection supports deletion. */
   delete?(): Promise<void>;
   query(sql: string, values?: unknown[]): Promise<CapSQLiteValues>;
-  run(sql: string, values?: unknown[], transaction?: boolean): Promise<CapSQLiteChanges>;
+  run(
+    sql: string,
+    values?: unknown[],
+    transaction?: boolean,
+    returnMode?: string,
+  ): Promise<CapSQLiteChanges>;
   execute(sql: string, transaction?: boolean): Promise<CapSQLiteChanges>;
   beginTransaction(): Promise<CapSQLiteChanges>;
   commitTransaction(): Promise<CapSQLiteChanges>;

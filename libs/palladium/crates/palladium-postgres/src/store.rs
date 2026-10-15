@@ -39,6 +39,7 @@ pub fn validate_identifier(name: &str) -> Result<()> {
 // ── Schema migration ──────────────────────────────────────────────────────
 
 const CHANGE_TABLE: &str = "palladium_changes";
+const SCOPE_LOCK_TABLE: &str = "palladium_scope_locks";
 
 fn quote_identifier(name: &str) -> Result<String> {
     validate_identifier(name)?;
@@ -52,7 +53,15 @@ fn change_table(schema: &str) -> Result<String> {
         quote_identifier(CHANGE_TABLE)?
     ))
 }
-fn migration_queries(table: &str) -> [String; 3] {
+fn scope_lock_table(schema: &str) -> Result<String> {
+    Ok(format!(
+        "{}.{}",
+        quote_identifier(schema)?,
+        quote_identifier(SCOPE_LOCK_TABLE)?
+    ))
+}
+
+fn migration_queries(table: &str, scope_lock_table: &str) -> [String; 4] {
     [
         format!(
             "CREATE TABLE IF NOT EXISTS {table} (
@@ -69,6 +78,11 @@ fn migration_queries(table: &str) -> [String; 3] {
         ),
         format!("CREATE INDEX IF NOT EXISTS idx_changes_scope_append ON {table}(scope,append_seq)"),
         format!("CREATE INDEX IF NOT EXISTS idx_changes_scope_id ON {table}(scope,id)"),
+        format!(
+            "CREATE TABLE IF NOT EXISTS {scope_lock_table} (
+                scope TEXT PRIMARY KEY
+            )"
+        ),
     ]
 }
 
@@ -79,6 +93,7 @@ fn migration_queries(table: &str) -> [String; 3] {
 pub struct PostgresStore {
     pool: PgPool,
     table: String,
+    scope_lock_table: String,
     _open_guard: Option<palladium_core::OpenGuard>,
 }
 
@@ -94,6 +109,7 @@ impl PostgresStore {
         Ok(Self {
             pool,
             table: format!("\"public\".\"{CHANGE_TABLE}\""),
+            scope_lock_table: format!("\"public\".\"{SCOPE_LOCK_TABLE}\""),
             _open_guard: Some(guard),
         })
     }
@@ -121,6 +137,7 @@ impl PostgresStore {
             PostgresIsolation::Db => "public",
         };
         let table = change_table(schema)?;
+        let lock_table = scope_lock_table(schema)?;
         if matches!(isolation, PostgresIsolation::Schema) {
             sqlx::query(&format!(
                 "CREATE SCHEMA IF NOT EXISTS {}",
@@ -129,10 +146,11 @@ impl PostgresStore {
             .execute(&pool)
             .await?;
         }
-        Self::migrate_table(&pool, &table).await?;
+        Self::migrate_table(&pool, &table, &lock_table).await?;
         Ok(Self {
             pool,
             table,
+            scope_lock_table: lock_table,
             _open_guard: Some(guard),
         })
     }
@@ -143,6 +161,7 @@ impl PostgresStore {
         Self {
             pool,
             table: format!("\"public\".\"{CHANGE_TABLE}\""),
+            scope_lock_table: format!("\"public\".\"{SCOPE_LOCK_TABLE}\""),
             _open_guard: None,
         }
     }
@@ -152,11 +171,13 @@ impl PostgresStore {
     /// # Errors
     /// Returns an error if the migration statements fail.
     pub async fn migrate(pool: &PgPool) -> Result<()> {
-        Self::migrate_table(pool, &format!("\"public\".\"{CHANGE_TABLE}\"")).await
+        let table = format!("\"public\".\"{CHANGE_TABLE}\"");
+        let lock_table = format!("\"public\".\"{SCOPE_LOCK_TABLE}\"");
+        Self::migrate_table(pool, &table, &lock_table).await
     }
 
-    async fn migrate_table(pool: &PgPool, table: &str) -> Result<()> {
-        for query in migration_queries(table) {
+    async fn migrate_table(pool: &PgPool, table: &str, lock_table: &str) -> Result<()> {
+        for query in migration_queries(table, lock_table) {
             sqlx::query(&query).execute(pool).await?;
         }
         Ok(())
@@ -179,6 +200,20 @@ impl ChangeStore for PostgresStore {
         let millis = i64::try_from(change.hlc.millis()).unwrap_or(i64::MAX);
         let ops_json = serde_json::to_value(&change.ops)?;
         let mut tx = self.pool.begin().await?;
+        sqlx::query(&format!(
+            "INSERT INTO {} (scope) VALUES ($1) ON CONFLICT (scope) DO NOTHING",
+            self.scope_lock_table
+        ))
+        .bind(scope.as_str())
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(&format!(
+            "SELECT scope FROM {} WHERE scope=$1 FOR UPDATE",
+            self.scope_lock_table
+        ))
+        .bind(scope.as_str())
+        .fetch_one(&mut *tx)
+        .await?;
         let inserted: Option<(i64,)> = sqlx::query_as(&format!("INSERT INTO {} (id,scope,hlc_millis,hlc_counter,hlc_node_id,ops_json,payload_hash) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (scope,id) DO NOTHING RETURNING append_seq", self.table))
             .bind(change.id).bind(scope.as_str()).bind(millis).bind(i64::from(change.hlc.counter())).bind(change.hlc.node_id().to_string()).bind(ops_json).bind(&hash)
             .fetch_optional(&mut *tx).await?;
@@ -300,6 +335,7 @@ impl ChangeRow {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "integration-tests")]
     use super::*;
     #[cfg(feature = "integration-tests")]
     use palladium_core::{Change, ChangeStore, Hlc, InsertOutcome, NodeId, Op, Scope};
@@ -423,6 +459,282 @@ mod tests {
         }
         assert_eq!(store.get(&scope, change.id).await?, Some(change));
         assert_eq!(store.get(&scope, fresh.id).await?, None);
+        Ok(())
+    }
+
+    #[cfg(feature = "integration-tests")]
+    #[sqlx::test]
+    async fn invalid_insert_data_does_not_advance_postgres_history(
+        pool: sqlx::PgPool,
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        PostgresStore::migrate(&pool).await?;
+        let store = PostgresStore::from_pool(pool);
+        let scope = Scope::new(format!("invalid-insert-{}", Uuid::new_v4()));
+        let row_id = Uuid::parse_str("018f0f50-7b8d-7a1c-8e2f-1234567890ab")?;
+        let malformed = [
+            serde_json::Value::Null,
+            json!("scalar"),
+            json!([{"id": row_id}]),
+            json!({"title": "missing"}),
+            json!({"id": "018f0f50-7b8d-7a1c-8e2f-1234567890ac"}),
+            json!({"id": "018F0F50-7B8D-7A1C-8E2F-1234567890AB"}),
+        ];
+        for data in malformed {
+            let change = Change::new(
+                Hlc::new(NodeId::new(), 1),
+                vec![Op::Insert {
+                    table: "todos".into(),
+                    row_id,
+                    data,
+                }],
+            );
+            assert!(matches!(
+                store.insert(&scope, &change, u64::MAX).await,
+                Err(Error::InvalidData(_))
+            ));
+            let page = store.page(&scope, None, 10).await?;
+            assert_eq!(page.changes, Vec::<Change>::new());
+            assert!(page.cursor.is_none());
+        }
+
+        let valid = Change::new(
+            Hlc::new(NodeId::new(), 2),
+            vec![Op::Insert {
+                table: "todos".into(),
+                row_id,
+                data: json!({"id": row_id, "nested": {"values": [1, null, true]}}),
+            }],
+        );
+        store.insert(&scope, &valid, u64::MAX).await?;
+        let page = store.page(&scope, None, 10).await?;
+        assert_eq!(page.changes, vec![valid]);
+        assert_eq!(page.cursor.map(|cursor| cursor.position()), Some(1));
+        Ok(())
+    }
+    #[cfg(feature = "integration-tests")]
+    #[sqlx::test]
+    async fn scoped_appends_serialize_before_sequence_allocation(
+        pool: sqlx::PgPool,
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        use std::time::Duration;
+        use tokio::time::{sleep, timeout, Instant};
+
+        let url = pool.connect_options().to_url_lossy();
+        let store = Arc::new(PostgresStore::connect(url.as_str()).await?);
+        let scope = Scope::new(format!("append-order-{}", Uuid::new_v4()));
+        let other_scope = Scope::new(format!("append-other-{}", Uuid::new_v4()));
+        let gate = format!("palladium_gate_{}", Uuid::now_v7().simple());
+        let function = format!("{gate}_fn");
+        let trigger = quote_identifier(&format!("{gate}_trigger"))?;
+        let function_name = format!("\"public\".\"{function}\"");
+        let scope_literal = scope.as_str().replace('\'', "''");
+        let mut controller = pool.acquire().await?;
+        sqlx::query("SELECT pg_advisory_lock(hashtext($1))")
+            .bind(&gate)
+            .execute(&mut *controller)
+            .await?;
+        sqlx::query(&format!(
+            "CREATE FUNCTION {function_name}() RETURNS trigger LANGUAGE plpgsql AS $body$
+             BEGIN
+               IF NEW.scope = '{scope_literal}' AND NEW.hlc_millis = 1 THEN
+                 WHILE NOT pg_try_advisory_lock(hashtext('{gate}')) LOOP
+                   PERFORM pg_sleep(0.01);
+                 END LOOP;
+                 PERFORM pg_advisory_unlock(hashtext('{gate}'));
+               END IF;
+               RETURN NEW;
+             END
+             $body$"
+        ))
+        .execute(&pool)
+        .await?;
+        sqlx::query(&format!(
+            "CREATE TRIGGER {trigger} AFTER INSERT ON {} FOR EACH ROW EXECUTE FUNCTION {function_name}()",
+            store.table
+        ))
+        .execute(&pool)
+        .await?;
+        let make_change = |millis| {
+            let row_id = Uuid::now_v7();
+            Change::new(
+                Hlc::new(NodeId::new(), millis),
+                vec![Op::Insert {
+                    table: "todos".into(),
+                    row_id,
+                    data: json!({"id": row_id}),
+                }],
+            )
+        };
+        let a = make_change(1);
+        let b = make_change(2);
+        let other = make_change(3);
+        let first_store = Arc::clone(&store);
+        let first_scope = scope.clone();
+        let first_change = a.clone();
+        let first = tokio::spawn(async move {
+            first_store
+                .insert(&first_scope, &first_change, u64::MAX)
+                .await
+        });
+        timeout(Duration::from_secs(5), async {
+            loop {
+                let in_trigger: bool = sqlx::query_scalar(
+                    "SELECT EXISTS (SELECT 1 FROM pg_stat_activity
+                     WHERE datname = current_database() AND wait_event = 'PgSleep'
+                       AND query ILIKE '%INSERT INTO%palladium_changes%')",
+                )
+                .fetch_one(&pool)
+                .await?;
+                if in_trigger {
+                    return Ok::<(), sqlx::Error>(());
+                }
+                sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .map_err(|_| "writer A did not reach post-allocation trigger")??;
+        let second_store = Arc::clone(&store);
+        let second_scope = scope.clone();
+        let second_change = b.clone();
+        let second = tokio::spawn(async move {
+            second_store
+                .insert(&second_scope, &second_change, u64::MAX)
+                .await
+        });
+        assert!(matches!(
+            store.insert(&other_scope, &other, u64::MAX).await?,
+            InsertOutcome::Inserted(_)
+        ));
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut lock_wait = false;
+        while Instant::now() < deadline && !second.is_finished() {
+            lock_wait |= sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS (SELECT 1 FROM pg_stat_activity
+                 WHERE datname = current_database() AND wait_event_type = 'Lock'
+                   AND (query ILIKE '%palladium_scope_locks%' OR query ILIKE '%palladium_changes%'))",
+            )
+            .fetch_one(&pool)
+            .await?;
+            if lock_wait {
+                break;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+        let b_published_early = second.is_finished();
+        let early_page = if b_published_early {
+            Some(store.page(&scope, None, 100).await?)
+        } else {
+            None
+        };
+        sqlx::query("SELECT pg_advisory_unlock(hashtext($1))")
+            .bind(&gate)
+            .execute(&mut *controller)
+            .await?;
+        let cursor_a = match timeout(Duration::from_secs(5), first).await??? {
+            InsertOutcome::Inserted(cursor) => cursor,
+            InsertOutcome::Duplicate(_) => return Err("A was unexpectedly duplicate".into()),
+        };
+        let cursor_b = match timeout(Duration::from_secs(5), second).await??? {
+            InsertOutcome::Inserted(cursor) => cursor,
+            InsertOutcome::Duplicate(_) => return Err("B was unexpectedly duplicate".into()),
+        };
+        if let Some(page) = early_page {
+            let cursor = page.cursor.as_ref().ok_or("early page lacks its cursor")?;
+            let later = store.page(&scope, Some(cursor), 100).await?;
+            assert!(
+                later.changes.contains(&a),
+                "same-scope page checkpointed B and permanently omitted later-committed A"
+            );
+        }
+        assert!(
+            !b_published_early && lock_wait,
+            "B must wait for A's transaction"
+        );
+        assert!(cursor_a.position() < cursor_b.position());
+        let retry = store.insert(&scope, &a, 0).await?;
+        assert_eq!(
+            store.page(&scope, None, 100).await?.changes,
+            vec![a.clone(), b.clone()]
+        );
+        assert_eq!(
+            store.page(&scope, Some(&cursor_a), 100).await?.changes,
+            vec![b]
+        );
+        assert_eq!(retry, InsertOutcome::Duplicate(cursor_a));
+        assert_eq!(
+            store.page(&other_scope, None, 100).await?.changes,
+            vec![other]
+        );
+        sqlx::query(&format!("DROP TRIGGER {trigger} ON {}", store.table))
+            .execute(&pool)
+            .await?;
+        sqlx::query(&format!("DROP FUNCTION {function_name}()"))
+            .execute(&pool)
+            .await?;
+        Ok(())
+    }
+    #[cfg(feature = "integration-tests")]
+    #[sqlx::test]
+    async fn rolled_back_scope_append_releases_the_scope_lock(
+        pool: sqlx::PgPool,
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        use std::time::Duration;
+        use tokio::time::timeout;
+
+        let url = pool.connect_options().to_url_lossy();
+        let store = PostgresStore::connect(url.as_str()).await?;
+        let scope = Scope::new(format!("append-rollback-{}", Uuid::new_v4()));
+        let function = format!("palladium_rollback_{}_fn", Uuid::now_v7().simple());
+        let trigger = quote_identifier(&format!("{function}_trigger"))?;
+        let function_name = format!("\"public\".\"{function}\"");
+        let scope_literal = scope.as_str().replace('\'', "''");
+        sqlx::query(&format!(
+            "CREATE FUNCTION {function_name}() RETURNS trigger LANGUAGE plpgsql AS $body$
+             BEGIN
+               IF NEW.scope = '{scope_literal}' AND NEW.hlc_millis = 11 THEN
+                 RAISE EXCEPTION 'test rollback';
+               END IF;
+               RETURN NEW;
+             END
+             $body$"
+        ))
+        .execute(&pool)
+        .await?;
+        sqlx::query(&format!(
+            "CREATE TRIGGER {trigger} AFTER INSERT ON {} FOR EACH ROW EXECUTE FUNCTION {function_name}()",
+            store.table
+        ))
+        .execute(&pool)
+        .await?;
+        let make_change = |millis| {
+            let row_id = Uuid::now_v7();
+            Change::new(
+                Hlc::new(NodeId::new(), millis),
+                vec![Op::Insert {
+                    table: "todos".into(),
+                    row_id,
+                    data: json!({"id": row_id}),
+                }],
+            )
+        };
+        let rolled_back = make_change(11);
+        let accepted = make_change(12);
+        assert!(store.insert(&scope, &rolled_back, u64::MAX).await.is_err());
+        assert!(matches!(
+            timeout(
+                Duration::from_secs(5),
+                store.insert(&scope, &accepted, u64::MAX)
+            )
+            .await??,
+            InsertOutcome::Inserted(_)
+        ));
+        assert_eq!(store.page(&scope, None, 10).await?.changes, vec![accepted]);
+        sqlx::query(&format!("DROP TRIGGER {trigger} ON {}", store.table))
+            .execute(&pool)
+            .await?;
+        sqlx::query(&format!("DROP FUNCTION {function_name}()"))
+            .execute(&pool)
+            .await?;
         Ok(())
     }
 }

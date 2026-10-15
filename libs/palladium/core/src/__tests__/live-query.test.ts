@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { LiveQuery } from "../live-query.js";
+import { sql } from "../sql.js";
 import type { StorageAdapter } from "../storage.js";
 
 /** Minimal fake adapter that returns preset rows. */
@@ -33,6 +34,17 @@ describe("LiveQuery", () => {
     const lq = new LiveQuery(query, adapter);
     await lq.exec();
     expect(adapter.exec).toHaveBeenCalledWith("SELECT * FROM tasks WHERE id = ?", ["t1"]);
+  });
+
+  it("notifies a parsed quoted and schema-qualified dependency", async () => {
+    const adapter = makeAdapter([{ id: "1", name: "task" }]);
+    const lq = new LiveQuery(sql`SELECT * FROM "main"."tasks"`, adapter);
+    const received: unknown[][] = [];
+    lq.on("change", (rows) => received.push(rows));
+
+    await lq.notifyTables(["tasks"]);
+
+    expect(received).toEqual([[{ id: "1", name: "task" }]]);
   });
 
   it("on('change') fires when notifyTables is called for a watched table", async () => {

@@ -596,6 +596,121 @@ async fn a7_blob_rejects_unknown_or_non_root_note() {
 }
 
 #[tokio::test]
+async fn a7_blob_router_enforces_max_body_limit() {
+    use crate::db::MAX_BLOB_BYTES;
+
+    let app = app().await;
+    let ws = family(&app).await;
+    let (note, ch) = root_insert("notes");
+    post_change(&app, "alice", &ws, ch).await;
+
+    // 16 MiB is the largest accepted payload; store it under a stable blob id
+    // so the 16 MiB + 1 case can prove it does not overwrite the prior bytes.
+    let stable_blob = Uuid::new_v4().to_string();
+    let max_payload = vec![0xAB_u8; MAX_BLOB_BYTES];
+    assert_eq!(
+        put_blob(&app, "alice", &ws, note, &stable_blob, &max_payload).await,
+        StatusCode::CREATED,
+        "16 MiB must be accepted by the router-level body limit",
+    );
+    let (get_status, get_body) = get_blob(&app, "alice", &stable_blob).await;
+    assert_eq!(get_status, StatusCode::OK);
+    assert_eq!(
+        get_body.len(),
+        MAX_BLOB_BYTES,
+        "stored 16 MiB must round-trip intact",
+    );
+    assert_eq!(
+        get_body, max_payload,
+        "stored 16 MiB bytes must not be truncated or rewritten",
+    );
+
+    // (label, size, expected_status)
+    let cases: [(&str, usize, StatusCode); 4] = [
+        ("2 MiB", 2 * 1024 * 1024, StatusCode::CREATED),
+        ("2 MiB + 1", 2 * 1024 * 1024 + 1, StatusCode::CREATED),
+        ("16 MiB", MAX_BLOB_BYTES, StatusCode::CREATED),
+        (
+            "16 MiB + 1",
+            MAX_BLOB_BYTES + 1,
+            StatusCode::PAYLOAD_TOO_LARGE,
+        ),
+    ];
+
+    for (label, size, expected) in cases {
+        let blob = Uuid::new_v4().to_string();
+        let payload = vec![0x5A_u8; size];
+        let status = put_blob(&app, "alice", &ws, note, &blob, &payload).await;
+        assert_eq!(
+            status, expected,
+            "{label} upload expected {expected}, got {status}",
+        );
+
+        if status == StatusCode::CREATED {
+            let (read_status, read_body) = get_blob(&app, "alice", &blob).await;
+            assert_eq!(
+                read_status,
+                StatusCode::OK,
+                "{label}: owner must read back her blob"
+            );
+            assert_eq!(
+                read_body.len(),
+                size,
+                "{label}: fetched length must match uploaded length",
+            );
+            assert_eq!(
+                read_body, payload,
+                "{label}: fetched bytes must equal uploaded bytes",
+            );
+        } else {
+            // Rejection at the extractor must not leave any state behind: the
+            // blob id must still be unknown to the server.
+            let (read_status, _) = get_blob(&app, "alice", &blob).await;
+            assert_eq!(
+                read_status,
+                StatusCode::NOT_FOUND,
+                "{label}: rejected upload must not create blob state",
+            );
+        }
+    }
+
+    // The pre-existing 16 MiB blob must still be intact after the 16 MiB + 1
+    // rejection — an oversized request must not overwrite stored bytes.
+    assert_eq!(
+        put_blob(
+            &app,
+            "alice",
+            &ws,
+            note,
+            &stable_blob,
+            &vec![0x5A; MAX_BLOB_BYTES + 1]
+        )
+        .await,
+        StatusCode::PAYLOAD_TOO_LARGE,
+    );
+    let (read_status, read_body) = get_blob(&app, "alice", &stable_blob).await;
+    assert_eq!(
+        read_status,
+        StatusCode::OK,
+        "pre-existing blob must remain readable after an oversized upload",
+    );
+    assert_eq!(
+        read_body, max_payload,
+        "pre-existing blob bytes must not be overwritten by a rejected upload",
+    );
+    let json_row = Uuid::now_v7();
+    let large_json = wrap(&json!([{
+        "op": "insert", "table": "notes", "row_id": json_row,
+        "data": {"id": json_row, "title": "x".repeat(2 * 1024 * 1024)}
+    }]));
+    assert_eq!(
+        post_change(&app, "alice", &ws, large_json).await,
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "the blob override must not relax JSON-route limits",
+    );
+}
+
+#[tokio::test]
 async fn a8_anti_forgery() {
     let app = app().await;
     let ws = family(&app).await;
@@ -1187,6 +1302,64 @@ async fn changes_reject_noncanonical_payload_before_persisting_any_record() {
 }
 
 #[tokio::test]
+async fn malformed_insert_data_is_rejected_without_history_and_later_valid_change_downloads() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let row = Uuid::parse_str("018f0f50-7b8d-7a1c-8e2f-1234567890ab").unwrap();
+    let baseline = get_env(&app, "alice", &ws).await;
+    let malformed = [
+        Value::Null,
+        json!("scalar"),
+        json!(7),
+        json!(false),
+        json!([{"id": row}]),
+        json!({"title": "missing"}),
+        json!({"id": "018f0f50-7b8d-7a1c-8e2f-1234567890ac"}),
+        json!({"id": null}),
+        json!({"id": "not-a-uuid"}),
+        json!({"id": "018F0F50-7B8D-7A1C-8E2F-1234567890AB"}),
+        json!({"id": "018f0f507b8d7a1c8e2f1234567890ab"}),
+    ];
+    for data in malformed {
+        let change = wrap(&json!([{
+            "op": "insert", "table": "notes", "row_id": row, "data": data
+        }]));
+        let (status, _) = call(
+            &app,
+            "POST",
+            "/v1/changes",
+            Some("alice"),
+            Some(&ws),
+            Some(change),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let page = get_env(&app, "alice", &ws).await;
+        assert_eq!(page["changes"], json!([]));
+        assert_eq!(page["cursor"], baseline["cursor"]);
+        assert_eq!(page["upperBound"], baseline["upperBound"]);
+    }
+
+    let valid = wrap(&json!([{
+        "op": "insert",
+        "table": "notes",
+        "row_id": row,
+        "data": {"id": row, "metadata": {"flags": [true, null, 42, "text"]}}
+    }]));
+    assert_eq!(
+        post_change(&app, "alice", &ws, valid).await,
+        StatusCode::CREATED
+    );
+    let page = get_env(&app, "alice", &ws).await;
+    assert_eq!(page["changes"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        page["changes"][0]["ops"][0]["data"]["metadata"]["flags"],
+        json!([true, null, 42, "text"])
+    );
+    assert_eq!(page["cursor"], json!("1"));
+}
+
+#[tokio::test]
 async fn conflicting_retry_cannot_mutate_an_accepted_change() {
     let app = app().await;
     let ws = family(&app).await;
@@ -1465,7 +1638,7 @@ async fn accepted_retry_survives_clock_rollback_and_conflicts_do_not_append() {
         Some(fresh_skewed),
     )
     .await;
-    assert_eq!(skew_status, StatusCode::CONFLICT);
+    assert_eq!(skew_status, StatusCode::BAD_REQUEST);
     assert_eq!(skew["code"], json!("clock_skew"));
 
     let history = get_env(&app, "alice", &ws).await;

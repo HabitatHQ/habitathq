@@ -33,6 +33,7 @@ export interface NotificationsInstance {
     permissionStatus(): PermissionState;
   }>;
   use(middleware: Middleware): void;
+  requestPermission(name: ChannelName): Promise<PermissionState>;
   on<E extends NotificationEvent>(event: E, handler: NotificationEventHandler<E>): Unsubscribe;
   getChannel(name: ChannelName): NotificationsChannel | undefined;
   /** @internal — called by NotificationBuilder */
@@ -70,10 +71,11 @@ async function sendToChannel(
   name: ChannelName,
   channel: NotificationsChannel,
   notification: Notification,
+  requestPermission: (name: ChannelName) => Promise<PermissionState>,
 ): Promise<ChannelStatus> {
   try {
     const permission = channel.permissionStatus();
-    if (permission === "default" && (await channel.requestPermission()) !== "granted") {
+    if (permission === "default" && (await requestPermission(name)) !== "granted") {
       return { status: "skipped", reason: `Permission not granted for channel "${name}"` };
     }
     if (permission === "denied") {
@@ -93,6 +95,7 @@ async function sendToChannels(
   channelNames: ReadonlyArray<ChannelName>,
   channelMap: Map<ChannelName, NotificationsChannel>,
   emitter: NotificationsEventEmitter,
+  requestPermission: (name: ChannelName) => Promise<PermissionState>,
 ): Promise<{
   delivered: ChannelName[];
   failed: Array<Readonly<{ channel: ChannelName; error: Error }>>;
@@ -113,7 +116,7 @@ async function sendToChannels(
       continue;
     }
 
-    const result = await sendToChannel(name, channel, notification);
+    const result = await sendToChannel(name, channel, notification, requestPermission);
 
     if (result.status === "delivered") {
       delivered.push(name);
@@ -127,6 +130,62 @@ async function sendToChannels(
   }
 
   return { delivered, failed, skipped };
+}
+
+function applyForegroundBehavior(
+  channelNames: ReadonlyArray<ChannelName>,
+  channelMap: Map<ChannelName, NotificationsChannel>,
+  foregroundBehavior: Partial<Record<ChannelName, ForegroundBehavior>> | undefined,
+  visible: boolean,
+  attempted: ReadonlySet<ChannelName> = new Set(),
+): {
+  channels: ChannelName[];
+  attempted: Set<ChannelName>;
+  skipped: Array<Readonly<{ channel: ChannelName; reason: string }>>;
+} {
+  const channels: ChannelName[] = [];
+  const skipped: Array<Readonly<{ channel: ChannelName; reason: string }>> = [];
+  const included: Partial<Record<ChannelName, true>> = {};
+  let redirectToToast = false;
+  const attemptedChannels = new Set(attempted);
+  const skippedChannels: Partial<Record<ChannelName, true>> = {};
+  const skip = (name: ChannelName, reason: string) => {
+    if (skippedChannels[name] !== true) {
+      skippedChannels[name] = true;
+      skipped.push({ channel: name, reason });
+    }
+  };
+  const include = (name: ChannelName) => {
+    if (included[name] !== true) {
+      included[name] = true;
+      channels.push(name);
+    }
+  };
+
+  for (const name of channelNames) {
+    attemptedChannels.add(name);
+    const behavior = visible ? foregroundBehavior?.[name] : undefined;
+    if (behavior === "suppress") {
+      skip(name, "suppressed by foreground policy");
+    } else if (behavior === "toast-only" && name !== "toast") {
+      skip(name, "redirected to toast by foreground policy");
+      redirectToToast = true;
+    } else {
+      include(name);
+    }
+  }
+
+  if (redirectToToast && channelMap.has("toast") && attemptedChannels.has("toast") !== true) {
+    attemptedChannels.add("toast");
+    const toastBehavior = visible ? foregroundBehavior?.toast : undefined;
+    if (toastBehavior === "suppress") {
+      skip("toast", "suppressed by foreground policy");
+    } else {
+      include("toast");
+    }
+  }
+
+  return { channels, attempted: attemptedChannels, skipped };
 }
 
 export function createNotifications(config: NotificationsConfig = {}): NotificationsInstance {
@@ -144,6 +203,13 @@ export function createNotifications(config: NotificationsConfig = {}): Notificat
 
   const emitter = new NotificationsEventEmitter();
   const middlewares: Middleware[] = [];
+  const requestPermission = async (name: ChannelName): Promise<PermissionState> => {
+    const channel = channelMap.get(name);
+    if (channel === undefined) return "not-applicable";
+    const permission = await channel.requestPermission();
+    emitter.emit("permissionchange", { channel: name, permission });
+    return permission;
+  };
 
   const _send = async (
     notification: Notification,
@@ -187,20 +253,47 @@ export function createNotifications(config: NotificationsConfig = {}): Notificat
 
     const finalNotification = resolvedCtx.notification;
     const finalChannels = resolvedCtx.channels;
-
-    const result = await sendToChannels(finalNotification, finalChannels, channelMap, emitter);
+    const visible = typeof document !== "undefined" && document.visibilityState === "visible";
+    const initial = applyForegroundBehavior(
+      finalChannels,
+      channelMap,
+      config.foregroundBehavior,
+      visible,
+    );
+    const result = await sendToChannels(
+      finalNotification,
+      initial.channels,
+      channelMap,
+      emitter,
+      requestPermission,
+    );
+    result.skipped.unshift(...initial.skipped);
+    const attemptedChannels = initial.attempted;
 
     // Try fallback if nothing delivered
     if (result.delivered.length === 0) {
       const effectiveFallback = perNotificationFallback ?? config.fallback;
       if (effectiveFallback !== undefined && effectiveFallback.length > 0) {
-        const triedSet = new Set(finalChannels);
-        const fallbackChannels = effectiveFallback.filter((ch) => !triedSet.has(ch));
+        const fallbackChannels = effectiveFallback.filter((ch) => !attemptedChannels.has(ch));
         if (fallbackChannels.length > 0) {
-          const fb = await sendToChannels(finalNotification, fallbackChannels, channelMap, emitter);
+          const fallback = applyForegroundBehavior(
+            fallbackChannels,
+            channelMap,
+            config.foregroundBehavior,
+            visible,
+            attemptedChannels,
+          );
+          const fb = await sendToChannels(
+            finalNotification,
+            fallback.channels,
+            channelMap,
+            emitter,
+            requestPermission,
+          );
           result.delivered.push(...fb.delivered);
+          for (const channel of fallback.attempted) attemptedChannels.add(channel);
           result.failed.push(...fb.failed);
-          result.skipped.push(...fb.skipped);
+          result.skipped.push(...fallback.skipped, ...fb.skipped);
         }
       }
     }
@@ -220,6 +313,7 @@ export function createNotifications(config: NotificationsConfig = {}): Notificat
   ) => _send(buildShorthandNotification(title, urgency, variant, opts), ["toast"], undefined);
 
   const instance: NotificationsInstance = {
+    requestPermission,
     notify(title: string): NotificationBuilder {
       return new NotificationBuilder(title, _send);
     },
@@ -234,11 +328,7 @@ export function createNotifications(config: NotificationsConfig = {}): Notificat
 
     browser: {
       send: (notification) => _send(notification, ["browser"], undefined),
-      requestPermission: async () => {
-        const ch = channelMap.get("browser");
-        if (ch === undefined) return "not-applicable";
-        return ch.requestPermission();
-      },
+      requestPermission: () => requestPermission("browser"),
       permissionStatus: () => {
         const ch = channelMap.get("browser");
         if (ch === undefined) return "not-applicable";

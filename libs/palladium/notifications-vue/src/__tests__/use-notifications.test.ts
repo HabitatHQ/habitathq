@@ -80,12 +80,4 @@ describe("useBrowserNotification (Vue)", () => {
     const result = withSetup(() => useBrowserNotification(), inst);
     expect(result.permissionStatus.value).toBe("not-applicable");
   });
-
-  it("requestPermission() updates permissionStatus ref", async () => {
-    const inst = createMockInstance();
-    (inst.browser.requestPermission as ReturnType<typeof vi.fn>).mockResolvedValue("granted");
-    const result = withSetup(() => useBrowserNotification(), inst);
-    await result.requestPermission();
-    expect(result.permissionStatus.value).toBe("granted");
-  });
 });

@@ -70,11 +70,9 @@ mod tests {
         {
             return "invalid_hlc";
         }
-        if input
-            .get("ops")
-            .is_none_or(|ops| serde_json::from_value::<Vec<Op>>(ops.clone()).is_err())
-        {
-            return "invalid_op";
+        match serde_json::from_value::<Change>(input.clone()) {
+            Ok(change) if crate::validate_structure(&change).is_ok() => {}
+            _ => return "invalid_op",
         }
         "valid"
     }
@@ -92,6 +90,7 @@ mod tests {
         assert_eq!(&decoded, change);
         assert_eq!(encoded, serde_json::to_value(change).unwrap());
         assert_eq!(envelope.cursor.parse::<u64>().unwrap(), 42);
+        assert_eq!(crate::validate_structure(change), Ok(()));
 
         let invalid: Vec<InvalidFixture> =
             serde_json::from_str(include_str!("../../../protocol-fixtures/wire-invalid.json"))
@@ -102,6 +101,8 @@ mod tests {
                 fixture.expected_classification
             );
         }
+        let valid_insert = valid_change(vec![valid_insert()]);
+        assert!(crate::validate_structure(&valid_insert).is_ok());
     }
 
     fn node1() -> NodeId {
@@ -191,5 +192,19 @@ mod tests {
 
         let valid = valid_change(vec![valid_insert()]);
         assert!(crate::validate_change(&valid, now, 0).is_ok());
+    }
+
+    #[test]
+    fn insert_validation_preserves_nested_json_values_and_matching_identity() {
+        let row_id = Uuid::parse_str("018f0f50-7b8d-7a1c-8e2f-1234567890ab").unwrap();
+        let change = valid_change(vec![Op::Insert {
+            table: "notes".into(),
+            row_id,
+            data: json!({
+                "id": row_id,
+                "metadata": {"flags": [true, null, 42, "text", {"nested": []}]}
+            }),
+        }]);
+        assert_eq!(crate::validate_structure(&change), Ok(()));
     }
 }
