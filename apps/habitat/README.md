@@ -19,6 +19,7 @@ The same codebase ships as a PWA (installable web app) and as native iOS/Android
 - **Timer/Focus** — stopwatch, countdown, and pomodoro timer attached to any task or habit
 - **Stats** — completion trends and streaks
 - **Themes** — Habitat (cyan), Forest, Ocean; light/dark mode per theme
+- **Desktop layout** — centered pages, grouped navigation, wide calendar/matrix
 - **Export/Import** — full JSON backup + ZIP export for jots (text, voice, images)
 
 ## Daily data and recovery

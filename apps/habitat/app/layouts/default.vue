@@ -735,7 +735,14 @@ function toggleColorMode() {
             : 'calc(4.5rem + env(safe-area-inset-bottom))' }
         : {}"
     >
-      <slot />
+      <div
+        class="lg:mx-auto"
+        :class="route.path === '/calendar' || route.path === '/matrix'
+          ? 'lg:max-w-6xl'
+          : 'lg:max-w-3xl'"
+      >
+        <slot />
+      </div>
     </main>
 
     <!-- Reorder mode backdrop -->
@@ -772,8 +779,7 @@ function toggleColorMode() {
     </Transition>
 
     <nav
-      ref="navContainerRef"
-      class="border-t border-(--ui-border) py-1 flex justify-around overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none] transition-shadow duration-300"
+      class="border-t border-(--ui-border) py-1 overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none] transition-shadow duration-300"
       :class="[
         settings.stickyNav ? 'fixed bottom-0 inset-x-0 z-30 bg-(--ui-bg)' : 'safe-area-bottom z-30',
         navReorderMode ? 'nav-wiggle shadow-[0_-10px_40px_rgba(0,0,0,0.6)]' : '',
@@ -784,21 +790,26 @@ function toggleColorMode() {
             : 'env(safe-area-inset-bottom)' }
         : undefined"
     >
-      <UButton
-        v-for="(item, index) in navItems"
-        :key="item.to"
-        :to="item.to"
-        :icon="item.icon"
-        :color="isActive(item.to) ? 'primary' : 'neutral'"
-        variant="ghost"
-        :ui="navItems.length > 5
-          ? { base: 'flex-shrink-0 h-auto py-2.5 px-2.5 touch-none select-none' }
-          : { base: 'flex-col gap-0.5 h-auto py-2 px-3 text-xs touch-none select-none' }"
-        @pointerdown="(e: PointerEvent) => onNavPointerDown(index, e)"
-        @click.capture="navReorderMode ? $event.preventDefault() : impact('light')"
+      <div
+        ref="navContainerRef"
+        class="flex w-full justify-around lg:mx-auto lg:max-w-3xl lg:justify-center lg:gap-2"
       >
-        <span v-if="navItems.length <= 5">{{ navLabel(item) }}</span>
-      </UButton>
+        <UButton
+          v-for="(item, index) in navItems"
+          :key="item.to"
+          :to="item.to"
+          :icon="item.icon"
+          :color="isActive(item.to) ? 'primary' : 'neutral'"
+          variant="ghost"
+          :ui="navItems.length > 5
+            ? { base: 'flex-shrink-0 h-auto py-2.5 px-2.5 touch-none select-none' }
+            : { base: 'flex-col gap-0.5 h-auto py-2 px-3 text-xs touch-none select-none' }"
+          @pointerdown="(e: PointerEvent) => onNavPointerDown(index, e)"
+          @click.capture="navReorderMode ? $event.preventDefault() : impact('light')"
+        >
+          <span v-if="navItems.length <= 5">{{ navLabel(item) }}</span>
+        </UButton>
+      </div>
     </nav>
   </div>
 </template>
