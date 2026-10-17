@@ -1,4 +1,5 @@
 import { BlobHandle, BlobRegistry, IDBBlobAdapter } from '@palladium/core'
+import { legacyRowId } from '~/lib/db-identity'
 import type { ImageNoteRow, Scribble, Todo, VoiceNoteRow } from '~/types/database'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -127,10 +128,11 @@ async function runBlobMigration(db: ReturnType<typeof useDatabase>): Promise<voi
   }
 
   for (const v of voices) {
+    const id = await legacyRowId('voice_notes', v.id)
     const bytes = new Uint8Array(await v.blob.arrayBuffer())
-    await getMediaStore().put(v.id, bytes)
+    await getMediaStore().put(id, bytes)
     await db.createVoiceNote({
-      id: v.id,
+      id,
       title: '',
       mime_type: v.mimeType,
       duration: v.duration,
@@ -139,10 +141,11 @@ async function runBlobMigration(db: ReturnType<typeof useDatabase>): Promise<voi
   }
 
   for (const img of images) {
+    const id = await legacyRowId('image_notes', img.id)
     const bytes = new Uint8Array(await img.blob.arrayBuffer())
-    await getMediaStore().put(img.id, bytes)
+    await getMediaStore().put(id, bytes)
     await db.createImageNote({
-      id: img.id,
+      id,
       mime_type: img.mimeType,
       filename: img.filename,
       title: '',
@@ -156,7 +159,15 @@ async function runBlobMigration(db: ReturnType<typeof useDatabase>): Promise<voi
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function hydrateVoice(row: VoiceNoteRow): Promise<VoiceNote> {
+async function hydrateVoice(row: VoiceNoteRow, existing?: VoiceNote): Promise<VoiceNote> {
+  // Media bytes are immutable for a jot ID. Keep the URL used by active audio elements.
+  if (existing?.url && existing.mimeType === row.mime_type)
+    return {
+      ...existing,
+      title: row.title ?? '',
+      duration: row.duration,
+      created_at: row.created_at,
+    }
   const bytes = await getMediaStore().get(row.id)
   const blob = bytes ? new Blob([bytes.slice()], { type: row.mime_type }) : new Blob()
   return {
@@ -166,11 +177,18 @@ async function hydrateVoice(row: VoiceNoteRow): Promise<VoiceNote> {
     mimeType: row.mime_type,
     duration: row.duration,
     created_at: row.created_at,
-    url: getMediaStore().createObjectURL(blob),
+    ...(bytes ? { url: getMediaStore().createObjectURL(blob) } : {}),
   }
 }
 
-async function hydrateImage(row: ImageNoteRow): Promise<ImageNote> {
+async function hydrateImage(row: ImageNoteRow, existing?: ImageNote): Promise<ImageNote> {
+  if (existing?.url && existing.mimeType === row.mime_type)
+    return {
+      ...existing,
+      title: row.title ?? '',
+      filename: row.filename,
+      created_at: row.created_at,
+    }
   const bytes = await getMediaStore().get(row.id)
   const blob = bytes ? new Blob([bytes.slice()], { type: row.mime_type }) : new Blob()
   return {
@@ -180,14 +198,18 @@ async function hydrateImage(row: ImageNoteRow): Promise<ImageNote> {
     filename: row.filename,
     title: row.title ?? '',
     created_at: row.created_at,
-    url: getMediaStore().createObjectURL(blob),
+    ...(bytes ? { url: getMediaStore().createObjectURL(blob) } : {}),
   }
 }
+
+// Multiple mounted editors/sheets share the same state. Serialize their loads so
+// an older hydration cannot replace a newer one or revoke its media URLs.
+let loadQueue: Promise<void> = Promise.resolve()
 
 // ─── Composable ───────────────────────────────────────────────────────────────
 
 export function useJotsStore() {
-  const db = useDatabase()
+  const db = useDatabase(() => loadAll())
 
   const scribbles = useState<Scribble[]>('jots-scribbles', () => [])
   const voiceNotes = useState<VoiceNote[]>('jots-voice', () => [])
@@ -217,13 +239,40 @@ export function useJotsStore() {
     return map
   })
 
-  async function loadAll() {
+  function loadAll(): Promise<void> {
+    const result = loadQueue.then(load)
+    loadQueue = result.catch(() => {})
+    return result
+  }
+
+  async function load() {
     await runBlobMigration(db)
     ;[scribbles.value, todos.value] = await Promise.all([db.getScribbles(), db.getTodos()])
 
     const [voiceRows, imageRows] = await Promise.all([db.getVoiceNotes(), db.getImageNotes()])
-    voiceNotes.value = await Promise.all(voiceRows.map(hydrateVoice))
-    imageNotes.value = await Promise.all(imageRows.map(hydrateImage))
+    const [voices, images] = await Promise.all([
+      Promise.all(
+        voiceRows.map((row) =>
+          hydrateVoice(
+            row,
+            voiceNotes.value.find((note) => note.id === row.id),
+          ),
+        ),
+      ),
+      Promise.all(
+        imageRows.map((row) =>
+          hydrateImage(
+            row,
+            imageNotes.value.find((note) => note.id === row.id),
+          ),
+        ),
+      ),
+    ])
+    const retained = new Set([...voices, ...images].map((note) => note.url))
+    for (const note of [...voiceNotes.value, ...imageNotes.value])
+      if (note.url && !retained.has(note.url)) getMediaStore().revokeObjectURL(note.url)
+    voiceNotes.value = voices
+    imageNotes.value = images
   }
 
   async function refreshScribbles() {
@@ -240,7 +289,8 @@ export function useJotsStore() {
       duration: note.duration,
       created_at: note.created_at,
     })
-    voiceNotes.value.unshift({ ...note, url: getMediaStore().createObjectURL(note.blob) })
+    if (!voiceNotes.value.some((saved) => saved.id === note.id))
+      voiceNotes.value.unshift({ ...note, url: getMediaStore().createObjectURL(note.blob) })
   }
 
   async function renameVoiceNote(note: VoiceNote, title: string): Promise<void> {
@@ -267,7 +317,11 @@ export function useJotsStore() {
       title: note.title,
       created_at: note.created_at,
     })
-    imageNotes.value.unshift({ ...note, url: objectUrl })
+    if (imageNotes.value.some((saved) => saved.id === note.id)) {
+      getMediaStore().revokeObjectURL(objectUrl)
+    } else {
+      imageNotes.value.unshift({ ...note, url: objectUrl })
+    }
   }
 
   async function renameImageNote(note: ImageNote, title: string): Promise<void> {

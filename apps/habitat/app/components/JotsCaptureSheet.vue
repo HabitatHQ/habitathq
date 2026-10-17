@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { generateUuidV7 } from '@palladium/core'
+
 // Image capture / gallery picker bottom sheet
 const emit = defineEmits<{ close: [] }>()
 const store = useJotsStore()
@@ -8,30 +10,25 @@ const { impact, notification } = useHaptics()
 const errorMsg = ref<string | null>(null)
 const imagePreview = ref<{ url: string; file: File } | null>(null)
 const saving = ref(false)
+const galleryInput = ref<HTMLInputElement | null>(null)
+const cameraInput = ref<HTMLInputElement | null>(null)
 
 function pickFromGallery() {
   void impact('light')
-  const input = document.createElement('input')
-  input.type = 'file'
-  input.accept = 'image/*'
-  input.onchange = () => {
-    const file = input.files?.[0]
-    if (file) showPreview(file)
-  }
-  input.click()
+  galleryInput.value?.click()
 }
 
 function pickFromCamera() {
   void impact('light')
-  const input = document.createElement('input')
-  input.type = 'file'
-  input.accept = 'image/*'
-  input.setAttribute('capture', 'environment')
-  input.onchange = () => {
-    const file = input.files?.[0]
-    if (file) showPreview(file)
-  }
-  input.click()
+  cameraInput.value?.click()
+}
+
+function onImageSelected(event: Event) {
+  const input = event.target
+  if (!(input instanceof HTMLInputElement)) return
+  const file = input.files?.[0]
+  if (file) showPreview(file)
+  input.value = ''
 }
 
 function showPreview(file: File) {
@@ -51,7 +48,7 @@ async function saveImage() {
   saving.value = true
   try {
     const { file, url } = imagePreview.value
-    const id = crypto.randomUUID()
+    const id = generateUuidV7()
     const arrayBuffer = await file.arrayBuffer()
     const blob = new Blob([arrayBuffer], { type: file.type })
     await store.addImageNote(
@@ -82,6 +79,8 @@ onUnmounted(() => {
 
 <template>
   <div class="space-y-4">
+    <input ref="galleryInput" type="file" accept="image/*" hidden @change="onImageSelected" />
+    <input ref="cameraInput" type="file" accept="image/*" capture="environment" hidden @change="onImageSelected" />
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-2">
         <AppIconButton v-if="imagePreview" icon="arrow-left" label="Back to camera" @click="cancelPreview" />

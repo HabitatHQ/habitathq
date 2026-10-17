@@ -21,7 +21,7 @@ export interface StorageAdapter {
    */
   exec<T = Record<string, unknown>>(sql: string, params?: readonly unknown[]): Promise<T[]>;
 
-  /** Insert or replace a row by id. */
+  /** Insert a row, or update its supplied columns by id without deleting dependent rows. */
   put(table: string, id: string, data: Record<string, unknown>): Promise<void>;
 
   /** Partially update an existing row. No-op if the row does not exist. */

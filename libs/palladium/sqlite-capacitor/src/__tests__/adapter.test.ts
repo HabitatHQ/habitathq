@@ -563,10 +563,10 @@ describe("CapacitorSqliteAdapter", () => {
   });
 
   describe("put", () => {
-    it("generates INSERT OR REPLACE via run()", async () => {
+    it("generates an upsert that preserves dependent rows via run()", async () => {
       await adapter.put("tasks", "1", { id: "1", name: "test" });
       expect(mockDb.run).toHaveBeenCalledWith(
-        "INSERT OR REPLACE INTO tasks (id, name) VALUES (?, ?)",
+        "INSERT INTO tasks (id, name) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name",
         ["1", "test"],
         false,
       );

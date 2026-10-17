@@ -2,7 +2,7 @@
 import { addCalendarDays, localCalendarDate } from '@habitathq/utils'
 import type { HabitWithSchedule } from '~/types/database'
 
-const db = useDatabase()
+const db = useDatabase(() => loadHabits())
 const toast = useToast()
 const { settings } = useAppSettings()
 const { anyActive, matchesContext } = useContextFilter()

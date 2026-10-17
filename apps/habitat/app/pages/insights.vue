@@ -2,7 +2,7 @@
 import type { FocusSessionSummary, Todo } from '~/types/database'
 
 const { settings } = useAppSettings()
-const db = useDatabase()
+const db = useDatabase(() => loadInsights())
 const { selectionChanged } = useHaptics()
 
 type TabKey = 'habits' | 'tasks' | 'focus' | 'checkins'
@@ -33,12 +33,13 @@ function selectTab(nextTab: TabKey) {
   tab.value = nextTab
   void selectionChanged()
 }
-onMounted(async () => {
+async function loadInsights() {
   ;[todos.value, focusSummary.value] = await Promise.all([
     db.getTodos(),
     db.getFocusSessionSummary(),
   ])
-})
+}
+onMounted(loadInsights)
 </script>
 
 <template>

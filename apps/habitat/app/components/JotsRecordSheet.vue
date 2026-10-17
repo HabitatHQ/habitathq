@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { formatCalendarDate, localCalendarDate } from '@habitathq/utils'
+import { generateUuidV7 } from '@palladium/core'
 
 // Voice recorder bottom sheet
 const emit = defineEmits<{ close: [] }>()
@@ -42,6 +43,7 @@ declare global {
 // ─── Recording state ──────────────────────────────────────────────────────────
 
 const isRecording = ref(false)
+const requestingMicrophone = ref(false)
 const recordDuration = ref(0)
 const liveTranscript = ref('')
 const partialTranscript = ref('')
@@ -51,10 +53,19 @@ let mediaRecorder: MediaRecorder | null = null
 const chunks: Blob[] = []
 let sr: SpeechRecognizer | null = null
 let timerIv: ReturnType<typeof setInterval> | null = null
+let disposed = false
+let activeStream: MediaStream | null = null
 
 async function startRecording() {
+  if (disposed || isRecording.value || requestingMicrophone.value) return
+  requestingMicrophone.value = true
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    if (disposed) {
+      for (const track of stream.getTracks()) track.stop()
+      return
+    }
+    activeStream = stream
     const preferred = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4']
     const mimeType = preferred.find((m) => MediaRecorder.isTypeSupported(m)) || ''
     mediaRecorder = new MediaRecorder(stream, { mimeType })
@@ -64,6 +75,7 @@ async function startRecording() {
     }
     mediaRecorder.onstop = () => {
       for (const t of stream.getTracks()) t.stop()
+      if (activeStream === stream) activeStream = null
     }
     mediaRecorder.start(200)
     isRecording.value = true
@@ -102,7 +114,14 @@ async function startRecording() {
       sr.start()
     }
   } catch (err: unknown) {
+    stopRecording()
+    if (activeStream) {
+      for (const track of activeStream.getTracks()) track.stop()
+      activeStream = null
+    }
     errorMsg.value = `Microphone access denied: ${err instanceof Error ? err.message : String(err)}`
+  } finally {
+    requestingMicrophone.value = false
   }
 }
 
@@ -133,7 +152,7 @@ async function saveRecording() {
   try {
     const mimeType = mediaRecorder?.mimeType || 'audio/webm'
     const blob = new Blob(chunks, { type: mimeType })
-    const id = crypto.randomUUID()
+    const id = generateUuidV7()
     await store.addVoiceNote({
       id,
       title: voiceTitle.value.trim(),
@@ -196,12 +215,17 @@ function handleClose() {
 }
 
 onUnmounted(() => {
+  disposed = true
   if (timerIv) clearInterval(timerIv)
   if (sr)
     try {
       sr.stop()
     } catch {}
   if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop()
+  if (activeStream) {
+    for (const track of activeStream.getTracks()) track.stop()
+    activeStream = null
+  }
 })
 </script>
 
@@ -230,6 +254,8 @@ onUnmounted(() => {
 
       <button
         class="record-btn w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300"
+        :aria-label="isRecording ? 'Stop recording' : 'Start recording'"
+        :disabled="requestingMicrophone"
         :class="isRecording
           ? 'bg-red-500/20 border-2 border-red-500 animate-pulse'
           : 'bg-(--ui-bg-elevated) border-2 border-(--ui-border-accented) hover:border-primary-500'"
@@ -243,7 +269,7 @@ onUnmounted(() => {
       </button>
 
       <p class="text-xs text-(--ui-text-dimmed)">
-        {{ isRecording ? 'Tap to stop recording' : 'Tap to start recording' }}
+        {{ requestingMicrophone ? 'Waiting for microphone permission…' : isRecording ? 'Tap to stop recording' : 'Tap to start recording' }}
       </p>
 
       <div

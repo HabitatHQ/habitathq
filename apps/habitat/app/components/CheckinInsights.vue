@@ -14,7 +14,7 @@ import {
   type TextInsight,
 } from '~/utils/checkin-insights'
 
-const db = useDatabase()
+const db = useDatabase(() => load())
 
 const PERIODS = [7, 30, 90] as const
 const windowDays = ref(30)

@@ -2,7 +2,7 @@
 import { addCalendarDays, formatCalendarDate, localCalendarDate } from '@habitathq/utils'
 import type { HabitLog, HabitWithSchedule } from '~/types/database'
 
-const db = useDatabase()
+const db = useDatabase(() => load())
 const { selectionChanged, notification } = useHaptics()
 
 const today = localCalendarDate()

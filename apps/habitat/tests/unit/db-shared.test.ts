@@ -4,7 +4,8 @@
  * All tests are RED until db-shared.ts is implemented.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { DbAdapter } from '~/types/database'
+import type { DbAdapter } from '@palladium/core'
+import { withMutations } from '../helpers/sql-database'
 import * as shared from '~/lib/db-shared'
 import { buildUpdatePairs } from '~/lib/db-shared'
 
@@ -77,6 +78,11 @@ describe('buildUpdatePairs', () => {
 // ─── MockDbAdapter ────────────────────────────────────────────────────────────
 
 class MockDbAdapter implements DbAdapter {
+  insert: ReturnType<typeof withMutations>['insert'] = (...args) => withMutations(this).insert(...args)
+  patchWhere: ReturnType<typeof withMutations>['patchWhere'] = (...args) => withMutations(this).patchWhere(...args)
+  deleteWhere: ReturnType<typeof withMutations>['deleteWhere'] = (...args) => withMutations(this).deleteWhere(...args)
+  transaction: ReturnType<typeof withMutations>['transaction'] = (work) => withMutations(this).transaction(work)
+
   calls: { method: string; sql: string; bind?: unknown[] }[] = []
   private rows: Map<string, unknown[]> = new Map()
 
@@ -202,7 +208,7 @@ describe('createHabit', () => {
     const db = new MockDbAdapter()
     db.setRows('WHERE h.id', [habitRow()])
     await shared.createHabit(db, { name: 'Run', description: '', color: '#fff', icon: 'i-x', frequency: 'daily', tags: [], annotations: {}, type: 'BOOLEAN', target_value: 1, paused_until: null, why: '' })
-    const execCalls = db.calls.filter(c => c.method === 'exec')
+    const execCalls = db.calls.filter(c => c.method === 'exec' && c.sql.startsWith('INSERT'))
     expect(execCalls.length).toBeGreaterThanOrEqual(2) // habits + habit_schedules
     expect(execCalls[0]!.sql).toContain('INSERT INTO habits')
     expect(execCalls[0]!.bind?.[2]).toBe('run')
@@ -349,6 +355,7 @@ describe('toggleCompletion', () => {
     let callCount = 0
     db.queryAll = async function<T>(sql: string, bind?: unknown[]) {
       this.calls.push({ method: 'queryAll', sql, bind })
+      if (sql.includes('_sync_row_meta')) return []
       callCount++
       if (callCount === 1) return []
       return [completionRow() as T]
@@ -560,6 +567,7 @@ describe('upsertCheckinResponse', () => {
     let callCount = 0
     db.queryAll = async function<T>(sql: string, bind?: unknown[]) {
       this.calls.push({ method: 'queryAll', sql, bind })
+      if (sql.includes('_sync_row_meta')) return []
       callCount++
       if (callCount === 1) return [{ id: 'cr1' } as T] // existing
       return [checkinResponseRow() as T]
@@ -574,6 +582,7 @@ describe('upsertCheckinResponse', () => {
     let callCount = 0
     db.queryAll = async function<T>(sql: string, bind?: unknown[]) {
       this.calls.push({ method: 'queryAll', sql, bind })
+      if (sql.includes('_sync_row_meta')) return []
       callCount++
       if (callCount === 1) return []
       return [checkinResponseRow() as T]
@@ -664,6 +673,7 @@ describe('markBoredActivityDone', () => {
     let callCount = 0
     db.queryAll = async function<T>(sql: string, bind?: unknown[]) {
       this.calls.push({ method: 'queryAll', sql, bind })
+      if (sql.includes('_sync_row_meta')) return []
       callCount++
       const row = callCount === 1
         ? boredActivityRow()
@@ -673,7 +683,7 @@ describe('markBoredActivityDone', () => {
     const result = await shared.markBoredActivityDone(db, 'ba1')
     expect(result.is_done).toBe(true)
     const update = db.calls.find(c => c.method === 'exec')!
-    expect(update.sql).toContain('is_done = 1')
+    expect(update.bind?.[0]).toBe(1)
   })
 
   it('increments done_count for recurring activity without marking done', async () => {
@@ -681,6 +691,7 @@ describe('markBoredActivityDone', () => {
     let callCount = 0
     db.queryAll = async function<T>(sql: string, bind?: unknown[]) {
       this.calls.push({ method: 'queryAll', sql, bind })
+      if (sql.includes('_sync_row_meta')) return []
       callCount++
       const row = callCount === 1
         ? { ...boredActivityRow(), is_recurring: 1 }
@@ -726,6 +737,7 @@ describe('toggleTodo', () => {
     let callCount = 0
     db.queryAll = async function<T>(sql: string, bind?: unknown[]) {
       this.calls.push({ method: 'queryAll', sql, bind })
+      if (sql.includes('_sync_row_meta')) return []
       callCount++
       const row = callCount === 1 ? todoRow() : { ...todoRow(), is_done: 1 }
       return [row as T]
@@ -733,7 +745,7 @@ describe('toggleTodo', () => {
     const result = await shared.toggleTodo(db, 't1')
     expect(result.is_done).toBe(true)
     const update = db.calls.find(c => c.method === 'exec')!
-    expect(update.sql).toContain('is_done = 1')
+    expect(update.bind?.[0]).toBe(1)
   })
 
   it('marks done todo as undone', async () => {
@@ -741,6 +753,7 @@ describe('toggleTodo', () => {
     let callCount = 0
     db.queryAll = async function<T>(sql: string, bind?: unknown[]) {
       this.calls.push({ method: 'queryAll', sql, bind })
+      if (sql.includes('_sync_row_meta')) return []
       callCount++
       const row = callCount === 1 ? { ...todoRow(), is_done: 1 } : todoRow()
       return [row as T]
@@ -748,7 +761,7 @@ describe('toggleTodo', () => {
     const result = await shared.toggleTodo(db, 't1')
     expect(result.is_done).toBe(false)
     const update = db.calls.find(c => c.method === 'exec')!
-    expect(update.sql).toContain('is_done = 0')
+    expect(update.bind?.[0]).toBe(0)
   })
 
   it('throws when todo not found', async () => {
@@ -1108,10 +1121,10 @@ describe('importJson — why column', () => {
     await shared.importJson(db, data)
 
     const completion = db.calls.find(
-      (call) => call.method === 'exec' && call.sql.startsWith('INSERT INTO completions'),
+      (call) => call.method === 'exec' && call.sql.startsWith('INSERT OR IGNORE INTO completions'),
     )
     expect(completion?.bind).toEqual([
-      expect.any(String), 'h1', '2025-01-02', '2025-01-02T08:00:00Z', '', '[]', '{}',
+      expect.any(String), expect.any(String), '2025-01-02', '2025-01-02T08:00:00Z', '', '[]', '{}',
     ])
   })
 })

@@ -11,7 +11,7 @@ const store = useJotsStore()
 const { timeline, todoByJotId, todos } = store
 const staggerListOnce = useFirstVisit('jots-list')
 const staggerGridOnce = useFirstVisit('jots-grid')
-const db = useDatabase()
+const db = useDatabase(() => loadRecentShared())
 
 // ─── Recently bookmarked ──────────────────────────────────────────────────────
 
@@ -711,6 +711,7 @@ onUnmounted(() => {
                     :color="currentlyPlaying === item.data.id ? 'primary' : 'neutral'"
                     :variant="currentlyPlaying === item.data.id ? 'soft' : 'outline'"
                     size="sm"
+                    :disabled="!item.data.url"
                     :aria-label="currentlyPlaying === item.data.id ? 'Pause voice note' : 'Play voice note'"
                     class="min-h-[44px] min-w-[44px] shrink-0"
                     :ui="{ base: 'rounded-full' }"
@@ -729,6 +730,7 @@ onUnmounted(() => {
                   />
                   <span class="text-xs type-duration text-(--ui-text-toned) shrink-0">{{ fmtDuration((item.data as VoiceNote).duration) }}</span>
                 </div>
+                <p v-if="!item.data.url" class="text-xs text-(--ui-text-dimmed) mt-1.5">Not available on this device</p>
                 <!-- Footer -->
                 <div class="flex items-center justify-between gap-2 mt-2.5">
                   <div class="flex items-center gap-1.5 text-(--ui-text-dimmed)">
@@ -784,6 +786,7 @@ onUnmounted(() => {
                       @click.stop="openRename(item)"
                     >{{ (item.data as ImageNote).title || 'Add a title' }}</button>
                     <p class="text-[11px] text-(--ui-text-dimmed) truncate mt-0.5">{{ (item.data as ImageNote).filename }}</p>
+                    <p v-if="!item.data.url" class="text-xs text-(--ui-text-dimmed) mt-1.5">Not available on this device</p>
                   </div>
                 </div>
                 <!-- Footer -->
@@ -881,6 +884,7 @@ onUnmounted(() => {
                   :color="currentlyPlaying === item.data.id ? 'primary' : 'neutral'"
                   :variant="currentlyPlaying === item.data.id ? 'solid' : 'soft'"
                   size="sm"
+                  :disabled="!item.data.url"
                   :aria-label="currentlyPlaying === item.data.id ? 'Pause voice note' : 'Play voice note'"
                   class="absolute min-h-[44px] min-w-[44px] shadow-md"
                   :ui="{ base: 'rounded-full' }"
@@ -897,6 +901,7 @@ onUnmounted(() => {
                   @click.stop="openRename(item)"
                 >{{ (item.data as VoiceNote).title || 'Add title' }}</button>
                 <p class="text-xs type-duration text-(--ui-text-toned)">{{ fmtDuration((item.data as VoiceNote).duration) }}</p>
+                <p v-if="!item.data.url" class="text-xs text-(--ui-text-dimmed) mt-1.5">Not available on this device</p>
                 <!-- Footer -->
                 <div class="flex items-center justify-between gap-1 mt-1.5">
                   <div class="flex items-center gap-1 text-(--ui-text-dimmed) min-w-0">
@@ -952,6 +957,7 @@ onUnmounted(() => {
                     aria-label="Rename photo"
                     @click.stop="openRename(item)"
                   >{{ (item.data as ImageNote).title || 'Add a title' }}</button>
+                  <p v-if="!item.data.url" class="text-xs text-(--ui-text-dimmed) mt-1.5">Not available on this device</p>
                   <div class="flex items-center gap-1 text-(--ui-text-dimmed) mt-0.5">
                     <AppIcon name="photo" class="w-3 h-3 shrink-0" />
                     <span class="text-[10px] truncate">{{ timeAgo(item.data.created_at) }}</span>
@@ -987,7 +993,7 @@ onUnmounted(() => {
     </template>
 
     <!-- ── Rename voice / image jot modal ─────────────────────────────────── -->
-    <AppModal v-model="showRenameModal" :title="renameIsImage ? 'Rename photo' : 'Rename voice note'">
+    <AppBottomSheet v-model="showRenameModal" variant="centered" :closeable="false" :title="renameIsImage ? 'Rename photo' : 'Rename voice note'">
       <div class="space-y-3">
         <UFormField label="Title">
           <AppTextField
@@ -1004,7 +1010,7 @@ onUnmounted(() => {
           <UButton color="primary" class="flex-1" :loading="renamingJot" @click="saveRename">Save</UButton>
         </div>
       </template>
-    </AppModal>
+    </AppBottomSheet>
 
     <!-- ── Image lightbox ─────────────────────────────────────────────────── -->
     <Teleport to="body">
@@ -1033,7 +1039,7 @@ onUnmounted(() => {
     </Teleport>
 
     <!-- ── Create TODO from jot modal ────────────────────────────────────── -->
-    <AppModal v-model="showCreateTodoModal" title="Create TODO">
+    <AppBottomSheet v-model="showCreateTodoModal" variant="centered" :closeable="false" title="Create TODO">
       <p class="text-xs text-(--ui-text-dimmed) -mt-2">A TODO will be created and linked to this jot.</p>
       <div class="space-y-3">
         <UFormField label="Title" required>
@@ -1055,7 +1061,7 @@ onUnmounted(() => {
           >Create</UButton>
         </div>
       </template>
-    </AppModal>
+    </AppBottomSheet>
 
     <!-- ── Bottom Sheets ─────────────────────────────────────────────────── -->
 

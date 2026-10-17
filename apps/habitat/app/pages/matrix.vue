@@ -2,7 +2,7 @@
 import { addCalendarDays, formatCalendarDate, localCalendarDate } from '@habitathq/utils'
 import type { Completion, HabitLog, HabitWithSchedule } from '~/types/database'
 
-const db = useDatabase()
+const db = useDatabase(() => load())
 const { settings } = useAppSettings()
 
 // ── Logo sprout animation (2× speed for larger logo) ─────────────────────────

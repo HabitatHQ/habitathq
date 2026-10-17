@@ -25,7 +25,7 @@ type CalendarNotePayload = Pick<
   'title' | 'content' | 'tags' | 'annotations' | 'entry_date'
 >
 
-const db = useDatabase()
+const db = useDatabase(() => loadCalendar())
 const route = useRoute()
 const { impact, selectionChanged, notification } = useHaptics()
 const { suggest: suggestTags } = useTagSuggestions('todo')
@@ -250,7 +250,7 @@ function updateTodo(todo: Todo) {
   if (index >= 0) todos.value[index] = todo
   editingTodo.value = todo
 }
-onMounted(async () => {
+async function loadCalendar() {
   try {
     ;[todos.value, notes.value, habits.value, boredCategories.value] = await Promise.all([
       db.getTodos(),
@@ -265,7 +265,8 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-})
+}
+onMounted(loadCalendar)
 </script>
 
 <template>

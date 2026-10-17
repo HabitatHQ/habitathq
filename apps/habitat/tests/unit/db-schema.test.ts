@@ -281,7 +281,7 @@ describe('SCHEMA_CONFIG seeds', () => {
     ])
   })
 
-  it('enforces normalized unique habit names and check-in titles', async () => {
+  it('preserves independent offline creations with matching name keys', async () => {
     const { adapter } = freshDb()
     await applyDdl(adapter)
     await runSeeds(adapter)
@@ -293,7 +293,7 @@ describe('SCHEMA_CONFIG seeds', () => {
       adapter.exec(
         "INSERT INTO habits (id,name,name_key,created_at) VALUES ('habit-two','  run  ','run','2026-01-02')",
       ),
-    ).rejects.toThrow()
+    ).resolves.toBeUndefined()
 
     await adapter.exec(
       "INSERT INTO checkin_templates (id,title,title_key) VALUES ('checkin-one','Morning','morning')",
@@ -302,10 +302,10 @@ describe('SCHEMA_CONFIG seeds', () => {
       adapter.exec(
         "INSERT INTO checkin_templates (id,title,title_key) VALUES ('checkin-two','morning','morning')",
       ),
-    ).rejects.toThrow()
+    ).resolves.toBeUndefined()
   })
 
-  it('enforces Unicode case-insensitive unique habit names and check-in titles', async () => {
+  it('preserves Unicode name collisions from other devices', async () => {
     const { adapter } = freshDb()
     await applyDdl(adapter)
     await runSeeds(adapter)
@@ -319,7 +319,7 @@ describe('SCHEMA_CONFIG seeds', () => {
         "INSERT INTO habits (id,name,name_key,created_at) VALUES ('habit-two','école',?,'2026-01-02')",
         [normalizeNameKey('école')],
       ),
-    ).rejects.toThrow()
+    ).resolves.toBeUndefined()
 
     await adapter.exec(
       "INSERT INTO checkin_templates (id,title,title_key) VALUES ('checkin-one','École',?)",
@@ -330,7 +330,7 @@ describe('SCHEMA_CONFIG seeds', () => {
         "INSERT INTO checkin_templates (id,title,title_key) VALUES ('checkin-two','école',?)",
         [normalizeNameKey('école')],
       ),
-    ).rejects.toThrow()
+    ).resolves.toBeUndefined()
   })
 
   it('renames legacy duplicate habit names and check-in titles before enforcing uniqueness', async () => {
@@ -423,13 +423,13 @@ describe('SCHEMA_CONFIG seeds', () => {
 // ─── Schema config structure ─────────────────────────────────────────────────
 
 describe('SCHEMA_CONFIG', () => {
-  it('has version 26', () => {
-    expect(SCHEMA_CONFIG.version).toBe(26)
+  it('has version 27', () => {
+    expect(SCHEMA_CONFIG.version).toBe(27)
   })
 
-  it('defines migrations for versions 11-26', () => {
+  it('defines migrations for versions 11-27', () => {
     const keys = Object.keys(SCHEMA_CONFIG.migrations ?? {}).map(Number).sort((a, b) => a - b)
-    expect(keys).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26])
+    expect(keys).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27])
   })
 
   it('has seeds array', () => {
@@ -615,7 +615,7 @@ describe('SCHEMA_DDL / migration parity', () => {
     expect(todo?.scheduled_time).toBeNull()
     expect(sessions).toHaveLength(1)
     expect(indices).toHaveLength(1)
-    expect(version?.user_version).toBe(26)
+    expect(version?.user_version).toBe(27)
   })
 
   it('finishes a retried v25 upgrade after entry_date was added before interruption', async () => {
@@ -636,7 +636,7 @@ describe('SCHEMA_DDL / migration parity', () => {
     const version = await adapter.queryOne<{ user_version: number }>('PRAGMA user_version')
 
     expect(note).toEqual({ content: 'Preserve me', entry_date: '2026-05-14' })
-    expect(version?.user_version).toBe(26)
+    expect(version?.user_version).toBe(27)
   })
 
   it('upgrades a v24 database before creating the entry-date index', async () => {

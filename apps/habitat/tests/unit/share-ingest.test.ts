@@ -1,11 +1,17 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import type { DbAdapter } from '~/types/database'
+import type { DbAdapter } from '@palladium/core'
+import { withMutations } from '../helpers/sql-database'
 import { getRecentSharedScribbles, createScribble } from '~/lib/db-shared'
 import { getShareTag, isShareTag } from '~/utils/share-helpers'
 
 // ─── MockDbAdapter ────────────────────────────────────────────────────────────
 
 class MockDbAdapter implements DbAdapter {
+  insert: ReturnType<typeof withMutations>['insert'] = (...args) => withMutations(this).insert(...args)
+  patchWhere: ReturnType<typeof withMutations>['patchWhere'] = (...args) => withMutations(this).patchWhere(...args)
+  deleteWhere: ReturnType<typeof withMutations>['deleteWhere'] = (...args) => withMutations(this).deleteWhere(...args)
+  transaction: ReturnType<typeof withMutations>['transaction'] = (work) => withMutations(this).transaction(work)
+
   calls: { method: string; sql: string; bind?: unknown[] }[] = []
   private rows: Map<string, unknown[]> = new Map()
 

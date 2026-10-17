@@ -87,7 +87,10 @@ export class NodeSqliteAdapter implements TransactableStorageAdapter, Constraint
     for (const k of keys) assertIdentifier(k);
     if (keys.length === 0) return;
     const placeholders = keys.map(() => "?").join(", ");
-    const sql = `INSERT OR REPLACE INTO ${table} (${keys.join(", ")}) VALUES (${placeholders})`;
+    // REPLACE deletes the old row, which would cascade into child records.
+    const updates = keys.filter((key) => key !== "id").map((key) => `${key} = excluded.${key}`);
+    const conflict = updates.length > 0 ? `DO UPDATE SET ${updates.join(", ")}` : "DO NOTHING";
+    const sql = `INSERT INTO ${table} (${keys.join(", ")}) VALUES (${placeholders}) ON CONFLICT(id) ${conflict}`;
     this.#database.prepare(sql).run(...keys.map((k) => coerce(data[k])));
   }
 

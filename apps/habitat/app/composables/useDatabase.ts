@@ -1,5 +1,5 @@
 import type { StreakResult } from '~/lib/streak-engine'
-import { sendToWorker } from '~/plugins/database.client'
+import { onDatabaseChange, sendToWorker } from '~/plugins/database.client'
 import type {
   BoredActivity,
   BoredCategory,
@@ -32,7 +32,34 @@ import type {
   VoiceNoteRow,
 } from '~/types/database'
 
-export function useDatabase() {
+export function useDatabase(refresh?: () => void | Promise<void>) {
+  if (refresh) {
+    let unsubscribe: (() => void) | undefined
+    let running = false
+    let pending = false
+    let disposed = false
+    const run = async () => {
+      if (disposed) return
+      pending = true
+      if (running) return
+      running = true
+      try {
+        while (pending && !disposed) {
+          pending = false
+          await refresh()
+        }
+      } finally {
+        running = false
+      }
+    }
+    onMounted(() => {
+      unsubscribe = onDatabaseChange(run)
+    })
+    onScopeDispose(() => {
+      disposed = true
+      unsubscribe?.()
+    })
+  }
   return {
     getHabits: (): Promise<HabitWithSchedule[]> => sendToWorker({ type: 'GET_HABITS' }),
     createHabit: (

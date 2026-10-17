@@ -112,8 +112,11 @@ export class BrowserSqliteAdapter
     for (const k of keys) assertIdentifier(k);
     if (keys.length === 0) return;
     const placeholders = keys.map(() => "?").join(", ");
+    // REPLACE deletes the old row, which would cascade into child records.
+    const updates = keys.filter((key) => key !== "id").map((key) => `${key} = excluded.${key}`);
+    const conflict = updates.length > 0 ? `DO UPDATE SET ${updates.join(", ")}` : "DO NOTHING";
     this.#database.exec({
-      sql: `INSERT OR REPLACE INTO ${table} (${keys.join(", ")}) VALUES (${placeholders})`,
+      sql: `INSERT INTO ${table} (${keys.join(", ")}) VALUES (${placeholders}) ON CONFLICT(id) ${conflict}`,
       bind: keys.map((k) => (data[k] === undefined ? null : data[k])),
     });
   }

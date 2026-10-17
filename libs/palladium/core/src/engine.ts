@@ -345,6 +345,8 @@ export interface RemoteChange<S extends SchemaMap = SchemaMap> {
 
 export interface EngineEvents<S extends SchemaMap = SchemaMap> {
   "sync:status": SyncStatus;
+  /** Committed local writes, remote pages, and purges; suitable for worker invalidation. */
+  "tables:changed": readonly string[];
   error: Error;
   /**
    * Fired after a local `tx()` commits successfully. Suppressed while the
@@ -1402,6 +1404,9 @@ export class PalladiumEngine<S extends SchemaMap> {
   }
 
   async #notifyLiveQueries(tables: string[]): Promise<void> {
+    if (tables.length > 0) {
+      this.#reportObserverErrors(this.emitter.emitSafely("tables:changed", tables));
+    }
     const results = await Promise.allSettled(
       [...this.#liveQueries].map((lq) => lq.notifyTables(tables)),
     );

@@ -4,6 +4,7 @@ import type { ExportSelection, HabitatExport } from '~/types/database'
 import { buildJotsExportZip } from '~/utils/jots-export'
 
 const db = useDatabase()
+const sync = useSyncStatus()
 const toast = useToast()
 const isDev = import.meta.dev
 const exportDateOptions = {
@@ -461,6 +462,19 @@ async function seedDevData() {
 <template>
   <div class="space-y-6">
     <BackNav to="/settings" label="Data" title class="mb-4" />
+
+    <section class="space-y-2" aria-label="Sync">
+      <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Sync</p>
+      <UCard :ui="{ root: 'rounded-2xl' }">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <p class="text-sm font-medium">{{ sync.label.value }}</p>
+            <p v-if="sync.info.value?.enabled" class="text-xs text-(--ui-text-dimmed)">Local development sync</p>
+          </div>
+          <UButton v-if="sync.info.value?.enabled" variant="ghost" color="neutral" :loading="sync.syncing.value" @click="sync.syncNow">Sync now</UButton>
+        </div>
+      </UCard>
+    </section>
 
     <section class="space-y-2">
       <p class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-dimmed) px-1">Export & Import</p>
