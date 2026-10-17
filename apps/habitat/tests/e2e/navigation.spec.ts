@@ -181,7 +181,8 @@ test.describe('Navigation smoke tests', () => {
           const savedOrder = settings['tabOrder']
           if (!Array.isArray(savedOrder)) return false
           const order = savedOrder.filter((item): item is string => typeof item === 'string')
-          return order.indexOf('/habits') > order.indexOf('/todos')
+          const todosIndex = order.indexOf('/todos')
+          return todosIndex >= 0 && order.indexOf('/habits') > todosIndex
         }),
       )
       .toBe(true)
