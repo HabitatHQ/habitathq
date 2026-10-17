@@ -2,7 +2,7 @@
 import { formatInstant, localCalendarDate } from '@habitathq/utils'
 import type { FocusSession, FocusSessionSummary, Todo } from '~/types/database'
 
-const db = useDatabase()
+const db = useDatabase(() => loadSessions())
 const timer = reactive(useTimer())
 const sessions = ref<FocusSession[]>([])
 const todos = ref<Todo[]>([])
@@ -40,12 +40,15 @@ function displayDate(value: string) {
     day: 'numeric',
   })
 }
-onMounted(async () => {
+async function loadSessions() {
   ;[sessions.value, todos.value, summary.value] = await Promise.all([
     db.getFocusSessions(),
     db.getTodos(),
     db.getFocusSessionSummary(),
   ])
+}
+onMounted(async () => {
+  await loadSessions()
   window.addEventListener('focus', refreshToday)
   document.addEventListener('visibilitychange', refreshToday)
 })

@@ -8,7 +8,9 @@
  */
 
 import { localCalendarDate, parseDateString } from '@habitathq/utils'
-import { recoverBooleanHistoryFromLogs } from '~/lib/boolean-history-recovery'
+import { generateUuidV7 } from '@palladium/core'
+import { normalizeImportIds } from '~/lib/db-identity'
+import { nextNaturalRowId } from '~/lib/db-natural-ids'
 import {
   HABIT_WITH_SCHED_SQL,
   parseBoredActivity,
@@ -100,15 +102,14 @@ export function buildUpdatePairs(
   return pairs
 }
 
-async function execDynamicUpdate(
+async function applyFieldUpdate(
   db: DbAdapter,
   table: string,
   id: string,
   pairs: [string, unknown][],
 ): Promise<void> {
   if (pairs.length === 0) return
-  const set = pairs.map(([k]) => `${k} = ?`).join(', ')
-  await db.exec(`UPDATE ${table} SET ${set} WHERE id = ?`, [...pairs.map(([, v]) => v), id])
+  await db.patchWhere(table, Object.fromEntries(pairs), 'id = ?', [id])
 }
 
 // ─── Habit operations ─────────────────────────────────────────────────────────
@@ -146,41 +147,42 @@ export async function createHabit(
 ): Promise<HabitWithSchedule> {
   const name = await requireUniqueHabitName(db, payload.name)
 
-  const id = crypto.randomUUID()
-  const schedId = crypto.randomUUID()
+  const id = generateUuidV7()
+  const schedId = generateUuidV7()
   const createdOn = new Date()
   const created_at = createdOn.toISOString()
-  await db.exec(
-    `INSERT INTO habits
-     (id, name, name_key, description, why, color, icon, frequency, created_at, tags, annotations,
-      type, target_value, paused_until)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    [
+  await db.transaction(async (db) => {
+    await db.insert('habits', {
       id,
       name,
-      normalizeNameKey(name),
-      payload.description,
-      payload.why ?? '',
-      payload.color,
-      payload.icon,
-      payload.frequency,
+      name_key: normalizeNameKey(name),
+      description: payload.description,
+      why: payload.why ?? '',
+      color: payload.color,
+      icon: payload.icon,
+      frequency: payload.frequency,
       created_at,
-      JSON.stringify(payload.tags ?? []),
-      JSON.stringify(payload.annotations ?? {}),
-      payload.type ?? 'BOOLEAN',
-      payload.target_value ?? 1,
-      payload.paused_until ?? null,
-    ],
-  )
-  await db.exec(
-    `INSERT INTO habit_schedules
-     (id, habit_id, schedule_type, frequency_count, days_of_week, due_time, start_date, end_date)
-     VALUES (?,?,?,?,?,?,?,?)`,
-    [schedId, id, 'DAILY', null, null, null, localCalendarDate(createdOn), null],
-  )
-  const row = await db.queryOne<Record<string, unknown>>(`${HABIT_WITH_SCHED_SQL} WHERE h.id = ?`, [
-    id,
-  ])
+      tags: JSON.stringify(payload.tags ?? []),
+      annotations: JSON.stringify(payload.annotations ?? {}),
+      type: payload.type ?? 'BOOLEAN',
+      target_value: payload.target_value ?? 1,
+      paused_until: payload.paused_until ?? null,
+    })
+    await db.insert('habit_schedules', {
+      id: schedId,
+      habit_id: id,
+      schedule_type: 'DAILY',
+      frequency_count: null,
+      days_of_week: null,
+      due_time: null,
+      start_date: localCalendarDate(createdOn),
+      end_date: null,
+    })
+  })
+  const row =
+    (
+      await db.queryAll<Record<string, unknown>>(`${HABIT_WITH_SCHED_SQL} WHERE h.id = ?`, [id])
+    )[0] ?? null
   return parseHabitWithSchedule(row!)
 }
 
@@ -208,20 +210,21 @@ export async function updateHabit(
     { kind: 'json', name: 'annotations', fallback: {} },
   ])
   if (fields.name !== undefined) pairs.push(['name_key', normalizeNameKey(fields.name)])
-  await execDynamicUpdate(db, 'habits', id, pairs)
-  const row = await db.queryOne<Record<string, unknown>>(`${HABIT_WITH_SCHED_SQL} WHERE h.id = ?`, [
-    id,
-  ])
+  await applyFieldUpdate(db, 'habits', id, pairs)
+  const row =
+    (
+      await db.queryAll<Record<string, unknown>>(`${HABIT_WITH_SCHED_SQL} WHERE h.id = ?`, [id])
+    )[0] ?? null
   return parseHabitWithSchedule(row!)
 }
 
 export async function archiveHabit(db: DbAdapter, id: string): Promise<null> {
-  await db.exec('UPDATE habits SET archived_at = ? WHERE id = ?', [new Date().toISOString(), id])
+  await db.patchWhere('habits', { archived_at: new Date().toISOString() }, 'id = ?', [id])
   return null
 }
 
 export async function deleteHabit(db: DbAdapter, id: string): Promise<null> {
-  await db.exec('DELETE FROM habits WHERE id = ?', [id])
+  await db.deleteWhere('habits', 'id = ?', [id])
   return null
 }
 
@@ -233,7 +236,7 @@ export async function getArchivedHabits(db: DbAdapter): Promise<HabitWithSchedul
 }
 
 export async function deleteAllHabits(db: DbAdapter): Promise<null> {
-  await db.exec('DELETE FROM habits')
+  await db.deleteWhere('habits')
   return null
 }
 
@@ -284,16 +287,20 @@ export async function toggleCompletion(
     [habit_id, date],
   )
   if (existing.length > 0) {
-    await db.exec('DELETE FROM completions WHERE habit_id = ? AND date = ?', [habit_id, date])
+    await db.deleteWhere('completions', 'habit_id = ? AND date = ?', [habit_id, date])
     return null
   }
-  const id = crypto.randomUUID()
+  const id = await nextNaturalRowId(db, 'completions', `${habit_id}:${date}`)
   const completed_at = new Date().toISOString()
-  await db.exec(
-    `INSERT INTO completions (id, habit_id, date, completed_at, notes, tags, annotations)
-     VALUES (?,?,?,?,?,?,?)`,
-    [id, habit_id, date, completed_at, '', JSON.stringify(tags), JSON.stringify(annotations)],
-  )
+  await db.insert('completions', {
+    id,
+    habit_id,
+    date,
+    completed_at,
+    notes: '',
+    tags: JSON.stringify(tags),
+    annotations: JSON.stringify(annotations),
+  })
   const rows2 = await db.queryAll<Record<string, unknown>>(
     'SELECT * FROM completions WHERE id = ?',
     [id],
@@ -301,7 +308,7 @@ export async function toggleCompletion(
   return parseCompletion(rows2[0]!)
 }
 export async function deleteCompletion(db: DbAdapter, id: string): Promise<null> {
-  await db.exec('DELETE FROM completions WHERE id = ?', [id])
+  await db.deleteWhere('completions', 'id = ?', [id])
   return null
 }
 
@@ -417,20 +424,25 @@ export async function logHabitValue(
   value: number,
   notes = '',
 ): Promise<HabitLog> {
-  const id = crypto.randomUUID()
+  const id = generateUuidV7()
   const logged_at = new Date().toISOString()
-  await db.exec(
-    'INSERT INTO habit_logs (id, habit_id, date, logged_at, value, notes) VALUES (?,?,?,?,?,?)',
-    [id, habit_id, date, logged_at, value, notes],
-  )
-  const row = await db.queryOne<Record<string, unknown>>('SELECT * FROM habit_logs WHERE id = ?', [
+  await db.insert('habit_logs', {
     id,
-  ])
+    habit_id,
+    date,
+    logged_at,
+    value,
+    notes,
+  })
+  const row =
+    (
+      await db.queryAll<Record<string, unknown>>('SELECT * FROM habit_logs WHERE id = ?', [id])
+    )[0] ?? null
   return parseHabitLog(row!)
 }
 
 export async function deleteHabitLog(db: DbAdapter, id: string): Promise<null> {
-  await db.exec('DELETE FROM habit_logs WHERE id = ?', [id])
+  await db.deleteWhere('habit_logs', 'id = ?', [id])
   return null
 }
 export async function replaceHabitLogsForDate(
@@ -440,23 +452,22 @@ export async function replaceHabitLogsForDate(
   value: number,
   notes = '',
 ): Promise<null> {
-  await db.exec('BEGIN')
-  try {
-    await db.exec('DELETE FROM habit_logs WHERE habit_id = ? AND date = ?', [habit_id, date])
+  await db.transaction(async (db) => {
+    await db.deleteWhere('habit_logs', 'habit_id = ? AND date = ?', [habit_id, date])
     if (value > 0) {
-      const id = crypto.randomUUID()
+      const id = generateUuidV7()
       const logged_at = new Date().toISOString()
-      await db.exec(
-        'INSERT INTO habit_logs (id, habit_id, date, logged_at, value, notes) VALUES (?,?,?,?,?,?)',
-        [id, habit_id, date, logged_at, value, notes],
-      )
+      await db.insert('habit_logs', {
+        id,
+        habit_id,
+        date,
+        logged_at,
+        value,
+        notes,
+      })
     }
-    await db.exec('COMMIT')
-    return null
-  } catch (err) {
-    await db.exec('ROLLBACK')
-    throw err
-  }
+  })
+  return null
 }
 
 // ─── Schedules ────────────────────────────────────────────────────────────────
@@ -465,10 +476,13 @@ export async function getScheduleForHabit(
   db: DbAdapter,
   habit_id: string,
 ): Promise<HabitSchedule | null> {
-  const row = await db.queryOne<Record<string, unknown>>(
-    'SELECT * FROM habit_schedules WHERE habit_id = ?',
-    [habit_id],
-  )
+  const row =
+    (
+      await db.queryAll<Record<string, unknown>>(
+        'SELECT * FROM habit_schedules WHERE habit_id = ?',
+        [habit_id],
+      )
+    )[0] ?? null
   return row ? parseHabitSchedule(row) : null
 }
 
@@ -485,11 +499,11 @@ export async function updateHabitSchedule(
     { kind: 'nullable', name: 'end_date' },
     { kind: 'json-nullable', name: 'days_of_week' },
   ])
-  await execDynamicUpdate(db, 'habit_schedules', id, pairs)
-  const row = await db.queryOne<Record<string, unknown>>(
-    'SELECT * FROM habit_schedules WHERE id = ?',
-    [id],
-  )
+  await applyFieldUpdate(db, 'habit_schedules', id, pairs)
+  const row =
+    (
+      await db.queryAll<Record<string, unknown>>('SELECT * FROM habit_schedules WHERE id = ?', [id])
+    )[0] ?? null
   return parseHabitSchedule(row!)
 }
 
@@ -498,25 +512,29 @@ export async function pauseHabit(
   id: string,
   until: string | null,
 ): Promise<HabitWithSchedule> {
-  await db.exec('UPDATE habits SET paused_until = ? WHERE id = ?', [until, id])
-  const row = await db.queryOne<Record<string, unknown>>(`${HABIT_WITH_SCHED_SQL} WHERE h.id = ?`, [
-    id,
-  ])
+  await db.patchWhere('habits', { paused_until: until }, 'id = ?', [id])
+  const row =
+    (
+      await db.queryAll<Record<string, unknown>>(`${HABIT_WITH_SCHED_SQL} WHERE h.id = ?`, [id])
+    )[0] ?? null
   return parseHabitWithSchedule(row!)
 }
 
 export async function pauseAllHabits(db: DbAdapter, until: string | null): Promise<null> {
-  await db.exec('UPDATE habits SET paused_until = ? WHERE archived_at IS NULL', [until])
+  await db.patchWhere('habits', { paused_until: until }, 'archived_at IS NULL', [])
   return null
 }
 
 // ─── Check-in entries ─────────────────────────────────────────────────────────
 
 export async function getCheckinEntry(db: DbAdapter, date: string): Promise<CheckinEntry | null> {
-  const row = await db.queryOne<Record<string, unknown>>(
-    'SELECT * FROM checkin_entries WHERE entry_date = ?',
-    [date],
-  )
+  const row =
+    (
+      await db.queryAll<Record<string, unknown>>(
+        'SELECT * FROM checkin_entries WHERE entry_date = ?',
+        [date],
+      )
+    )[0] ?? null
   return row ? parseCheckinEntry(row) : null
 }
 
@@ -532,31 +550,32 @@ export async function upsertCheckinEntry(
   )
   if (existing.length > 0) {
     const id = existing[0]!['id'] as string
-    await db.exec('UPDATE checkin_entries SET content = ?, updated_at = ? WHERE id = ?', [
-      content,
-      now,
-      id,
-    ])
-    const row = await db.queryOne<Record<string, unknown>>(
-      'SELECT * FROM checkin_entries WHERE id = ?',
-      [id],
-    )
+    await db.patchWhere('checkin_entries', { content, updated_at: now }, 'id = ?', [id])
+    const row =
+      (
+        await db.queryAll<Record<string, unknown>>('SELECT * FROM checkin_entries WHERE id = ?', [
+          id,
+        ])
+      )[0] ?? null
     return parseCheckinEntry(row!)
   }
-  const id = crypto.randomUUID()
-  await db.exec(
-    'INSERT INTO checkin_entries (id, entry_date, content, created_at, updated_at) VALUES (?,?,?,?,?)',
-    [id, date, content, now, now],
-  )
-  const row = await db.queryOne<Record<string, unknown>>(
-    'SELECT * FROM checkin_entries WHERE id = ?',
-    [id],
-  )
+  const id = await nextNaturalRowId(db, 'checkin_entries', date)
+  await db.insert('checkin_entries', {
+    id,
+    entry_date: date,
+    content,
+    created_at: now,
+    updated_at: now,
+  })
+  const row =
+    (
+      await db.queryAll<Record<string, unknown>>('SELECT * FROM checkin_entries WHERE id = ?', [id])
+    )[0] ?? null
   return parseCheckinEntry(row!)
 }
 
 export async function deleteCheckinEntry(db: DbAdapter, id: string): Promise<null> {
-  await db.exec('DELETE FROM checkin_entries WHERE id = ?', [id])
+  await db.deleteWhere('checkin_entries', 'id = ?', [id])
   return null
 }
 
@@ -573,7 +592,7 @@ export async function getCheckinEntries(
 }
 
 export async function deleteAllCheckinEntries(db: DbAdapter): Promise<null> {
-  await db.exec('DELETE FROM checkin_entries')
+  await db.deleteWhere('checkin_entries')
   return null
 }
 
@@ -625,10 +644,12 @@ export async function getCheckinTemplate(
   db: DbAdapter,
   id: string,
 ): Promise<CheckinTemplate | null> {
-  const row = await db.queryOne<Record<string, unknown>>(
-    'SELECT * FROM checkin_templates WHERE id = ?',
-    [id],
-  )
+  const row =
+    (
+      await db.queryAll<Record<string, unknown>>('SELECT * FROM checkin_templates WHERE id = ?', [
+        id,
+      ])
+    )[0] ?? null
   return row ? parseCheckinTemplate(row) : null
 }
 
@@ -637,23 +658,22 @@ export async function createCheckinTemplate(
   payload: Omit<CheckinTemplate, 'id' | 'archived_at' | 'response_day_count' | 'question_count'>,
 ): Promise<CheckinTemplate> {
   const title = await nextAvailableCheckinTitle(db, payload.title)
-  const id = crypto.randomUUID()
-  await db.exec(
-    'INSERT INTO checkin_templates (id, title, title_key, schedule_type, days_active, icon, color) VALUES (?,?,?,?,?,?,?)',
-    [
-      id,
-      title,
-      normalizeNameKey(title),
-      payload.schedule_type ?? 'DAILY',
-      payload.days_active == null ? null : JSON.stringify(payload.days_active),
-      payload.icon ?? 'pencil-square',
-      payload.color ?? '#22d3ee',
-    ],
-  )
-  const row = await db.queryOne<Record<string, unknown>>(
-    'SELECT * FROM checkin_templates WHERE id = ?',
-    [id],
-  )
+  const id = generateUuidV7()
+  await db.insert('checkin_templates', {
+    id,
+    title,
+    title_key: normalizeNameKey(title),
+    schedule_type: payload.schedule_type ?? 'DAILY',
+    days_active: payload.days_active == null ? null : JSON.stringify(payload.days_active),
+    icon: payload.icon ?? 'pencil-square',
+    color: payload.color ?? '#22d3ee',
+  })
+  const row =
+    (
+      await db.queryAll<Record<string, unknown>>('SELECT * FROM checkin_templates WHERE id = ?', [
+        id,
+      ])
+    )[0] ?? null
   return parseCheckinTemplate(row!)
 }
 
@@ -673,22 +693,24 @@ export async function updateCheckinTemplate(
     { kind: 'scalar', name: 'color' },
   ])
   if (fields.title !== undefined) pairs.push(['title_key', normalizeNameKey(fields.title)])
-  await execDynamicUpdate(db, 'checkin_templates', id, pairs)
-  const row = await db.queryOne<Record<string, unknown>>(
-    'SELECT * FROM checkin_templates WHERE id = ?',
-    [id],
-  )
+  await applyFieldUpdate(db, 'checkin_templates', id, pairs)
+  const row =
+    (
+      await db.queryAll<Record<string, unknown>>('SELECT * FROM checkin_templates WHERE id = ?', [
+        id,
+      ])
+    )[0] ?? null
   return parseCheckinTemplate(row!)
 }
 
 export async function deleteCheckinTemplate(db: DbAdapter, id: string): Promise<null> {
   const now = new Date().toISOString()
-  await db.exec('UPDATE checkin_templates SET archived_at = ? WHERE id = ?', [now, id])
+  await db.patchWhere('checkin_templates', { archived_at: now }, 'id = ?', [id])
   return null
 }
 
 export async function deleteAllCheckinData(db: DbAdapter): Promise<null> {
-  await db.exec('DELETE FROM checkin_templates') // cascades to questions + responses
+  await db.deleteWhere('checkin_templates') // cascades to questions + responses
   return null
 }
 
@@ -741,20 +763,22 @@ export async function toggleCheckinCompletion(
   template_id: string,
   date: string,
 ): Promise<void> {
-  const existing = await db.queryOne<Record<string, unknown>>(
-    'SELECT id FROM checkin_completions WHERE template_id = ? AND date = ?',
-    [template_id, date],
-  )
+  const existing =
+    (
+      await db.queryAll<Record<string, unknown>>(
+        'SELECT id FROM checkin_completions WHERE template_id = ? AND date = ?',
+        [template_id, date],
+      )
+    )[0] ?? null
   if (existing) {
-    await db.exec('DELETE FROM checkin_completions WHERE template_id = ? AND date = ?', [
+    await db.deleteWhere('checkin_completions', 'template_id = ? AND date = ?', [template_id, date])
+  } else {
+    await db.insert('checkin_completions', {
+      id: await nextNaturalRowId(db, 'checkin_completions', `${template_id}:${date}`),
       template_id,
       date,
-    ])
-  } else {
-    await db.exec(
-      'INSERT INTO checkin_completions (id, template_id, date, completed_at) VALUES (?,?,?,?)',
-      [crypto.randomUUID(), template_id, date, new Date().toISOString()],
-    )
+      completed_at: new Date().toISOString(),
+    })
   }
 }
 
@@ -844,22 +868,21 @@ export async function createCheckinQuestion(
   db: DbAdapter,
   payload: Omit<CheckinQuestion, 'id' | 'archived_at'>,
 ): Promise<CheckinQuestion> {
-  const id = crypto.randomUUID()
-  await db.exec(
-    'INSERT INTO checkin_questions (id, template_id, prompt, response_type, display_order, desired_answer) VALUES (?,?,?,?,?,?)',
-    [
-      id,
-      payload.template_id,
-      payload.prompt,
-      payload.response_type ?? 'TEXT',
-      payload.display_order ?? 0,
-      payload.desired_answer ?? 1,
-    ],
-  )
-  const row = await db.queryOne<Record<string, unknown>>(
-    'SELECT * FROM checkin_questions WHERE id = ?',
-    [id],
-  )
+  const id = generateUuidV7()
+  await db.insert('checkin_questions', {
+    id,
+    template_id: payload.template_id,
+    prompt: payload.prompt,
+    response_type: payload.response_type ?? 'TEXT',
+    display_order: payload.display_order ?? 0,
+    desired_answer: payload.desired_answer ?? 1,
+  })
+  const row =
+    (
+      await db.queryAll<Record<string, unknown>>('SELECT * FROM checkin_questions WHERE id = ?', [
+        id,
+      ])
+    )[0] ?? null
   return parseCheckinQuestion(row!)
 }
 
@@ -874,17 +897,19 @@ export async function updateCheckinQuestion(
     { kind: 'scalar', name: 'display_order' },
     { kind: 'scalar', name: 'desired_answer' },
   ])
-  await execDynamicUpdate(db, 'checkin_questions', id, pairs)
-  const row = await db.queryOne<Record<string, unknown>>(
-    'SELECT * FROM checkin_questions WHERE id = ?',
-    [id],
-  )
+  await applyFieldUpdate(db, 'checkin_questions', id, pairs)
+  const row =
+    (
+      await db.queryAll<Record<string, unknown>>('SELECT * FROM checkin_questions WHERE id = ?', [
+        id,
+      ])
+    )[0] ?? null
   return parseCheckinQuestion(row!)
 }
 
 export async function deleteCheckinQuestion(db: DbAdapter, id: string): Promise<null> {
   const now = new Date().toISOString()
-  await db.exec('UPDATE checkin_questions SET archived_at = ? WHERE id = ?', [now, id])
+  await db.patchWhere('checkin_questions', { archived_at: now }, 'id = ?', [id])
   return null
 }
 
@@ -918,9 +943,7 @@ export async function upsertCheckinResponse(
   )
   if (existing.length > 0) {
     const id = existing[0]!['id'] as string
-    await db.exec('UPDATE checkin_responses SET value_numeric = ?, value_text = ? WHERE id = ?', [
-      value_numeric,
-      value_text,
+    await db.patchWhere('checkin_responses', { value_numeric, value_text: value_text }, 'id = ?', [
       id,
     ])
     const rows2 = await db.queryAll<Record<string, unknown>>(
@@ -929,11 +952,14 @@ export async function upsertCheckinResponse(
     )
     return parseCheckinResponse(rows2[0]!)
   }
-  const id = crypto.randomUUID()
-  await db.exec(
-    'INSERT INTO checkin_responses (id, question_id, logged_date, value_numeric, value_text) VALUES (?,?,?,?,?)',
-    [id, question_id, logged_date, value_numeric, value_text],
-  )
+  const id = await nextNaturalRowId(db, 'checkin_responses', `${question_id}:${logged_date}`)
+  await db.insert('checkin_responses', {
+    id,
+    question_id,
+    logged_date,
+    value_numeric,
+    value_text,
+  })
   const rows2 = await db.queryAll<Record<string, unknown>>(
     'SELECT * FROM checkin_responses WHERE id = ?',
     [id],
@@ -942,7 +968,7 @@ export async function upsertCheckinResponse(
 }
 
 export async function deleteCheckinResponse(db: DbAdapter, id: string): Promise<null> {
-  await db.exec('DELETE FROM checkin_responses WHERE id = ?', [id])
+  await db.deleteWhere('checkin_responses', 'id = ?', [id])
   return null
 }
 
@@ -972,20 +998,24 @@ export async function createCheckinReminder(
   trigger_time: string,
   days_active: number[] | null,
 ): Promise<CheckinReminder> {
-  const id = crypto.randomUUID()
-  await db.exec(
-    'INSERT INTO checkin_reminders (id, template_id, trigger_time, days_active) VALUES (?,?,?,?)',
-    [id, template_id, trigger_time, days_active == null ? null : JSON.stringify(days_active)],
-  )
-  const row = await db.queryOne<Record<string, unknown>>(
-    'SELECT * FROM checkin_reminders WHERE id = ?',
-    [id],
-  )
+  const id = generateUuidV7()
+  await db.insert('checkin_reminders', {
+    id,
+    template_id,
+    trigger_time,
+    days_active: days_active == null ? null : JSON.stringify(days_active),
+  })
+  const row =
+    (
+      await db.queryAll<Record<string, unknown>>('SELECT * FROM checkin_reminders WHERE id = ?', [
+        id,
+      ])
+    )[0] ?? null
   return parseCheckinReminder(row!)
 }
 
 export async function deleteCheckinReminder(db: DbAdapter, id: string): Promise<null> {
-  await db.exec('DELETE FROM checkin_reminders WHERE id = ?', [id])
+  await db.deleteWhere('checkin_reminders', 'id = ?', [id])
   return null
 }
 
@@ -1012,26 +1042,22 @@ export async function createScribble(
     entry_date?: string
   },
 ): Promise<Scribble> {
-  const id = crypto.randomUUID()
+  const id = generateUuidV7()
   const createdOn = new Date()
   const now = createdOn.toISOString()
-  await db.exec(
-    `INSERT INTO scribbles (id, title, content, tags, annotations, entry_date, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?)`,
-    [
-      id,
-      payload.title ?? '',
-      payload.content ?? '',
-      JSON.stringify(payload.tags ?? []),
-      JSON.stringify(payload.annotations ?? {}),
-      payload.entry_date ?? localCalendarDate(createdOn),
-      now,
-      now,
-    ],
-  )
-  const row = await db.queryOne<Record<string, unknown>>('SELECT * FROM scribbles WHERE id = ?', [
+  await db.insert('scribbles', {
     id,
-  ])
+    title: payload.title ?? '',
+    content: payload.content ?? '',
+    tags: JSON.stringify(payload.tags ?? []),
+    annotations: JSON.stringify(payload.annotations ?? {}),
+    entry_date: payload.entry_date ?? localCalendarDate(createdOn),
+    created_at: now,
+    updated_at: now,
+  })
+  const row =
+    (await db.queryAll<Record<string, unknown>>('SELECT * FROM scribbles WHERE id = ?', [id]))[0] ??
+    null
   return parseScribble(row!)
 }
 
@@ -1050,20 +1076,20 @@ export async function updateScribble(
       { kind: 'nullable', name: 'entry_date' },
     ]),
   )
-  await execDynamicUpdate(db, 'scribbles', id, pairs)
-  const row = await db.queryOne<Record<string, unknown>>('SELECT * FROM scribbles WHERE id = ?', [
-    id,
-  ])
+  await applyFieldUpdate(db, 'scribbles', id, pairs)
+  const row =
+    (await db.queryAll<Record<string, unknown>>('SELECT * FROM scribbles WHERE id = ?', [id]))[0] ??
+    null
   return parseScribble(row!)
 }
 
 export async function deleteScribble(db: DbAdapter, id: string): Promise<null> {
-  await db.exec('DELETE FROM scribbles WHERE id = ?', [id])
+  await db.deleteWhere('scribbles', 'id = ?', [id])
   return null
 }
 
 export async function deleteAllScribbles(db: DbAdapter): Promise<null> {
-  await db.exec('DELETE FROM scribbles')
+  await db.deleteWhere('scribbles')
   return null
 }
 
@@ -1105,19 +1131,21 @@ export async function createReminder(
   trigger_time: string,
   days_active: number[] | null,
 ): Promise<Reminder> {
-  const id = crypto.randomUUID()
-  await db.exec(
-    'INSERT INTO reminders (id, habit_id, trigger_time, days_active) VALUES (?,?,?,?)',
-    [id, habit_id, trigger_time, days_active == null ? null : JSON.stringify(days_active)],
-  )
-  const row = await db.queryOne<Record<string, unknown>>('SELECT * FROM reminders WHERE id = ?', [
+  const id = generateUuidV7()
+  await db.insert('reminders', {
     id,
-  ])
+    habit_id,
+    trigger_time,
+    days_active: days_active == null ? null : JSON.stringify(days_active),
+  })
+  const row =
+    (await db.queryAll<Record<string, unknown>>('SELECT * FROM reminders WHERE id = ?', [id]))[0] ??
+    null
   return parseReminder(row!)
 }
 
 export async function deleteReminder(db: DbAdapter, id: string): Promise<null> {
-  await db.exec('DELETE FROM reminders WHERE id = ?', [id])
+  await db.deleteWhere('reminders', 'id = ?', [id])
   return null
 }
 
@@ -1134,24 +1162,23 @@ export async function createBoredCategory(
   db: DbAdapter,
   payload: Omit<BoredCategory, 'id' | 'created_at'>,
 ): Promise<BoredCategory> {
-  const id = crypto.randomUUID()
+  const id = generateUuidV7()
   const created_at = new Date().toISOString()
-  await db.exec(
-    'INSERT INTO bored_categories (id,name,icon,color,is_system,sort_order,created_at) VALUES (?,?,?,?,?,?,?)',
-    [
-      id,
-      payload.name,
-      payload.icon,
-      payload.color,
-      payload.is_system ? 1 : 0,
-      payload.sort_order,
-      created_at,
-    ],
-  )
-  const row = await db.queryOne<Record<string, unknown>>(
-    'SELECT * FROM bored_categories WHERE id = ?',
-    [id],
-  )
+  await db.insert('bored_categories', {
+    id,
+    name: payload.name,
+    icon: payload.icon,
+    color: payload.color,
+    is_system: payload.is_system ? 1 : 0,
+    sort_order: payload.sort_order,
+    created_at,
+  })
+  const row =
+    (
+      await db.queryAll<Record<string, unknown>>('SELECT * FROM bored_categories WHERE id = ?', [
+        id,
+      ])
+    )[0] ?? null
   return parseBoredCategory(row!)
 }
 
@@ -1166,16 +1193,18 @@ export async function updateBoredCategory(
     { kind: 'scalar', name: 'color' },
     { kind: 'scalar', name: 'sort_order' },
   ])
-  await execDynamicUpdate(db, 'bored_categories', id, pairs)
-  const row = await db.queryOne<Record<string, unknown>>(
-    'SELECT * FROM bored_categories WHERE id = ?',
-    [id],
-  )
+  await applyFieldUpdate(db, 'bored_categories', id, pairs)
+  const row =
+    (
+      await db.queryAll<Record<string, unknown>>('SELECT * FROM bored_categories WHERE id = ?', [
+        id,
+      ])
+    )[0] ?? null
   return parseBoredCategory(row!)
 }
 
 export async function deleteBoredCategory(db: DbAdapter, id: string): Promise<null> {
-  await db.exec('DELETE FROM bored_categories WHERE id = ? AND is_system = 0', [id])
+  await db.deleteWhere('bored_categories', 'id = ? AND is_system = 0', [id])
   return null
 }
 
@@ -1206,29 +1235,28 @@ export async function createBoredActivity(
     'id' | 'created_at' | 'is_done' | 'done_at' | 'done_count' | 'last_done_at' | 'archived_at'
   >,
 ): Promise<BoredActivity> {
-  const id = crypto.randomUUID()
+  const id = generateUuidV7()
   const created_at = new Date().toISOString()
-  await db.exec(
-    `INSERT INTO bored_activities
-     (id,title,description,category_id,estimated_minutes,tags,annotations,is_recurring,recurrence_rule,is_done,done_count,created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,0,0,?)`,
-    [
-      id,
-      payload.title,
-      payload.description,
-      payload.category_id,
-      payload.estimated_minutes ?? null,
-      JSON.stringify(payload.tags ?? []),
-      JSON.stringify(payload.annotations ?? {}),
-      payload.is_recurring ? 1 : 0,
-      payload.recurrence_rule ?? null,
-      created_at,
-    ],
-  )
-  const row = await db.queryOne<Record<string, unknown>>(
-    'SELECT * FROM bored_activities WHERE id = ?',
-    [id],
-  )
+  await db.insert('bored_activities', {
+    id,
+    title: payload.title,
+    description: payload.description,
+    category_id: payload.category_id,
+    estimated_minutes: payload.estimated_minutes ?? null,
+    tags: JSON.stringify(payload.tags ?? []),
+    annotations: JSON.stringify(payload.annotations ?? {}),
+    is_recurring: payload.is_recurring ? 1 : 0,
+    recurrence_rule: payload.recurrence_rule ?? null,
+    is_done: 0,
+    done_count: 0,
+    created_at,
+  })
+  const row =
+    (
+      await db.queryAll<Record<string, unknown>>('SELECT * FROM bored_activities WHERE id = ?', [
+        id,
+      ])
+    )[0] ?? null
   return parseBoredActivity(row!)
 }
 
@@ -1247,24 +1275,23 @@ export async function updateBoredActivity(
     { kind: 'json', name: 'tags', fallback: [] },
     { kind: 'json', name: 'annotations', fallback: {} },
   ])
-  await execDynamicUpdate(db, 'bored_activities', id, pairs)
-  const row = await db.queryOne<Record<string, unknown>>(
-    'SELECT * FROM bored_activities WHERE id = ?',
-    [id],
-  )
+  await applyFieldUpdate(db, 'bored_activities', id, pairs)
+  const row =
+    (
+      await db.queryAll<Record<string, unknown>>('SELECT * FROM bored_activities WHERE id = ?', [
+        id,
+      ])
+    )[0] ?? null
   return parseBoredActivity(row!)
 }
 
 export async function deleteBoredActivity(db: DbAdapter, id: string): Promise<null> {
-  await db.exec('DELETE FROM bored_activities WHERE id = ?', [id])
+  await db.deleteWhere('bored_activities', 'id = ?', [id])
   return null
 }
 
 export async function archiveBoredActivity(db: DbAdapter, id: string): Promise<null> {
-  await db.exec('UPDATE bored_activities SET archived_at = ? WHERE id = ?', [
-    new Date().toISOString(),
-    id,
-  ])
+  await db.patchWhere('bored_activities', { archived_at: new Date().toISOString() }, 'id = ?', [id])
   return null
 }
 
@@ -1277,14 +1304,18 @@ export async function markBoredActivityDone(db: DbAdapter, id: string): Promise<
   const activity = parseBoredActivity(rows[0]!)
   const now = new Date().toISOString()
   if (activity.is_recurring) {
-    await db.exec(
-      'UPDATE bored_activities SET done_count = done_count + 1, last_done_at = ? WHERE id = ?',
-      [now, id],
+    await db.patchWhere(
+      'bored_activities',
+      { done_count: activity.done_count + 1, last_done_at: now },
+      'id = ?',
+      [id],
     )
   } else {
-    await db.exec(
-      'UPDATE bored_activities SET is_done = 1, done_at = ?, done_count = done_count + 1, last_done_at = ? WHERE id = ?',
-      [now, now, id],
+    await db.patchWhere(
+      'bored_activities',
+      { is_done: 1, done_at: now, done_count: activity.done_count + 1, last_done_at: now },
+      'id = ?',
+      [id],
     )
   }
   const rows2 = await db.queryAll<Record<string, unknown>>(
@@ -1337,11 +1368,14 @@ export async function getBoredOracle(
 }
 
 export async function deleteAllBoredData(db: DbAdapter): Promise<null> {
-  await db.exec('DELETE FROM bored_activities')
-  await db.exec(
-    'UPDATE todos SET show_in_bored = 0, bored_category_id = NULL WHERE bored_category_id IN (SELECT id FROM bored_categories WHERE is_system = 0)',
+  await db.deleteWhere('bored_activities')
+  await db.patchWhere(
+    'todos',
+    { show_in_bored: 0, bored_category_id: null },
+    'bored_category_id IN (SELECT id FROM bored_categories WHERE is_system = 0)',
+    [],
   )
-  await db.exec('DELETE FROM bored_categories WHERE is_system = 0')
+  await db.deleteWhere('bored_categories', 'is_system = 0')
   return null
 }
 
@@ -1369,33 +1403,30 @@ export async function createTodo(
     | 'scheduled_time'
   > & { scheduled_time?: string | null },
 ): Promise<Todo> {
-  const id = crypto.randomUUID()
+  const id = generateUuidV7()
   const now = new Date().toISOString()
-  await db.exec(
-    `INSERT INTO todos
-     (id,title,description,due_date,scheduled_time,priority,estimated_minutes,is_done,done_count,
-      tags,annotations,is_recurring,recurrence_rule,show_in_bored,bored_category_id,
-      created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,0,0,?,?,?,?,?,?,?,?)`,
-    [
-      id,
-      payload.title,
-      payload.description,
-      payload.due_date ?? null,
-      payload.scheduled_time ?? null,
-      payload.priority ?? 'medium',
-      payload.estimated_minutes ?? null,
-      JSON.stringify(payload.tags ?? []),
-      JSON.stringify(payload.annotations ?? {}),
-      payload.is_recurring ? 1 : 0,
-      payload.recurrence_rule ?? null,
-      payload.show_in_bored ? 1 : 0,
-      payload.bored_category_id ?? null,
-      now,
-      now,
-    ],
-  )
-  const row = await db.queryOne<Record<string, unknown>>('SELECT * FROM todos WHERE id = ?', [id])
+  await db.insert('todos', {
+    id,
+    title: payload.title,
+    description: payload.description,
+    due_date: payload.due_date ?? null,
+    scheduled_time: payload.scheduled_time ?? null,
+    priority: payload.priority ?? 'medium',
+    estimated_minutes: payload.estimated_minutes ?? null,
+    is_done: 0,
+    done_count: 0,
+    tags: JSON.stringify(payload.tags ?? []),
+    annotations: JSON.stringify(payload.annotations ?? {}),
+    is_recurring: payload.is_recurring ? 1 : 0,
+    recurrence_rule: payload.recurrence_rule ?? null,
+    show_in_bored: payload.show_in_bored ? 1 : 0,
+    bored_category_id: payload.bored_category_id ?? null,
+    created_at: now,
+    updated_at: now,
+  })
+  const row =
+    (await db.queryAll<Record<string, unknown>>('SELECT * FROM todos WHERE id = ?', [id]))[0] ??
+    null
   return parseTodo(row!)
 }
 
@@ -1421,19 +1452,21 @@ export async function updateTodo(
   if (pairs.length > 0) {
     pairs.push(['updated_at', new Date().toISOString()])
   }
-  await execDynamicUpdate(db, 'todos', id, pairs)
-  const row = await db.queryOne<Record<string, unknown>>('SELECT * FROM todos WHERE id = ?', [id])
+  await applyFieldUpdate(db, 'todos', id, pairs)
+  const row =
+    (await db.queryAll<Record<string, unknown>>('SELECT * FROM todos WHERE id = ?', [id]))[0] ??
+    null
   return parseTodo(row!)
 }
 
 export async function deleteTodo(db: DbAdapter, id: string): Promise<null> {
-  await db.exec('DELETE FROM todos WHERE id = ?', [id])
+  await db.deleteWhere('todos', 'id = ?', [id])
   return null
 }
 
 export async function archiveTodo(db: DbAdapter, id: string): Promise<null> {
   const now = new Date().toISOString()
-  await db.exec('UPDATE todos SET archived_at = ?, updated_at = ? WHERE id = ?', [now, now, id])
+  await db.patchWhere('todos', { archived_at: now, updated_at: now }, 'id = ?', [id])
   return null
 }
 
@@ -1452,19 +1485,26 @@ export async function toggleTodo(db: DbAdapter, id: string): Promise<Todo> {
   const now = new Date().toISOString()
   if (!todo.is_done && todo.is_recurring && todo.due_date) {
     const nextDue = calculateNextDue(todo.due_date, todo.recurrence_rule ?? 'daily')
-    await db.exec(
-      'UPDATE todos SET due_date = ?, done_count = done_count + 1, last_done_at = ?, updated_at = ? WHERE id = ?',
-      [nextDue, now, now, id],
+    await db.patchWhere(
+      'todos',
+      { due_date: nextDue, done_count: todo.done_count + 1, last_done_at: now, updated_at: now },
+      'id = ?',
+      [id],
     )
   } else if (todo.is_done) {
-    await db.exec('UPDATE todos SET is_done = 0, done_at = NULL, updated_at = ? WHERE id = ?', [
-      now,
-      id,
-    ])
+    await db.patchWhere('todos', { is_done: 0, done_at: null, updated_at: now }, 'id = ?', [id])
   } else {
-    await db.exec(
-      'UPDATE todos SET is_done = 1, done_at = ?, done_count = done_count + 1, last_done_at = ?, updated_at = ? WHERE id = ?',
-      [now, now, now, id],
+    await db.patchWhere(
+      'todos',
+      {
+        is_done: 1,
+        done_at: now,
+        done_count: todo.done_count + 1,
+        last_done_at: now,
+        updated_at: now,
+      },
+      'id = ?',
+      [id],
     )
   }
   const rows2 = await db.queryAll<Record<string, unknown>>('SELECT * FROM todos WHERE id = ?', [id])
@@ -1472,7 +1512,7 @@ export async function toggleTodo(db: DbAdapter, id: string): Promise<Todo> {
 }
 
 export async function deleteAllTodos(db: DbAdapter): Promise<null> {
-  await db.exec('DELETE FROM todos')
+  await db.deleteWhere('todos')
   return null
 }
 
@@ -1509,17 +1549,14 @@ export async function createFocusSession(
   db: DbAdapter,
   payload: Omit<FocusSession, 'id'>,
 ): Promise<FocusSession> {
-  const session = { id: crypto.randomUUID(), ...payload }
-  await db.exec(
-    'INSERT INTO focus_sessions (id,todo_id,started_at,completed_at,duration_seconds) VALUES (?,?,?,?,?)',
-    [
-      session.id,
-      session.todo_id,
-      session.started_at,
-      session.completed_at,
-      session.duration_seconds,
-    ],
-  )
+  const session = { id: generateUuidV7(), ...payload }
+  await db.insert('focus_sessions', {
+    id: session.id,
+    todo_id: session.todo_id,
+    started_at: session.started_at,
+    completed_at: session.completed_at,
+    duration_seconds: session.duration_seconds,
+  })
   return session
 }
 
@@ -1688,7 +1725,13 @@ export async function exportJsonData(db: DbAdapter, sel: ExportSelection): Promi
       )
     : []
   const reminders = sel.reminders ? await getAllReminders(db) : []
-  const checkin_templates = sel.checkin_templates ? await getCheckinTemplates(db) : []
+  const checkin_templates = sel.checkin_templates
+    ? (
+        await db.queryAll<Record<string, unknown>>(
+          'SELECT * FROM checkin_templates ORDER BY title ASC',
+        )
+      ).map(parseCheckinTemplate)
+    : []
   const checkin_questions = sel.checkin_questions
     ? (
         await db.queryAll<Record<string, unknown>>(
@@ -1704,6 +1747,9 @@ export async function exportJsonData(db: DbAdapter, sel: ExportSelection): Promi
       ).map(parseCheckinResponse)
     : []
   const checkin_reminders = sel.checkin_reminders ? await getAllCheckinReminders(db) : []
+  const checkin_completions = sel.checkin_templates
+    ? await db.queryAll<CheckinCompletion>('SELECT * FROM checkin_completions ORDER BY date ASC')
+    : []
   const scribbles = sel.scribbles ? await getScribbles(db) : []
   const checkin_entries = sel.checkin_entries
     ? (
@@ -1731,7 +1777,10 @@ export async function exportJsonData(db: DbAdapter, sel: ExportSelection): Promi
         await db.queryAll<Record<string, unknown>>('SELECT * FROM todos ORDER BY created_at ASC')
       ).map(parseTodo)
     : []
-  const focus_sessions = sel.focus_sessions ? await getFocusSessions(db) : []
+  // Backups include the complete history; the 200-row cap is only for the UI.
+  const focus_sessions = sel.focus_sessions
+    ? await db.queryAll<FocusSession>('SELECT * FROM focus_sessions ORDER BY completed_at ASC')
+    : []
 
   return {
     version: 1,
@@ -1744,6 +1793,7 @@ export async function exportJsonData(db: DbAdapter, sel: ExportSelection): Promi
     checkin_templates,
     checkin_questions,
     checkin_responses,
+    checkin_completions,
     checkin_reminders,
     scribbles,
     checkin_entries,
@@ -1754,11 +1804,13 @@ export async function exportJsonData(db: DbAdapter, sel: ExportSelection): Promi
   }
 }
 
-export async function importJson(db: DbAdapter, data: HabitatExport): Promise<null> {
-  if (data.version !== 1)
-    throw new Error(`Unsupported export version: ${String((data as { version: unknown }).version)}`)
-  await db.exec('BEGIN')
-  try {
+export async function importJson(db: DbAdapter, input: HabitatExport): Promise<null> {
+  if (input.version !== 1)
+    throw new Error(
+      `Unsupported export version: ${String((input as { version: unknown }).version)}`,
+    )
+  const data = await normalizeImportIds(input, db)
+  await db.transaction(async (db) => {
     const storedHabits = await db.queryAll<{ id: string; name: string; name_key: string }>(
       'SELECT id, name, name_key FROM habits',
     )
@@ -1770,75 +1822,120 @@ export async function importJson(db: DbAdapter, data: HabitatExport): Promise<nu
     for (const h of data.habits ?? []) {
       if (importedHabitIds.has(h.id)) continue
       const name = nextAvailableName(h.name, usedHabitNames)
-      await db.exec(
-        `INSERT OR IGNORE INTO habits
-         (id,name,name_key,description,why,color,icon,frequency,created_at,archived_at,tags,annotations,type,target_value,paused_until)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [
-          h.id,
+      await db.insert(
+        'habits',
+        {
+          id: h.id,
           name,
-          normalizeNameKey(name),
-          h.description,
-          h.why ?? '',
-          h.color,
-          h.icon,
-          h.frequency,
-          h.created_at,
-          h.archived_at ?? null,
-          JSON.stringify(h.tags ?? []),
-          JSON.stringify(h.annotations ?? {}),
-          h.type ?? 'BOOLEAN',
-          h.target_value ?? 1,
-          h.paused_until ?? null,
-        ],
+          name_key: normalizeNameKey(name),
+          description: h.description,
+          why: h.why ?? '',
+          color: h.color,
+          icon: h.icon,
+          frequency: h.frequency,
+          created_at: h.created_at,
+          archived_at: h.archived_at ?? null,
+          tags: JSON.stringify(h.tags ?? []),
+          annotations: JSON.stringify(h.annotations ?? {}),
+          type: h.type ?? 'BOOLEAN',
+          target_value: h.target_value ?? 1,
+          paused_until: h.paused_until ?? null,
+        },
+        true,
       )
       importedHabitIds.add(h.id)
     }
     for (const c of data.completions ?? []) {
-      await db.exec(
-        'INSERT OR IGNORE INTO completions (id,habit_id,date,completed_at,notes,tags,annotations) VALUES (?,?,?,?,?,?,?)',
-        [
-          c.id,
-          c.habit_id,
-          c.date,
-          c.completed_at,
-          c.notes ?? '',
-          JSON.stringify(c.tags ?? []),
-          JSON.stringify(c.annotations ?? {}),
-        ],
+      await db.insert(
+        'completions',
+        {
+          id: c.id,
+          habit_id: c.habit_id,
+          date: c.date,
+          completed_at: c.completed_at,
+          notes: c.notes ?? '',
+          tags: JSON.stringify(c.tags ?? []),
+          annotations: JSON.stringify(c.annotations ?? {}),
+        },
+        true,
       )
     }
     for (const l of data.habit_logs ?? []) {
-      await db.exec(
-        'INSERT OR IGNORE INTO habit_logs (id,habit_id,date,logged_at,value,notes) VALUES (?,?,?,?,?,?)',
-        [l.id, l.habit_id, l.date, l.logged_at, l.value, l.notes ?? ''],
+      await db.insert(
+        'habit_logs',
+        {
+          id: l.id,
+          habit_id: l.habit_id,
+          date: l.date,
+          logged_at: l.logged_at,
+          value: l.value,
+          notes: l.notes ?? '',
+        },
+        true,
       )
     }
-    await recoverBooleanHistoryFromLogs(db)
+    const storedBooleanHabits = await db.queryAll<{ id: string }>(
+      "SELECT id FROM habits WHERE type = 'BOOLEAN'",
+    )
+    const booleanHabits = new Set([
+      ...storedBooleanHabits.map((habit) => habit.id),
+      ...data.habits
+        .filter((habit) => (habit.type ?? 'BOOLEAN') === 'BOOLEAN')
+        .map((habit) => habit.id),
+    ])
+    const recovered = new Map<string, { habit_id: string; date: string; completed_at: string }>()
+    for (const log of data.habit_logs ?? []) {
+      if (!booleanHabits.has(log.habit_id) || log.value <= 0) continue
+      const key = `${log.habit_id}:${log.date}`
+      const previous = recovered.get(key)
+      if (!previous || log.logged_at < previous.completed_at)
+        recovered.set(key, { habit_id: log.habit_id, date: log.date, completed_at: log.logged_at })
+    }
+    for (const log of recovered.values()) {
+      if (
+        data.completions.some(
+          (completion) => completion.habit_id === log.habit_id && completion.date === log.date,
+        )
+      )
+        continue
+      await db.insert(
+        'completions',
+        {
+          id: await nextNaturalRowId(db, 'completions', `${log.habit_id}:${log.date}`),
+          ...log,
+          notes: '',
+          tags: '[]',
+          annotations: '{}',
+        },
+        true,
+      )
+    }
     for (const s of data.habit_schedules ?? []) {
-      await db.exec(
-        'INSERT OR IGNORE INTO habit_schedules (id,habit_id,schedule_type,frequency_count,days_of_week,due_time,start_date,end_date) VALUES (?,?,?,?,?,?,?,?)',
-        [
-          s.id,
-          s.habit_id,
-          s.schedule_type ?? 'DAILY',
-          s.frequency_count ?? null,
-          s.days_of_week == null ? null : JSON.stringify(s.days_of_week),
-          s.due_time ?? null,
-          s.start_date ?? null,
-          s.end_date ?? null,
-        ],
+      await db.insert(
+        'habit_schedules',
+        {
+          id: s.id,
+          habit_id: s.habit_id,
+          schedule_type: s.schedule_type ?? 'DAILY',
+          frequency_count: s.frequency_count ?? null,
+          days_of_week: s.days_of_week == null ? null : JSON.stringify(s.days_of_week),
+          due_time: s.due_time ?? null,
+          start_date: s.start_date ?? null,
+          end_date: s.end_date ?? null,
+        },
+        true,
       )
     }
     for (const r of data.reminders ?? []) {
-      await db.exec(
-        'INSERT OR IGNORE INTO reminders (id,habit_id,trigger_time,days_active) VALUES (?,?,?,?)',
-        [
-          r.id,
-          r.habit_id,
-          r.trigger_time,
-          r.days_active == null ? null : JSON.stringify(r.days_active),
-        ],
+      await db.insert(
+        'reminders',
+        {
+          id: r.id,
+          habit_id: r.habit_id,
+          trigger_time: r.trigger_time,
+          days_active: r.days_active == null ? null : JSON.stringify(r.days_active),
+        },
+        true,
       )
     }
     const storedCheckinTemplates = await db.queryAll<{
@@ -1858,151 +1955,175 @@ export async function importJson(db: DbAdapter, data: HabitatExport): Promise<nu
     for (const t of data.checkin_templates ?? []) {
       if (importedCheckinTemplateIds.has(t.id)) continue
       const title = nextAvailableName(t.title, usedCheckinTitles)
-      await db.exec(
-        'INSERT OR IGNORE INTO checkin_templates (id,title,title_key,schedule_type,days_active,icon,color) VALUES (?,?,?,?,?,?,?)',
-        [
-          t.id,
+      await db.insert(
+        'checkin_templates',
+        {
+          id: t.id,
           title,
-          normalizeNameKey(title),
-          t.schedule_type ?? 'DAILY',
-          t.days_active == null ? null : JSON.stringify(t.days_active),
-          t.icon ?? null,
-          t.color ?? null,
-        ],
+          title_key: normalizeNameKey(title),
+          schedule_type: t.schedule_type ?? 'DAILY',
+          archived_at: t.archived_at ?? null,
+          days_active: t.days_active == null ? null : JSON.stringify(t.days_active),
+          icon: t.icon ?? null,
+          color: t.color ?? null,
+        },
+        true,
       )
       importedCheckinTemplateIds.add(t.id)
     }
     for (const q of data.checkin_questions ?? []) {
-      await db.exec(
-        'INSERT OR IGNORE INTO checkin_questions (id,template_id,prompt,response_type,display_order,desired_answer) VALUES (?,?,?,?,?,?)',
-        [
-          q.id,
-          q.template_id,
-          q.prompt,
-          q.response_type ?? 'TEXT',
-          q.display_order ?? 0,
-          q.desired_answer ?? 1,
-        ],
+      await db.insert(
+        'checkin_questions',
+        {
+          id: q.id,
+          template_id: q.template_id,
+          prompt: q.prompt,
+          response_type: q.response_type ?? 'TEXT',
+          display_order: q.display_order ?? 0,
+          desired_answer: q.desired_answer ?? 1,
+          archived_at: q.archived_at ?? null,
+        },
+        true,
       )
     }
     for (const r of data.checkin_responses ?? []) {
-      await db.exec(
-        'INSERT OR IGNORE INTO checkin_responses (id,question_id,logged_date,value_numeric,value_text) VALUES (?,?,?,?,?)',
-        [r.id, r.question_id, r.logged_date, r.value_numeric ?? null, r.value_text ?? null],
+      await db.insert(
+        'checkin_responses',
+        {
+          id: r.id,
+          question_id: r.question_id,
+          logged_date: r.logged_date,
+          value_numeric: r.value_numeric ?? null,
+          value_text: r.value_text ?? null,
+        },
+        true,
       )
     }
     for (const r of data.checkin_reminders ?? []) {
-      await db.exec(
-        'INSERT OR IGNORE INTO checkin_reminders (id,template_id,trigger_time,days_active) VALUES (?,?,?,?)',
-        [
-          r.id,
-          r.template_id,
-          r.trigger_time,
-          r.days_active == null ? null : JSON.stringify(r.days_active),
-        ],
+      await db.insert(
+        'checkin_reminders',
+        {
+          id: r.id,
+          template_id: r.template_id,
+          trigger_time: r.trigger_time,
+          days_active: r.days_active == null ? null : JSON.stringify(r.days_active),
+        },
+        true,
       )
     }
+    for (const completion of data.checkin_completions ?? []) {
+      await db.insert('checkin_completions', { ...completion }, true)
+    }
     for (const s of data.scribbles ?? []) {
-      await db.exec(
-        'INSERT OR IGNORE INTO scribbles (id,title,content,tags,annotations,entry_date,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)',
-        [
-          s.id,
-          s.title ?? '',
-          s.content ?? '',
-          JSON.stringify(s.tags ?? []),
-          JSON.stringify(s.annotations ?? {}),
-          s.entry_date ?? localCalendarDate(new Date(s.created_at)),
-          s.created_at,
-          s.updated_at,
-        ],
+      await db.insert(
+        'scribbles',
+        {
+          id: s.id,
+          title: s.title ?? '',
+          content: s.content ?? '',
+          tags: JSON.stringify(s.tags ?? []),
+          annotations: JSON.stringify(s.annotations ?? {}),
+          entry_date: s.entry_date ?? localCalendarDate(new Date(s.created_at)),
+          created_at: s.created_at,
+          updated_at: s.updated_at,
+        },
+        true,
       )
     }
     for (const e of data.checkin_entries ?? []) {
-      await db.exec(
-        'INSERT OR IGNORE INTO checkin_entries (id,entry_date,content,created_at,updated_at) VALUES (?,?,?,?,?)',
-        [e.id, e.entry_date, e.content ?? '', e.created_at, e.updated_at],
+      await db.insert(
+        'checkin_entries',
+        {
+          id: e.id,
+          entry_date: e.entry_date,
+          content: e.content ?? '',
+          created_at: e.created_at,
+          updated_at: e.updated_at,
+        },
+        true,
       )
     }
     for (const c of data.bored_categories ?? []) {
-      await db.exec(
-        'INSERT OR IGNORE INTO bored_categories (id,name,icon,color,is_system,sort_order,created_at) VALUES (?,?,?,?,?,?,?)',
-        [c.id, c.name, c.icon, c.color, c.is_system ? 1 : 0, c.sort_order, c.created_at],
+      await db.insert(
+        'bored_categories',
+        {
+          id: c.id,
+          name: c.name,
+          icon: c.icon,
+          color: c.color,
+          is_system: c.is_system ? 1 : 0,
+          sort_order: c.sort_order,
+          created_at: c.created_at,
+        },
+        true,
       )
     }
     for (const a of data.bored_activities ?? []) {
-      await db.exec(
-        `INSERT OR IGNORE INTO bored_activities
-         (id,title,description,category_id,estimated_minutes,tags,annotations,
-          is_recurring,recurrence_rule,is_done,done_at,done_count,last_done_at,archived_at,created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [
-          a.id,
-          a.title,
-          a.description,
-          a.category_id,
-          a.estimated_minutes ?? null,
-          JSON.stringify(a.tags ?? []),
-          JSON.stringify(a.annotations ?? {}),
-          a.is_recurring ? 1 : 0,
-          a.recurrence_rule ?? null,
-          a.is_done ? 1 : 0,
-          a.done_at ?? null,
-          a.done_count ?? 0,
-          a.last_done_at ?? null,
-          a.archived_at ?? null,
-          a.created_at,
-        ],
+      await db.insert(
+        'bored_activities',
+        {
+          id: a.id,
+          title: a.title,
+          description: a.description,
+          category_id: a.category_id,
+          estimated_minutes: a.estimated_minutes ?? null,
+          tags: JSON.stringify(a.tags ?? []),
+          annotations: JSON.stringify(a.annotations ?? {}),
+          is_recurring: a.is_recurring ? 1 : 0,
+          recurrence_rule: a.recurrence_rule ?? null,
+          is_done: a.is_done ? 1 : 0,
+          done_at: a.done_at ?? null,
+          done_count: a.done_count ?? 0,
+          last_done_at: a.last_done_at ?? null,
+          archived_at: a.archived_at ?? null,
+          created_at: a.created_at,
+        },
+        true,
       )
     }
     for (const t of data.todos ?? []) {
-      await db.exec(
-        `INSERT OR IGNORE INTO todos
-         (id,title,description,due_date,scheduled_time,priority,estimated_minutes,is_done,done_at,
-          done_count,last_done_at,tags,annotations,is_recurring,recurrence_rule,
-          show_in_bored,bored_category_id,archived_at,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [
-          t.id,
-          t.title,
-          t.description,
-          t.due_date ?? null,
-          t.scheduled_time ?? null,
-          t.priority ?? 'medium',
-          t.estimated_minutes ?? null,
-          t.is_done ? 1 : 0,
-          t.done_at ?? null,
-          t.done_count ?? 0,
-          t.last_done_at ?? null,
-          JSON.stringify(t.tags ?? []),
-          JSON.stringify(t.annotations ?? {}),
-          t.is_recurring ? 1 : 0,
-          t.recurrence_rule ?? null,
-          t.show_in_bored ? 1 : 0,
-          t.bored_category_id ?? null,
-          t.archived_at ?? null,
-          t.created_at,
-          t.updated_at,
-        ],
+      await db.insert(
+        'todos',
+        {
+          id: t.id,
+          title: t.title,
+          description: t.description,
+          due_date: t.due_date ?? null,
+          scheduled_time: t.scheduled_time ?? null,
+          priority: t.priority ?? 'medium',
+          estimated_minutes: t.estimated_minutes ?? null,
+          is_done: t.is_done ? 1 : 0,
+          done_at: t.done_at ?? null,
+          done_count: t.done_count ?? 0,
+          last_done_at: t.last_done_at ?? null,
+          tags: JSON.stringify(t.tags ?? []),
+          annotations: JSON.stringify(t.annotations ?? {}),
+          is_recurring: t.is_recurring ? 1 : 0,
+          recurrence_rule: t.recurrence_rule ?? null,
+          show_in_bored: t.show_in_bored ? 1 : 0,
+          bored_category_id: t.bored_category_id ?? null,
+          archived_at: t.archived_at ?? null,
+          created_at: t.created_at,
+          updated_at: t.updated_at,
+        },
+        true,
       )
     }
     for (const session of data.focus_sessions ?? []) {
-      await db.exec(
-        'INSERT OR IGNORE INTO focus_sessions (id,todo_id,started_at,completed_at,duration_seconds) VALUES (?,?,?,?,?)',
-        [
-          session.id,
-          session.todo_id,
-          session.started_at,
-          session.completed_at,
-          session.duration_seconds,
-        ],
+      await db.insert(
+        'focus_sessions',
+        {
+          id: session.id,
+          todo_id: session.todo_id,
+          started_at: session.started_at,
+          completed_at: session.completed_at,
+          duration_seconds: session.duration_seconds,
+        },
+        true,
       )
     }
-    await db.exec('COMMIT')
-    return null
-  } catch (err) {
-    await db.exec('ROLLBACK')
-    throw err
-  }
+  })
+  return null
 }
 
 // ─── Shared dispatcher ─────────────────────────────────────────────────────────
@@ -2277,20 +2398,27 @@ async function getVoiceNotes(db: DbAdapter): Promise<VoiceNoteRow[]> {
 }
 
 async function createVoiceNote(db: DbAdapter, p: VoiceNoteRow): Promise<VoiceNoteRow> {
-  await db.exec(
-    'INSERT OR IGNORE INTO voice_notes (id, title, mime_type, duration, created_at) VALUES (?, ?, ?, ?, ?)',
-    [p.id, p.title ?? '', p.mime_type, p.duration, p.created_at],
+  await db.insert(
+    'voice_notes',
+    {
+      id: p.id,
+      title: p.title ?? '',
+      mime_type: p.mime_type,
+      duration: p.duration,
+      created_at: p.created_at,
+    },
+    true,
   )
   return { ...p, title: p.title ?? '' }
 }
 
 async function updateVoiceNote(db: DbAdapter, id: string, title: string): Promise<null> {
-  await db.exec('UPDATE voice_notes SET title = ? WHERE id = ?', [title, id])
+  await db.patchWhere('voice_notes', { title: title }, 'id = ?', [id])
   return null
 }
 
 async function deleteVoiceNote(db: DbAdapter, id: string): Promise<null> {
-  await db.exec('DELETE FROM voice_notes WHERE id = ?', [id])
+  await db.deleteWhere('voice_notes', 'id = ?', [id])
   return null
 }
 
@@ -2299,25 +2427,32 @@ async function getImageNotes(db: DbAdapter): Promise<ImageNoteRow[]> {
 }
 
 async function createImageNote(db: DbAdapter, p: ImageNoteRow): Promise<ImageNoteRow> {
-  await db.exec(
-    'INSERT OR IGNORE INTO image_notes (id, mime_type, filename, title, created_at) VALUES (?, ?, ?, ?, ?)',
-    [p.id, p.mime_type, p.filename, p.title ?? '', p.created_at],
+  await db.insert(
+    'image_notes',
+    {
+      id: p.id,
+      mime_type: p.mime_type,
+      filename: p.filename,
+      title: p.title ?? '',
+      created_at: p.created_at,
+    },
+    true,
   )
   return { ...p, title: p.title ?? '' }
 }
 
 async function updateImageNote(db: DbAdapter, id: string, title: string): Promise<null> {
-  await db.exec('UPDATE image_notes SET title = ? WHERE id = ?', [title, id])
+  await db.patchWhere('image_notes', { title: title }, 'id = ?', [id])
   return null
 }
 
 async function deleteImageNote(db: DbAdapter, id: string): Promise<null> {
-  await db.exec('DELETE FROM image_notes WHERE id = ?', [id])
+  await db.deleteWhere('image_notes', 'id = ?', [id])
   return null
 }
 
 async function deleteAllMediaNotes(db: DbAdapter): Promise<null> {
-  await db.exec('DELETE FROM voice_notes')
-  await db.exec('DELETE FROM image_notes')
+  await db.deleteWhere('voice_notes')
+  await db.deleteWhere('image_notes')
   return null
 }

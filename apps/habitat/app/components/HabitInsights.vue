@@ -14,7 +14,7 @@ import {
 import { computeStreak, growthStage, type StreakInput } from '~/lib/streak-engine'
 import type { Completion, HabitLog, HabitWithSchedule } from '~/types/database'
 
-const db = useDatabase()
+const db = useDatabase(() => load())
 
 const habits = ref<HabitWithSchedule[]>([])
 const completions = ref<Completion[]>([])

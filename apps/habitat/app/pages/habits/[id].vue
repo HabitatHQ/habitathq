@@ -9,7 +9,7 @@ import {
 import type { Completion, HabitLog, HabitWithSchedule, Reminder } from '~/types/database'
 
 const route = useRoute()
-const db = useDatabase()
+const db = useDatabase(() => load())
 const { impact, notification } = useHaptics()
 const { settings } = useAppSettings()
 const toast = useToast()

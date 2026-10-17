@@ -8,11 +8,10 @@
  * leader and takes over automatically if the leader goes away.
  */
 
-import { applySchema, type DbAdapter, dbg, toDbAdapter } from '@palladium/core'
+import { dbg } from '@palladium/core'
 import { BrowserSqliteAdapter } from '@palladium/sqlite-browser'
 import { startDbOwner } from '@palladium/worker/owner'
-import { SCHEMA_CONFIG } from '~/lib/db-schema'
-import * as shared from '~/lib/db-shared'
+import { createHabitatBackend, type HabitatBackend } from '~/lib/habitat-backend'
 import type { WorkerRequestBody } from '~/types/database'
 
 /**
@@ -28,25 +27,29 @@ export interface HabitatService {
   ping(): Promise<true>
   /** Run one database request. Handles storage-level ops, delegates the rest. */
   dispatch(req: WorkerRequestBody): Promise<unknown>
+  syncNow(): Promise<void>
+  getSyncInfo(): Promise<ReturnType<HabitatBackend['getSyncInfo']>>
 }
 
 startDbOwner<HabitatService>({
   dbName: 'habitat',
-  methods: ['ping', 'dispatch'],
-  create() {
+  methods: ['ping', 'dispatch', 'getSyncInfo', 'syncNow'],
+  create(context) {
     const storage = new BrowserSqliteAdapter({
       vfs: { type: 'opfs-sah-pool', directory: `/${OPFS_DIR}`, filename: '/habitat.db' },
     })
-    let adapter: DbAdapter
+    let backend: HabitatBackend | undefined
 
     return {
       async open(): Promise<void> {
         const startedAt = Date.now()
         dbg('habitat-worker', 'init start', { opfsDirectory: OPFS_DIR })
-        await storage.open()
-        dbg('habitat-worker', 'storage open', { elapsedMs: Date.now() - startedAt })
-        await applySchema(storage, SCHEMA_CONFIG)
-        adapter = toDbAdapter(storage)
+        backend = await createHabitatBackend(storage, {
+          ...(import.meta.env.DEV
+            ? { serverUrl: new URL('/api/palladium', self.location.origin).href }
+            : {}),
+          invalidate: context.invalidate,
+        })
         dbg('habitat-worker', 'init complete', { elapsedMs: Date.now() - startedAt })
       },
 
@@ -55,20 +58,23 @@ startDbOwner<HabitatService>({
       },
 
       async close(): Promise<void> {
-        await storage.close()
+        if (backend) await backend.close()
+        else await storage.close()
+      },
+
+      async syncNow() {
+        if (!backend) throw new Error('Database is not open')
+        await backend.syncNow()
+      },
+
+      async getSyncInfo() {
+        if (!backend) throw new Error('Database is not open')
+        return backend.getSyncInfo()
       },
 
       async dispatch(req: WorkerRequestBody): Promise<unknown> {
-        switch (req.type) {
-          case 'EXPORT_DB':
-            return storage.serialize()
-          case 'RESET_DATABASE':
-            await storage.resetStorage()
-            await applySchema(storage, SCHEMA_CONFIG)
-            return null
-          default:
-            return shared.dispatch(adapter, req)
-        }
+        if (!backend) throw new Error('Database is not open')
+        return backend.dispatch(req)
       },
     }
   },

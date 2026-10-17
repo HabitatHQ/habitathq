@@ -2,7 +2,7 @@
 import { formatInstant } from '@habitathq/utils'
 import type { Habit } from '~/types/database'
 
-const db = useDatabase()
+const db = useDatabase(() => loadHabits())
 
 const staggerHabitsOnce = useFirstVisit('archive-habits')
 

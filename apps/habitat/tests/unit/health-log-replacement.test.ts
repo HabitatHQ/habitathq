@@ -2,7 +2,8 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite'
 import { describe, expect, it, vi } from 'vitest'
 import { SCHEMA_DDL } from '~/lib/db-schema'
-import type { DbAdapter } from '~/types/database'
+import type { DbAdapter } from '@palladium/core'
+import { withMutations } from '../helpers/sql-database'
 import {
   createHabit,
   deleteCompletion,
@@ -28,9 +29,10 @@ function sqliteBindings(bind?: unknown[]): SQLInputValue[] {
   })
 }
 
-function createDb(): { db: DatabaseSync; adapter: DbAdapter } {
+function createDb(): { db: DatabaseSync; adapter: ReturnType<typeof withMutations> } {
   const db = new DatabaseSync(':memory:')
   db.exec(SCHEMA_DDL)
+  db.exec('CREATE TABLE _sync_row_meta (tbl TEXT, row_id TEXT, col TEXT)')
   const adapter: DbAdapter = {
     queryAll: async <T>(sql: string, bind?: unknown[]) =>
       db.prepare(sql).all(...sqliteBindings(bind)) as T[],
@@ -41,7 +43,16 @@ function createDb(): { db: DatabaseSync; adapter: DbAdapter } {
       else db.exec(sql)
     },
   }
-  return { db, adapter }
+  const mutations = withMutations(adapter)
+  return { db, adapter: {
+    ...mutations,
+    async deleteWhere(table: string, where?: string, bind?: unknown[]) {
+      const rows = await adapter.queryAll<{ id: string }>(`SELECT id FROM ${table}${where ? ` WHERE ${where}` : ''}`, bind)
+      for (const row of rows) await adapter.exec('INSERT INTO _sync_row_meta (tbl, row_id, col) VALUES (?, ?, ?)', [table, row.id, '__palladium_deleted__'])
+      await mutations.deleteWhere(table, where, bind)
+    },
+  } }
+
 }
 
 function seedHabit(db: DatabaseSync, habitId: string): void {
@@ -129,7 +140,7 @@ describe('replacement dispatch isolation', () => {
       },
     }
 
-    const replacement = dispatch(delayedAdapter, {
+    const replacement = dispatch(withMutations(delayedAdapter), {
       type: 'REPLACE_HABIT_LOGS_FOR_DATE',
       payload: { habit_id: 'steps', date: '2026-10-04', value: 23 },
     })

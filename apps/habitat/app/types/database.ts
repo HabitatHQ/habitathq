@@ -480,6 +480,7 @@ export interface HabitatExport {
   checkin_templates: CheckinTemplate[]
   checkin_questions: CheckinQuestion[]
   checkin_responses: CheckinResponse[]
+  checkin_completions?: CheckinCompletion[]
   reminders: Reminder[]
   checkin_reminders: CheckinReminder[]
   scribbles: Scribble[]
@@ -509,7 +510,7 @@ export interface ExportSelection {
   focus_sessions?: boolean
 }
 
-export type { DbAdapter } from '@palladium/core'
+export type { HabitatDatabase as DbAdapter } from '~/lib/palladium-database'
 
 export type WorkerResponse<T = unknown> =
   | { id: string; ok: true; data: T }

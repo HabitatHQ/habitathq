@@ -6,7 +6,7 @@ import {
   validateActivityTitle,
 } from '~/utils/bored-helpers'
 
-const db = useDatabase()
+const db = useDatabase(() => load())
 const toast = useToast()
 const staggerOnce = useFirstVisit('bored-activities')
 

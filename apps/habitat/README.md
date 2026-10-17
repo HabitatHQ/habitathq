@@ -1,10 +1,10 @@
 # Habitat
 
-A habit tracker that lives entirely on your device. No accounts, no servers, no sync — just your data, stored locally using SQLite in the browser.
+A local-first habit tracker powered by Palladium, with offline storage on web and native and backend sync available in local development.
 
 ## Philosophy
 
-Habit tracking shouldn't require trusting a third party with your personal data. Habitat takes the opposite approach: all data is stored on-device using SQLite WASM with the browser's Origin Private File System (OPFS). There's no backend, no analytics, and nothing leaves your device unless you explicitly export it.
+Habit tracking shouldn't require trusting a third party with your personal data. Habitat takes the opposite approach: all data is stored on-device using SQLite WASM with the browser's Origin Private File System (OPFS). Palladium owns replicated writes, conflict resolution, and the durable outbox. Development builds sync to a local Palladium server; production and native builds stay offline until authenticated sync is configured.
 
 The same codebase ships as a PWA (installable web app) and as native iOS/Android apps via Capacitor, with zero changes to the core logic.
 
@@ -48,7 +48,7 @@ The same codebase ships as a PWA (installable web app) and as native iOS/Android
 
 ## Architecture
 
-All database work runs in a **Web Worker** to keep the main thread unblocked. Pages communicate through a typed message bus: `useDatabase()` composable → `database.client.ts` plugin (UUID-correlated request/response) → `database.worker.ts` (SQLite WASM).
+All database work runs in a **Web Worker** to keep the main thread unblocked. Pages communicate through a typed message bus: `useDatabase()` composable → `database.client.ts` → `@palladium/worker` leader → `habitat-backend.ts` → Palladium engine and sync transport. Domain writes use Palladium insert/patch/delete operations; SQL is retained for reads, schema migrations, and device-local seed flags.
 
 On native, the same message types are dispatched directly to `@capacitor-community/sqlite` instead of the worker.
 
@@ -67,12 +67,50 @@ app/
 
 ## Getting Started
 
-**Prerequisites:** Node.js 20+, pnpm
+**Prerequisites:** Node.js 22.5+, pnpm (Rust stable for the local sync server)
 
 ```bash
 pnpm install
 pnpm dev         # dev server at localhost:3000
 ```
+
+### Local Palladium backend
+
+From the monorepo root, use two terminals:
+
+```bash
+node apps/habitat/scripts/palladium-dev.mjs
+pnpm dev:habitat
+```
+
+The launcher builds the Rust CLI and starts a persistent sync store at
+`127.0.0.1:4000`. Nuxt proxies `/api/palladium` to it, keeping requests within
+the app's existing content security policy. Rust is required; the launcher also
+recognizes a toolchain installed under the ignored `scratch/habitat-toolchain`.
+
+Auth is temporarily bypassed using Palladium's static development scope. The
+server binds to loopback, and the client enables this connection only in Vite
+**development** builds. Test separate devices with different browser profiles
+to isolate their local databases. Multiple tabs in one profile share the
+leader-owned database. These clients share the local development backend data. Settings → Data shows sync status.
+
+Existing rows migrate to canonical UUIDv7 IDs with foreign keys and Jot links
+preserved; existing media bytes are copied to their new keys. Natural-key daily
+records use stable identities and advance to a new identity after deletion.
+Backfill and new writes are committed with the durable outbox, so restarting
+or losing a worker leader preserves pending changes. Reset sends replicated
+deletes instead of discarding pending erasure and restoring old server data.
+
+Run the real backend integration checks while the server is running:
+
+```bash
+HABITAT_SYNC_TEST_URL=http://127.0.0.1:4000 pnpm --filter habitat test:unit tests/unit/palladium-database.test.ts
+```
+
+Media metadata syncs; voice/image **bytes remain in local IndexedDB**. App
+preferences and timer state remain device-local. Production authentication,
+tenant selection, and remote media transfer are not enabled by this development
+connection.
 
 Build for production:
 

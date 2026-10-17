@@ -4,7 +4,7 @@ import { buildPomodoroConfig, type TimerMode } from '~/composables/useTimer'
 import type { BoredCategory, Todo } from '~/types/database'
 import { sortByPriority } from '~/utils/todos-helpers'
 
-const db = useDatabase()
+const db = useDatabase(() => load())
 const { settings } = useAppSettings()
 const { anyActive, matchesContext } = useContextFilter()
 const { impact, selectionChanged, notification } = useHaptics()
