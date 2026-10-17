@@ -52,6 +52,10 @@ enum Command {
         #[arg(long, default_value_t = 3000)]
         port: u16,
 
+        /// Interface to bind. Defaults to loopback for local-only development.
+        #[arg(long, default_value = "127.0.0.1")]
+        host: std::net::IpAddr,
+
         /// Additional instances to serve as `name:path` (repeatable).
         /// When provided, overrides `--db` for multi-instance setups.
         #[arg(long = "instance", value_name = "NAME:PATH")]
@@ -162,6 +166,7 @@ async fn run_inspect(db_url: &str, limit: usize) -> Result<()> {
 async fn run_dev(
     db_url: &str,
     port: u16,
+    host: std::net::IpAddr,
     extra_instances: &[InstanceArg],
     auth: AuthMode,
 ) -> Result<()> {
@@ -178,8 +183,8 @@ async fn run_dev(
             .with_authorizer(BearerScopeAuthorizer),
     };
     let app = create_router(state, CorsLayer::permissive());
-    let addr = format!("0.0.0.0:{port}");
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    let addr = std::net::SocketAddr::new(host, port);
+    let listener = tokio::net::TcpListener::bind(addr).await?;
     info!(%addr, "listening");
     axum::serve(listener, app).await?;
     Ok(())
@@ -259,9 +264,10 @@ async fn main() -> Result<()> {
         Command::Inspect { limit } => run_inspect(&cli.db, limit).await,
         Command::Dev {
             port,
+            host,
             instances,
             auth,
-        } => run_dev(&cli.db, port, &instances, auth).await,
+        } => run_dev(&cli.db, port, host, &instances, auth).await,
         Command::Instances {
             command: InstancesCommand::List { config, json },
         } => run_instances_list(config.as_deref(), json).await,
@@ -381,5 +387,17 @@ mod tests {
                 command: InstancesCommand::List { json: true, .. }
             }
         ));
+    }
+}
+
+#[cfg(test)]
+mod dev_bind_tests {
+    use super::*;
+
+    #[test]
+    fn dev_defaults_to_loopback() -> std::result::Result<(), clap::Error> {
+        let cli = Cli::try_parse_from(["palladium", "dev"])?;
+        assert!(matches!(cli.command, Command::Dev { host, .. } if host.is_loopback()));
+        Ok(())
     }
 }
