@@ -269,7 +269,10 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="space-y-5 pb-24">
+  <div
+    class="space-y-5 pb-24"
+    :class="calendarView === 'day' ? 'lg:mx-auto lg:max-w-3xl' : ''"
+  >
     <header><p class="text-sm text-(--ui-text-dimmed)">Plan your work, then keep the record</p><h1 class="text-3xl font-bold tracking-tight">Calendar</h1></header>
     <section class="rounded-2xl border border-(--ui-border) bg-(--ui-bg-elevated) p-3 shadow-sm">
       <div class="flex items-center justify-between gap-2"><UButton class="min-h-11 min-w-11" :icon="resolveIcon('chevron-left')" color="neutral" variant="ghost" aria-label="Previous period" @click="movePeriod(-1)" /><button type="button" class="min-h-11 rounded-lg px-3 text-center text-sm font-bold" @click="goToToday">{{ periodTitle }}</button><UButton class="min-h-11 min-w-11" :icon="resolveIcon('chevron-right')" color="neutral" variant="ghost" aria-label="Next period" @click="movePeriod(1)" /></div>
