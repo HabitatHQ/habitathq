@@ -173,6 +173,9 @@ it('round-trips completed check-ins and the entire focus history through JSON ba
       type: 'EXPORT_JSON_DATA',
       payload: allExportTables,
     })) as HabitatExport
+    const importedCompletion = backup.checkin_completions?.[0]
+    if (!importedCompletion) throw new Error('Expected exported check-in completion')
+    Reflect.set(importedCompletion, 'unexpected_column', 'ignored')
     await restored.dispatch({ type: 'IMPORT_JSON', payload: backup })
     expect(
       await restored.dispatch({ type: 'GET_CHECKIN_COMPLETIONS_FOR_DATE', payload: { date } }),
@@ -474,10 +477,18 @@ describe('Habitat backend lifecycle', () => {
     )
     expect(((await b.dispatch({ type: 'GET_HABITS' })) as unknown[]).length).toBe(1)
     await a.dispatch({ type: 'RESET_DATABASE' })
+    expect(await a.dispatch({ type: 'GET_CHECKIN_TEMPLATES' })).toEqual(
+      expect.arrayContaining([expect.objectContaining({ title: 'Morning Check-in' })]),
+    )
+    expect(await a.dispatch({ type: 'GET_BORED_CATEGORIES' })).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'Things to Read', is_system: true })]),
+    )
     await a.transport.syncOnce()
     await b.transport.syncOnce()
     expect(await b.dispatch({ type: 'GET_HABITS' })).toEqual([])
-    expect(await b.dispatch({ type: 'GET_CHECKIN_TEMPLATES' })).toEqual([])
+    expect(await b.dispatch({ type: 'GET_CHECKIN_TEMPLATES' })).toEqual(
+      expect.arrayContaining([expect.objectContaining({ title: 'Morning Check-in' })]),
+    )
     await a.close()
     await b.close()
   })
@@ -701,6 +712,39 @@ it('imports old backups idempotently and respects replicated erasure when mergin
   }
 })
 
+it('imports a legacy natural-key row under a successor ID after its prior ID was deleted', async () => {
+  const backend = await createHabitatBackend(storageFor(new DatabaseSync(':memory:')))
+  try {
+    const habit = (await backend.dispatch({
+      type: 'CREATE_HABIT',
+      payload: habitPayload,
+    })) as { id: string }
+    const completion = (await backend.dispatch({
+      type: 'TOGGLE_COMPLETION',
+      payload: { habit_id: habit.id, date: '2026-10-16' },
+    })) as { id: string }
+    const backup = (await backend.dispatch({
+      type: 'EXPORT_JSON_DATA',
+      payload: allExportTables,
+    })) as HabitatExport
+    const importedCompletion = backup.completions.find((row) => row.id === completion.id)
+    if (!importedCompletion) throw new Error('Expected exported completion')
+    importedCompletion.id = 'legacy-completion'
+
+    await backend.dispatch({ type: 'DELETE_COMPLETION', payload: { id: completion.id } })
+    await backend.dispatch({ type: 'IMPORT_JSON', payload: backup })
+
+    const rows = await backend.engine.exec<{ id: string; habit_id: string }>(
+      { text: 'SELECT id, habit_id FROM completions', params: [], tables: [] },
+    )
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.id).not.toBe(completion.id)
+    expect(rows[0]?.habit_id).toBe(habit.id)
+  } finally {
+    await backend.close()
+  }
+})
+
 it('rolls back an entire import, including its outbox, if any imported reference is invalid', async () => {
   const backend = await createHabitatBackend(storageFor(new DatabaseSync(':memory:')))
   try {
@@ -749,6 +793,37 @@ it('recovers Boolean history from backups that predate the habit type field', as
     await backend.close()
   }
 })
+it('recovers boolean history when a partial backup omits habits and completions', async () => {
+  const backend = await createHabitatBackend(storageFor(new DatabaseSync(':memory:')))
+  try {
+    const habit = (await backend.dispatch({
+      type: 'CREATE_HABIT',
+      payload: habitPayload,
+    })) as { id: string }
+    const data = legacyExport()
+    Reflect.deleteProperty(data, 'habits')
+    Reflect.deleteProperty(data, 'completions')
+    data.habit_logs = [
+      {
+        id: 'old-boolean-log',
+        habit_id: habit.id,
+        date: '2026-10-16',
+        logged_at: '2026-10-16T08:00:00Z',
+        value: 1,
+        notes: '',
+      },
+    ]
+
+    await backend.dispatch({ type: 'IMPORT_JSON', payload: data })
+
+    expect(await backend.dispatch({ type: 'GET_ALL_COMPLETIONS' })).toEqual([
+      expect.objectContaining({ habit_id: habit.id, date: '2026-10-16' }),
+    ])
+  } finally {
+    await backend.close()
+  }
+})
+
 
 it('keeps write capture registered until an in-flight mutation has committed during shutdown', async () => {
   const sqlite = new DatabaseSync(':memory:')

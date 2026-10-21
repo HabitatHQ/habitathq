@@ -98,6 +98,15 @@ export function toHabitatDatabase(engine: PalladiumEngine<SchemaMap>): HabitatDa
         assertTable(table)
         if (!isSyncRow(data)) throw new TypeError(`Invalid replicated row for ${table}`)
         if (ignoreExisting) {
+          for (const [child, foreignKey, parent] of HABITAT_RELATIONS) {
+            if (child !== table || typeof data[foreignKey] !== 'string') continue
+            const retiredParent = await db.queryAll<{ row_id: string }>(
+              "SELECT row_id FROM _sync_row_meta WHERE tbl = ? AND row_id = ? AND col = '__palladium_deleted__'",
+              [parent, data[foreignKey]],
+            )
+            // An older backup must not re-create children of a locally erased parent.
+            if (retiredParent.length) return
+          }
           const keys = naturalKeys[table] ?? ['id']
           const existing = await db.queryAll<{ id: string }>(
             `SELECT id FROM ${table} WHERE id = ? OR (${keys.map((key) => `${key} = ?`).join(' AND ')})`,

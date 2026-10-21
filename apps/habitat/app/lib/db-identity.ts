@@ -171,13 +171,18 @@ export async function migrateLegacyIds(
   })
 }
 
-type ResolveId = (table: string, id: string) => Promise<string> | string
+type ResolveId = (table: string, id: string, fallback?: string) => Promise<string> | string
 
-async function normalizeRow(table: string, row: LegacyRow, resolve: ResolveId): Promise<void> {
+async function normalizeRow(
+  table: string,
+  row: LegacyRow,
+  resolve: ResolveId,
+  read: Pick<HabitatDatabase, 'queryAll'>,
+): Promise<void> {
   const natural = naturalKey(table, row)
   row.id =
     natural !== undefined && !isUuidV7(row.id)
-      ? await legacyRowId(table, `natural:${natural}`)
+      ? await availableRowId(read, table, await resolve(table, row.id, `natural:${natural}`))
       : await resolve(table, row.id)
   if (table === 'todos' && typeof row['bored_category_id'] === 'string')
     row['bored_category_id'] = await resolve('bored_categories', row['bored_category_id'])
@@ -198,7 +203,8 @@ export async function normalizeImportIds(
     'SELECT table_name, legacy_id, id FROM _habitat_legacy_ids',
   )
   const known = new Map(mappings.map((row) => [`${row.table_name}:${row.legacy_id}`, row.id]))
-  const resolve: ResolveId = (table, id) => known.get(`${table}:${id}`) ?? legacyRowId(table, id)
+  const resolve: ResolveId = (table, id, fallback) =>
+    known.get(`${table}:${id}`) ?? legacyRowId(table, fallback ?? id)
   const normalized = structuredClone(data)
   for (const table of HABITAT_TABLES) {
     const rows: unknown = Reflect.get(normalized, table)
@@ -212,11 +218,13 @@ export async function normalizeImportIds(
       )
         throw new TypeError(`Invalid import row for ${table}`)
       const row: LegacyRow = value
+      const originalId = row.id
       // Parent identities must be resolved before deriving a child's natural key.
       for (const [, column, parent] of HABITAT_RELATIONS.filter(([child]) => child === table)) {
         if (typeof row[column] === 'string') row[column] = await resolve(parent, row[column])
       }
-      await normalizeRow(table, row, resolve)
+      await normalizeRow(table, row, resolve, read)
+      known.set(`${table}:${originalId}`, row.id)
     }
   }
   return normalized

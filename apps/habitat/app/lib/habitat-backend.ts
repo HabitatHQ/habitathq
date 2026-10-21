@@ -1,4 +1,5 @@
 import {
+  applySchema,
   type BlobAdapter,
   createEngine,
   dbg,
@@ -61,23 +62,27 @@ export async function createHabitatBackend(
     // device. The request deadline still permits offline startup.
     if (options.serverUrl) await transport.poll()
 
-    // Capture existing rows once. Sync metadata doubles as a durable backfill checkpoint.
-    // Each batch is bounded and commits with its outbox entry, so crashes cannot lose rows.
-    for (const table of HABITAT_TABLES) {
-      while (true) {
-        const rows = await database.queryAll<Record<string, unknown>>(
-          `SELECT t.* FROM ${table} t WHERE NOT EXISTS (SELECT 1 FROM _sync_row_meta m WHERE m.tbl = ? AND m.row_id = t.id) LIMIT 50`,
-          [table],
-        )
-        if (!rows.length) break
-        await engine.tx((tx) => {
-          for (const row of rows) {
-            if (!isSyncRow(row)) throw new TypeError(`Invalid legacy row in ${table}`)
-            tx.insert(table, row)
-          }
-        })
+    async function captureUntrackedRows(): Promise<void> {
+      for (const table of HABITAT_TABLES) {
+        while (true) {
+          const rows = await database.queryAll<Record<string, unknown>>(
+            `SELECT t.* FROM ${table} t WHERE NOT EXISTS (SELECT 1 FROM _sync_row_meta m WHERE m.tbl = ? AND m.row_id = t.id) LIMIT 50`,
+            [table],
+          )
+          if (!rows.length) break
+          await engine.tx((tx) => {
+            for (const row of rows) {
+              if (!isSyncRow(row)) throw new TypeError(`Invalid legacy row in ${table}`)
+              tx.insert(table, row)
+            }
+          })
+        }
       }
     }
+
+    // Capture existing rows once. Sync metadata doubles as a durable backfill checkpoint.
+    // Each batch is bounded and commits with its outbox entry, so crashes cannot lose rows.
+    await captureUntrackedRows()
     if (options.serverUrl) {
       // Continue uplink and polling in the background after initial hydration.
       void transport.start().catch((error) => {
@@ -106,6 +111,15 @@ export async function createHabitatBackend(
             await database.transaction(async (db) => {
               for (const table of [...HABITAT_TABLES].reverse()) await db.deleteWhere(table)
             })
+            // Reset seed bookkeeping, restore default rows immediately, and capture
+            // those rows in the outbox rather than waiting for a reload.
+            await engine.withStorage(async (adapter) => {
+              await adapter.exec('DELETE FROM applied_defaults')
+              await adapter.exec('DELETE FROM _palladium_seeds')
+              await applySchema(adapter, SCHEMA_CONFIG)
+            })
+            await migrateOwnedBlobs(storage, options.blobs)
+            await captureUntrackedRows()
             return null
           }
           return shared.dispatch(database, req)

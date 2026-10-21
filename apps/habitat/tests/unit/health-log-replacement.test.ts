@@ -44,14 +44,25 @@ function createDb(): { db: DatabaseSync; adapter: ReturnType<typeof withMutation
     },
   }
   const mutations = withMutations(adapter)
-  return { db, adapter: {
+  const wrapped: ReturnType<typeof withMutations> = {
     ...mutations,
     async deleteWhere(table: string, where?: string, bind?: unknown[]) {
-      const rows = await adapter.queryAll<{ id: string }>(`SELECT id FROM ${table}${where ? ` WHERE ${where}` : ''}`, bind)
-      for (const row of rows) await adapter.exec('INSERT INTO _sync_row_meta (tbl, row_id, col) VALUES (?, ?, ?)', [table, row.id, '__palladium_deleted__'])
+      const rows = await adapter.queryAll<{ id: string }>(
+        `SELECT id FROM ${table}${where ? ` WHERE ${where}` : ''}`,
+        bind,
+      )
+      for (const row of rows)
+        await adapter.exec(
+          'INSERT INTO _sync_row_meta (tbl, row_id, col) VALUES (?, ?, ?)',
+          [table, row.id, '__palladium_deleted__'],
+        )
       await mutations.deleteWhere(table, where, bind)
     },
-  } }
+    async transaction(work) {
+      await mutations.transaction(() => work(wrapped))
+    },
+  }
+  return { db, adapter: wrapped }
 
 }
 

@@ -31,6 +31,7 @@ import type {
   Todo,
   VoiceNoteRow,
 } from '~/types/database'
+import { logError } from '~/utils/error'
 
 export function useDatabase(refresh?: () => void | Promise<void>) {
   if (refresh) {
@@ -46,7 +47,11 @@ export function useDatabase(refresh?: () => void | Promise<void>) {
       try {
         while (pending && !disposed) {
           pending = false
-          await refresh()
+          try {
+            await refresh()
+          } catch (error) {
+            logError('habitat-sync/refresh', error)
+          }
         }
       } finally {
         running = false

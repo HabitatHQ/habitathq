@@ -21,7 +21,12 @@ export interface StorageAdapter {
    */
   exec<T = Record<string, unknown>>(sql: string, params?: readonly unknown[]): Promise<T[]>;
 
-  /** Insert a row, or update its supplied columns by id without deleting dependent rows. */
+  /**
+   * Insert the complete row `data`, whose `id` must match the `id` argument.
+   * On conflict, update only the supplied non-id columns; omitted columns are
+   * preserved. Required columns must be present for a new row—`put` is not a
+   * partial insert. Use `patch` for partial updates to existing rows.
+   */
   put(table: string, id: string, data: Record<string, unknown>): Promise<void>;
 
   /** Partially update an existing row. No-op if the row does not exist. */

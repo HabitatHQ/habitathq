@@ -1879,10 +1879,13 @@ export async function importJson(db: DbAdapter, input: HabitatExport): Promise<n
     )
     const booleanHabits = new Set([
       ...storedBooleanHabits.map((habit) => habit.id),
-      ...data.habits
+      ...(data.habits ?? [])
         .filter((habit) => (habit.type ?? 'BOOLEAN') === 'BOOLEAN')
         .map((habit) => habit.id),
     ])
+    const importedCompletionKeys = new Set(
+      (data.completions ?? []).map((completion) => `${completion.habit_id}:${completion.date}`),
+    )
     const recovered = new Map<string, { habit_id: string; date: string; completed_at: string }>()
     for (const log of data.habit_logs ?? []) {
       if (!booleanHabits.has(log.habit_id) || log.value <= 0) continue
@@ -1892,12 +1895,7 @@ export async function importJson(db: DbAdapter, input: HabitatExport): Promise<n
         recovered.set(key, { habit_id: log.habit_id, date: log.date, completed_at: log.logged_at })
     }
     for (const log of recovered.values()) {
-      if (
-        data.completions.some(
-          (completion) => completion.habit_id === log.habit_id && completion.date === log.date,
-        )
-      )
-        continue
+      if (importedCompletionKeys.has(`${log.habit_id}:${log.date}`)) continue
       await db.insert(
         'completions',
         {
@@ -2012,7 +2010,16 @@ export async function importJson(db: DbAdapter, input: HabitatExport): Promise<n
       )
     }
     for (const completion of data.checkin_completions ?? []) {
-      await db.insert('checkin_completions', { ...completion }, true)
+      await db.insert(
+        'checkin_completions',
+        {
+          id: completion.id,
+          template_id: completion.template_id,
+          date: completion.date,
+          completed_at: completion.completed_at,
+        },
+        true,
+      )
     }
     for (const s of data.scribbles ?? []) {
       await db.insert(

@@ -12,6 +12,7 @@ const imagePreview = ref<{ url: string; file: File } | null>(null)
 const saving = ref(false)
 const galleryInput = ref<HTMLInputElement | null>(null)
 const cameraInput = ref<HTMLInputElement | null>(null)
+let disposed = false
 
 function pickFromGallery() {
   void impact('light')
@@ -44,10 +45,11 @@ function cancelPreview() {
 }
 
 async function saveImage() {
-  if (!imagePreview.value || saving.value) return
+  const preview = imagePreview.value
+  if (!preview || saving.value) return
   saving.value = true
   try {
-    const { file, url } = imagePreview.value
+    const { file, url } = preview
     const id = generateUuidV7()
     const arrayBuffer = await file.arrayBuffer()
     const blob = new Blob([arrayBuffer], { type: file.type })
@@ -66,14 +68,16 @@ async function saveImage() {
     void notification('success')
     emit('close')
   } catch (err: unknown) {
-    errorMsg.value = err instanceof Error ? err.message : String(err)
+    if (disposed) media.revokeObjectURL(preview.url)
+    else errorMsg.value = err instanceof Error ? err.message : String(err)
   } finally {
     saving.value = false
   }
 }
 
 onUnmounted(() => {
-  if (imagePreview.value) media.revokeObjectURL(imagePreview.value.url)
+  disposed = true
+  if (!saving.value && imagePreview.value) media.revokeObjectURL(imagePreview.value.url)
 })
 </script>
 
