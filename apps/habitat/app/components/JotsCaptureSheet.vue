@@ -13,6 +13,7 @@ const saving = ref(false)
 const galleryInput = ref<HTMLInputElement | null>(null)
 const cameraInput = ref<HTMLInputElement | null>(null)
 let disposed = false
+let savingUrl: string | null = null
 
 function pickFromGallery() {
   void impact('light')
@@ -32,22 +33,27 @@ function onImageSelected(event: Event) {
   input.value = ''
 }
 
+function releasePreview(preserveUrl: string | null = null) {
+  const preview = imagePreview.value
+  imagePreview.value = null
+  if (preview && preview.url !== preserveUrl) media.revokeObjectURL(preview.url)
+}
+
 function showPreview(file: File) {
-  if (imagePreview.value) media.revokeObjectURL(imagePreview.value.url)
-  imagePreview.value = { url: media.createObjectURL(file), file }
+  const url = media.createObjectURL(file)
+  releasePreview(savingUrl)
+  imagePreview.value = { url, file }
 }
 
 function cancelPreview() {
-  if (imagePreview.value) {
-    media.revokeObjectURL(imagePreview.value.url)
-    imagePreview.value = null
-  }
+  releasePreview(savingUrl)
 }
 
 async function saveImage() {
   const preview = imagePreview.value
   if (!preview || saving.value) return
   saving.value = true
+  savingUrl = preview.url
   try {
     const { file, url } = preview
     const id = generateUuidV7()
@@ -64,20 +70,21 @@ async function saveImage() {
       },
       url,
     )
-    imagePreview.value = null
+    releasePreview(savingUrl)
     void notification('success')
     emit('close')
   } catch (err: unknown) {
-    if (disposed) media.revokeObjectURL(preview.url)
-    else errorMsg.value = err instanceof Error ? err.message : String(err)
+    if (disposed || imagePreview.value?.url !== preview.url) media.revokeObjectURL(preview.url)
+    if (!disposed) errorMsg.value = err instanceof Error ? err.message : String(err)
   } finally {
+    savingUrl = null
     saving.value = false
   }
 }
 
 onUnmounted(() => {
   disposed = true
-  if (!saving.value && imagePreview.value) media.revokeObjectURL(imagePreview.value.url)
+  releasePreview(savingUrl)
 })
 </script>
 

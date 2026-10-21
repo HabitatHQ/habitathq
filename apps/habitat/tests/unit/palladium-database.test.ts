@@ -744,6 +744,36 @@ it('imports a legacy natural-key row under a successor ID after its prior ID was
     await backend.close()
   }
 })
+it('imports a tombstoned natural-key row with a UUIDv7 ID under a successor ID', async () => {
+  const backend = await createHabitatBackend(storageFor(new DatabaseSync(':memory:')))
+  try {
+    const habit = (await backend.dispatch({
+      type: 'CREATE_HABIT',
+      payload: habitPayload,
+    })) as { id: string }
+    const completion = (await backend.dispatch({
+      type: 'TOGGLE_COMPLETION',
+      payload: { habit_id: habit.id, date: '2026-10-16' },
+    })) as { id: string }
+    const backup = (await backend.dispatch({
+      type: 'EXPORT_JSON_DATA',
+      payload: allExportTables,
+    })) as HabitatExport
+
+    await backend.dispatch({ type: 'DELETE_COMPLETION', payload: { id: completion.id } })
+    await backend.dispatch({ type: 'IMPORT_JSON', payload: backup })
+
+    const rows = await backend.engine.exec<{ id: string; habit_id: string }>(
+      { text: 'SELECT id, habit_id FROM completions', params: [], tables: [] },
+    )
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.id).not.toBe(completion.id)
+    expect(rows[0]?.habit_id).toBe(habit.id)
+  } finally {
+    await backend.close()
+  }
+})
+
 
 it('rolls back an entire import, including its outbox, if any imported reference is invalid', async () => {
   const backend = await createHabitatBackend(storageFor(new DatabaseSync(':memory:')))

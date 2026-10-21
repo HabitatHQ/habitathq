@@ -181,9 +181,9 @@ async function normalizeRow(
 ): Promise<void> {
   const natural = naturalKey(table, row)
   row.id =
-    natural !== undefined && !isUuidV7(row.id)
-      ? await availableRowId(read, table, await resolve(table, row.id, `natural:${natural}`))
-      : await resolve(table, row.id)
+    natural === undefined
+      ? await resolve(table, row.id)
+      : await availableRowId(read, table, await resolve(table, row.id, `natural:${natural}`))
   if (table === 'todos' && typeof row['bored_category_id'] === 'string')
     row['bored_category_id'] = await resolve('bored_categories', row['bored_category_id'])
   if (table === 'todos') {
