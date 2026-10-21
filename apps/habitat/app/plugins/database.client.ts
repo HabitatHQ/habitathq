@@ -3,6 +3,7 @@ import { dbg, enableDebug, isDebugEnabled } from '@palladium/core'
 import { connect } from '@palladium/worker'
 import { dispatchNative, initNativeDb } from '~/lib/db-native'
 import type { WorkerRequestBody } from '~/types/database'
+import { logError } from '~/utils/error'
 import type { HabitatService } from '~/workers/database.worker'
 
 // The UI stops blocking after this deadline. The worker keeps electing and
@@ -11,6 +12,36 @@ const STARTUP_TIMEOUT_MS = 10_000
 
 let webDispatch: ((req: WorkerRequestBody) => Promise<unknown>) | null = null
 let nativeReady = false
+
+const changeListeners = new Set<() => void | Promise<void>>()
+let runSync: (() => Promise<void>) | null = null
+let readSyncInfo: (() => Promise<Awaited<ReturnType<HabitatService['getSyncInfo']>>>) | null = null
+
+export function onDatabaseChange(listener: () => void | Promise<void>): () => void {
+  changeListeners.add(listener)
+  return () => {
+    changeListeners.delete(listener)
+  }
+}
+
+export async function syncDatabaseNow(): Promise<void> {
+  await runSync?.()
+}
+
+export function getDatabaseSyncInfo() {
+  return (
+    readSyncInfo?.() ??
+    Promise.resolve({ enabled: false, status: 'uninitialized' as const, error: null })
+  )
+}
+
+function invalidateViews(): void {
+  for (const listener of changeListeners) {
+    void Promise.resolve()
+      .then(listener)
+      .catch((error) => logError('habitat-sync/refresh', error))
+  }
+}
 
 class StartupTimeoutError extends Error {}
 
@@ -108,6 +139,9 @@ async function initialize(
   })
   const conn = connect<HabitatService>(worker)
   webDispatch = (req) => conn.service.dispatch(req)
+  readSyncInfo = () => conn.service.getSyncInfo()
+  runSync = () => conn.service.syncNow()
+  conn.onInvalidate(invalidateViews)
   conn.onDiagnostic((diagnostic) => {
     recordStartup(startupId, startedAt, `worker-${diagnostic.event}`, { ...diagnostic })
   })

@@ -2,7 +2,7 @@
 import { localCalendarDate } from '@habitathq/utils'
 import type { CheckinTemplate } from '~/types/database'
 
-const db = useDatabase()
+const db = useDatabase(() => loadTemplates())
 const toast = useToast()
 const { impact } = useHaptics()
 const templates = ref<CheckinTemplate[]>([])

@@ -17,7 +17,7 @@ import {
   mergeTodayIntoHistory,
 } from '~/utils/today-legacy-records'
 
-const db = useDatabase()
+const db = useDatabase(() => load())
 const { impact } = useHaptics()
 const { settings } = useAppSettings()
 const toast = useToast()

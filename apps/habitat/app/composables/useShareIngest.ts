@@ -1,4 +1,5 @@
 import { Capacitor } from '@capacitor/core'
+import { generateUuidV7 } from '@palladium/core'
 import { getMediaStore } from '~/composables/useJotsStore'
 import type { Scribble } from '~/types/database'
 import { getShareTag, isShareTag } from '~/utils/share-helpers'
@@ -64,7 +65,7 @@ export function useShareIngest() {
 
   async function ingestImage(item: SharedItem): Promise<void> {
     if (!item.path) return
-    const id = crypto.randomUUID()
+    const id = generateUuidV7()
     const filename = item.filename || `shared-image-${id}.png`
 
     try {

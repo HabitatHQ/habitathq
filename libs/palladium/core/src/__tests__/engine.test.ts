@@ -1116,3 +1116,18 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
     }
   });
 });
+
+it("notifies worker subscribers only after committed local writes and remote applies", async () => {
+  const db = makeDb();
+  await db.init(SCHEMA);
+  const tables: Array<readonly string[]> = [];
+  db.on("tables:changed", (changed) => tables.push(changed));
+  const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+  await db.insert("tasks", { id, name: "local", done: 0 });
+  await db.applyRemote({
+    hlc: createHlc(crypto.randomUUID(), Date.now() + 10),
+    ops: [{ type: "update", table: "tasks", id, patch: { name: "remote" } }],
+  });
+  expect(tables).toEqual([["tasks"], ["tasks"]]);
+  await db.adapter.close();
+});

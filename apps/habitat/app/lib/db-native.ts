@@ -1,9 +1,8 @@
 import { Capacitor } from '@capacitor/core'
 import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite'
-import { applySchema, dbg, toCapacitorDbAdapter } from '@palladium/core'
+import { dbg } from '@palladium/core'
 import { CapacitorSqliteAdapter } from '@palladium/sqlite-capacitor'
-import { SCHEMA_CONFIG } from '~/lib/db-schema'
-import * as shared from '~/lib/db-shared'
+import { createHabitatBackend, type HabitatBackend } from '~/lib/habitat-backend'
 import type { WorkerRequestBody } from '~/types/database'
 
 // ─── Adapter singleton ─────────────────────────────────────────────────────
@@ -13,15 +12,13 @@ const storage = new CapacitorSqliteAdapter(sqliteConn, {
   dbName: 'habitat',
   blobBindingFormat: Capacitor.getPlatform() === 'android' ? 'android-buffer' : 'byte-array',
 })
-const adapter = toCapacitorDbAdapter(storage, storage)
+let backend: HabitatBackend | undefined
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 export async function initNativeDb(): Promise<void> {
   dbg('habitat-native', 'init start')
-  await storage.open()
-  await storage.exec('PRAGMA foreign_keys = ON')
-  await applySchema(storage, SCHEMA_CONFIG)
+  backend ??= await createHabitatBackend(storage)
   dbg('habitat-native', 'init complete')
 }
 
@@ -29,13 +26,10 @@ export async function initNativeDb(): Promise<void> {
 
 export async function dispatchNative(req: WorkerRequestBody): Promise<unknown> {
   switch (req.type) {
-    case 'RESET_DATABASE':
-      await storage.resetStorage()
-      await initNativeDb()
-      return null
     case 'EXPORT_DB':
       throw new Error('EXPORT_DB not supported on native')
     default:
-      return shared.dispatch(adapter, req)
+      if (!backend) throw new Error('Database is not open')
+      return backend.dispatch(req)
   }
 }

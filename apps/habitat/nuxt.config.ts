@@ -169,6 +169,13 @@ export default defineNuxtConfig({
   // Vite config
   vite: {
     server: {
+      proxy: {
+        '/api/palladium': {
+          target: 'http://127.0.0.1:4000',
+          changeOrigin: true,
+          rewrite: (path: string) => path.replace(/^\/api\/palladium/, ''),
+        },
+      },
       watch: {
         // Exclude git worktrees (each has its own node_modules, ~500MB+)
         ignored: [(path: string) => path.includes('/.worktrees/')],

@@ -190,3 +190,19 @@ describe("NodeSqliteAdapter", () => {
     await expect(adapter.exec("SELECT 1")).rejects.toThrow("open()");
   });
 });
+
+it("upserts a parent without cascading deletion of its children", async () => {
+  const adapter = new NodeSqliteAdapter();
+  await adapter.open();
+  await adapter.exec("PRAGMA foreign_keys = ON");
+  await adapter.runMigrations([
+    "CREATE TABLE parents (id TEXT PRIMARY KEY, name TEXT NOT NULL)",
+    "CREATE TABLE children (id TEXT PRIMARY KEY, parent_id TEXT REFERENCES parents(id) ON DELETE CASCADE)",
+  ]);
+  await adapter.put("parents", "p", { id: "p", name: "old" });
+  await adapter.put("children", "c", { id: "c", parent_id: "p" });
+  await adapter.put("parents", "p", { id: "p", name: "new" });
+  expect(await adapter.exec("SELECT id FROM children")).toEqual([{ id: "c" }]);
+  expect(await adapter.exec("SELECT name FROM parents")).toEqual([{ name: "new" }]);
+  await adapter.close();
+});

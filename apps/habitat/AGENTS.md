@@ -6,7 +6,7 @@ last_verified: 2026-05-26
 
 # Habitat — Agent Guide
 
-Offline-first habit tracker PWA (Nuxt 4 SPA + Capacitor 8). All data on-device.
+Offline-first habit tracker PWA (Nuxt 4 SPA + Capacitor 8). Palladium owns writes and the durable outbox. Web development builds sync through the local Palladium backend; production/native networking remains gated pending authenticated sync.
 
 > Read root `AGENTS.md` first — shared Nuxt+Capacitor architecture, DB-op pattern, schema migrations, and TypeScript conventions live there. This file only covers what's habitat-specific.
 
@@ -20,7 +20,7 @@ pnpm --filter habitat verify
 
 | File | Purpose |
 |------|---------|
-| `app/lib/db-shared.ts` | All ~80 DB ops as `async fn(db: DbAdapter, …)` — single source of truth. **Use `db.queryAll` for every fetch; never `db.queryOne` (tests override it).** |
+| `app/lib/db-shared.ts` | Domain operations through `HabitatDatabase` — use insert/patchWhere/deleteWhere and transaction for writes. `habitat-backend.ts` owns engine/transport lifecycle; `db-identity.ts` migrates legacy IDs. **Use `db.queryAll` for every fetch; never `db.queryOne` (tests override it).** |
 | `app/lib/db-parsers.ts` | Row-to-type parsers used by db-shared. |
 | `app/composables/useTimer.ts` | Stopwatch / countdown / pomodoro. |
 | `app/composables/useLongPress.ts` | `{ onPointerdown, onPointerup, onPointermove }` for long-press; cancels on move/up. |
@@ -30,7 +30,7 @@ pnpm --filter habitat verify
 | `app/assets/css/typography.css` | Semantic classes: `type-timer`, `type-duration`, `type-code`, `type-numeric`. Use these instead of raw `font-mono`/`tabular-nums`. |
 | `app/assets/css/themes.css` | Forest / Ocean / Habitat themes + sprout logo animation. |
 
-## Schema (`user_version = 26`)
+## Schema (`user_version = 27`)
 
 habits, completions, habit_schedules, habit_logs, checkin_templates, checkin_questions, checkin_responses, checkin_reminders, checkin_completions, scribbles, reminders, bored_categories, bored_activities, todos, voice_notes, image_notes, applied_defaults, _palladium_seeds.
 

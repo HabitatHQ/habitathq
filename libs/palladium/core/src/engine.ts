@@ -345,6 +345,8 @@ export interface RemoteChange<S extends SchemaMap = SchemaMap> {
 
 export interface EngineEvents<S extends SchemaMap = SchemaMap> {
   "sync:status": SyncStatus;
+  /** Committed local writes, remote pages, and purges; suitable for worker invalidation. */
+  "tables:changed": readonly string[];
   error: Error;
   /**
    * Fired after a local `tx()` commits successfully. Suppressed while the
@@ -1246,49 +1248,54 @@ export class PalladiumEngine<S extends SchemaMap> {
     });
     const touchedTables = new Set<string>();
     let allApplied = true;
-    await this.#serialize(async () => {
-      if (!isTransactable(this.adapter)) {
-        throw new Error("PalladiumEngine writes require transaction support");
-      }
-      this.#suppressLocalEmit = true;
-      try {
-        for (const { change, identifierCanonicalOps } of prepared) {
-          const changeTouchedTables = new Set<string>();
-          const previousHlc = this.#currentHlc;
-          try {
-            await this.adapter.transaction(async (adpt) => {
-              await this.#applyRemoteTransaction(
-                adpt,
-                change,
-                identifierCanonicalOps,
-                changeTouchedTables,
-                undefined,
-              );
-            });
-            for (const table of changeTouchedTables) touchedTables.add(table);
-          } catch (error) {
-            this.#currentHlc = previousHlc;
-            if (onRejected === undefined) throw error;
-            allApplied = false;
-            await this.adapter.transaction(async (adpt) => {
-              await onRejected(change, error, adpt);
-            });
-          }
+    try {
+      await this.#serialize(async () => {
+        if (!isTransactable(this.adapter)) {
+          throw new Error("PalladiumEngine writes require transaction support");
         }
-        if (!allApplied) return;
-        await this.adapter.transaction(async (adpt) => {
-          for (const purge of purges) {
-            const purgeTable = canonicalTable(String(purge.table));
-            await this.#purgeLocalTransaction(adpt, purgeTable, purge.id);
-            touchedTables.add(purgeTable);
+        this.#suppressLocalEmit = true;
+        try {
+          for (const { change, identifierCanonicalOps } of prepared) {
+            const changeTouchedTables = new Set<string>();
+            const previousHlc = this.#currentHlc;
+            try {
+              await this.adapter.transaction(async (adpt) => {
+                await this.#applyRemoteTransaction(
+                  adpt,
+                  change,
+                  identifierCanonicalOps,
+                  changeTouchedTables,
+                  undefined,
+                );
+              });
+              for (const table of changeTouchedTables) touchedTables.add(table);
+            } catch (error) {
+              this.#currentHlc = previousHlc;
+              if (onRejected === undefined) throw error;
+              allApplied = false;
+              await this.adapter.transaction(async (adpt) => {
+                await onRejected(change, error, adpt);
+              });
+            }
           }
-          await afterApply(adpt);
-        });
-      } finally {
-        this.#suppressLocalEmit = false;
-      }
-    });
-    await this.#notifyLiveQueries([...touchedTables]);
+          if (!allApplied) return;
+          const purgedTables = new Set<string>();
+          await this.adapter.transaction(async (adpt) => {
+            for (const purge of purges) {
+              const purgeTable = canonicalTable(String(purge.table));
+              await this.#purgeLocalTransaction(adpt, purgeTable, purge.id);
+              purgedTables.add(purgeTable);
+            }
+            await afterApply(adpt);
+          });
+          for (const table of purgedTables) touchedTables.add(table);
+        } finally {
+          this.#suppressLocalEmit = false;
+        }
+      });
+    } finally {
+      await this.#notifyLiveQueries([...touchedTables]);
+    }
     return allApplied;
   }
 
@@ -1378,7 +1385,7 @@ export class PalladiumEngine<S extends SchemaMap> {
     }
   }
 
-  /** Override to intercept or augment storage writes (e.g. server replication). */
+  /** Insert a complete row; update ops use `_patchRow` for partial changes. */
   protected async _putRow(
     adpt: StorageAdapter,
     table: string,
@@ -1402,6 +1409,11 @@ export class PalladiumEngine<S extends SchemaMap> {
   }
 
   async #notifyLiveQueries(tables: string[]): Promise<void> {
+    if (tables.length > 0) {
+      this.#reportObserverErrors(
+        this.emitter.emitSafely("tables:changed", Object.freeze([...tables])),
+      );
+    }
     const results = await Promise.allSettled(
       [...this.#liveQueries].map((lq) => lq.notifyTables(tables)),
     );

@@ -663,7 +663,7 @@ async function normalizeCheckinTitles(exec: MigrationExec): Promise<void> {
   }
 }
 
-const UNIQUE_NAMES_SEED: Seed = {
+const NORMALIZED_NAMES_SEED: Seed = {
   key: 'schema:unique-habit-and-checkin-name-keys',
   apply: async (exec) => {
     await ensureUniqueNameKeyColumns(exec)
@@ -671,9 +671,9 @@ const UNIQUE_NAMES_SEED: Seed = {
     await normalizeCheckinTitles(exec)
     await exec('DROP INDEX IF EXISTS idx_habits_name_normalized')
     await exec('DROP INDEX IF EXISTS idx_checkin_templates_title_normalized')
-    await exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_habits_name_key ON habits(name_key)')
+    await exec('CREATE INDEX IF NOT EXISTS idx_habits_name_key ON habits(name_key)')
     await exec(
-      'CREATE UNIQUE INDEX IF NOT EXISTS idx_checkin_templates_title_key ON checkin_templates(title_key)',
+      'CREATE INDEX IF NOT EXISTS idx_checkin_templates_title_key ON checkin_templates(title_key)',
     )
   },
 }
@@ -696,7 +696,7 @@ const RECOVER_BOOLEAN_HISTORY_SEED: Seed = {
 
 export const SCHEMA_CONFIG: SchemaConfig = {
   schema: SCHEMA_DDL,
-  version: 26,
+  version: 27,
   migrations: {
     11: [
       `CREATE TABLE IF NOT EXISTS bored_categories (
@@ -874,6 +874,14 @@ export const SCHEMA_CONFIG: SchemaConfig = {
     // index for entry_date. Keep this repair at a new version so any partially
     // upgraded v25 store is also healed on its next launch.
     26: [ensurePlannerStorage],
+    // Names are validated by local commands. Independent offline creations must
+    // both survive replication instead of poisoning the remote change stream.
+    27: [
+      'DROP INDEX IF EXISTS idx_habits_name_key',
+      'DROP INDEX IF EXISTS idx_checkin_templates_title_key',
+      'CREATE INDEX IF NOT EXISTS idx_habits_name_key ON habits(name_key)',
+      'CREATE INDEX IF NOT EXISTS idx_checkin_templates_title_key ON checkin_templates(title_key)',
+    ],
   },
-  seeds: [UNIQUE_NAMES_SEED, ...SEEDS, PLANNER_INDEX_SEED, RECOVER_BOOLEAN_HISTORY_SEED],
+  seeds: [NORMALIZED_NAMES_SEED, ...SEEDS, PLANNER_INDEX_SEED, RECOVER_BOOLEAN_HISTORY_SEED],
 }

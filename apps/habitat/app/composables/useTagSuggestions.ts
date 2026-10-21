@@ -116,16 +116,15 @@ export function rankSuggestions(
 }
 
 /**
- * Composable that loads all tags from the DB once per session
- * and provides context-aware suggestions.
+ * Cache tag suggestions between mounts and refresh them when the database changes.
  */
 export function useTagSuggestions(context: TagSource, bonusSuggestions?: Ref<string[]>) {
-  const db = useDatabase()
+  const db = useDatabase(() => loadTags(true))
   const tagRows = useState<TagRow[]>('all-tag-rows', () => [])
   const loaded = useState<boolean>('all-tag-rows-loaded', () => false)
 
-  async function loadTags() {
-    if (loaded.value) return
+  async function loadTags(force = false) {
+    if (loaded.value && !force) return
     tagRows.value = await db.getAllTags()
     loaded.value = true
   }

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { generateUuidV7 } from '@palladium/core'
+
 // Image capture / gallery picker bottom sheet
 const emit = defineEmits<{ close: [] }>()
 const store = useJotsStore()
@@ -8,50 +10,53 @@ const { impact, notification } = useHaptics()
 const errorMsg = ref<string | null>(null)
 const imagePreview = ref<{ url: string; file: File } | null>(null)
 const saving = ref(false)
+const galleryInput = ref<HTMLInputElement | null>(null)
+const cameraInput = ref<HTMLInputElement | null>(null)
+let disposed = false
+let savingUrl: string | null = null
 
 function pickFromGallery() {
   void impact('light')
-  const input = document.createElement('input')
-  input.type = 'file'
-  input.accept = 'image/*'
-  input.onchange = () => {
-    const file = input.files?.[0]
-    if (file) showPreview(file)
-  }
-  input.click()
+  galleryInput.value?.click()
 }
 
 function pickFromCamera() {
   void impact('light')
-  const input = document.createElement('input')
-  input.type = 'file'
-  input.accept = 'image/*'
-  input.setAttribute('capture', 'environment')
-  input.onchange = () => {
-    const file = input.files?.[0]
-    if (file) showPreview(file)
-  }
-  input.click()
+  cameraInput.value?.click()
+}
+
+function onImageSelected(event: Event) {
+  const input = event.target
+  if (!(input instanceof HTMLInputElement)) return
+  const file = input.files?.[0]
+  if (file) showPreview(file)
+  input.value = ''
+}
+
+function releasePreview(preserveUrl: string | null = null) {
+  const preview = imagePreview.value
+  imagePreview.value = null
+  if (preview && preview.url !== preserveUrl) media.revokeObjectURL(preview.url)
 }
 
 function showPreview(file: File) {
-  if (imagePreview.value) media.revokeObjectURL(imagePreview.value.url)
-  imagePreview.value = { url: media.createObjectURL(file), file }
+  const url = media.createObjectURL(file)
+  releasePreview(savingUrl)
+  imagePreview.value = { url, file }
 }
 
 function cancelPreview() {
-  if (imagePreview.value) {
-    media.revokeObjectURL(imagePreview.value.url)
-    imagePreview.value = null
-  }
+  releasePreview(savingUrl)
 }
 
 async function saveImage() {
-  if (!imagePreview.value || saving.value) return
+  const preview = imagePreview.value
+  if (!preview || saving.value) return
   saving.value = true
+  savingUrl = preview.url
   try {
-    const { file, url } = imagePreview.value
-    const id = crypto.randomUUID()
+    const { file, url } = preview
+    const id = generateUuidV7()
     const arrayBuffer = await file.arrayBuffer()
     const blob = new Blob([arrayBuffer], { type: file.type })
     await store.addImageNote(
@@ -65,23 +70,28 @@ async function saveImage() {
       },
       url,
     )
-    imagePreview.value = null
+    releasePreview(savingUrl)
     void notification('success')
     emit('close')
   } catch (err: unknown) {
-    errorMsg.value = err instanceof Error ? err.message : String(err)
+    if (disposed || imagePreview.value?.url !== preview.url) media.revokeObjectURL(preview.url)
+    if (!disposed) errorMsg.value = err instanceof Error ? err.message : String(err)
   } finally {
+    savingUrl = null
     saving.value = false
   }
 }
 
 onUnmounted(() => {
-  if (imagePreview.value) media.revokeObjectURL(imagePreview.value.url)
+  disposed = true
+  releasePreview(savingUrl)
 })
 </script>
 
 <template>
   <div class="space-y-4">
+    <input ref="galleryInput" type="file" accept="image/*" hidden @change="onImageSelected" />
+    <input ref="cameraInput" type="file" accept="image/*" capture="environment" hidden @change="onImageSelected" />
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-2">
         <AppIconButton v-if="imagePreview" icon="arrow-left" label="Back to camera" @click="cancelPreview" />
