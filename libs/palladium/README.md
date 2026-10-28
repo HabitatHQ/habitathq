@@ -96,6 +96,12 @@ is unknown to the caller. Terminal database startup failure rejects both queued
 and future RPCs rather than leaving them pending, even if the error-reporting
 callback throws.
 
+Worker invalidation, role, error, and diagnostic subscriptions are independent.
+Every subscription returns an idempotent unsubscribe function; diagnostics replay
+the latest 20 events. `client.live(sql, params, onRows, onError?)` ignores late
+or superseded query completions. Active query failures reach the supplied error
+handler, or are logged when it is absent.
+
 Atrium blob uploads accept up to 16 MiB, including the boundary. Larger requests
 return HTTP 413 without creating a blob or replacing existing bytes; ordinary
 JSON routes retain their 2 MiB request-body limit.
@@ -103,6 +109,11 @@ JSON routes retain their 2 MiB request-body limit.
 Filesystem blob writes reject retained soft-deleted IDs with `BlobError::NotFound`.
 The tombstone and original bytes remain intact until `purge_deleted()` removes
 them; a rejected write does not implicitly restore a deleted blob.
+
+Rust `AppendCursor` construction requires a `NonZeroU64`. Parsing and
+deserialization reject zero, noncanonical decimal strings, and overflow; JSON
+serialization remains a decimal string. `position()` returns the validated
+numeric value. Start-of-history is represented by an absent cursor.
 
 ### Reactive binding lifecycle
 
@@ -114,6 +125,10 @@ owning effect is cleaned up, not by an abandoned concurrent render.
 Svelte `syncStatusStore` samples the engine's current status on every first
 subscription after an inactive period, then listens for status changes until
 the last subscriber leaves.
+
+Live-query bindings discard initial results and errors after their subscription
+or component scope ends. Once a change notification publishes newer rows, a late
+initial result or error cannot replace them; that notification also settles loading.
 
 Notification permissions are instance-level state changes, independent of
 delivery. Use `instance.requestPermission(channel)` or

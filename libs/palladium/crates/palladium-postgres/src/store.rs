@@ -242,7 +242,9 @@ impl ChangeStore for PostgresStore {
         tx.commit().await?;
         let seq = u64::try_from(seq)
             .map_err(|_| Error::InvalidData("append sequence is negative".into()))?;
-        let cursor = palladium_core::AppendCursor::new(seq);
+        let position = std::num::NonZeroU64::new(seq)
+            .ok_or_else(|| Error::InvalidData("append sequence must be positive".into()))?;
+        let cursor = palladium_core::AppendCursor::new(position);
         Ok(if inserted {
             palladium_core::InsertOutcome::Inserted(cursor)
         } else {
@@ -272,11 +274,16 @@ impl ChangeStore for PostgresStore {
             .bind(scope.as_str()).bind(start_db).bind(upper_db.0).bind(i64::from(limit)).fetch_all(&self.pool).await?;
         let cursor = rows
             .last()
-            .map(|row| {
-                u64::try_from(row.append_seq)
-                    .map(palladium_core::AppendCursor::new)
-                    .map_err(|_| Error::InvalidData("append sequence is negative".into()))
-            })
+            .map(
+                |row| -> std::result::Result<palladium_core::AppendCursor, Error> {
+                    let seq = u64::try_from(row.append_seq)
+                        .map_err(|_| Error::InvalidData("append sequence is negative".into()))?;
+                    let position = std::num::NonZeroU64::new(seq).ok_or_else(|| {
+                        Error::InvalidData("append sequence must be positive".into())
+                    })?;
+                    Ok(palladium_core::AppendCursor::new(position))
+                },
+            )
             .transpose()?;
         let changes = rows
             .into_iter()
@@ -291,7 +298,9 @@ impl ChangeStore for PostgresStore {
             purges: Vec::new(),
             events: Vec::new(),
             cursor,
-            upper_bound: palladium_core::AppendCursor::new(upper.max(1)),
+            upper_bound: palladium_core::AppendCursor::new(
+                std::num::NonZeroU64::new(upper).unwrap_or(std::num::NonZeroU64::MIN),
+            ),
             caught_up,
             control: palladium_core::PageControl {
                 must_refetch: false,

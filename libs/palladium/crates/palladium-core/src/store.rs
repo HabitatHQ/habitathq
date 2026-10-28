@@ -11,10 +11,32 @@ use crate::{Change, Scope};
 /// Maximum number of changes in one server page.
 pub const MAX_PAGE_SIZE: u32 = 100;
 
-/// Opaque server-issued append position.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct AppendCursor(String);
+/// Opaque server-issued append position. Serde preserves its canonical decimal
+/// string representation; cursors always hold a positive position.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppendCursor {
+    wire: String,
+    position: std::num::NonZeroU64,
+}
+
+impl Serialize for AppendCursor {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.wire)
+    }
+}
+impl<'de> Deserialize<'de> for AppendCursor {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = String::deserialize(deserializer)?;
+        let position = Self::parse_position(&wire).map_err(serde::de::Error::custom)?;
+        Ok(Self { wire, position })
+    }
+}
 
 impl AppendCursor {
     /// Create a cursor from a canonical decimal append position.
@@ -24,6 +46,14 @@ impl AppendCursor {
     /// Returns an error when the position is non-canonical, zero, or exceeds
     /// the unsigned append-position range.
     pub fn parse(value: &str) -> Result<Self, String> {
+        let position = Self::parse_position(value)?;
+        Ok(Self {
+            wire: value.to_owned(),
+            position,
+        })
+    }
+
+    fn parse_position(value: &str) -> Result<std::num::NonZeroU64, String> {
         if value.is_empty()
             || (value.len() > 1 && value.starts_with('0'))
             || !value.bytes().all(|b| b.is_ascii_digit())
@@ -33,28 +63,31 @@ impl AppendCursor {
         let position = value
             .parse::<u64>()
             .map_err(|_| "append cursor out of range".to_owned())?;
-        if position == 0 {
-            return Err("append cursor must be positive".to_owned());
-        }
-        Ok(Self(value.to_owned()))
+        std::num::NonZeroU64::new(position)
+            .ok_or_else(|| "append cursor must be positive".to_owned())
     }
 
-    /// Construct a cursor from an append position.
+    /// Construct a cursor from a nonzero append position.
+    ///
+    /// The type guarantees a strictly positive position.
     #[must_use]
-    pub fn new(position: u64) -> Self {
-        Self(position.to_string())
+    pub fn new(position: std::num::NonZeroU64) -> Self {
+        Self {
+            wire: position.get().to_string(),
+            position,
+        }
     }
 
     /// Return the opaque wire representation.
     #[must_use]
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.wire
     }
 
     /// Return its numeric value for store queries.
     #[must_use]
-    pub fn position(&self) -> u64 {
-        self.0.parse().unwrap_or(0)
+    pub const fn position(&self) -> u64 {
+        self.position.get()
     }
 }
 
@@ -140,4 +173,77 @@ pub trait ChangeStore {
         scope: &'a Scope,
         id: Uuid,
     ) -> impl Future<Output = Result<Option<Change>, Self::Error>> + Send + 'a;
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::{AppendCursor, ChangePage};
+
+    #[test]
+    fn append_cursor_deserialization_accepts_only_canonical_positive_u64_strings() {
+        for value in ["1", "42", "18446744073709551615"] {
+            let encoded = format!("\"{value}\"");
+            let cursor: AppendCursor = serde_json::from_str(&encoded).unwrap();
+            assert_eq!(cursor.as_str(), value);
+            assert_eq!(serde_json::to_string(&cursor).unwrap(), encoded);
+        }
+
+        for value in [
+            "0",
+            "00",
+            "01",
+            "+1",
+            "-1",
+            " 1",
+            "1 ",
+            "١",
+            "18446744073709551616",
+            "",
+        ] {
+            let encoded = serde_json::to_string(value).unwrap();
+            assert!(
+                serde_json::from_str::<AppendCursor>(&encoded).is_err(),
+                "accepted invalid cursor {value:?}"
+            );
+        }
+        assert!(serde_json::from_str::<AppendCursor>("1").is_err());
+    }
+
+    #[test]
+    fn parse_and_constructor_enforce_positive_canonical_positions() {
+        use std::num::NonZeroU64;
+
+        assert_eq!(AppendCursor::new(NonZeroU64::new(1).unwrap()).as_str(), "1");
+        assert_eq!(
+            AppendCursor::new(NonZeroU64::new(u64::MAX).unwrap()).position(),
+            u64::MAX
+        );
+        for value in [
+            "0",
+            "00",
+            "01",
+            "+1",
+            "-1",
+            " 1",
+            "1 ",
+            "١",
+            "18446744073709551616",
+            "",
+        ] {
+            assert!(AppendCursor::parse(value).is_err(), "accepted {value:?}");
+        }
+        assert_eq!(
+            AppendCursor::parse("18446744073709551615")
+                .unwrap()
+                .position(),
+            u64::MAX
+        );
+    }
+
+    #[test]
+    fn change_page_deserialization_rejects_invalid_embedded_cursor() {
+        let page = r#"{"version":1,"changes":[],"purges":[],"events":[],"cursor":null,"upperBound":"0","caughtUp":true,"control":{"mustRefetch":false}}"#;
+        assert!(serde_json::from_str::<ChangePage>(page).is_err());
+    }
 }
