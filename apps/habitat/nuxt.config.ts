@@ -67,9 +67,9 @@ export default defineNuxtConfig({
   // PWA config (only active when BUILD_TARGET=pwa or dev)
   ...(isPWA && {
     pwa: {
-      // injectManifest: we supply a custom sw.ts that handles both Workbox
-      // precaching and COOP/COEP header injection on navigation responses.
-      // This replaces the old generateSW + coi-serviceworker.js combination —
+      // injectManifest: the custom sw.ts handles Workbox precaching plus COOP/COEP
+      // injection on navigation and worker responses.
+      // This replaces the old generateSW + coi-serviceworker.js combination—
       // one SW avoids the scope-conflict/reload-loop that two SWs caused.
       strategies: 'injectManifest',
       srcDir: 'workers',

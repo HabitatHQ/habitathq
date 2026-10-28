@@ -227,7 +227,12 @@ self.addEventListener('fetch', (event: FetchEvent) => {
   }
 
   if (isRuntimeAssetRequest(event.request, url)) {
-    event.respondWith(staleWhileRevalidate(event))
+    const response = staleWhileRevalidate(event)
+    event.respondWith(
+      event.request.destination === 'worker' || event.request.destination === 'sharedworker'
+        ? response.then(withCOIHeaders)
+        : response,
+    )
   }
 })
 
