@@ -11,6 +11,7 @@ export interface LiveQueryResult<T> {
 /**
  * Vue composable for reactive SQL queries.
  *
+ * A change notification supersedes the initial execution if the two overlap.
  * ```ts
  * const { rows, loading } = useLiveQuery<Task>(db, sql`SELECT * FROM tasks`);
  * ```
@@ -25,22 +26,28 @@ export function useLiveQuery<T = Record<string, unknown>>(
   const error = ref<Error | null>(null);
 
   let cancelled = false;
+  let changed = false;
 
   const lq = engine.liveQuery<T>(query);
 
   const unsub = lq.on("change", (newRows) => {
-    if (!cancelled) rows.value = newRows;
+    if (!cancelled) {
+      changed = true;
+      rows.value = newRows;
+      loading.value = false;
+      error.value = null;
+    }
   });
 
   lq.exec()
     .then((initial) => {
-      if (!cancelled) {
+      if (!cancelled && !changed) {
         rows.value = initial;
         loading.value = false;
       }
     })
     .catch((err: unknown) => {
-      if (!cancelled) {
+      if (!cancelled && !changed) {
         error.value = toError(err);
         loading.value = false;
       }

@@ -11,6 +11,8 @@ export interface LiveQueryValue<T> {
 /**
  * Svelte readable store for reactive SQL queries.
  *
+ * Each active subscription owns its pending initial result; teardown prevents
+ * stale completions, and a change notification takes precedence over that result.
  * ```svelte
  * <script>
  *   import { liveQueryStore } from '@palladium/svelte';
@@ -27,21 +29,30 @@ export function liveQueryStore<T = Record<string, unknown>>(
   query: SqlQuery,
 ) {
   return readable<LiveQueryValue<T>>({ rows: [], loading: true, error: null }, (set, update) => {
+    let active = true;
+    let changed = false;
     const lq = engine.liveQuery<T>(query);
 
     const unsub = lq.on("change", (rows) => {
-      update((prev) => ({ ...prev, rows }));
+      if (!active) return;
+      changed = true;
+      update((prev) => ({ ...prev, rows, loading: false, error: null }));
     });
 
     lq.exec()
       .then((rows) => {
-        set({ rows, loading: false, error: null });
+        if (active && !changed) {
+          set({ rows, loading: false, error: null });
+        }
       })
       .catch((err: unknown) => {
-        update((prev) => ({ ...prev, loading: false, error: toError(err) }));
+        if (active && !changed) {
+          update((prev) => ({ ...prev, loading: false, error: toError(err) }));
+        }
       });
 
     return () => {
+      active = false;
       unsub();
       lq.cancel();
     };

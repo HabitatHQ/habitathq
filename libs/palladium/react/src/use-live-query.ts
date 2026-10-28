@@ -13,6 +13,7 @@ export interface LiveQueryResult<T> {
  * Subscribe to a live SQL query.
  *
  * Re-renders whenever any of the query's watched tables are written to.
+ * A change notification supersedes the initial execution if the two overlap.
  *
  * ```tsx
  * const { rows, loading } = useLiveQuery<Task>(sql`SELECT * FROM tasks`);
@@ -31,24 +32,26 @@ export function useLiveQuery<T = Record<string, unknown>>(query: SqlQuery): Live
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — keyed on text+params, not object identity
   useEffect(() => {
     let cancelled = false;
+    let changed = false;
     setState({ key: queryKey, rows: [], loading: true, error: null });
 
     const lq = engine.liveQuery<T>(query);
 
     const unsub = lq.on("change", (newRows) => {
       if (!cancelled) {
-        setState((current) => ({ ...current, key: queryKey, rows: newRows }));
+        changed = true;
+        setState({ key: queryKey, rows: newRows, loading: false, error: null });
       }
     });
 
     lq.exec()
       .then((initial) => {
-        if (!cancelled) {
+        if (!cancelled && !changed) {
           setState({ key: queryKey, rows: initial, loading: false, error: null });
         }
       })
       .catch((err: unknown) => {
-        if (!cancelled) {
+        if (!cancelled && !changed) {
           setState({ key: queryKey, rows: [], loading: false, error: toError(err) });
         }
       });
