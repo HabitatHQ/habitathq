@@ -13,8 +13,7 @@ const shellUrl = scope.href
 precache(self.__WB_MANIFEST)
 cleanupOutdatedCaches()
 
-async function navigationResponse(request: Request): Promise<Response> {
-  const response = (await matchPrecache(shellUrl)) ?? (await fetch(request))
+function withCOIHeaders(response: Response): Response {
   const headers = new Headers(response.headers)
   headers.set('Cross-Origin-Opener-Policy', 'same-origin')
   headers.set('Cross-Origin-Embedder-Policy', 'require-corp')
@@ -23,6 +22,11 @@ async function navigationResponse(request: Request): Promise<Response> {
     statusText: response.statusText,
     headers,
   })
+}
+
+async function navigationResponse(request: Request): Promise<Response> {
+  const response = (await matchPrecache(shellUrl)) ?? (await fetch(request))
+  return withCOIHeaders(response)
 }
 
 self.addEventListener('fetch', (event) => {
@@ -38,7 +42,12 @@ self.addEventListener('fetch', (event) => {
   if (request.mode === 'navigate') {
     event.respondWith(navigationResponse(request))
   } else {
-    event.respondWith(matchPrecache(request.url).then((cached) => cached ?? fetch(request)))
+    const response = matchPrecache(request.url).then((cached) => cached ?? fetch(request))
+    event.respondWith(
+      request.destination === 'worker' || request.destination === 'sharedworker'
+        ? response.then((workerResponse) => withCOIHeaders(workerResponse))
+        : response,
+    )
   }
 })
 
