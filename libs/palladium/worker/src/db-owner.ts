@@ -109,7 +109,8 @@ export interface BusFacade {
   onError(subscriptionId: string, cb: (message: string) => void): void;
   offError(subscriptionId: string): void;
   /** Register for privacy-safe leadership and request-recovery diagnostics. */
-  onDiagnostic(cb: (diagnostic: WorkerDiagnostic) => void): void;
+  onDiagnostic(subscriptionId: string, cb: (diagnostic: WorkerDiagnostic) => void): void;
+  offDiagnostic(subscriptionId: string): void;
 }
 
 /** What the main thread sees over Comlink: the app's methods plus bus controls. */
@@ -158,11 +159,17 @@ export function leaderAnnouncementRequiresConnection(
   );
 }
 
-interface Subscription<T> {
-  readonly id: string;
-  readonly callback: T;
+function notify<T>(callbacks: Iterable<(value: T) => void>, value: T): void {
+  for (const callback of callbacks) {
+    try {
+      void Promise.resolve(callback(value)).catch((error: unknown) => {
+        console.error("palladium/worker: subscription callback failed", error);
+      });
+    } catch (error) {
+      console.error("palladium/worker: subscription callback failed", error);
+    }
+  }
 }
-
 export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
   const startedAt = Date.now();
   const peerId: PeerId = crypto.randomUUID();
@@ -180,11 +187,11 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
   let leaderProxy: Comlink.Remote<S> | null = null;
 
   // Callbacks registered by this tab's main thread.
-  let diagnosticCb: ((diagnostic: WorkerDiagnostic) => void) | null = null;
+  const diagnosticSubscriptions = new Map<string, (diagnostic: WorkerDiagnostic) => void>();
   const recentDiagnostics: WorkerDiagnostic[] = [];
-  let invalidateSubscription: Subscription<(tables: readonly string[]) => void> | null = null;
-  let roleSubscription: Subscription<(role: Role) => void> | null = null;
-  let errorSubscription: Subscription<(message: string) => void> | null = null;
+  const invalidateSubscriptions = new Map<string, (tables: readonly string[]) => void>();
+  const roleSubscriptions = new Map<string, (role: Role) => void>();
+  const errorSubscriptions = new Map<string, (message: string) => void>();
   let lastError: string | null = null;
   let promotionAttempt = 0;
 
@@ -203,7 +210,7 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
     };
     recentDiagnostics.push(diagnostic);
     if (recentDiagnostics.length > 20) recentDiagnostics.shift();
-    diagnosticCb?.(diagnostic);
+    notify(diagnosticSubscriptions.values(), diagnostic);
     config.onDiagnostic?.(diagnostic);
   }
 
@@ -212,7 +219,7 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
   const ctx: OwnerContext = {
     invalidate(tables) {
       // BroadcastChannel does not echo to the sender, so notify this tab too.
-      invalidateSubscription?.callback(tables);
+      notify(invalidateSubscriptions.values(), tables);
       post({ type: CONTROL.INVALIDATE, epoch, tables });
     },
   };
@@ -254,7 +261,7 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
       const message = errMsg(err);
       lastError = message;
       report("promotion_failed", { error: message });
-      errorSubscription?.callback(message);
+      notify(errorSubscriptions.values(), message);
       config.onError?.(message);
       return "release";
     }
@@ -265,7 +272,7 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
     leaderProxy = null;
     servedFollowers.clear();
     lastError = null;
-    roleSubscription?.callback(role);
+    notify(roleSubscriptions.values(), role);
     report("promotion_ready");
     post({ type: CONTROL.LEADER, epoch, leader: peerId });
     return "hold";
@@ -290,7 +297,7 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
         break;
       case CONTROL.INVALIDATE:
         // Fan-out to this tab (the leader already notified itself synchronously).
-        if (role !== "leader") invalidateSubscription?.callback(data.tables);
+        if (role !== "leader") notify(invalidateSubscriptions.values(), data.tables);
         break;
     }
   });
@@ -310,7 +317,7 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
         report("lock_request_failed", { error: message });
         if (!lastError) {
           lastError = message;
-          errorSubscription?.callback(message);
+          notify(errorSubscriptions.values(), message);
           config.onError?.(message);
         }
       },
@@ -366,28 +373,31 @@ export function startDbOwner<S extends object>(config: DbOwnerConfig<S>): void {
   // ── Facade exposed to this tab's main thread ─────────────────────────────
   const facade: Record<string, unknown> = {
     onInvalidate: (subscriptionId: string, cb: (tables: readonly string[]) => void) => {
-      invalidateSubscription = { id: subscriptionId, callback: cb };
+      invalidateSubscriptions.set(subscriptionId, cb);
     },
     offInvalidate: (subscriptionId: string) => {
-      if (invalidateSubscription?.id === subscriptionId) invalidateSubscription = null;
+      invalidateSubscriptions.delete(subscriptionId);
     },
     onRole: (subscriptionId: string, cb: (role: Role) => void) => {
-      roleSubscription = { id: subscriptionId, callback: cb };
-      cb(role);
+      roleSubscriptions.set(subscriptionId, cb);
+      notify([cb], role);
     },
     offRole: (subscriptionId: string) => {
-      if (roleSubscription?.id === subscriptionId) roleSubscription = null;
+      roleSubscriptions.delete(subscriptionId);
     },
     onError: (subscriptionId: string, cb: (message: string) => void) => {
-      errorSubscription = { id: subscriptionId, callback: cb };
-      if (lastError) cb(lastError);
+      errorSubscriptions.set(subscriptionId, cb);
+      if (lastError) notify([cb], lastError);
     },
     offError: (subscriptionId: string) => {
-      if (errorSubscription?.id === subscriptionId) errorSubscription = null;
+      errorSubscriptions.delete(subscriptionId);
     },
-    onDiagnostic: (cb: (diagnostic: WorkerDiagnostic) => void) => {
-      diagnosticCb = cb;
-      for (const diagnostic of recentDiagnostics) cb(diagnostic);
+    onDiagnostic: (subscriptionId: string, cb: (diagnostic: WorkerDiagnostic) => void) => {
+      diagnosticSubscriptions.set(subscriptionId, cb);
+      for (const diagnostic of recentDiagnostics) notify([cb], diagnostic);
+    },
+    offDiagnostic: (subscriptionId: string) => {
+      diagnosticSubscriptions.delete(subscriptionId);
     },
   };
   for (const method of config.methods) {

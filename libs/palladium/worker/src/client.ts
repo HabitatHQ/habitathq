@@ -24,8 +24,34 @@ export interface WorkerConnection<S extends object> {
   onRole(cb: (role: Role) => void): () => void;
   /** Subscribe to promotion errors. Returns an unsubscribe function. */
   onError(cb: (message: string) => void): () => void;
-  /** Fires privacy-safe leadership and request-recovery diagnostics. */
-  onDiagnostic(cb: (diagnostic: WorkerDiagnostic) => void): void;
+  /** Subscribe to privacy-safe diagnostics. Returns an unsubscribe function. */
+  onDiagnostic(cb: (diagnostic: WorkerDiagnostic) => void): () => void;
+}
+
+function reportSubscriptionError(error: unknown): void {
+  console.error("palladium/worker: subscription operation failed", error);
+}
+
+function subscribe<T>(
+  register: (id: string, callback: (value: T) => void) => Promise<void>,
+  unregister: (id: string) => Promise<void>,
+  cb: (value: T) => void,
+): () => void {
+  const id = crypto.randomUUID();
+  let active = true;
+  const registration = register(
+    id,
+    Comlink.proxy((value: T) => {
+      if (active) return cb(value);
+    }),
+  ).catch((error: unknown) => {
+    reportSubscriptionError(error);
+  });
+  return () => {
+    if (!active) return;
+    active = false;
+    void registration.then(() => unregister(id)).catch(reportSubscriptionError);
+  };
 }
 
 /**
@@ -39,24 +65,31 @@ export function connect<S extends object>(worker: Worker): WorkerConnection<S> {
   const remote = Comlink.wrap<WorkerFacade<S>>(worker);
   const bus = remote as unknown as Comlink.Remote<BusFacade>;
   return {
-    // The bus methods live on the same proxy; expose only the app surface here.
     service: remote as unknown as Comlink.Remote<S>,
-    onInvalidate: (cb) => {
-      const subscriptionId = crypto.randomUUID();
-      void bus.onInvalidate(subscriptionId, Comlink.proxy(cb));
-      return () => void bus.offInvalidate(subscriptionId);
-    },
-    onRole: (cb) => {
-      const subscriptionId = crypto.randomUUID();
-      void bus.onRole(subscriptionId, Comlink.proxy(cb));
-      return () => void bus.offRole(subscriptionId);
-    },
-    onError: (cb) => {
-      const subscriptionId = crypto.randomUUID();
-      void bus.onError(subscriptionId, Comlink.proxy(cb));
-      return () => void bus.offError(subscriptionId);
-    },
-    onDiagnostic: (cb) => void bus.onDiagnostic(Comlink.proxy(cb)),
+    onInvalidate: (cb) =>
+      subscribe(
+        (id, callback) => bus.onInvalidate(id, callback),
+        (id) => bus.offInvalidate(id),
+        cb,
+      ),
+    onRole: (cb) =>
+      subscribe(
+        (id, callback) => bus.onRole(id, callback),
+        (id) => bus.offRole(id),
+        cb,
+      ),
+    onError: (cb) =>
+      subscribe(
+        (id, callback) => bus.onError(id, callback),
+        (id) => bus.offError(id),
+        cb,
+      ),
+    onDiagnostic: (cb) =>
+      subscribe(
+        (id, callback) => bus.onDiagnostic(id, callback),
+        (id) => bus.offDiagnostic(id),
+        cb,
+      ),
   };
 }
 
@@ -67,14 +100,14 @@ export interface PalladiumClient {
   onInvalidate(cb: (tables: readonly string[]) => void): () => void;
   /** Subscribe to role changes. */
   onRole(cb: (role: Role) => void): () => void;
-  /** Convenience: re-run `sql` now and again on every invalidation. */
+  /** Re-run `sql` on invalidation; an optional handler receives active query failures. */
   live<T = Record<string, unknown>>(
     sql: string,
     params: readonly unknown[],
     onRows: (rows: T[]) => void,
+    onError?: (error: Error) => void,
   ): () => void;
 }
-
 /** Convenience client for the query/mutate {@link DbApi} service shape. */
 export function createClient(worker: Worker): PalladiumClient {
   const conn = connect<DbApi>(worker);
@@ -84,13 +117,35 @@ export function createClient(worker: Worker): PalladiumClient {
     mutate: (sql, params) => conn.service.mutate(sql, params),
     onInvalidate: conn.onInvalidate,
     onRole: conn.onRole,
-    live: (sql, params, onRows) => {
+    live: (sql, params, onRows, onError) => {
+      let active = true;
+      let requestId = 0;
       const run = (): void => {
-        void client.query(sql, params).then((rows) => onRows(rows as never));
+        if (!active) return;
+        const currentRequestId = ++requestId;
+        void client
+          .query(sql, params)
+          .then(
+            (rows) => {
+              if (active && currentRequestId === requestId) return onRows(rows as never);
+            },
+            (error: unknown) => {
+              if (!active || currentRequestId !== requestId) return;
+              if (onError)
+                return onError(error instanceof Error ? error : new Error(String(error)));
+              reportSubscriptionError(error);
+            },
+          )
+          .catch(reportSubscriptionError);
       };
       const unsubscribe = client.onInvalidate(() => run());
       run();
-      return unsubscribe;
+      return () => {
+        if (!active) return;
+        active = false;
+        requestId += 1;
+        unsubscribe();
+      };
     },
   };
   return client;

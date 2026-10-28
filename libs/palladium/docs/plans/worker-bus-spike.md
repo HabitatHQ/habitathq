@@ -94,6 +94,12 @@ startDbOwner<S>({
   platform-error summaries.
 - Main thread: `connect<S>(worker)` returns a typed proxy to the service (routed to the leader) plus the bus
   callbacks. `createClient` (query/mutate/`live`) is now a thin convenience built on `connect`, used by the example.
+
+  Each bus subscription is keyed independently and returns an idempotent
+  unsubscribe function; diagnostic listeners receive the latest 20 retained
+  lifecycle records on registration. `createClient.live()` ignores stale or
+  post-unsubscribe query completions and reports active query failures through
+  its optional error callback (or the console when omitted).
 - `leadership.ts`: `whileLeader(lock, onAcquired)` holds after `"hold"` and, after `"release"`, waits briefly before
   re-entering the normal exclusive-lock queue. A failed promotion closes any partially opened service first. This
   handles transient OPFS/WASM startup failures without `steal` or concurrent writers.
