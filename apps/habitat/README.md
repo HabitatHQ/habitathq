@@ -259,7 +259,7 @@ Unit tests live in `tests/unit/`, E2E in `tests/e2e/`, a11y in `tests/a11y/`.
 
 ## Notes
 
-- OPFS requires `Cross-Origin-Isolation` headers (`COOP`/`COEP`), handled by `coi-serviceworker` in dev and the PWA service worker in production.
+- OPFS requires cross-origin isolation (`COOP`/`COEP`). The production PWA service worker adds these headers to navigation responses and dedicated/shared worker responses; dev serves them directly.
 - The `BUILD_TARGET` env var (`pwa` | `native`) controls whether the PWA manifest/service worker are bundled.
 - Feature flags in `useAppSettings.ts` gate optional pages (Todos, Bored, Timer, Jots) to keep the nav uncluttered by default.
 - Both `android/` and `ios/` native project directories are tracked in git. They contain customisations (app icons, splash screens, build configs) that would be lost if regenerated with `cap add`. After cloning, run `pod install` in `ios/App/` to restore CocoaPods dependencies.

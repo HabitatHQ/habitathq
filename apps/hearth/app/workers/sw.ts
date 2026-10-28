@@ -1,11 +1,39 @@
 /// <reference lib="webworker" />
 import { setCacheNameDetails } from 'workbox-core'
-import { cleanupOutdatedCaches, matchPrecache, precacheAndRoute } from 'workbox-precaching'
+import {
+  addPlugins,
+  cleanupOutdatedCaches,
+  matchPrecache,
+  precacheAndRoute,
+} from 'workbox-precaching'
+
+function withCOIHeaders(response: Response): Response {
+  const headers = new Headers(response.headers)
+  headers.set('Cross-Origin-Opener-Policy', 'same-origin')
+  headers.set('Cross-Origin-Embedder-Policy', 'require-corp')
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
+}
 
 declare const self: ServiceWorkerGlobalScope & {
   __WB_MANIFEST: Array<{ url: string; revision: string | null }>
 }
 setCacheNameDetails({ prefix: 'hearth', suffix: encodeURIComponent(self.registration.scope) })
+
+// Use the original request, not Workbox's revisioned cache-key request.
+addPlugins([
+  {
+    handlerWillRespond: async ({ request, response }) =>
+      request.mode === 'navigate' ||
+      request.destination === 'worker' ||
+      request.destination === 'sharedworker'
+        ? withCOIHeaders(response)
+        : response,
+  },
+])
 
 self.skipWaiting()
 self.addEventListener('activate', (e: ExtendableEvent) => e.waitUntil(self.clients.claim()))
@@ -26,14 +54,3 @@ self.addEventListener('fetch', (event: FetchEvent) => {
     })(),
   )
 })
-
-function withCOIHeaders(response: Response): Response {
-  const headers = new Headers(response.headers)
-  headers.set('Cross-Origin-Opener-Policy', 'same-origin')
-  headers.set('Cross-Origin-Embedder-Policy', 'require-corp')
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  })
-}
