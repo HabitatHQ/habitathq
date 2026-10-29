@@ -1,5 +1,6 @@
 export interface WebPushChannelOpts {
   vapidPublicKey: string;
+  sendEndpoint?: string;
   subscribeEndpoint?: string;
   unsubscribeEndpoint?: string;
   serviceWorkerUrl?: string;

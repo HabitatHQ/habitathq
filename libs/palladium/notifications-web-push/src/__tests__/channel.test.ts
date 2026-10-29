@@ -1,3 +1,4 @@
+import { createNotifications, MockChannel, type Notification } from "@palladium/notifications-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebPushChannel } from "../channel.js";
 
@@ -90,7 +91,8 @@ describe("WebPushChannel", () => {
 
     expect(await ch.subscribe()).toEqual(expectedSubscription);
     expect(ch.getSubscription()).toEqual(expectedSubscription);
-    expect(await ch.send({ title: "Push message" })).toEqual({ status: "delivered" });
+    expect(await ch.send({ title: "Push message" })).toMatchObject({ status: "skipped" });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it.each([200, 201, 204])(
@@ -104,7 +106,6 @@ describe("WebPushChannel", () => {
 
       expect(await ch.subscribe()).toEqual(expectedSubscription);
       expect(ch.getSubscription()).toEqual(expectedSubscription);
-      expect(await ch.send({ title: "Push message" })).toEqual({ status: "delivered" });
     },
   );
 
@@ -149,6 +150,7 @@ describe("WebPushChannel", () => {
       const ch = new WebPushChannel({
         vapidPublicKey: "dGVzdA==",
         subscribeEndpoint: "/api/push/subscribe",
+        sendEndpoint: "/api/push/send",
       });
       expect(await ch.subscribe()).toEqual(expectedSubscription);
 
@@ -166,6 +168,18 @@ describe("WebPushChannel", () => {
       expect(await ch.subscribe()).toBeNull();
       expect(ch.getSubscription()).toEqual(expectedSubscription);
       expect(await ch.send({ title: "Push message" })).toEqual({ status: "delivered" });
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(fetchMock).toHaveBeenLastCalledWith(
+        "/api/push/send",
+        expect.objectContaining({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            subscription: expectedSubscription,
+            notification: { title: "Push message" },
+          }),
+        }),
+      );
     },
   );
 
@@ -314,12 +328,17 @@ describe("WebPushChannel", () => {
       const ch = new WebPushChannel({
         vapidPublicKey: "test",
         unsubscribeEndpoint: "/api/push/unsubscribe",
+        sendEndpoint: "/api/push/send",
       });
       await expect(ch.unsubscribe()).rejects.toBeTruthy();
       expect(unsubscribeMock).toHaveBeenCalledOnce();
       expect(browserSubscriptionPresent).toBe(false);
       expect(ch.getSubscription()).toEqual(expectedSubscription);
       expect(backendRegistered).toBe(true);
+      expect(await ch.send({ title: "Must not use the unsubscribe retry payload" })).toMatchObject({
+        status: "skipped",
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
 
       await expect(ch.unsubscribe()).resolves.toBeUndefined();
       expect(unsubscribeMock).toHaveBeenCalledOnce();
@@ -355,12 +374,124 @@ describe("WebPushChannel", () => {
     expect(ch.getSubscription()).not.toBeNull();
   });
 
-  it("send() returns delivered when subscribed and granted", async () => {
+  it.each([200, 201, 204])(
+    "send() POSTs the complete subscription and notification before reporting HTTP %i acceptance",
+    async (status) => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status }));
+      vi.stubGlobal("fetch", fetchMock);
+      const ch = new WebPushChannel({
+        vapidPublicKey: "dGVzdA==",
+        sendEndpoint: "/api/push/send",
+      });
+      await ch.subscribe();
+      const notification: Notification = {
+        id: "message-1",
+        title: "Push message",
+        body: "Message body",
+        icon: "/icon.png",
+        badge: "/badge.png",
+        image: "/image.png",
+        urgency: "high",
+        data: { taskId: 42, nested: { enabled: true } },
+        actions: [{ id: "open", label: "Open", icon: "/open.png" }],
+        deepLink: "/tasks/42",
+      };
+
+      expect(await ch.send(notification)).toEqual({ status: "delivered" });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith("/api/push/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscription: expectedSubscription, notification }),
+      });
+    },
+  );
+
+  it("send() skips a subscribed channel without a send endpoint", async () => {
     const ch = new WebPushChannel({ vapidPublicKey: "dGVzdA==" });
     await ch.subscribe();
-    const result = await ch.send({ title: "Push message" });
-    expect(result.status).toBe("delivered");
+
+    expect(await ch.send({ title: "Push message" })).toMatchObject({
+      status: "skipped",
+      reason: expect.stringMatching(/endpoint/i),
+    });
+    expect(fetch).not.toHaveBeenCalled();
   });
+
+  it.each([302, 400, 401, 500])(
+    "send() returns a failed Error when the backend responds HTTP %i",
+    async (status) => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status }));
+      vi.stubGlobal("fetch", fetchMock);
+      const ch = new WebPushChannel({
+        vapidPublicKey: "dGVzdA==",
+        sendEndpoint: "/api/push/send",
+      });
+      await ch.subscribe();
+
+      const result = await ch.send({ title: "Push message" });
+      expect(result).toMatchObject({ status: "failed", error: expect.any(Error) });
+      if (result.status === "failed") expect(result.error.message).toContain(String(status));
+      expect(fetchMock).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each([new TypeError("Failed to fetch"), "Network unavailable"])(
+    "send() normalizes network rejection %s to a failed Error",
+    async (error) => {
+      const fetchMock = vi.fn().mockRejectedValue(error);
+      vi.stubGlobal("fetch", fetchMock);
+      const ch = new WebPushChannel({
+        vapidPublicKey: "dGVzdA==",
+        sendEndpoint: "/api/push/send",
+      });
+      await ch.subscribe();
+
+      const result = await ch.send({ title: "Push message" });
+      expect(result).toMatchObject({ status: "failed", error: expect.any(Error) });
+      if (result.status === "failed") {
+        if (error instanceof Error) expect(result.error).toBe(error);
+        else expect(result.error.message).toBe(error);
+      }
+      expect(fetchMock).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(["missing endpoint", "HTTP failure", "network failure"] as const)(
+    "send() permits notifications-core fallback after %s",
+    async (failure) => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 503 }));
+      if (failure === "network failure") {
+        fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+      }
+      vi.stubGlobal("fetch", fetchMock);
+      const webPush = new WebPushChannel({
+        vapidPublicKey: "dGVzdA==",
+        ...(failure !== "missing endpoint" && { sendEndpoint: "/api/push/send" }),
+      });
+      await webPush.subscribe();
+      const toast = new MockChannel("toast");
+      const notifications = createNotifications({
+        channels: { webPush, toast },
+        fallback: ["toast"],
+      });
+
+      const result = await notifications.notify("Fallback message").via("webPush").send();
+      expect(result.delivered).toEqual(["toast"]);
+      expect(toast.sentNotifications).toEqual([{ title: "Fallback message" }]);
+      if (failure === "missing endpoint") {
+        expect(result.skipped).toEqual([
+          { channel: "webPush", reason: expect.stringMatching(/endpoint/i) },
+        ]);
+        expect(result.failed).toEqual([]);
+        expect(fetchMock).not.toHaveBeenCalled();
+      } else {
+        expect(result.failed).toEqual([{ channel: "webPush", error: expect.any(Error) }]);
+        expect(result.skipped).toEqual([]);
+        expect(fetchMock).toHaveBeenCalledOnce();
+      }
+    },
+  );
 
   it("send() returns skipped when not subscribed", async () => {
     const ch = new WebPushChannel({ vapidPublicKey: "test" });

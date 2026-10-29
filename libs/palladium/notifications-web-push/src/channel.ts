@@ -52,13 +52,32 @@ export class WebPushChannel implements NotificationsChannel {
     if (this.permissionStatus() !== "granted") {
       return { status: "skipped", reason: "Permission not granted" };
     }
-    if (this._subscription === null) {
+    if (this._subscription === null || this._browserSubscriptionRemoved) {
       return { status: "skipped", reason: "Not subscribed to web push" };
     }
-    // In a real implementation this would POST to a push server.
-    // Client-side we record it as delivered since the subscription is active.
-    void notification;
-    return { status: "delivered" };
+    if (this._opts.sendEndpoint === undefined) {
+      return { status: "skipped", reason: "Web Push send endpoint not configured" };
+    }
+
+    try {
+      const response = await fetch(this._opts.sendEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscription: this._subscription, notification }),
+      });
+      if (!response.ok) {
+        return {
+          status: "failed",
+          error: new Error(`Web Push send failed: HTTP ${response.status}`),
+        };
+      }
+      return { status: "delivered" };
+    } catch (error) {
+      return {
+        status: "failed",
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
+    }
   }
 
   async subscribe(): Promise<PushSubscriptionJSON | null> {
