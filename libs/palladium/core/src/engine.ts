@@ -1209,6 +1209,11 @@ export class PalladiumEngine<S extends SchemaMap> {
   }
 
   async #purgeLocalTransaction(adpt: StorageAdapter, tableName: string, id: string): Promise<void> {
+    // `tableName` reaches here both from the public `purgeLocal()` and from
+    // `applyRemotePage`'s untrusted purge envelope. `adpt.remove` interpolates
+    // it directly into `DELETE FROM ${table}`, so reject anything that isn't
+    // a plain identifier before any SQL is built.
+    assertSqlIdentifier(tableName);
     // Delete all LWW registers and pending rows for this row regardless of
     // case-alias spelling. A targeted `tbl = ?` rewrite would conflict with
     // the (tbl, row_id, col) UNIQUE constraint when a canonical row already

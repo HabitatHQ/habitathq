@@ -558,6 +558,21 @@ describe("column-level LWW", () => {
     ).toEqual([{ count: 0 }]);
   });
 
+  it("rejects a purge whose table name is not a plain identifier (SQL-injection guard)", async () => {
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890af";
+    await db.insert("notes", { id, title: "t", body: "b", updated_at: 1 });
+
+    const maliciousTable = "notes; DROP TABLE notes--" as never;
+    await expect(
+      db.applyRemotePage([], [{ table: maliciousTable, id }], async () => {}),
+    ).rejects.toThrow(/invalid SQL identifier/);
+    await expect(db.purgeLocal(maliciousTable, id)).rejects.toThrow(/invalid SQL identifier/);
+
+    // The real table survives both attempts (neither reached a query).
+    const rows = await db.exec<Schema["notes"]>(sql`SELECT * FROM notes WHERE id = ${id}`);
+    expect(rows).toHaveLength(1);
+  });
+
   it("init migration merges pre-existing tbl+col alias metadata and pending rows with diverging HLCs", async () => {
     const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ae";
     // The alias has the strictly higher HLC for `title`; the canonical row
