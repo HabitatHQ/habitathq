@@ -229,6 +229,10 @@ const OUTBOX_MIGRATIONS = [
   },
 ] as const;
 
+function isDuplicateColumnError(error: unknown): boolean {
+  return error instanceof Error && /duplicate column name:/iu.test(error.message);
+}
+
 async function ensureOutboxSchema(adapter: StorageAdapter): Promise<void> {
   const columns = await adapter.exec<{ name: string }>(`PRAGMA table_info("${OUTBOX_TABLE}")`, []);
   const existing = new Set(columns.map((column) => column.name));
@@ -237,7 +241,7 @@ async function ensureOutboxSchema(adapter: StorageAdapter): Promise<void> {
     try {
       await adapter.exec(migration.sql, []);
     } catch (error) {
-      if (!(error instanceof Error && /duplicate column name:/iu.test(error.message))) throw error;
+      if (!isDuplicateColumnError(error)) throw error;
     }
   }
 }
@@ -634,34 +638,33 @@ export class SyncTransport<S extends SchemaMap> {
   }
   async #runInit(): Promise<void> {
     try {
-      await this.#engine.adapter.exec(OUTBOX_DDL, []);
-      await ensureOutboxSchema(this.#engine.adapter);
-      await this.#engine.adapter.exec(OUTBOX_QUARANTINE_DDL, []);
-      for (const migration of OUTBOX_QUARANTINE_MIGRATIONS) {
-        try {
-          await this.#engine.adapter.exec(migration, []);
-        } catch (error) {
-          if (!(error instanceof Error && /duplicate column name:/iu.test(error.message)))
-            throw error;
+      await this.#engine.withStorage(async (adapter) => {
+        await adapter.exec(OUTBOX_DDL, []);
+        await ensureOutboxSchema(adapter);
+        await adapter.exec(OUTBOX_QUARANTINE_DDL, []);
+        for (const migration of OUTBOX_QUARANTINE_MIGRATIONS) {
+          try {
+            await adapter.exec(migration, []);
+          } catch (error) {
+            if (!isDuplicateColumnError(error)) throw error;
+          }
         }
-      }
-      await this.#engine.adapter.exec(QUARANTINE_DDL, []);
-      for (const migration of QUARANTINE_MIGRATIONS) {
-        try {
-          await this.#engine.adapter.exec(migration, []);
-        } catch (err) {
-          if (!(err instanceof Error && /duplicate column name:/iu.test(err.message))) throw err;
+        await adapter.exec(QUARANTINE_DDL, []);
+        for (const migration of QUARANTINE_MIGRATIONS) {
+          try {
+            await adapter.exec(migration, []);
+          } catch (err) {
+            if (!isDuplicateColumnError(err)) throw err;
+          }
         }
-      }
 
-      // The schema identity belongs to PalladiumEngine.init(SchemaConfig).
-      // SyncTransport fingerprints only scope durable outbox compatibility.
-      const savedAppendCursor = await this.#engine.getSyncState(STATE_APPEND_CURSOR);
-      await this.#engine.adapter.exec(EVENT_DDL, []);
-      if (isOpaqueCursor(savedAppendCursor)) {
-        this.#cursor = savedAppendCursor;
-        this.#initialHydrationDone = true;
-      }
+        const savedAppendCursor = await this.#engine.getSyncState(STATE_APPEND_CURSOR);
+        await adapter.exec(EVENT_DDL, []);
+        if (isOpaqueCursor(savedAppendCursor)) {
+          this.#cursor = savedAppendCursor;
+          this.#initialHydrationDone = true;
+        }
+      });
     } catch (err) {
       this.#initPromise = null;
       throw err;
@@ -797,6 +800,7 @@ export class SyncTransport<S extends SchemaMap> {
       } catch (error) {
         throw new SyncAuthHeadersError(refresh, error);
       }
+      if (init?.signal?.aborted) throw new DOMException("Request cancelled", "AbortError");
       const headers = new Headers(init?.headers);
       for (const [k, v] of Object.entries(extra)) headers.set(k, v);
       headers.set("X-Palladium-Node", this.#engine.nodeId);
@@ -821,11 +825,22 @@ export class SyncTransport<S extends SchemaMap> {
             this.#activeRequestTimedOut = true;
             controller.abort();
           }, this.#requestTimeoutMs);
+    let rejectAbort!: (error: SyncRequestAbortedError) => void;
+    const aborted = new Promise<never>((_resolve, reject) => {
+      rejectAbort = reject;
+    });
+    const rejectOnAbort = (): void =>
+      rejectAbort(new SyncRequestAbortedError(timedOut ? "request_timeout" : "request_cancelled"));
+    controller.signal.addEventListener("abort", rejectOnAbort, { once: true });
     try {
-      return await this.#fetchWithAuth(input, { ...init, signal: controller.signal });
+      return await Promise.race([
+        this.#fetchWithAuth(input, { ...init, signal: controller.signal }),
+        aborted,
+      ]);
     } catch (error) {
       this.#releaseRequest(controller);
-      if (error instanceof SyncAuthHeadersError) throw error;
+      if (error instanceof SyncAuthHeadersError || error instanceof SyncRequestAbortedError)
+        throw error;
       if (error instanceof DOMException && error.name === "AbortError") {
         throw new SyncRequestAbortedError(timedOut ? "request_timeout" : "request_cancelled");
       }
@@ -833,6 +848,8 @@ export class SyncTransport<S extends SchemaMap> {
         throw new SyncRequestAbortedError(timedOut ? "request_timeout" : "request_cancelled");
       }
       throw error;
+    } finally {
+      controller.signal.removeEventListener("abort", rejectOnAbort);
     }
   }
 
@@ -879,7 +896,9 @@ export class SyncTransport<S extends SchemaMap> {
       const clock = await this.#fetchClock();
       if (clock === null)
         throw new Error("Clock recovery could not obtain authenticated server time");
-      const snapshot = await this.#readRecoveryOutbox(this.#engine.adapter);
+      const snapshot = await this.#engine.withStorage((adapter) =>
+        this.#readRecoveryOutbox(adapter),
+      );
       const rejected: Array<{ readonly row: OutboxRow; readonly change: WireChange }> = [];
       for (const row of snapshot) {
         const change = await this.#reconfirmRecoveryChange(row);
@@ -1047,16 +1066,18 @@ export class SyncTransport<S extends SchemaMap> {
     }
   }
 
-  /** Re-attempt pending rows, terminally quarantining schema mismatches. */
   async #drainOutbox(): Promise<void> {
-    const rows = await this.#engine.adapter.exec<OutboxRow>(
-      `SELECT change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint,
-              retry_attempts, next_retry_at, terminal, terminal_error, created_at
-         FROM ${OUTBOX_TABLE}
-         ORDER BY hlc_wall_ms ASC, hlc_counter ASC, change_id ASC`,
-      [],
+    if (this.#disposed || this.#stopping) return;
+    const rows = await this.#engine.withStorage((adapter) =>
+      adapter.exec<OutboxRow>(
+        `SELECT change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint,
+                retry_attempts, next_retry_at, terminal, terminal_error, created_at
+           FROM ${OUTBOX_TABLE}
+          ORDER BY hlc_wall_ms ASC, hlc_counter ASC, change_id ASC`,
+        [],
+      ),
     );
-    if (rows.length === 0) return;
+    if (this.#disposed || this.#stopping || rows.length === 0) return;
     const sendRows: OutboxRow[] = [];
     for (const row of rows) {
       if (row.schema_fingerprint === this.#schemaFingerprint) {
@@ -1076,6 +1097,7 @@ export class SyncTransport<S extends SchemaMap> {
     }
     let lastOutcome: PostOutcome = "ok";
     for (const row of sendRows) {
+      if (this.#disposed || this.#stopping) return;
       if (this.#isOutboxRowBlocked(row)) {
         lastOutcome = "rejected";
         break;
@@ -1122,11 +1144,13 @@ export class SyncTransport<S extends SchemaMap> {
       outcome === "rejected" &&
       (error?.code === "invalid_receipt" || error?.code === "bad_request");
     if (terminal) {
-      await this.#engine.adapter.exec(
-        `UPDATE ${OUTBOX_TABLE}
-            SET terminal = 1, terminal_error = ?, retry_attempts = retry_attempts + 1
-          WHERE change_id = ?`,
-        [error.code, row.change_id],
+      await this.#engine.withStorage((adapter) =>
+        adapter.exec(
+          `UPDATE ${OUTBOX_TABLE}
+              SET terminal = 1, terminal_error = ?, retry_attempts = retry_attempts + 1
+            WHERE change_id = ?`,
+          [error.code, row.change_id],
+        ),
       );
       return;
     }
@@ -1134,37 +1158,42 @@ export class SyncTransport<S extends SchemaMap> {
       error?.nextRetryAt ?? (error?.retryable ? this.#backoffAt(row.retry_attempts + 1) : null);
     const durableError =
       outcome === "rejected" && error?.code === "clock_skew" ? "clock_skew" : null;
-    await this.#engine.adapter.exec(
-      `UPDATE ${OUTBOX_TABLE}
-         SET retry_attempts = retry_attempts + 1, next_retry_at = ?, terminal = 0, terminal_error = ?
-       WHERE change_id = ?`,
-      [nextRetryAt, durableError, row.change_id],
+    await this.#engine.withStorage((adapter) =>
+      adapter.exec(
+        `UPDATE ${OUTBOX_TABLE}
+           SET retry_attempts = retry_attempts + 1, next_retry_at = ?, terminal = 0, terminal_error = ?
+         WHERE change_id = ?`,
+        [nextRetryAt, durableError, row.change_id],
+      ),
     );
   }
 
   async #quarantineOutbox(row: OutboxRow, code = "schema_incompatible"): Promise<void> {
-    await this.#engine.adapter.exec(
-      `INSERT INTO ${OUTBOX_QUARANTINE_TABLE}
-       (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint, error_code, quarantined_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (change_id) DO UPDATE SET
-         schema_fingerprint = excluded.schema_fingerprint,
-         error_code = excluded.error_code,
-         quarantined_at = excluded.quarantined_at`,
-      [
-        row.change_id,
-        row.hlc_wall_ms,
-        row.hlc_counter,
-        row.hlc_node_id,
-        row.ops,
-        row.schema_fingerprint,
-        code,
-        Date.now(),
-      ],
-    );
-    await this.#engine.adapter.exec(`DELETE FROM ${OUTBOX_TABLE} WHERE change_id = ?`, [
-      row.change_id,
-    ]);
+    await this.#engine.withStorage(async (adapter) => {
+      if (!isTransactable(adapter)) throw new Error("Outbox quarantine requires transactions");
+      await adapter.transaction(async (transaction) => {
+        await transaction.exec(
+          `INSERT INTO ${OUTBOX_QUARANTINE_TABLE}
+           (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint, error_code, quarantined_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT (change_id) DO UPDATE SET
+             schema_fingerprint = excluded.schema_fingerprint,
+             error_code = excluded.error_code,
+             quarantined_at = excluded.quarantined_at`,
+          [
+            row.change_id,
+            row.hlc_wall_ms,
+            row.hlc_counter,
+            row.hlc_node_id,
+            row.ops,
+            row.schema_fingerprint,
+            code,
+            Date.now(),
+          ],
+        );
+        await transaction.exec(`DELETE FROM ${OUTBOX_TABLE} WHERE change_id = ?`, [row.change_id]);
+      });
+    });
   }
 
   async start(): Promise<void> {
@@ -1176,6 +1205,7 @@ export class SyncTransport<S extends SchemaMap> {
       await this.#ensureInitialized();
       if (this.#disposed || this.#stopping) return;
       await this.#fetchClock();
+      if (this.#disposed || this.#stopping) return;
       await this.#drainOutbox();
       if (this.#disposed || this.#stopping) return;
       this.#unsubscribeLocal = this.#engine.on("changes:local", () => this.#backgroundTick());
@@ -1240,51 +1270,53 @@ export class SyncTransport<S extends SchemaMap> {
 
   async inspectQuarantine(): Promise<readonly SyncQuarantineEntry[]> {
     await this.#ensureInitialized();
-    const rows = await this.#engine.adapter.exec<
-      Omit<
-        SyncQuarantineEntry,
-        | "permanent"
-        | "schemaIdentity"
-        | "code"
-        | "firstFailedAt"
-        | "discardedAt"
-        | "replacementChangeId"
-      > & {
-        permanent: number;
-        schemaIdentity: string | null;
-        code: string | null;
-        firstFailedAt: number | null;
-        discardedAt: number | null;
-        replacementChangeId: string | null;
-      }
-    >(
-      `SELECT 'downlink' AS phase, change_id AS changeId, attempts, permanent, ops AS payload,
-              hlc_wall_ms AS hlcWallMs, hlc_counter AS hlcCounter, hlc_node_id AS hlcNodeId,
-              NULL AS schemaIdentity, last_error AS code, COALESCE(disposition, 'blocking') AS disposition,
-              NULL AS replacementChangeId, NULLIF(first_failed_at, 0) AS firstFailedAt,
-              discarded_at AS discardedAt, updated_at AS updatedAt
-         FROM ${QUARANTINE_TABLE}
-       UNION ALL
-       SELECT 'uplink' AS phase, change_id AS changeId, retry_attempts AS attempts, terminal AS permanent,
-              ops AS payload, hlc_wall_ms AS hlcWallMs, hlc_counter AS hlcCounter,
-              hlc_node_id AS hlcNodeId, schema_fingerprint AS schemaIdentity,
-              COALESCE(terminal_error, 'terminal_failure') AS code, 'blocking' AS disposition,
-              NULL AS replacementChangeId, created_at AS firstFailedAt, NULL AS discardedAt,
-              created_at AS updatedAt
-         FROM ${OUTBOX_TABLE}
-        WHERE terminal != 0 OR terminal_error IS NOT NULL
-       UNION ALL
-       SELECT 'uplink' AS phase, change_id AS changeId, retry_attempts AS attempts, 1 AS permanent,
-              COALESCE(NULLIF(payload, '{}'), ops) AS payload,
-              hlc_wall_ms AS hlcWallMs, hlc_counter AS hlcCounter,
-              hlc_node_id AS hlcNodeId, schema_fingerprint AS schemaIdentity,
-              COALESCE(terminal_error, error_code) AS code, disposition,
-              replacement_change_id AS replacementChangeId, quarantined_at AS firstFailedAt,
-              CASE WHEN disposition = 'discarded' THEN quarantined_at ELSE NULL END AS discardedAt,
-              quarantined_at AS updatedAt
-         FROM ${OUTBOX_QUARANTINE_TABLE}
-       ORDER BY updatedAt ASC`,
-      [],
+    const rows = await this.#engine.withStorage((adapter) =>
+      adapter.exec<
+        Omit<
+          SyncQuarantineEntry,
+          | "permanent"
+          | "schemaIdentity"
+          | "code"
+          | "firstFailedAt"
+          | "discardedAt"
+          | "replacementChangeId"
+        > & {
+          permanent: number;
+          schemaIdentity: string | null;
+          code: string | null;
+          firstFailedAt: number | null;
+          discardedAt: number | null;
+          replacementChangeId: string | null;
+        }
+      >(
+        `SELECT 'downlink' AS phase, change_id AS changeId, attempts, permanent, ops AS payload,
+                hlc_wall_ms AS hlcWallMs, hlc_counter AS hlcCounter, hlc_node_id AS hlcNodeId,
+                NULL AS schemaIdentity, last_error AS code, COALESCE(disposition, 'blocking') AS disposition,
+                NULL AS replacementChangeId, NULLIF(first_failed_at, 0) AS firstFailedAt,
+                discarded_at AS discardedAt, updated_at AS updatedAt
+           FROM ${QUARANTINE_TABLE}
+         UNION ALL
+         SELECT 'uplink' AS phase, change_id AS changeId, retry_attempts AS attempts, terminal AS permanent,
+                ops AS payload, hlc_wall_ms AS hlcWallMs, hlc_counter AS hlcCounter,
+                hlc_node_id AS hlcNodeId, schema_fingerprint AS schemaIdentity,
+                COALESCE(terminal_error, 'terminal_failure') AS code, 'blocking' AS disposition,
+                NULL AS replacementChangeId, created_at AS firstFailedAt, NULL AS discardedAt,
+                created_at AS updatedAt
+           FROM ${OUTBOX_TABLE}
+          WHERE terminal != 0 OR terminal_error IS NOT NULL
+         UNION ALL
+         SELECT 'uplink' AS phase, change_id AS changeId, retry_attempts AS attempts, 1 AS permanent,
+                COALESCE(NULLIF(payload, '{}'), ops) AS payload,
+                hlc_wall_ms AS hlcWallMs, hlc_counter AS hlcCounter,
+                hlc_node_id AS hlcNodeId, schema_fingerprint AS schemaIdentity,
+                COALESCE(terminal_error, error_code) AS code, disposition,
+                replacement_change_id AS replacementChangeId, quarantined_at AS firstFailedAt,
+                CASE WHEN disposition = 'discarded' THEN quarantined_at ELSE NULL END AS discardedAt,
+                quarantined_at AS updatedAt
+           FROM ${OUTBOX_QUARANTINE_TABLE}
+          ORDER BY updatedAt ASC`,
+        [],
+      ),
     );
     return rows.map(
       ({
@@ -1621,24 +1653,23 @@ export class SyncTransport<S extends SchemaMap> {
     return this.#serializeLifecycle(async () => {
       if (this.#disposed || this.#stopping) return;
       await this.#ensureInitialized();
+      if (this.#disposed || this.#stopping) return;
       await this.#poll();
     });
   }
 
   async syncOnce(): Promise<void> {
     return this.#serializeLifecycle(async () => {
-      if (this.#disposed || this.#stopping) return;
       await this.#ensureInitialized();
+      if (this.#disposed || this.#stopping) return;
       await this.#fetchClock();
+      if (this.#disposed || this.#stopping) return;
       await this.#drainOutbox();
       if (!this.#disposed && !this.#stopping) await this.#poll();
     });
   }
 
-  async #persistEvents(
-    events: readonly SyncEvent[],
-    adapter: StorageAdapter = this.#engine.adapter,
-  ): Promise<void> {
+  async #persistEvents(events: readonly SyncEvent[], adapter: StorageAdapter): Promise<void> {
     for (const event of events) {
       await adapter.exec(
         `INSERT INTO ${EVENT_TABLE} (event_id, kind, root_id, payload, processed_at)
@@ -1754,12 +1785,14 @@ export class SyncTransport<S extends SchemaMap> {
       }
       await this.#readBody(async () => undefined);
       const now = Date.now();
-      for (const event of events) {
-        await this.#engine.adapter.exec(
-          `UPDATE ${EVENT_TABLE} SET acknowledged_at = ? WHERE event_id = ?`,
-          [now, event.id],
-        );
-      }
+      await this.#engine.withStorage(async (adapter) => {
+        for (const event of events) {
+          await adapter.exec(`UPDATE ${EVENT_TABLE} SET acknowledged_at = ? WHERE event_id = ?`, [
+            now,
+            event.id,
+          ]);
+        }
+      });
       return true;
     } catch (error) {
       this.#recordError({
@@ -1884,9 +1917,11 @@ export class SyncTransport<S extends SchemaMap> {
     ) {
       return true;
     }
-    const terminalRows = await this.#engine.adapter.exec<{ change_id: string }>(
-      `SELECT change_id FROM ${OUTBOX_TABLE} WHERE terminal != 0 LIMIT 1`,
-      [],
+    const terminalRows = await this.#engine.withStorage((adapter) =>
+      adapter.exec<{ change_id: string }>(
+        `SELECT change_id FROM ${OUTBOX_TABLE} WHERE terminal != 0 LIMIT 1`,
+        [],
+      ),
     );
     return terminalRows.length > 0;
   }
@@ -1895,9 +1930,11 @@ export class SyncTransport<S extends SchemaMap> {
   async #quarantineState(changeId: string): Promise<QuarantineState | null> {
     const cached = this.#quarantineCache.get(changeId);
     if (cached !== undefined) return cached;
-    const rows = await this.#engine.adapter.exec<{ attempts: number; permanent: number }>(
-      `SELECT attempts, permanent FROM ${QUARANTINE_TABLE} WHERE change_id = ?`,
-      [changeId],
+    const rows = await this.#engine.withStorage((adapter) =>
+      adapter.exec<{ attempts: number; permanent: number }>(
+        `SELECT attempts, permanent FROM ${QUARANTINE_TABLE} WHERE change_id = ?`,
+        [changeId],
+      ),
     );
     const row = rows[0];
     if (row === undefined) return null;
@@ -1936,47 +1973,52 @@ export class SyncTransport<S extends SchemaMap> {
   async #recordFailure(
     change: WireChange,
     err: unknown,
-    adapter: StorageAdapter = this.#engine.adapter,
+    adapter?: StorageAdapter,
   ): Promise<number> {
-    const message = err instanceof Error ? err.message : String(err);
-    const now = Date.now();
-    await adapter.exec(
-      `INSERT INTO ${QUARANTINE_TABLE}
-         (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, attempts, permanent, disposition,
-          last_error, first_failed_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 1, 0, 'blocking', ?, ?, ?)
-       ON CONFLICT (change_id) DO UPDATE SET
-         attempts = attempts + 1,
-         permanent = 0,
-         disposition = 'blocking',
-         last_error = excluded.last_error,
-         updated_at = excluded.updated_at`,
-      [
-        change.id,
-        change.hlc.wallMs,
-        change.hlc.counter,
-        change.hlc.nodeId,
-        JSON.stringify(change.ops),
-        message,
-        now,
-        now,
-      ],
-    );
-    const state = await adapter.exec<{ attempts: number }>(
-      `SELECT attempts FROM ${QUARANTINE_TABLE} WHERE change_id = ?`,
-      [change.id],
-    );
-    const attempts = state[0]?.attempts ?? 1;
-    this.#quarantineCache.set(change.id, { attempts, permanent: false });
-    return attempts;
+    const persist = async (target: StorageAdapter): Promise<number> => {
+      const message = err instanceof Error ? err.message : String(err);
+      const now = Date.now();
+      await target.exec(
+        `INSERT INTO ${QUARANTINE_TABLE}
+           (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, attempts, permanent, disposition,
+            last_error, first_failed_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 1, 0, 'blocking', ?, ?, ?)
+         ON CONFLICT (change_id) DO UPDATE SET
+           attempts = attempts + 1,
+           permanent = 0,
+           disposition = 'blocking',
+           last_error = excluded.last_error,
+           updated_at = excluded.updated_at`,
+        [
+          change.id,
+          change.hlc.wallMs,
+          change.hlc.counter,
+          change.hlc.nodeId,
+          JSON.stringify(change.ops),
+          message,
+          now,
+          now,
+        ],
+      );
+      const state = await target.exec<{ attempts: number }>(
+        `SELECT attempts FROM ${QUARANTINE_TABLE} WHERE change_id = ?`,
+        [change.id],
+      );
+      const attempts = state[0]?.attempts ?? 1;
+      this.#quarantineCache.set(change.id, { attempts, permanent: false });
+      return attempts;
+    };
+    return adapter === undefined ? this.#engine.withStorage(persist) : persist(adapter);
   }
 
   async #markPermanent(changeId: string): Promise<void> {
-    await this.#engine.adapter.exec(
-      `UPDATE ${QUARANTINE_TABLE}
-          SET permanent = 1, disposition = 'degraded_skip', updated_at = ?
-        WHERE change_id = ?`,
-      [Date.now(), changeId],
+    await this.#engine.withStorage((adapter) =>
+      adapter.exec(
+        `UPDATE ${QUARANTINE_TABLE}
+            SET permanent = 1, disposition = 'degraded_skip', updated_at = ?
+          WHERE change_id = ?`,
+        [Date.now(), changeId],
+      ),
     );
     const cached = this.#quarantineCache.get(changeId);
     this.#quarantineCache.set(changeId, {
@@ -1986,9 +2028,9 @@ export class SyncTransport<S extends SchemaMap> {
   }
 
   async #clearQuarantine(changeId: string): Promise<void> {
-    await this.#engine.adapter.exec(`DELETE FROM ${QUARANTINE_TABLE} WHERE change_id = ?`, [
-      changeId,
-    ]);
+    await this.#engine.withStorage((adapter) =>
+      adapter.exec(`DELETE FROM ${QUARANTINE_TABLE} WHERE change_id = ?`, [changeId]),
+    );
     this.#quarantineCache.delete(changeId);
   }
 }

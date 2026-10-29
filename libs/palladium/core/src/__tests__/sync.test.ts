@@ -1259,7 +1259,7 @@ describe("SyncTransport — durable outbox", () => {
       title: "a",
       updated_at: 1,
     });
-    await Promise.resolve();
+    await transport.syncOnce();
     await transport.stop();
 
     expect(await outboxRows(db)).toHaveLength(1);
@@ -1756,5 +1756,292 @@ describe("SyncTransport — outbox schema compatibility", () => {
     expect(quarantined.map((row) => row.change_id)).toContain(
       "00000000-0000-4000-8000-000000000009",
     );
+  });
+});
+
+describe("SyncTransport committed outbox publication", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("does not publish an outbox snapshot before a gated rollback commits", async () => {
+    vi.useFakeTimers();
+    const db = await makeEngine(ALICE);
+    const posted: WireChange[] = [];
+    const { fetch } = makeFakeFetch((call) => {
+      if (call.input.endsWith("/v1/changes") && call.init?.method === "POST") {
+        posted.push(JSON.parse(String(call.init.body)) as WireChange);
+        return jsonResponse(receipt(), 201);
+      }
+      return jsonResponse(page());
+    });
+    const transport = new SyncTransport(db, {
+      serverUrl: SERVER_URL,
+      fetch,
+      pollIntervalMs: 10,
+    });
+    let releaseCheckpoint!: () => void;
+    let checkpointEntered!: () => void;
+    let localWrite: Promise<void> | null = null;
+    const entered = new Promise<void>((resolve) => {
+      checkpointEntered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      releaseCheckpoint = resolve;
+    });
+    try {
+      await transport.start();
+      db.registerLocalChangeCheckpoint(async () => {
+        checkpointEntered();
+        await gate;
+        throw new Error("rollback checkpoint");
+      });
+      localWrite = db.insert("notes", {
+        id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+        title: "uncommitted",
+        updated_at: 1,
+      });
+      const writeRejected = expect(localWrite).rejects.toThrow("rollback checkpoint");
+      await entered;
+      await vi.advanceTimersByTimeAsync(10);
+      expect(posted).toEqual([]);
+      releaseCheckpoint();
+      await writeRejected;
+      await transport.syncOnce();
+      expect(posted).toEqual([]);
+      expect(await db.exec(sql`SELECT id FROM notes`)).toEqual([]);
+      expect(await outboxRows(db)).toHaveLength(0);
+    } finally {
+      releaseCheckpoint();
+      await localWrite?.catch(() => {});
+      await transport.dispose();
+      await db.adapter.close();
+    }
+  });
+
+  it("publishes a gated outbox change only after its local commit", async () => {
+    vi.useFakeTimers();
+    const db = await makeEngine(ALICE);
+    let resolvePost!: () => void;
+    let postCount = 0;
+    const posted = new Promise<void>((resolve) => {
+      resolvePost = resolve;
+    });
+    const { fetch } = makeFakeFetch((call) => {
+      if (call.init?.method === "POST") {
+        postCount += 1;
+        resolvePost();
+        return jsonResponse(receipt(), 201);
+      }
+      return jsonResponse(page());
+    });
+    const transport = new SyncTransport(db, {
+      serverUrl: SERVER_URL,
+      fetch,
+      pollIntervalMs: 10,
+    });
+    let releaseCheckpoint!: () => void;
+    let checkpointEntered!: () => void;
+    let localWrite: Promise<void> | null = null;
+    const entered = new Promise<void>((resolve) => {
+      checkpointEntered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      releaseCheckpoint = resolve;
+    });
+    try {
+      await transport.start();
+      db.registerLocalChangeCheckpoint(async () => {
+        checkpointEntered();
+        await gate;
+      });
+      localWrite = db.insert("notes", {
+        id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+        title: "committed",
+        updated_at: 1,
+      });
+      await entered;
+      await vi.advanceTimersByTimeAsync(10);
+      expect(postCount).toBe(0);
+      releaseCheckpoint();
+      await localWrite;
+      await posted;
+      expect(postCount).toBe(1);
+    } finally {
+      releaseCheckpoint();
+      await localWrite?.catch(() => {});
+      await transport.dispose();
+      await db.adapter.close();
+    }
+  });
+});
+
+describe("SyncTransport authentication cancellation", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  it("times out pending auth before fetch and ignores late auth completion", async () => {
+    vi.useFakeTimers();
+    const db = await makeEngine(ALICE);
+    let resolveAuth!: (headers: Record<string, string>) => void;
+    let authEntered!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      authEntered = resolve;
+    });
+    const authResult = new Promise<Record<string, string>>((resolve) => {
+      resolveAuth = resolve;
+    });
+    const calls: string[] = [];
+    const fetch: typeof globalThis.fetch = async (input) => {
+      calls.push(String(input));
+      return jsonResponse(page());
+    };
+    const transport = new SyncTransport(db, {
+      serverUrl: SERVER_URL,
+      fetch,
+      requestTimeoutMs: 10,
+      authHeaders: () => {
+        authEntered();
+        return authResult;
+      },
+    });
+    try {
+      const polling = transport.poll();
+      await entered;
+      await vi.advanceTimersByTimeAsync(10);
+      await polling;
+      resolveAuth({ Authorization: "late" });
+      expect(calls).toEqual([]);
+      expect(transport.lastError?.code).toBe("request_timeout");
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      resolveAuth({});
+      await transport.dispose();
+      await db.adapter.close();
+    }
+  });
+
+  it("stop cancels pending auth and late credentials cannot issue a request", async () => {
+    const db = await makeEngine(ALICE);
+    let resolveAuth!: (headers: Record<string, string>) => void;
+    let authEntered!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      authEntered = resolve;
+    });
+    const authResult = new Promise<Record<string, string>>((resolve) => {
+      resolveAuth = resolve;
+    });
+    const calls: string[] = [];
+    const fetch: typeof globalThis.fetch = async (input) => {
+      calls.push(String(input));
+      return jsonResponse(page());
+    };
+    const transport = new SyncTransport(db, {
+      serverUrl: SERVER_URL,
+      fetch,
+      authHeaders: () => {
+        authEntered();
+        return authResult;
+      },
+    });
+    try {
+      const polling = transport.poll();
+      await entered;
+      await transport.stop();
+      await polling;
+      resolveAuth({ Authorization: "late" });
+      expect(calls).toEqual([]);
+    } finally {
+      resolveAuth({});
+      await transport.dispose();
+      await db.adapter.close();
+    }
+  });
+
+  it("applies the same deadline to pending refreshed authentication", async () => {
+    vi.useFakeTimers();
+    const db = await makeEngine(ALICE);
+    let resolveRefresh!: (headers: Record<string, string>) => void;
+    let refreshEntered!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      refreshEntered = resolve;
+    });
+    const refreshResult = new Promise<Record<string, string>>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    let fetchCalls = 0;
+    const fetch: typeof globalThis.fetch = async () => {
+      fetchCalls += 1;
+      return new Response("unauthorized", { status: 401 });
+    };
+    const transport = new SyncTransport(db, {
+      serverUrl: SERVER_URL,
+      fetch,
+      requestTimeoutMs: 10,
+      authHeaders: ({ refresh }) => {
+        if (!refresh) return { Authorization: "initial" };
+        refreshEntered();
+        return refreshResult;
+      },
+    });
+    try {
+      const polling = transport.poll();
+      await entered;
+      await vi.advanceTimersByTimeAsync(10);
+      await polling;
+      resolveRefresh({ Authorization: "late refresh" });
+      expect(fetchCalls).toBe(1);
+      expect(transport.lastError?.code).toBe("request_timeout");
+    } finally {
+      resolveRefresh({});
+      await transport.dispose();
+      await db.adapter.close();
+    }
+  });
+
+  it("stop during startup auth does not drain a pending outbox or start another request", async () => {
+    const db = await makeEngine(ALICE);
+    let resolveAuth!: (headers: Record<string, string>) => void;
+    let authEntered!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      authEntered = resolve;
+    });
+    const authResult = new Promise<Record<string, string>>((resolve) => {
+      resolveAuth = resolve;
+    });
+    let authCalls = 0;
+    let fetchCalls = 0;
+    const transport = new SyncTransport(db, {
+      serverUrl: SERVER_URL,
+      fetch: async () => {
+        fetchCalls += 1;
+        return jsonResponse(page());
+      },
+      authHeaders: () => {
+        authCalls += 1;
+        authEntered();
+        return authResult;
+      },
+    });
+    try {
+      await db.insert("notes", {
+        id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+        title: "pending",
+        updated_at: 1,
+      });
+      const starting = transport.start();
+      await entered;
+      await transport.stop();
+      await starting;
+      resolveAuth({ Authorization: "late" });
+      await Promise.resolve();
+      expect(authCalls).toBe(1);
+      expect(fetchCalls).toBe(0);
+      expect(await outboxRows(db)).toHaveLength(1);
+    } finally {
+      resolveAuth({});
+      await transport.dispose();
+      await db.adapter.close();
+    }
   });
 });

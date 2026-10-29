@@ -416,6 +416,64 @@ describe("createEngine (SQLite)", () => {
     const rows = await db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks WHERE id = ${"s1"}`);
     expect(rows[0]?.name).toBe("seeded");
   });
+
+  it("captures mutable update payloads before SQL and checkpoint ownership", async () => {
+    const db = makeDb();
+    await db.init(SCHEMA);
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    await db.insert("tasks", { id, name: "initial", done: 0 });
+    let entered!: () => void;
+    let release!: () => void;
+    const enteredCheckpoint = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const checkpointGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let checkpointValue: unknown;
+    db.registerLocalChangeCheckpoint(async (change) => {
+      entered();
+      await checkpointGate;
+      checkpointValue = change.ops[0]?.type === "update" ? change.ops[0].patch.name : null;
+    });
+    const patch = { name: "committed" };
+    const write = db.update("tasks", id, patch);
+    await enteredCheckpoint;
+    patch.name = "never-committed";
+    release();
+    await write;
+    expect(
+      (await db.exec<Schema["tasks"]>(sql`SELECT name FROM tasks WHERE id = ${id}`))[0]?.name,
+    ).toBe("committed");
+    expect(checkpointValue).toBe("committed");
+  });
+
+  it("rolls back standalone purge metadata cleanup failures without notifying tables", async () => {
+    const db = makeDb();
+    await db.init(SCHEMA);
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    const remote = {
+      hlc: createHlc(crypto.randomUUID(), Date.now() + 100),
+      ops: [{ type: "insert", table: "tasks", id, data: { id, name: "retained", done: 0 } }],
+    } satisfies RemoteChange<Schema>;
+    await db.applyRemote(remote);
+    let notifications = 0;
+    db.on("tables:changed", () => {
+      notifications += 1;
+    });
+    await db.exec(
+      sql`CREATE TRIGGER fail_meta_purge BEFORE DELETE ON _sync_row_meta
+          BEGIN SELECT RAISE(ABORT, 'purge failure'); END`,
+    );
+    const before = notifications;
+    await expect(db.purgeLocal("tasks", id)).rejects.toThrow();
+    expect(await db.exec(sql`SELECT id FROM tasks WHERE id = ${id}`)).toHaveLength(1);
+    expect(notifications).toBe(before);
+    await db.applyRemote(remote);
+    expect(await db.exec(sql`SELECT name FROM tasks WHERE id = ${id}`)).toEqual([
+      { name: "retained" },
+    ]);
+  });
   it("rolls back local mutations when a checkpoint fails", async () => {
     const db = makeDb();
     await db.init(SCHEMA);
@@ -861,8 +919,8 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
       });
     });
 
-    const payload = cb.mock.calls[0]?.[0] as { touchedTables: string[] };
-    expect(payload.touchedTables.sort()).toEqual(["comments", "tasks"]);
+    const payload = cb.mock.calls[0]?.[0] as { touchedTables: readonly string[] };
+    expect([...payload.touchedTables].sort()).toEqual(["comments", "tasks"]);
   });
   it("buffers absent-row updates and replays them after insert", async () => {
     const db = makeDbWithSchema();
@@ -1115,6 +1173,189 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
       await db.adapter.close();
     }
   });
+});
+
+it("owns async observer failures while preserving successful writes and reporting errors", async () => {
+  const db = makeDb();
+  await db.init(SCHEMA);
+  const errors: unknown[] = [];
+  let finish!: () => void;
+  const reported = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  db.on("changes:local", async () => {
+    throw new Error("observer rejected");
+  });
+  db.on("sync:status", () => Promise.reject(new Error("status rejected")));
+  db.on("error", (error) => {
+    errors.push(error);
+    if (errors.length === 2) finish();
+  });
+  db.on("error", async () => {
+    throw new Error("error observer rejected");
+  });
+  const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+  await db.insert("tasks", { id, name: "committed", done: 0 });
+  db.setStatus("syncing");
+  await reported;
+  expect(await db.exec(sql`SELECT name FROM tasks WHERE id = ${id}`)).toEqual([
+    { name: "committed" },
+  ]);
+  expect(errors).toHaveLength(2);
+  await db.adapter.close();
+});
+
+it("does not await reentrant local observers while engine storage ownership is held", async () => {
+  const db = makeDb();
+  await db.init(SCHEMA);
+  const firstId = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+  const secondId = "018f0f50-7b8d-7a1c-8e2f-1234567890ac";
+  let finish!: () => void;
+  const nestedWrite = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  let reentered = false;
+  db.on("changes:local", async () => {
+    if (reentered) return;
+    reentered = true;
+    await db.insert("tasks", { id: secondId, name: "nested", done: 0 });
+    finish();
+  });
+  await db.insert("tasks", { id: firstId, name: "outer", done: 0 });
+  await nestedWrite;
+  expect(await db.exec(sql`SELECT name FROM tasks ORDER BY name`)).toEqual([
+    { name: "nested" },
+    { name: "outer" },
+  ]);
+  await db.adapter.close();
+});
+
+it("snapshots remote input before waiting for engine storage ownership", async () => {
+  const db = makeDb();
+  await db.init(SCHEMA);
+  const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+  await db.insert("tasks", { id, name: "before", done: 0 });
+  let entered!: () => void;
+  let release!: () => void;
+  const enteredStorage = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const owner = db.withStorage(async () => {
+    entered();
+    await gate;
+  });
+  await enteredStorage;
+  const patch = { name: "accepted" };
+  const remote = db.applyRemote({
+    hlc: createHlc(crypto.randomUUID(), Date.now() + 100),
+    ops: [{ type: "update", table: "tasks", id, patch }],
+  });
+  patch.name = "mutated after admission";
+  release();
+  await Promise.all([owner, remote]);
+  expect(await db.exec(sql`SELECT name FROM tasks WHERE id = ${id}`)).toEqual([
+    { name: "accepted" },
+  ]);
+  await db.adapter.close();
+});
+
+it("rejects coerced remote JSON values and snapshots remote pages at admission", async () => {
+  const db = makeDb();
+  await db.init(SCHEMA);
+  const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+  await db.insert("tasks", { id, name: "before", done: 0 });
+  for (const name of [Number.NaN, undefined]) {
+    const invalid = {
+      hlc: createHlc(crypto.randomUUID(), Date.now() + 100),
+      ops: [{ type: "update", table: "tasks", id, patch: { name } }],
+    } as unknown as RemoteChange<Schema>;
+    await expect(db.applyRemote(invalid)).rejects.toThrow();
+  }
+  let entered!: () => void;
+  let release!: () => void;
+  const enteredStorage = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const owner = db.withStorage(async () => {
+    entered();
+    await gate;
+  });
+  await enteredStorage;
+  const patch = { name: "page accepted" };
+  const page = db.applyRemotePage(
+    [
+      {
+        hlc: createHlc(crypto.randomUUID(), Date.now() + 200),
+        ops: [{ type: "update", table: "tasks", id, patch }],
+      },
+    ],
+    [],
+    async () => {},
+  );
+  patch.name = "page mutated";
+  release();
+  await Promise.all([owner, page]);
+  expect(await db.exec(sql`SELECT name FROM tasks WHERE id = ${id}`)).toEqual([
+    { name: "page accepted" },
+  ]);
+  await db.adapter.close();
+});
+
+it("rolls back standalone purge when deferred-update cleanup fails late", async () => {
+  const db = makeDb();
+  await db.init(SCHEMA);
+  const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+  await db.applyRemote({
+    hlc: createHlc(crypto.randomUUID(), Date.now() + 100),
+    ops: [{ type: "update", table: "tasks", id, patch: { name: "pending" } }],
+  });
+  await db.adapter.put("tasks", id, { id, name: "stored", done: 0 });
+  await db.exec(
+    sql`CREATE TRIGGER fail_pending_purge BEFORE DELETE ON _sync_pending_remote_updates
+        BEGIN SELECT RAISE(ABORT, 'late purge failure'); END`,
+  );
+  await expect(db.purgeLocal("tasks", id)).rejects.toThrow();
+  expect(await db.exec(sql`SELECT name FROM tasks WHERE id = ${id}`)).toEqual([{ name: "stored" }]);
+  expect(
+    await db.exec(sql`SELECT row_id FROM _sync_pending_remote_updates WHERE row_id = ${id}`),
+  ).toEqual([{ row_id: id }]);
+  await db.adapter.close();
+});
+
+it("does not await reentrant async local observers while storage ownership is held", async () => {
+  const db = makeDb();
+  await db.init(SCHEMA);
+  let reentrantDone!: () => void;
+  const finished = new Promise<void>((resolve) => {
+    reentrantDone = resolve;
+  });
+  db.on("changes:local", async (change) => {
+    const op = change.ops[0];
+    if (op?.type !== "insert" || op.data.name !== "first") return;
+    await db.insert("tasks", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac",
+      name: "second",
+      done: 0,
+    });
+    reentrantDone();
+  });
+  await db.insert("tasks", {
+    id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+    name: "first",
+    done: 0,
+  });
+  await finished;
+  expect(await db.exec(sql`SELECT name FROM tasks ORDER BY name`)).toEqual([
+    { name: "first" },
+    { name: "second" },
+  ]);
+  await db.adapter.close();
 });
 
 it("notifies worker subscribers only after committed local writes and remote applies", async () => {

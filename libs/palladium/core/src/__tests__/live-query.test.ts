@@ -229,4 +229,25 @@ describe("LiveQuery", () => {
     await lq.notifyTables(["tasks"]).catch(() => {});
     expect(cb).toHaveBeenCalledOnce();
   });
+
+  it("awaits async change observers, isolates failures, and keeps manual refresh rejection", async () => {
+    const lq = new LiveQuery(makeQuery(), makeAdapter([{ id: "1" }]));
+    const received: string[] = [];
+    lq.on("change", async () => {
+      throw new Error("async observer");
+    });
+    lq.on("change", () => ({
+      // biome-ignore lint/suspicious/noThenProperty: Exercise an intentional non-Promise thenable observer.
+      then(_resolve: (value: unknown) => void, reject: (reason: unknown) => void) {
+        reject(new Error("thenable observer"));
+      },
+    }));
+    lq.on("change", () => {
+      received.push("successful observer");
+    });
+    await expect(lq.refresh()).rejects.toMatchObject({
+      errors: [new Error("async observer"), new Error("thenable observer")],
+    });
+    expect(received).toEqual(["successful observer"]);
+  });
 });

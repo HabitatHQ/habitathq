@@ -107,4 +107,32 @@ describe("EventEmitter", () => {
     // Backed by a Set — same reference is stored once, called once
     expect(cb).toHaveBeenCalledTimes(1);
   });
+
+  it("routes async and thenable observer failures to a sink without awaiting them", async () => {
+    const ee = new EventEmitter<TestEvents>();
+    const seen: unknown[] = [];
+    ee.on("data", async () => {
+      throw new Error("async observer");
+    });
+    ee.on("data", () => ({
+      // biome-ignore lint/suspicious/noThenProperty: Exercise an intentional non-Promise thenable observer.
+      then(_resolve: (value: unknown) => void, reject: (reason: unknown) => void) {
+        reject("thenable observer");
+      },
+    }));
+    let finish!: () => void;
+    const completed = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    ee.emitObserved(
+      (error) => {
+        seen.push(error);
+        if (seen.length === 2) finish();
+      },
+      "data",
+      "value",
+    );
+    await completed;
+    expect(seen).toEqual([new Error("async observer"), "thenable observer"]);
+  });
 });

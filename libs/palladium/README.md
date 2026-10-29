@@ -78,16 +78,36 @@ Raw SQL through Kysely or the adapter does not generate replicated operations,
 outbox entries, or live-query write notifications. Use engine mutations for
 replicated writes; Kysely transactions are for explicitly low-level SQL work.
 
+The sync transport reads committed outbox snapshots under the same storage
+ownership queue, releases ownership for network I/O, and serializes durable
+acknowledgements separately. A transaction that rolls back cannot be uploaded.
+
 IndexedDB blob replacement and deletion commit metadata and chunks atomically.
 Failed writes preserve the previous blob, and concurrent reads use a consistent
 metadata/chunk snapshot.
 
 ### Mutation, reset, and adapter lifecycle
 
+Local builders and remote admission capture immutable JSON snapshots before
+asynchronous work. SQL application, durable outbox capture, and observers consume
+the same submitted values; later caller mutation cannot change them. Local and
+remote LWW writes resolve column aliases against the applied SQLite schema while
+preserving wire payload spelling. Conflicting aliases in one operation are rejected.
+
 Post-commit observer failures do not reject an already-committed mutation or
-prevent other observers and live queries from receiving it. Public HLC values
-are snapshots, not references to the engine's clock. A transport fingerprint
-override does not overwrite the local schema identity used when reopening.
+prevent other observers and live queries from receiving it. Synchronous throws
+and asynchronous/thenable rejections reach the engine's `error` observers; failures
+in that terminal error channel are contained without recursive reporting.
+Observers are not awaited while holding storage ownership. Manual live-query
+`refresh()` still rejects observer failures.
+
+Standalone `purgeLocal()` requires transaction support: application rows, LWW
+metadata, and pending updates are removed atomically, with invalidation only
+after commit. A failed purge preserves the prior row and replay state.
+
+Public HLC values are snapshots, not references to the engine's clock. A
+transport fingerprint override does not overwrite the local schema identity
+used when reopening.
 
 Quoted and schema-qualified SQL table names participate in live-query
 invalidation. LWW metadata and logical-reset table identities use SQLite's

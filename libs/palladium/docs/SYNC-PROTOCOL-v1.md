@@ -46,6 +46,12 @@ The client calibrates authoring against this sample, persists trusted time, and 
 
 `outcome` is exactly `inserted` or `duplicate`; `cursor` is a non-empty string. A `duplicate` receipt identifies a previously accepted identical scoped change. Identical retries are recognized atomically before the current-time skew check, so they remain acknowledged after server clock rollback. Reusing a scoped ID with changed content is an idempotency conflict and is never appended. The client removes an `_sync_outbox` row only after it decodes this complete receipt. A malformed JSON body, another receipt version, an unknown outcome, or a missing/empty cursor leaves the row durable and records `lastError` as `invalid_receipt`.
 
+The client snapshots outbox rows through exclusive engine storage ownership,
+after local transactions finish. Network I/O runs outside that ownership; durable
+receipt acknowledgement re-enters it in a separate transaction. Local operation
+payloads are owned immutable snapshots, so caller mutation cannot make uploaded
+values differ from the committed write.
+
 ### 2.3 Download
 
 `GET /v1/changes?cursor=<token>&limit=<n>` returns the complete versioned envelope:
@@ -83,6 +89,12 @@ on Atrium. The transport retains the rejected change as blocking clock-recovery
 evidence; `recoverClock()` obtains authenticated server time, reconfirms rejection,
 and reauthors it with a new change ID before normal synchronization resumes.
 Idempotency conflicts and expired checkpoints remain HTTP `409` responses.
+
+When configured, `requestTimeoutMs` bounds the entire request, including initial
+authentication, a 401-triggered authentication refresh, fetch, and response-body
+decoding. `stop()` and `dispose()` cancel pending authentication waits as well as
+network work. The caller's authentication hook may continue independently, but a
+late result cannot send the cancelled request or restart draining the outbox.
 
 Atrium event acknowledgements use `POST /v1/changes/events/ack` with:
 

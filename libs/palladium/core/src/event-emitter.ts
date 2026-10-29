@@ -27,7 +27,7 @@ export class EventEmitter<Events extends object> {
   once<K extends keyof Events>(event: K, listener: Listener<Events[K]>): () => void {
     const wrapped = ((payload: Events[K]) => {
       this.off(event, wrapped as Listener<Events[K]>);
-      (listener as (p: Events[K]) => void)(payload);
+      return (listener as (p: Events[K]) => unknown)(payload);
     }) as Listener<Events[K]>;
     return this.on(event, wrapped);
   }
@@ -49,22 +49,27 @@ export class EventEmitter<Events extends object> {
     }
   }
 
-  /** Emit to every listener and return callback failures without throwing. */
-  emitSafely<K extends keyof Events>(
+  /** Own callback rejection without awaiting potentially reentrant observer work. */
+  emitObserved<K extends keyof Events>(
+    onError: (error: unknown) => void,
     ...args: Events[K] extends undefined ? [event: K] : [event: K, payload: Events[K]]
-  ): unknown[] {
+  ): void {
     const [event, payload] = args;
-    const listeners = this.#listeners[event];
-    if (listeners === undefined) return [];
-    const errors: unknown[] = [];
-    for (const listener of listeners) {
+    const report = (error: unknown): void => {
       try {
-        (listener as (p: Events[K]) => void)(payload as Events[K]);
+        void Promise.resolve(onError(error)).catch(() => undefined);
+      } catch {
+        // A failure sink cannot safely report its own failure recursively.
+      }
+    };
+    for (const listener of this.#listeners[event] ?? []) {
+      try {
+        const result = (listener as (p: Events[K]) => unknown)(payload as Events[K]);
+        void Promise.resolve(result).catch(report);
       } catch (error) {
-        errors.push(error);
+        report(error);
       }
     }
-    return errors;
   }
 
   /** Remove all listeners for an event (or all events if no event given). */

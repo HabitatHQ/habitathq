@@ -79,4 +79,30 @@ describe("TxBuilder", () => {
     tx.insert("tasks", { id, name: "generated", done: false });
     expect(tx.build()[0]?.id).toBe(id);
   });
+
+  it("owns nested insert and update payloads at builder admission", () => {
+    const tx = new TxBuilder<Schema>();
+    const metadata = { labels: ["before"] };
+    const inserted = { id: taskId, name: "before", done: false, metadata };
+    const patch = { metadata };
+    tx.insert("tasks", inserted);
+    tx.update("tasks", taskId, patch);
+    metadata.labels[0] = "after";
+    inserted.name = "after";
+    patch.metadata = { labels: ["replacement"] };
+    expect(tx.build()).toEqual([
+      {
+        type: "insert",
+        table: "tasks",
+        id: taskId,
+        data: { id: taskId, name: "before", done: false, metadata: { labels: ["before"] } },
+      },
+      {
+        type: "update",
+        table: "tasks",
+        id: taskId,
+        patch: { metadata: { labels: ["before"] } },
+      },
+    ]);
+  });
 });

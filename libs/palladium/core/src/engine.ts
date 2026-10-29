@@ -31,7 +31,7 @@ import type { SqlQuery } from "./sql.js";
 import type { StorageAdapter } from "./storage.js";
 import { isTransactable, supportsConstraintDeferral } from "./storage.js";
 import type { Op, SchemaMap } from "./tx.js";
-import { TxBuilder } from "./tx.js";
+import { snapshotJson, TxBuilder } from "./tx.js";
 
 export type SyncStatus =
   | "uninitialized"
@@ -70,6 +70,15 @@ function normalizeOps<S extends SchemaMap>(ops: ReadonlyArray<Op<S>>): Op<S>[] {
     }
   }
   return [...states.values()].sort((a, b) => a.order - b.order).map(({ op }) => op);
+}
+
+function freezeOps<S extends SchemaMap>(ops: Op<S>[]): ReadonlyArray<Op<S>> {
+  for (const op of ops) {
+    if (op.type === "insert") Object.freeze(op.data);
+    if (op.type === "update") Object.freeze(op.patch);
+    Object.freeze(op);
+  }
+  return Object.freeze(ops);
 }
 
 function sameOps<S extends SchemaMap>(a: ReadonlyArray<Op<S>>, b: ReadonlyArray<Op<S>>): boolean {
@@ -159,7 +168,9 @@ function canonicalOp<S extends SchemaMap>(
     const data = { ...(op.data as Record<string, unknown>) } as Record<string, unknown>;
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(data)) {
-      out[canonicalColumn(k, cols)] = v;
+      const column = canonicalColumn(k, cols);
+      if (Object.hasOwn(out, column)) throw new TypeError("Duplicate SQLite column alias");
+      out[column] = v;
     }
     return { ...op, table: table as keyof S & string, data: out as S[typeof table] };
   }
@@ -168,7 +179,10 @@ function canonicalOp<S extends SchemaMap>(
     const patch = { ...(op.patch as Record<string, unknown>) };
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(patch)) {
-      out[canonicalColumn(k, cols)] = v;
+      const column = canonicalColumn(k, cols);
+      if (column === "id") throw new TypeError("Cannot update the immutable primary key");
+      if (Object.hasOwn(out, column)) throw new TypeError("Duplicate SQLite column alias");
+      out[column] = v;
     }
     return { ...op, table: table as keyof S & string, patch: out as Partial<S[typeof table]> };
   }
@@ -844,7 +858,12 @@ export class PalladiumEngine<S extends SchemaMap> {
   async purgeLocal<K extends keyof S & string>(table: K, id: string): Promise<void> {
     const tableName = canonicalTable(String(table));
     await this.#serialize(async () => {
-      await this.#purgeLocalTransaction(this.adapter, tableName, id);
+      if (!isTransactable(this.adapter)) {
+        throw new Error("Local purge requires transaction support");
+      }
+      await this.adapter.transaction((adapter) =>
+        this.#purgeLocalTransaction(adapter, tableName, id),
+      );
     });
     await this.#notifyLiveQueries([tableName]);
   }
@@ -987,8 +1006,9 @@ export class PalladiumEngine<S extends SchemaMap> {
     hlc: Hlc | null,
     touchedTables: Set<string>,
   ): Promise<void> {
-    for (const op of ops) {
-      touchedTables.add(String(op.table).toLowerCase());
+    for (const wireOp of ops) {
+      const op = canonicalOp(wireOp, (table) => this.#columnsFor(table));
+      touchedTables.add(String(op.table));
       await this.#applyOp(adpt, op);
       if (hlc !== null) await this.#stampLocalMeta(adpt, op, hlc);
     }
@@ -1010,7 +1030,7 @@ export class PalladiumEngine<S extends SchemaMap> {
       );
     }
     const builtOps = builder.build();
-    const ops = normalizeOps(builtOps);
+    const ops = freezeOps(normalizeOps(builtOps));
     const touchedTables = new Set<string>();
     const changeId = crypto.randomUUID();
 
@@ -1024,12 +1044,14 @@ export class PalladiumEngine<S extends SchemaMap> {
       const localChange =
         hlc === null
           ? null
-          : {
+          : Object.freeze({
               ops,
-              touchedTables: [...new Set(ops.map((op) => String(op.table).toLowerCase()))],
-              hlc,
+              touchedTables: Object.freeze([
+                ...new Set(ops.map((op) => String(op.table).toLowerCase())),
+              ]),
+              hlc: Object.freeze({ ...hlc }),
               changeId,
-            };
+            });
       const checkpoints = localChange === null ? [] : [...this.#localChangeCheckpoints];
 
       const applyAll = async (adpt: StorageAdapter): Promise<void> => {
@@ -1050,7 +1072,11 @@ export class PalladiumEngine<S extends SchemaMap> {
       }
 
       if (localChange !== null && !this.#suppressLocalEmit) {
-        this.#reportObserverErrors(this.emitter.emitSafely("changes:local", localChange));
+        this.emitter.emitObserved(
+          (error) => this.#reportObserverErrors([error]),
+          "changes:local",
+          localChange,
+        );
       }
     });
 
@@ -1170,7 +1196,8 @@ export class PalladiumEngine<S extends SchemaMap> {
    * An optional cursor is checkpointed atomically with the remote change.
    */
   async applyRemote(change: RemoteChange<S>, cursor?: string): Promise<void> {
-    const { hlc, ops } = change;
+    const ownedChange = snapshotJson(change);
+    const { hlc, ops } = ownedChange;
     if (!isValidHlc(hlc)) throw new TypeError("Invalid remote HLC");
     const canonicalOps = normalizeOps(ops);
     if (!sameOps(ops, canonicalOps)) throw new TypeError("Remote change is not canonical");
@@ -1189,7 +1216,7 @@ export class PalladiumEngine<S extends SchemaMap> {
       const applyAll = async (adpt: StorageAdapter): Promise<void> => {
         await this.#applyRemoteTransaction(
           adpt,
-          change,
+          ownedChange,
           identifierCanonicalOps,
           touchedTables,
           cursor,
@@ -1234,7 +1261,8 @@ export class PalladiumEngine<S extends SchemaMap> {
       adapter: StorageAdapter,
     ) => Promise<void>,
   ): Promise<boolean> {
-    const prepared = changes.map((change) => {
+    const ownedPurges = snapshotJson(purges);
+    const prepared = snapshotJson(changes).map((change) => {
       if (!isValidHlc(change.hlc)) throw new TypeError("Invalid remote HLC");
       const canonicalOps = normalizeOps(change.ops);
       if (!sameOps(change.ops, canonicalOps)) throw new TypeError("Remote change is not canonical");
@@ -1281,7 +1309,7 @@ export class PalladiumEngine<S extends SchemaMap> {
           if (!allApplied) return;
           const purgedTables = new Set<string>();
           await this.adapter.transaction(async (adpt) => {
-            for (const purge of purges) {
+            for (const purge of ownedPurges) {
               const purgeTable = canonicalTable(String(purge.table));
               await this.#purgeLocalTransaction(adpt, purgeTable, purge.id);
               purgedTables.add(purgeTable);
@@ -1366,7 +1394,7 @@ export class PalladiumEngine<S extends SchemaMap> {
   /** Update the sync status and emit a `sync:status` event. */
   setStatus(s: SyncStatus): void {
     this.status = s;
-    this.emitter.emit("sync:status", s);
+    this.emitter.emitObserved((error) => this.#reportObserverErrors([error]), "sync:status", s);
   }
 
   async #applyOp(adpt: StorageAdapter, op: Op<S>): Promise<void> {
@@ -1410,8 +1438,10 @@ export class PalladiumEngine<S extends SchemaMap> {
 
   async #notifyLiveQueries(tables: string[]): Promise<void> {
     if (tables.length > 0) {
-      this.#reportObserverErrors(
-        this.emitter.emitSafely("tables:changed", Object.freeze([...tables])),
+      this.emitter.emitObserved(
+        (error) => this.#reportObserverErrors([error]),
+        "tables:changed",
+        Object.freeze([...tables]),
       );
     }
     const results = await Promise.allSettled(
@@ -1425,7 +1455,8 @@ export class PalladiumEngine<S extends SchemaMap> {
 
   #reportObserverErrors(errors: readonly unknown[]): void {
     for (const error of errors) {
-      this.emitter.emitSafely("error", error instanceof Error ? error : new Error(String(error)));
+      // Error observers are terminal sinks: their failures must not recurse.
+      this.emitter.emitObserved(() => undefined, "error", toError(error));
     }
   }
 

@@ -147,6 +147,21 @@ export type Op<S extends SchemaMap = SchemaMap, K extends keyof S & string = key
   | UpdateOp<S, K>
   | DeleteOp<S, K>;
 
+/** Own a wire-equivalent JSON snapshot, including every nested observer-visible value. */
+export function snapshotJson<T>(value: T): T {
+  if (!isJsonValue(value)) {
+    throw new TypeError("Value must losslessly round-trip through JSON");
+  }
+  const snapshot = JSON.parse(JSON.stringify(value)) as T;
+  const freeze = (item: unknown): void => {
+    if (item === null || typeof item !== "object") return;
+    for (const child of Object.values(item)) freeze(child);
+    Object.freeze(item);
+  };
+  freeze(snapshot);
+  return snapshot;
+}
+
 export class TxBuilder<S extends SchemaMap> {
   readonly #ops: Op<S>[] = [];
 
@@ -154,7 +169,7 @@ export class TxBuilder<S extends SchemaMap> {
   insert<K extends keyof S & string>(table: K, data: S[K]): this {
     assertJsonValue(data, "Inserted row");
     assertUuidV7(data.id);
-    this.#ops.push({ type: "insert", table, id: data.id, data });
+    this.#ops.push(snapshotJson({ type: "insert", table, id: data.id, data }));
     return this;
   }
 
@@ -164,18 +179,18 @@ export class TxBuilder<S extends SchemaMap> {
     if (!isJsonObject(patch)) {
       throw new TypeError("Update patch must be a JSON object");
     }
-    if (Object.hasOwn(patch, "id")) {
+    if (Object.keys(patch).some((column) => column.toLowerCase() === "id")) {
       throw new TypeError("Update patches must not contain the immutable primary key `id`");
     }
     assertJsonValue(patch, "Update patch");
-    this.#ops.push({ type: "update", table, id, patch });
+    this.#ops.push(snapshotJson({ type: "update", table, id, patch }));
     return this;
   }
 
   /** Queue a DELETE operation by canonical UUIDv7 id. */
   delete<K extends keyof S & string>(table: K, id: string): this {
     assertUuidV7(id);
-    this.#ops.push({ type: "delete", table, id });
+    this.#ops.push(Object.freeze({ type: "delete", table, id }));
     return this;
   }
 

@@ -88,14 +88,18 @@ export class LiveQuery<T = Record<string, unknown>> {
 
   async #runAndNotify(): Promise<void> {
     const rows = await this.#executeQuery();
-    const errors: unknown[] = [];
+    const pending: Promise<unknown>[] = [];
     for (const listener of this.#listeners) {
       try {
-        listener(rows);
+        pending.push(Promise.resolve(listener(rows)));
       } catch (err) {
-        errors.push(err);
+        pending.push(Promise.reject(err));
       }
     }
+    const results = await Promise.allSettled(pending);
+    const errors = results.flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : [],
+    );
     if (errors.length > 0) {
       throw errors.length === 1
         ? errors[0]

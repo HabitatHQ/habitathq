@@ -750,4 +750,52 @@ describe("column-level LWW", () => {
       }
     },
   );
+
+  it("canonicalizes local column aliases for inserts and updates before remote LWW", async () => {
+    type AliasRow = { id: string; Title?: string; title?: string };
+    type AliasSchema = { notes: AliasRow };
+    const aliasConfig: SchemaConfig = {
+      version: 1,
+      schema: "CREATE TABLE notes (id TEXT PRIMARY KEY, Title TEXT NOT NULL)",
+    };
+    const engine = new PalladiumEngine<AliasSchema>(
+      new NodeSqliteAdapter({ vfs: { type: "memory" } }),
+      { nodeId: BOB },
+    );
+    await engine.init(aliasConfig);
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    try {
+      const localPayloads: unknown[] = [];
+      engine.on("changes:local", (change) => {
+        const op = change.ops[0];
+        if (op?.type === "insert") localPayloads.push(op.data);
+        if (op?.type === "update") localPayloads.push(op.patch);
+      });
+      await engine.insert("notes", { id, title: "inserted locally" });
+      await engine.applyRemote({
+        hlc: hlc(1_000),
+        ops: [{ type: "update", table: "notes", id, patch: { title: "older remote" } }],
+      });
+      expect(await engine.exec(sql`SELECT Title FROM notes WHERE id = ${id}`)).toEqual([
+        { Title: "inserted locally" },
+      ]);
+      await engine.update("notes", id, { title: "updated locally" });
+      await engine.applyRemote({
+        hlc: hlc(1_000),
+        ops: [{ type: "update", table: "notes", id, patch: { Title: "older alias" } }],
+      });
+      expect(await engine.exec(sql`SELECT Title FROM notes WHERE id = ${id}`)).toEqual([
+        { Title: "updated locally" },
+      ]);
+      expect(localPayloads).toEqual([
+        { id, title: "inserted locally" },
+        { title: "updated locally" },
+      ]);
+      await expect(
+        engine.update("notes", id, { Title: "first alias", title: "second alias" }),
+      ).rejects.toThrow("Duplicate SQLite column alias");
+    } finally {
+      await engine.adapter.close();
+    }
+  });
 });
