@@ -1630,8 +1630,13 @@ export class PalladiumEngine<S extends SchemaMap> {
 
     const existing = await adpt.exec(`SELECT 1 FROM ${table} WHERE id = ? LIMIT 1`, [data.id]);
     if (existing.length === 0) {
+      // The row must materialize in full to satisfy NOT NULL columns, but the
+      // per-column register only advances for columns that actually won the
+      // LWW comparison above (`winning`). Stamping every incoming column here
+      // would regress the register for columns an earlier write already
+      // claimed with a newer HLC.
       await this._putRow(adpt, table, data.id, data);
-      await this.#stampCols(adpt, table, data.id, Object.keys(data), hlc);
+      await this.#stampCols(adpt, table, data.id, Object.keys(winning), hlc);
     } else {
       await this._patchRow(adpt, table, data.id, winning);
       await this.#stampCols(adpt, table, data.id, Object.keys(winning), hlc);

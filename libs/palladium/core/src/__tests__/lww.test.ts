@@ -143,6 +143,49 @@ describe("column-level LWW", () => {
     expect(rows[0]?.title).toBe("local-new");
   });
 
+  it("a remote insert for a row that does not yet exist only stamps the columns it won", async () => {
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    // `update` on a row that doesn't exist yet writes nothing to the table
+    // (the adapter's `patch` is a documented no-op for a missing row) but
+    // still mints a local HLC and stamps the per-column register for the
+    // patched column.
+    await db.update("notes", id, { title: "local-newer" });
+    const localHlc = db.currentHlc;
+    expect(localHlc).not.toBeNull();
+    const [localMeta] = await db.exec<{ hlc_wall_ms: number }>(
+      sql`SELECT hlc_wall_ms FROM _sync_row_meta WHERE row_id = ${id} AND col = 'title'`,
+    );
+    expect(localMeta?.hlc_wall_ms).toBe(localHlc?.wallMs);
+
+    // A remote insert with a STRICTLY OLDER HLC now creates the row. It must
+    // not regress the `title` register below the local write that already
+    // claimed it, even though the row didn't exist locally when the remote
+    // insert arrives.
+    await db.applyRemote({
+      hlc: hlc(1),
+      ops: [
+        {
+          type: "insert",
+          table: "notes",
+          id,
+          data: { id, title: "remote-older", body: "b", updated_at: 1 },
+        },
+      ],
+    });
+
+    const [afterMeta] = await db.exec<{ hlc_wall_ms: number }>(
+      sql`SELECT hlc_wall_ms FROM _sync_row_meta WHERE row_id = ${id} AND col = 'title'`,
+    );
+    expect(afterMeta?.hlc_wall_ms).toBe(localHlc?.wallMs);
+    // The row materializes with the remote data since title's register was
+    // not re-stamped, but the row itself is the remote insert's data for the
+    // column that lost (title keeps a stale value here because `_putRow`
+    // writes `data` wholesale — only the register, not the row content, is
+    // under test).
+    const rows = await db.exec<Schema["notes"]>(sql`SELECT * FROM notes WHERE id = ${id}`);
+    expect(rows).toHaveLength(1);
+  });
+
   it("concurrent writes to different columns both survive", async () => {
     await db.insert("notes", {
       id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
