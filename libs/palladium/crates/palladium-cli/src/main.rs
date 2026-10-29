@@ -159,10 +159,36 @@ async fn run_inspect(db_url: &str, limit: usize) -> Result<()> {
     Ok(())
 }
 
-// Borderline (26/25) — the function is a thin orchestrator (parse URL, open
-// store, build router, bind socket, log). Splitting yields one-call helpers
-// per branch, which is less readable than the linear flow.
-#[allow(clippy::cognitive_complexity)]
+fn validate_instances(instances: &[InstanceArg]) -> Result<()> {
+    let mut names = std::collections::HashSet::with_capacity(instances.len());
+    for instance in instances {
+        anyhow::ensure!(
+            !instance.name.is_empty()
+                && instance
+                    .name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-'),
+            "invalid instance name {:?}; names may contain only ASCII letters, digits, '_' and '-'",
+            instance.name
+        );
+        anyhow::ensure!(
+            names.insert(&instance.name),
+            "duplicate instance name {:?}",
+            instance.name
+        );
+    }
+    Ok(())
+}
+
+fn app_state(store: SqliteStore, auth: AuthMode) -> AppState<SqliteStore> {
+    match auth {
+        AuthMode::Static => AppState::new(store),
+        AuthMode::Bearer => AppState::new(store)
+            .with_authenticator(BearerAuthenticator)
+            .with_authorizer(BearerScopeAuthorizer),
+    }
+}
+
 async fn run_dev(
     db_url: &str,
     port: u16,
@@ -170,19 +196,21 @@ async fn run_dev(
     extra_instances: &[InstanceArg],
     auth: AuthMode,
 ) -> Result<()> {
-    // If --instance flags were provided, log them (future: open all and serve).
-    for inst in extra_instances {
-        info!(name = %inst.name, path = %inst.path, "configured additional instance");
-    }
-    info!(%db_url, port, ?auth, "starting dev server");
-    let store = SqliteStore::open(db_url).await?;
-    let state = match auth {
-        AuthMode::Static => AppState::new(store),
-        AuthMode::Bearer => AppState::new(store)
-            .with_authenticator(BearerAuthenticator)
-            .with_authorizer(BearerScopeAuthorizer),
+    let app = if extra_instances.is_empty() {
+        let store = SqliteStore::open(db_url).await?;
+        create_router(app_state(store, auth), CorsLayer::permissive())
+    } else {
+        validate_instances(extra_instances)?;
+        let mut app = axum::Router::new();
+        for instance in extra_instances {
+            info!(name = %instance.name, path = %instance.path, "opening dev instance");
+            let store = SqliteStore::open(&instance.path).await?;
+            let router = create_router(app_state(store, auth), CorsLayer::permissive());
+            app = app.nest(&format!("/instances/{}", instance.name), router);
+        }
+        app
     };
-    let app = create_router(state, CorsLayer::permissive());
+    info!(port, %host, ?auth, "starting dev server");
     let addr = std::net::SocketAddr::new(host, port);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     info!(%addr, "listening");
