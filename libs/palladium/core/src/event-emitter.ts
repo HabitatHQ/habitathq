@@ -44,7 +44,13 @@ export class EventEmitter<Events extends object> {
     const [event, payload] = args;
     const listeners = this.#listeners[event];
     if (listeners === undefined) return;
-    for (const listener of listeners) {
+    // Iterate a snapshot, not the live Set: a listener that subscribes a new
+    // listener during dispatch must not have that new listener invoked within
+    // this same dispatch. Unsubscription during dispatch must still take
+    // effect immediately, so each snapshotted listener is checked against the
+    // live Set right before it's called rather than skipped via the snapshot.
+    for (const listener of [...listeners]) {
+      if (!listeners.has(listener)) continue;
       (listener as (p: Events[K]) => void)(payload as Events[K]);
     }
   }
@@ -62,7 +68,12 @@ export class EventEmitter<Events extends object> {
         // A failure sink cannot safely report its own failure recursively.
       }
     };
-    for (const listener of this.#listeners[event] ?? []) {
+    const listeners = this.#listeners[event];
+    // See `emit`'s snapshot comment: dispatch over a copy so a listener
+    // subscribed mid-dispatch waits for the next emit, while a listener
+    // unsubscribed mid-dispatch is still honoured immediately.
+    for (const listener of listeners === undefined ? [] : [...listeners]) {
+      if (!listeners?.has(listener)) continue;
       try {
         const result = (listener as (p: Events[K]) => unknown)(payload as Events[K]);
         void Promise.resolve(result).catch(report);

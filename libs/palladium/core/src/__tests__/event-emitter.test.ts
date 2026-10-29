@@ -135,4 +135,54 @@ describe("EventEmitter", () => {
     await completed;
     expect(seen).toEqual([new Error("async observer"), "thenable observer"]);
   });
+
+  it("emit: a listener that subscribes a new listener mid-dispatch does not invoke it until the next emit", () => {
+    const ee = new EventEmitter<TestEvents>();
+    const late = vi.fn();
+    ee.on("data", () => {
+      ee.on("data", late);
+    });
+    ee.emit("data", "first");
+    expect(late).not.toHaveBeenCalled();
+    ee.emit("data", "second");
+    expect(late).toHaveBeenCalledWith("second");
+    expect(late).toHaveBeenCalledOnce();
+  });
+
+  it("emit: a listener that off()s a not-yet-invoked listener mid-dispatch suppresses it", () => {
+    const ee = new EventEmitter<TestEvents>();
+    const target = vi.fn();
+    ee.on("data", () => {
+      ee.off("data", target);
+    });
+    ee.on("data", target);
+    ee.emit("data", "x");
+    expect(target).not.toHaveBeenCalled();
+  });
+
+  it("emitObserved: a listener that subscribes a new listener mid-dispatch does not invoke it until the next emit", () => {
+    const ee = new EventEmitter<TestEvents>();
+    const late = vi.fn();
+    ee.on("data", () => {
+      ee.on("data", late);
+    });
+    const onError = vi.fn();
+    ee.emitObserved(onError, "data", "first");
+    expect(late).not.toHaveBeenCalled();
+    ee.emitObserved(onError, "data", "second");
+    expect(late).toHaveBeenCalledWith("second");
+    expect(late).toHaveBeenCalledOnce();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("emitObserved: a listener that off()s a not-yet-invoked listener mid-dispatch suppresses it", () => {
+    const ee = new EventEmitter<TestEvents>();
+    const target = vi.fn();
+    ee.on("data", () => {
+      ee.off("data", target);
+    });
+    ee.on("data", target);
+    ee.emitObserved(vi.fn(), "data", "x");
+    expect(target).not.toHaveBeenCalled();
+  });
 });
