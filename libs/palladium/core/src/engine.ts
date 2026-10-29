@@ -47,7 +47,7 @@ function normalizeOps<S extends SchemaMap>(ops: ReadonlyArray<Op<S>>): Op<S>[] {
   const states = new Map<string, State>();
   let order = 0;
   for (const op of ops) {
-    const key = `${String(op.table)}\u0000${op.type === "insert" ? op.id : op.id}`;
+    const key = `${String(op.table)}\u0000${op.id}`;
     const prior = states.get(key);
     if (op.type === "insert") {
       states.set(key, { op: { ...op, data: { ...op.data } }, order: prior?.order ?? order++ });
