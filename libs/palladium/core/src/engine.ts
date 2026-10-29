@@ -28,7 +28,7 @@ import { MemoryBlobAdapter } from "./memory-blob-adapter.js";
 import type { SchemaConfig } from "./migration.js";
 import { applySchema } from "./migration.js";
 import type { SqlQuery } from "./sql.js";
-import type { StorageAdapter } from "./storage.js";
+import type { StorageAdapter, TransactableStorageAdapter } from "./storage.js";
 import { isTransactable, supportsConstraintDeferral } from "./storage.js";
 import type { Op, SchemaMap } from "./tx.js";
 import { snapshotJson, TxBuilder } from "./tx.js";
@@ -763,7 +763,7 @@ export class PalladiumEngine<S extends SchemaMap> {
       if (!isTransactable(this.adapter)) {
         throw new Error("Clock recovery requires transaction support");
       }
-      const replacements = await this.adapter.transaction((adapter) =>
+      const replacements = await this.#transaction((adapter) =>
         this.#reauthorClockRejectedChangesInTransaction(
           adapter,
           changes,
@@ -858,7 +858,7 @@ export class PalladiumEngine<S extends SchemaMap> {
         const columnsFor = (table: string): ReadonlySet<string> =>
           tableColumns.get(canonicalTable(table)) ?? EMPTY_COLUMNS;
         if (isTransactable(this.adapter)) {
-          await this.adapter.transaction((transaction) =>
+          await this.#transaction((transaction) =>
             migrateShadowTablesToCanonical(transaction, columnsFor),
           );
         } else {
@@ -880,9 +880,7 @@ export class PalladiumEngine<S extends SchemaMap> {
       if (!isTransactable(this.adapter)) {
         throw new Error("Local purge requires transaction support");
       }
-      await this.adapter.transaction((adapter) =>
-        this.#purgeLocalTransaction(adapter, tableName, id),
-      );
+      await this.#transaction((adapter) => this.#purgeLocalTransaction(adapter, tableName, id));
     });
     await this.#notifyLiveQueries([tableName]);
   }
@@ -934,6 +932,24 @@ export class PalladiumEngine<S extends SchemaMap> {
     await adpt.exec(APPLIED_CHANGES_DDL, []);
     await adpt.exec(PENDING_REMOTE_UPDATES_DDL, []);
     this.#syncTablesReady = true;
+  }
+
+  /**
+   * Open an engine transaction, surrendering the shadow-table readiness latch
+   * if it rolls back. The `_sync_*` DDL may have been created inside the
+   * transaction that just rolled back, so a cached "ready" would leave later
+   * writes querying tables that no longer exist. Every caller already runs
+   * its own `isTransactable` guard (with its own error message) before
+   * calling this, so this performs no capability check of its own — the cast
+   * below is only to satisfy the type checker.
+   */
+  async #transaction<T>(fn: (adapter: StorageAdapter) => Promise<T>): Promise<T> {
+    try {
+      return await (this.adapter as TransactableStorageAdapter).transaction(fn);
+    } catch (error) {
+      this.#syncTablesReady = false;
+      throw error;
+    }
   }
   #writeChain: Promise<unknown> = Promise.resolve();
   #serialize<T>(fn: () => Promise<T>): Promise<T> {
@@ -1084,7 +1100,7 @@ export class PalladiumEngine<S extends SchemaMap> {
       };
 
       try {
-        await this.adapter.transaction(applyAll);
+        await this.#transaction(applyAll);
       } catch (error) {
         this.#currentHlc = previousHlc;
         throw error;
@@ -1244,7 +1260,7 @@ export class PalladiumEngine<S extends SchemaMap> {
       const previousHlc = this.#currentHlc;
       this.#suppressLocalEmit = true;
       try {
-        await this.adapter.transaction(applyAll);
+        await this.#transaction(applyAll);
       } catch (error) {
         this.#currentHlc = previousHlc;
         throw error;
@@ -1306,7 +1322,7 @@ export class PalladiumEngine<S extends SchemaMap> {
             const changeTouchedTables = new Set<string>();
             const previousHlc = this.#currentHlc;
             try {
-              await this.adapter.transaction(async (adpt) => {
+              await this.#transaction(async (adpt) => {
                 await this.#applyRemoteTransaction(
                   adpt,
                   change,
@@ -1320,14 +1336,14 @@ export class PalladiumEngine<S extends SchemaMap> {
               this.#currentHlc = previousHlc;
               if (onRejected === undefined) throw error;
               allApplied = false;
-              await this.adapter.transaction(async (adpt) => {
+              await this.#transaction(async (adpt) => {
                 await onRejected(change, error, adpt);
               });
             }
           }
           if (!allApplied) return;
           const purgedTables = new Set<string>();
-          await this.adapter.transaction(async (adpt) => {
+          await this.#transaction(async (adpt) => {
             for (const purge of ownedPurges) {
               const purgeTable = canonicalTable(String(purge.table));
               await this.#purgeLocalTransaction(adpt, purgeTable, purge.id);
