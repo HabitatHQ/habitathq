@@ -230,6 +230,72 @@ describe("durable sync state — poll cursor across transport restart", () => {
     expect(seenUrls[0]).toBe(`${SERVER_URL}/v1/changes?limit=100&cursor=${cursor}`);
   });
 
+  // `sync.ts` documents the server's append cursor as an unsigned decimal
+  // sequence number. A naive `cursor > savedCursor` string comparison treats
+  // it as lexicographic, under which "10" < "9", so the durable cursor would
+  // stall forever once it crosses a power of ten.
+  it("advances the durable cursor numerically across a digit-count boundary", async () => {
+    const db = await makeEngine(BOB);
+    const change = (n: number) => ({
+      hlc: { wallMs: 1_700_000_000_000 + n, counter: 0, nodeId: ALICE },
+      ops: [
+        {
+          type: "insert" as const,
+          table: "notes" as const,
+          id: `018f0f50-7b8d-7a1c-8e2f-${String(n).padStart(12, "0")}`,
+          data: {
+            id: `018f0f50-7b8d-7a1c-8e2f-${String(n).padStart(12, "0")}`,
+            title: `n${n}`,
+            updated_at: n,
+          },
+        },
+      ],
+    });
+
+    await db.applyRemote(change(1), "9");
+    expect(await db.getSyncState("cursor")).toBe("9");
+
+    await db.applyRemote(change(2), "10");
+    expect(await db.getSyncState("cursor")).toBe("10");
+
+    await db.applyRemote(change(3), "100");
+    expect(await db.getSyncState("cursor")).toBe("100");
+
+    // A regressing decimal cursor must not overwrite the saved checkpoint.
+    await db.applyRemote(change(4), "9");
+    expect(await db.getSyncState("cursor")).toBe("100");
+  });
+
+  it("keeps lexicographic comparison for an opaque (non-decimal) cursor", async () => {
+    const db = await makeEngine(BOB);
+    const change = (n: number) => ({
+      hlc: { wallMs: 1_700_000_000_000 + n, counter: 0, nodeId: ALICE },
+      ops: [
+        {
+          type: "insert" as const,
+          table: "notes" as const,
+          id: `018f0f50-7b8d-7a1c-8e2f-${String(n).padStart(12, "0")}`,
+          data: {
+            id: `018f0f50-7b8d-7a1c-8e2f-${String(n).padStart(12, "0")}`,
+            title: `n${n}`,
+            updated_at: n,
+          },
+        },
+      ],
+    });
+
+    await db.applyRemote(change(1), "abc:9");
+    expect(await db.getSyncState("cursor")).toBe("abc:9");
+
+    // Opaque tokens keep the pre-existing lexicographic rule: "abc:10" sorts
+    // before "abc:9" as plain strings, so it does not advance the checkpoint.
+    await db.applyRemote(change(2), "abc:10");
+    expect(await db.getSyncState("cursor")).toBe("abc:9");
+
+    await db.applyRemote(change(3), "abc:95");
+    expect(await db.getSyncState("cursor")).toBe("abc:95");
+  });
+
   it("quarantines an atomic remote change without committing its valid prefix", async () => {
     const db = await makeEngine(BOB);
     const change: WireChange = {

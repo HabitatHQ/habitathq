@@ -98,6 +98,25 @@ function assertSqlIdentifier(name: string): void {
   }
 }
 
+/** A run of one or more ASCII digits, with no sign or leading-zero exclusion. */
+const DECIMAL_CURSOR = /^[0-9]+$/;
+
+/**
+ * Decide whether `cursor` advances past `savedCursor`. `sync.ts` documents the
+ * server's append cursor as an unsigned decimal sequence number, so when both
+ * strings are plain digit runs they're compared numerically (via `BigInt`, so
+ * arbitrarily long sequence numbers stay exact) rather than lexicographically
+ * — a naive string comparison would stop "10" from advancing past "9". A
+ * cursor that isn't a plain digit run is treated as an opaque token and kept
+ * on the prior, pre-existing lexicographic comparison.
+ */
+function cursorAdvances(cursor: string, savedCursor: string): boolean {
+  if (DECIMAL_CURSOR.test(cursor) && DECIMAL_CURSOR.test(savedCursor)) {
+    return BigInt(cursor) > BigInt(savedCursor);
+  }
+  return cursor > savedCursor;
+}
+
 /**
  * Canonical identifier policy: one logical SQL cell = one canonical spelling.
  *
@@ -1133,7 +1152,7 @@ export class PalladiumEngine<S extends SchemaMap> {
       [STATE_CURSOR],
     );
     const savedCursor = rows[0]?.value ?? null;
-    if (savedCursor === null || cursor > savedCursor) {
+    if (savedCursor === null || cursorAdvances(cursor, savedCursor)) {
       await this.setSyncState(STATE_CURSOR, cursor, adpt);
     }
   }
