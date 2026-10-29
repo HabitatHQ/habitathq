@@ -41,6 +41,26 @@ For issue-specific checks, failure localization, isolated PostgreSQL setup, and
 production-browser smoke steps, see the
 [remediation verification/debugging runbook](../../docs/plans/palladium-autonomous-issues-20261009.md#verification-and-debugging-runbook).
 
+### Named development instances
+
+`palladium dev` serves a single database at the root API by default. Repeated
+`--instance NAME:PATH` arguments instead open independent SQLite stores and mount
+each complete API under `/instances/NAME`:
+
+```sh
+cargo run -p palladium-cli -- dev \
+  --instance alpha:sqlite:alpha.db \
+  --instance beta:sqlite:beta.db
+```
+
+Set the client's `serverUrl` to `http://127.0.0.1:3000/instances/alpha` or
+`http://127.0.0.1:3000/instances/beta`; changes remain isolated in their respective
+databases. Explicit instances override `--db` without opening its database.
+Names must be unique and contain only ASCII letters, digits, `_` or `-`.
+Configuration errors stop startup before serving any instance. The existing
+`--auth` setting applies independently to every mounted API; the default bind
+address remains loopback.
+
 ### Storage ownership and Kysely
 
 `PalladiumDialect` transactions use the adapter's real transaction boundary and
@@ -157,6 +177,19 @@ service-worker scope, including on a fresh channel after reload. Browser or
 backend removal failure rejects the promise; backend failure retains the
 endpoint and keys for retry without repeating an already-successful browser
 unsubscribe. Only successful completion clears the retry payload.
+
+Configure `WebPushChannel` with `sendEndpoint` to submit notifications to your
+application backend. `send()` POSTs JSON `{ subscription, notification }`, where
+`subscription` contains the endpoint and keys returned by `subscribe()` and
+`notification` contains the complete notification payload. HTTP success reports
+`delivered`, meaning backend acceptance—not device receipt. The backend is
+responsible for authorization, VAPID signing and push-provider delivery; never
+put the private VAPID key in browser configuration.
+
+Subscription-only configurations remain valid, but `send()` without a
+`sendEndpoint` returns `skipped` instead of claiming delivery. HTTP and network
+failures return `failed`, allowing configured fallback channels to deliver.
+Cached unsubscribe-retry payloads cannot be used to send after browser removal.
 
 While the document is visible, `foregroundBehavior` applies per channel after
 middleware selection and also to fallback delivery. `"show"` preserves ordinary
