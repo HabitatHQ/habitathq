@@ -33,6 +33,7 @@ export interface WorkoutComparison {
 }
 
 export interface ExerciseSessionStat {
+  workoutId: string
   date: string
   e1rm: number | null
   volume: number
@@ -169,7 +170,7 @@ export function buildExerciseHistory(
       .filter((s) => s.weight_kg !== null && s.reps !== null)
       .map((s) => calculateE1RM(s.weight_kg as number, s.reps as number))
     const e1rm = e1rmValues.length > 0 ? Math.max(...e1rmValues) : null
-    stats.push({ date, e1rm, volume, maxWeight, totalReps })
+    stats.push({ workoutId, date, e1rm, volume, maxWeight, totalReps })
   }
 
   return stats.sort((a, b) => a.date.localeCompare(b.date))

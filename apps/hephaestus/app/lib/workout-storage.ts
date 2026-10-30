@@ -14,10 +14,14 @@ import type {
   PrescriptionActivity,
   PrescriptionSet,
   RoutineInputValue,
+  RoutineSnapshot,
   SerializablePrescription,
   SetRole,
 } from '~/types/prescription'
 import { isoWeek } from './format'
+import type { IntervalClockState } from './interval-clock'
+import { intervalElapsedSeconds, parseIntervalConfiguration } from './interval-clock'
+import type { IntervalTemplate } from './interval-templates'
 import { discardOrganization, finishOrganization, startOrganization } from './organization-storage'
 import { detectPRs } from './pr'
 import { parseSerializablePrescription } from './prescription-domain'
@@ -47,6 +51,7 @@ type StartOptions = {
   appointmentId?: string
   rotationId?: string
   rotationGeneration?: number
+  intervalTemplateId?: string
 }
 type Payload = Record<string, unknown>
 export interface WorkoutSetIntent {
@@ -66,11 +71,17 @@ export interface WorkoutActivityIntent {
   durationSec: number | null
   distanceM: number | null
 }
+export interface WorkoutIntervalSession extends IntervalClockState {
+  template_id: string
+  config: IntervalTemplate
+  updated_at: string
+}
 export interface WorkoutSession {
   workout: WorkoutRow
   exercises: WorkoutExerciseRow[]
   sets: SetRow[]
   run: RunRow | null
+  interval: WorkoutIntervalSession | null
   groups: TemplateGroupRow[]
   options: { intensity_modifier: number; volume_modifier: number } | null
   prescription: SerializablePrescription | null
@@ -91,6 +102,10 @@ export interface WorkoutOperationMap {
     result: WorkoutSession
   }
   WORKOUT_ACTIVE: { payload: Record<string, never>; result: WorkoutSession | null }
+  WORKOUT_INTERVAL_STATE: {
+    payload: { workoutId: string; state: IntervalClockState }
+    result: WorkoutIntervalSession
+  }
   WORKOUT_LOG_SET: { payload: { set: SetRow }; result: SetRow }
   WORKOUT_UPDATE_SET: { payload: { set: SetRow }; result: SetRow }
   WORKOUT_SAVE_DRAFT: { payload: { set: SetRow }; result: SetRow }
@@ -293,6 +308,7 @@ async function loadSession(db: DbAdapter, workout: WorkoutRow) {
     'SELECT intensity_modifier,volume_modifier FROM workout_session_options WHERE workout_id=?',
     [workout.id],
   )
+  const interval = await readIntervalSession(db, workout.id)
   return {
     workout,
     exercises,
@@ -303,6 +319,7 @@ async function loadSession(db: DbAdapter, workout: WorkoutRow) {
     prescription,
     setIntents,
     activityIntents,
+    interval,
     skippedSetIds: skipped.map((row) => row.set_id),
     routine,
   }
@@ -376,6 +393,7 @@ function readStartOptions(source: Payload): StartOptions {
     'expectedRoutineRevisionId',
     'appointmentId',
     'rotationId',
+    'intervalTemplateId',
   ] as const) {
     const value = source[key]
     if (value === undefined) continue
@@ -591,16 +609,23 @@ async function captureTemplateIntent(
   return prescription
 }
 
-async function start(db: DbAdapter, payload: Payload) {
-  const {
-    now,
-    id,
-    templateId: requestedTemplateId,
-    routineId,
-    options,
-    sessionType,
-  } = readStartRequest(payload)
-  const routineSnapshot = routineId ? await getRoutineSnapshot(db, routineId) : null
+async function loadIntervalConfiguration(db: DbAdapter, options: StartOptions) {
+  if (!options.intervalTemplateId) return null
+  const row = await db.queryOne('SELECT * FROM interval_templates WHERE id=?', [
+    options.intervalTemplateId,
+  ])
+  return parseIntervalConfiguration(row)
+}
+
+function intervalSessionType(config: IntervalTemplate): SessionType {
+  return config.type === 'mobility' ? 'mobility' : 'conditioning'
+}
+
+function validateRoutineStart(
+  routineSnapshot: RoutineSnapshot | null,
+  requestedTemplateId: string | null,
+  options: StartOptions,
+) {
   if (
     options.expectedRoutineRevisionId &&
     routineSnapshot?.revision.id !== options.expectedRoutineRevisionId
@@ -612,15 +637,43 @@ async function start(db: DbAdapter, payload: Payload) {
     requestedTemplateId !== routineSnapshot.routine.templateId
   )
     throw new Error('Routine template identity does not match the requested template')
+}
+
+async function start(db: DbAdapter, payload: Payload) {
+  const {
+    now,
+    id,
+    templateId: requestedTemplateId,
+    routineId,
+    options,
+    sessionType,
+  } = readStartRequest(payload)
+  const intervalConfig = await loadIntervalConfiguration(db, options)
+  if (intervalConfig && (requestedTemplateId || routineId))
+    throw new Error('An interval session cannot use a strength template or routine')
+  const routineSnapshot = routineId ? await getRoutineSnapshot(db, routineId) : null
+  validateRoutineStart(routineSnapshot, requestedTemplateId, options)
   const templateId = routineSnapshot?.routine.templateId ?? requestedTemplateId
+  const template = templateId
+    ? await db.queryOne<{ name: string }>('SELECT name FROM templates WHERE id=?', [templateId])
+    : null
+  const title = intervalConfig?.name ?? routineSnapshot?.routine.name ?? template?.name ?? null
   const unfinished = await db.queryOne<WorkoutRow>(
     'SELECT * FROM workouts WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1',
   )
   if (unfinished)
     throw new Error('An unfinished session already exists; resume or discard it first.')
   await db.exec(
-    'INSERT INTO workouts (id,date,started_at,session_type,template_id,created_at) VALUES (?,?,?,?,?,?)',
-    [id, localCalendarDate(new Date(now)), now, sessionType, templateId, now],
+    'INSERT INTO workouts (id,date,started_at,session_type,template_id,created_at,title) VALUES (?,?,?,?,?,?,?)',
+    [
+      id,
+      localCalendarDate(new Date(now)),
+      now,
+      intervalConfig ? intervalSessionType(intervalConfig) : sessionType,
+      templateId,
+      now,
+      title,
+    ],
   )
   await db.exec(
     'INSERT INTO workout_session_options (workout_id,intensity_modifier,volume_modifier) VALUES (?,?,?)',
@@ -664,6 +717,21 @@ async function start(db: DbAdapter, payload: Payload) {
           routineRevisionId: null,
         }),
         JSON.stringify(sessionAdjustments(options)),
+        now,
+      ],
+    )
+  }
+  if (intervalConfig) {
+    await db.exec(
+      'INSERT INTO workout_interval_sessions(workout_id,template_id,config_json,phase,round,phase_deadline_ms,paused_remaining_sec,updated_at) VALUES(?,?,?,?,?,?,?,?)',
+      [
+        id,
+        options.intervalTemplateId,
+        JSON.stringify(intervalConfig),
+        'work',
+        1,
+        Date.parse(now) + intervalConfig.work_sec * 1000,
+        null,
         now,
       ],
     )
@@ -792,6 +860,11 @@ async function finish(db: DbAdapter, payload: Payload): Promise<WorkoutSummary> 
     run?.duration_sec ?? completedSets.reduce((sum, set) => sum + (set.duration_sec ?? 0), 0)
   const gymSets = strengthSets.filter((set) => set.is_warmup === 0).length
   const summary = buildWorkoutSummary(workout, endedAt, strengthSets, newPRs, distanceM)
+  if (workout.session_type === 'run' && runDuration != null && runDuration > 0)
+    summary.durationSec = runDuration
+  const interval = await readIntervalSession(db, workoutId)
+  if (interval)
+    summary.durationSec = intervalElapsedSeconds(interval, interval.config, Date.parse(endedAt))
   await db.exec('UPDATE workouts SET ended_at=?,mood_rating=?,energy_rating=?,notes=? WHERE id=?', [
     endedAt,
     opts['moodRating'] ?? null,
@@ -862,6 +935,8 @@ export async function recomputeWorkoutDerivedState(
     const runDuration =
       run?.duration_sec ?? completedSets.reduce((total, set) => total + (set.duration_sec ?? 0), 0)
     const summary = buildWorkoutSummary(workout, workout.ended_at, strengthSets, newPRs, distanceM)
+    if (workout.session_type === 'run' && runDuration != null && runDuration > 0)
+      summary.durationSec = runDuration
     await db.exec(
       'INSERT INTO workout_finish_summaries(workout_id,summary_json) VALUES(?,?) ON CONFLICT(workout_id) DO UPDATE SET summary_json=excluded.summary_json',
       [workout.id, JSON.stringify(summary)],
@@ -1163,6 +1238,21 @@ async function discard(db: DbAdapter, payload: Payload): Promise<boolean> {
   return true
 }
 
+async function readIntervalSession(
+  db: DbAdapter,
+  workoutId: string,
+): Promise<WorkoutIntervalSession | null> {
+  const row = await db.queryOne<
+    IntervalClockState & { template_id: string; config_json: string; updated_at: string }
+  >(
+    'SELECT template_id,config_json,phase,round,phase_deadline_ms,paused_remaining_sec,updated_at FROM workout_interval_sessions WHERE workout_id=?',
+    [workoutId],
+  )
+  if (!row) return null
+  const { config_json, ...state } = row
+  return { ...state, config: parseIntervalConfiguration(JSON.parse(config_json)) }
+}
+
 export async function dispatchWorkout(
   db: DbAdapter,
   type: string,
@@ -1174,6 +1264,37 @@ export async function dispatchWorkout(
       return start(db, payload)
     case 'WORKOUT_ACTIVE':
       return activeSession(db)
+    case 'WORKOUT_INTERVAL_STATE': {
+      const workoutId = String(payload['workoutId'] ?? '')
+      await requireActiveWorkout(db, workoutId)
+      const current = await readIntervalSession(db, workoutId)
+      if (!current) throw new Error('This workout is not an interval session')
+      const state = record(payload['state'])
+      const phase = state['phase']
+      const round = state['round']
+      const deadline = state['phase_deadline_ms']
+      const paused = state['paused_remaining_sec']
+      const rounds = current.config.type === 'amrap' ? 1 : current.config.rounds
+      if (
+        (phase !== 'work' && phase !== 'rest' && phase !== 'complete') ||
+        typeof round !== 'number' ||
+        !Number.isSafeInteger(round) ||
+        round < 1 ||
+        round > rounds ||
+        (deadline !== null && (typeof deadline !== 'number' || !Number.isFinite(deadline))) ||
+        (paused !== null &&
+          (typeof paused !== 'number' || !Number.isFinite(paused) || paused < 0)) ||
+        (phase === 'complete'
+          ? deadline !== null || paused !== null
+          : (deadline === null) === (paused === null))
+      )
+        throw new Error('Invalid interval timing state')
+      await db.exec(
+        'UPDATE workout_interval_sessions SET phase=?,round=?,phase_deadline_ms=?,paused_remaining_sec=?,updated_at=? WHERE workout_id=?',
+        [phase, round, deadline, paused, new Date().toISOString(), workoutId],
+      )
+      return readIntervalSession(db, workoutId)
+    }
     case 'WORKOUT_LOG_SET':
     case 'WORKOUT_UPDATE_SET':
     case 'WORKOUT_SAVE_DRAFT':

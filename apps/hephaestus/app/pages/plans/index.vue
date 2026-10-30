@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { localCalendarDate } from '@habitathq/utils'
+import { addCalendarDays, localCalendarDate, parseDateString } from '@habitathq/utils'
+import { trainingLabel } from '~/lib/format'
 import type {
   Appointment,
   AppointmentReview,
@@ -12,9 +13,12 @@ import type {
 } from '~/types/organization'
 import type { ProgramAdoptionPreview, SavedRoutine } from '~/types/prescription'
 
+const { settings } = useAppSettings()
 const organization = useOrganization()
 const routines = useRoutines()
 const db = useDatabase()
+const route = useRoute()
+const showNewPlan = ref(Boolean(route.query['programId']))
 const plans = ref<OrganizationPlan[]>([])
 const appointments = ref<Appointment[]>([])
 const savedRoutines = ref<SavedRoutine[]>([])
@@ -24,6 +28,7 @@ const routineName = (id: string | null) =>
 const planName = ref('')
 const planStartDate = ref(localCalendarDate())
 const routineId = ref('')
+const recurrenceRoutineId = ref('')
 const appointmentDate = ref(localCalendarDate())
 const appointmentTime = ref('')
 const recurrenceRules = ref<OrganizationRecurrenceRule[]>([])
@@ -67,7 +72,7 @@ type PlanProgram = {
 }
 const programChoices = ref<ProgramChoice[]>([])
 const planPrograms = ref<PlanProgram[]>([])
-const selectedProgramId = ref('')
+const selectedProgramId = ref(String(route.query['programId'] ?? ''))
 const adoptionPreview = ref<ProgramAdoptionPreview | null>(null)
 const adoptionBindings = ref<Record<string, string | null>>({})
 const adoptionNeedsReview = ref(false)
@@ -100,6 +105,45 @@ const selectedProgram = computed(
 )
 const rotationItems = ref<OrganizationTodayItem[]>([])
 
+const appointmentWeeks = computed(() => {
+  const weeks = new Map<string, Appointment[]>()
+  for (const item of appointments.value) {
+    const start = addCalendarDays(
+      item.plannedDate,
+      -((parseDateString(item.plannedDate).getDay() + 6) % 7),
+    )
+    const entries = weeks.get(start) ?? []
+    entries.push(item)
+    weeks.set(start, entries)
+  }
+  return [...weeks]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([start, items]) => ({ start, items }))
+})
+const currentWeek = addCalendarDays(localCalendarDate(), -((new Date().getDay() + 6) % 7))
+const duplicateAppointmentIds = computed(() => {
+  const ids = new Set<string>()
+  for (const item of appointments.value) {
+    if (
+      appointments.value.some(
+        (other) =>
+          other.id !== item.id &&
+          other.plannedDate === item.plannedDate &&
+          other.routineId === item.routineId,
+      )
+    )
+      ids.add(item.id)
+  }
+  return ids
+})
+function formatAppointmentTime(date: string, time: string): string {
+  const value = new Date(`${date}T${time}`)
+  return new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    hourCycle: settings.value.use24HourTime ? 'h23' : 'h12',
+  }).format(value)
+}
 const sessionTypes = ['gym', 'run', 'conditioning', 'mobility', 'other']
 const error = ref('')
 const busy = ref(false)
@@ -125,6 +169,12 @@ async function load() {
     programChoices.value = await db.query<ProgramChoice>(
       'SELECT p.id,p.name,(SELECT id FROM program_revisions r WHERE r.program_id=p.id ORDER BY r.revision_num DESC LIMIT 1) AS revisionId FROM programs p ORDER BY p.name,p.id',
     )
+    if (
+      selectedProgramId.value &&
+      !programChoices.value.some((program) => program.id === selectedProgramId.value)
+    )
+      error.value =
+        'That Program is unavailable. Choose another design or create a plan without one.'
     planPrograms.value = await db.query<PlanProgram>(
       'SELECT t.id,t.program_id AS programId,p.name AS programName,t.adopted_program_revision_id AS adoptedRevisionId,t.start_local_date AS startDate FROM training_plans t LEFT JOIN programs p ON p.id=t.program_id ORDER BY t.created_at,t.id',
     )
@@ -185,7 +235,7 @@ async function createPlan() {
   if (!planName.value.trim()) return
   try {
     if (selectedProgramId.value) {
-      await db.domain('TRAINING_PLAN_SAVE', {
+      const created = await db.domain('TRAINING_PLAN_SAVE', {
         id: crypto.randomUUID(),
         name: planName.value.trim(),
         programId: selectedProgramId.value,
@@ -194,11 +244,14 @@ async function createPlan() {
         active: true,
         bindings: [],
       })
+      selectedPlan.value = created.id
     } else {
-      await organization.savePlan(planName.value.trim(), true, planStartDate.value)
+      const created = await organization.savePlan(planName.value.trim(), true, planStartDate.value)
+      selectedPlan.value = created.id
     }
     planName.value = ''
     selectedProgramId.value = ''
+    showNewPlan.value = false
     await load()
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Could not save plan.'
@@ -253,7 +306,7 @@ async function loadProgramWeek() {
 }
 function editRecurrence(rule: OrganizationRecurrenceRule) {
   recurrenceId.value = rule.id
-  routineId.value = rule.routineId
+  recurrenceRoutineId.value = rule.routineId
   recurrenceWeekdays.value = [...rule.weekdays]
   recurrenceStart.value = rule.startDate
   recurrenceEnd.value = rule.endDate ?? ''
@@ -261,12 +314,12 @@ function editRecurrence(rule: OrganizationRecurrenceRule) {
   recurrencePreview.value = null
 }
 async function reviewRecurrence(active = true) {
-  if (!selectedPlan.value || !routineId.value || !recurrenceWeekdays.value.length) return
+  if (!selectedPlan.value || !recurrenceRoutineId.value || !recurrenceWeekdays.value.length) return
   try {
     recurrencePreview.value = await organization.previewRecurrence({
       ...(recurrenceId.value ? { id: recurrenceId.value } : {}),
       planId: selectedPlan.value,
-      routineId: routineId.value,
+      routineId: recurrenceRoutineId.value,
       weekdays: [...recurrenceWeekdays.value],
       startDate: recurrenceStart.value,
       endDate: recurrenceEnd.value || null,
@@ -493,7 +546,9 @@ async function saveGoal() {
         <option value="">Select a plan</option>
         <option v-for="plan in plans" :key="plan.id" :value="plan.id">{{ plan.name }}{{ plan.active ? ' · active' : '' }}</option>
       </select>
-      <form class="space-y-2" @submit.prevent="createPlan">
+      <details :open="showNewPlan || plans.length === 0" class="rounded-lg border border-(--ui-border) p-3">
+        <summary class="cursor-pointer font-medium">Create a personal plan</summary>
+      <form class="mt-3 space-y-2" @submit.prevent="createPlan">
         <label class="sr-only" for="plan-name">New plan name</label>
         <input id="plan-name" v-model="planName" class="w-full rounded-lg bg-(--color-surface-2) p-3" placeholder="New personal plan" required />
         <label class="block text-sm" for="plan-start-date">Plan start date</label>
@@ -505,6 +560,7 @@ async function saveGoal() {
         </select>
         <UButton type="submit" class="w-full" :disabled="!planName.trim() || Boolean(selectedProgramId && !selectedProgram?.revisionId)">Create personal plan</UButton>
       </form>
+      </details>
       <form v-if="selectedPlan" class="space-y-2 border-t border-(--ui-border) pt-3" @submit.prevent="saveSelectedPlan">
         <label class="sr-only" for="edit-plan-name">Plan name</label>
         <input id="edit-plan-name" v-model="selectedPlanName" class="w-full rounded-lg bg-(--color-surface-2) p-3" required />
@@ -526,16 +582,32 @@ async function saveGoal() {
         </div>
         <UButton type="submit" class="w-full" :disabled="!routineId">Add appointment</UButton>
       </form>
-      <ul v-if="appointments.length" class="space-y-2">
-        <li v-for="item in appointments" :key="item.id" class="rounded-lg bg-(--color-surface-2) p-3">
-          <div class="flex items-start justify-between gap-2">
-            <div class="min-w-0"><p class="font-medium">{{ savedRoutines.find((r) => r.id === item.routineId)?.name ?? 'Saved routine' }}</p><p class="text-xs text-(--ui-text-muted)">Originally {{ item.originalDate }} · planned {{ item.plannedDate }}{{ item.plannedTime ? ` at ${item.plannedTime}` : '' }}</p><p class="text-xs capitalize text-(--ui-text-muted)">{{ item.status }}{{ item.postponed ? ' · postponed' : '' }}{{ item.workoutId ? ' · linked workout' : '' }}</p></div>
-            <label v-if="item.status === 'open' && !item.workoutId && item.plannedDate > localCalendarDate()" class="mt-2 block text-xs text-(--ui-text-muted)">Proposed future date<input v-model="scheduleDates[item.id]" type="date" class="mt-1 w-full rounded-lg bg-(--color-surface) p-2 text-sm text-(--ui-text)" @change="schedulePreview = null" /></label>
-            <label v-if="item.status === 'open' && !item.workoutId && item.plannedDate > localCalendarDate()" class="mt-2 block text-xs text-(--ui-text-muted)">Proposed local time<input v-model="scheduleTimes[item.id]" type="time" class="mt-1 w-full rounded-lg bg-(--color-surface) p-2 text-sm text-(--ui-text)" @change="schedulePreview = null" /></label>
-            <div v-if="item.status === 'open' && !item.workoutId" class="flex shrink-0 gap-1"><UButton size="xs" variant="soft" @click="postpone(item)">Postpone</UButton><UButton size="xs" variant="ghost" @click="skip(item)">Skip</UButton></div>
+      <details v-for="week in appointmentWeeks" :key="week.start" :open="week.start === currentWeek" class="rounded-lg border border-(--ui-border) p-2">
+        <summary class="cursor-pointer p-2 text-sm font-medium">Week of {{ week.start }} · {{ week.items.length }} appointments</summary>
+      <ul class="space-y-2">
+        <li v-for="item in week.items" :key="item.id" class="rounded-lg bg-(--color-surface-2) p-3">
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+            <div class="min-w-0 space-y-1">
+              <p class="font-medium">{{ savedRoutines.find((r) => r.id === item.routineId)?.name ?? 'Saved routine' }}</p>
+              <p class="text-xs text-(--ui-text-muted)">
+                {{ item.sourceKind === 'manual' ? 'Manual appointment' : item.sourceKind === 'recurrence' ? 'Recurring schedule' : 'Program schedule' }}
+                · Originally {{ item.originalDate }} · Planned {{ item.plannedDate }}{{ item.plannedTime ? ` at ${formatAppointmentTime(item.plannedDate, item.plannedTime)}` : ' · no set time' }}
+              </p>
+              <p class="text-xs capitalize text-(--ui-text-muted)">{{ item.status }}{{ item.postponed ? ' · postponed' : '' }}{{ item.workoutId ? ' · linked workout' : '' }}</p>
+              <p v-if="duplicateAppointmentIds.has(item.id)" class="text-xs text-amber-300">Another appointment for this routine is planned on the same date.</p>
+              <div v-if="item.status === 'open' && !item.workoutId && item.plannedDate > localCalendarDate()" class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <label class="block text-xs text-(--ui-text-muted)">Proposed future date<input v-model="scheduleDates[item.id]" type="date" class="mt-1 w-full rounded-lg bg-(--color-surface) p-2 text-sm text-(--ui-text)" @change="schedulePreview = null" /></label>
+                <label class="block text-xs text-(--ui-text-muted)">Proposed local time<input v-model="scheduleTimes[item.id]" type="time" class="mt-1 w-full rounded-lg bg-(--color-surface) p-2 text-sm text-(--ui-text)" @change="schedulePreview = null" /></label>
+              </div>
+            </div>
+            <div v-if="item.status === 'open' && !item.workoutId" class="flex gap-2 sm:shrink-0">
+              <UButton size="xs" variant="soft" @click="postpone(item)">Postpone</UButton>
+              <UButton size="xs" variant="ghost" @click="skip(item)">Skip</UButton>
+            </div>
           </div>
         </li>
       </ul>
+      </details>
       <div v-if="futureScheduleChanges.length" class="space-y-2 rounded-lg bg-(--color-surface-2) p-3">
         <UButton class="w-full" variant="outline" @click="previewFutureSchedule">Review future schedule changes</UButton>
         <div v-if="schedulePreview" class="space-y-2">
@@ -546,9 +618,9 @@ async function saveGoal() {
       </div>
       <p v-if="appointments.length === 0" class="rounded-lg bg-(--color-surface-2) p-3 text-sm text-(--ui-text-muted)">No appointments in this plan yet.</p>
     </section>
-    <section v-if="selectedPlan" class="rounded-xl bg-(--color-surface) p-4 space-y-3" aria-labelledby="recurrence-heading">
-      <h2 id="recurrence-heading" class="font-semibold">Recurring schedule</h2>
-      <p class="text-xs text-(--ui-text-muted)">Each occurrence has its own appointment identity. Reconciliation materializes today through the next 27 local dates and never recreates past obligations.</p>
+    <details v-if="selectedPlan" class="rounded-xl bg-(--color-surface) p-4 space-y-3">
+      <summary class="cursor-pointer font-semibold">Recurring schedule</summary>
+      <p class="text-xs text-(--ui-text-muted)">Choose a routine and repeat days. Review the next four weeks before saving.</p>
       <ul v-if="recurrenceRules.length" class="space-y-2">
         <li v-for="rule in recurrenceRules" :key="rule.id" class="flex items-center justify-between gap-2 rounded-lg bg-(--color-surface-2) p-3">
           <p class="text-sm">{{ savedRoutines.find((routine) => routine.id === rule.routineId)?.name ?? 'Saved routine' }} · {{ rule.weekdays.map((day) => weekdayChoices[day - 1]?.label).join(', ') }} · from {{ rule.startDate }}{{ rule.endDate ? ` through ${rule.endDate}` : '' }}{{ rule.active ? '' : ' · paused' }}</p>
@@ -557,7 +629,7 @@ async function saveGoal() {
       </ul>
       <form class="space-y-3" @submit.prevent="reviewRecurrence()">
         <label class="sr-only" for="recurrence-routine">Recurring saved routine</label>
-        <select id="recurrence-routine" v-model="routineId" class="w-full rounded-lg bg-(--color-surface-2) p-3" required>
+        <select id="recurrence-routine" v-model="recurrenceRoutineId" class="w-full rounded-lg bg-(--color-surface-2) p-3" required>
           <option value="">Choose a saved routine</option>
           <option v-for="routine in savedRoutines" :key="routine.id" :value="routine.id">{{ routine.name }}</option>
         </select>
@@ -575,7 +647,7 @@ async function saveGoal() {
         </div>
         <label class="block space-y-1 text-xs text-(--ui-text-muted)">Optional local time<input v-model="recurrenceTime" type="time" class="block w-full rounded-lg bg-(--color-surface-2) p-3 text-sm text-(--ui-text)" /></label>
         <div class="flex gap-2">
-          <UButton type="submit" class="flex-1" variant="outline" :disabled="!routineId || recurrenceWeekdays.length === 0">Review recurrence</UButton>
+          <UButton type="submit" class="flex-1" variant="outline" :disabled="!recurrenceRoutineId || recurrenceWeekdays.length === 0">Review recurrence</UButton>
           <UButton v-if="recurrenceId" type="button" class="flex-1" variant="soft" @click="reviewRecurrence(false)">Pause future occurrences</UButton>
         </div>
       </form>
@@ -585,9 +657,9 @@ async function saveGoal() {
         <p v-if="recurrencePreview.protectedAppointmentIds.length" class="text-xs text-(--ui-text-muted)">Preserved {{ recurrencePreview.protectedAppointmentIds.length }} today, overdue, historical, fulfilled, skipped, or unfinished-linked appointments.</p>
         <UButton class="w-full" @click="applyRecurrenceReview">Apply reviewed recurrence</UButton>
       </div>
-    </section>
-    <section v-if="selectedPlan" class="rounded-xl bg-(--color-surface) p-4 space-y-3">
-      <h2 class="font-semibold">Ordered rotation</h2>
+    </details>
+    <details v-if="selectedPlan" class="rounded-xl bg-(--color-surface) p-4 space-y-3">
+      <summary class="cursor-pointer font-semibold">Ordered rotation</summary>
       <p class="text-xs text-(--ui-text-muted)">Starting does not advance a rotation. A linked finished workout or explicit Skip advances it; rotations never create dated appointments.</p>
       <ul v-if="rotationItems.length" class="space-y-2" aria-label="Current rotation items">
         <li v-for="item in rotationItems" :key="item.id" class="flex items-center justify-between gap-2 rounded-lg bg-(--color-surface-2) p-3">
@@ -622,19 +694,19 @@ async function saveGoal() {
         </ol>
         <UButton type="submit" class="w-full" :loading="savingOrganization" :disabled="rotationRoutineIds.length === 0">Save rotation</UButton>
       </form>
-    </section>
-    <section v-if="selectedPlan" class="rounded-xl bg-(--color-surface) p-4 space-y-3">
-      <h2 class="font-semibold">Weekly frequency goal</h2>
-      <p class="text-xs text-(--ui-text-muted)">Counts a finished workout once when it contains completed actual work matching the filter. Selected activity type is OR within that dimension; supplied dimensions combine with AND. No duration threshold applies.</p>
+    </details>
+    <details v-if="selectedPlan" class="rounded-xl bg-(--color-surface) p-4 space-y-3">
+      <summary class="cursor-pointer font-semibold">Weekly frequency goal</summary>
+      <p class="text-xs text-(--ui-text-muted)">Each matching completed workout counts once per Monday–Sunday week. Changing a goal's filters recalculates its past counts too.</p>
       <form class="space-y-2" @submit.prevent="saveGoal">
         <label class="sr-only" for="goal-name">Goal name</label>
         <input id="goal-name" v-model="goalName" class="w-full rounded-lg bg-(--color-surface-2) p-3" placeholder="e.g. Strength sessions" required />
         <div class="grid grid-cols-2 gap-2">
           <label class="space-y-1 text-xs text-(--ui-text-muted)">Per Monday–Sunday week<input v-model.number="goalTarget" type="number" min="1" step="1" class="w-full rounded-lg bg-(--color-surface-2) p-3 text-sm" required /></label>
-          <label class="space-y-1 text-xs text-(--ui-text-muted)">Activity type<select v-model="goalSessionType" class="w-full rounded-lg bg-(--color-surface-2) p-3 text-sm"><option value="">Any activity</option><option v-for="type in sessionTypes" :key="type" :value="type">{{ type }}</option></select></label>
+          <label class="space-y-1 text-xs text-(--ui-text-muted)">Activity type<select v-model="goalSessionType" class="w-full rounded-lg bg-(--color-surface-2) p-3 text-sm"><option value="">Any activity</option><option v-for="type in sessionTypes" :key="type" :value="type">{{ trainingLabel(type) }}</option></select></label>
         </div>
         <label class="space-y-1 text-xs text-(--ui-text-muted)">Exercises<select v-model="goalExerciseIds" multiple class="min-h-20 w-full rounded-lg bg-(--color-surface-2) p-3 text-sm"><option v-for="exercise in exerciseChoices" :key="exercise.id" :value="exercise.id">{{ exercise.name }}</option></select></label>
-        <label class="space-y-1 text-xs text-(--ui-text-muted)">Movement patterns<select v-model="goalMovementPatterns" multiple class="min-h-20 w-full rounded-lg bg-(--color-surface-2) p-3 text-sm"><option v-for="movement in movementChoices" :key="movement" :value="movement">{{ movement }}</option></select></label>
+        <label class="space-y-1 text-xs text-(--ui-text-muted)">Movement patterns<select v-model="goalMovementPatterns" multiple class="min-h-20 w-full rounded-lg bg-(--color-surface-2) p-3 text-sm"><option v-for="movement in movementChoices" :key="movement" :value="movement">{{ trainingLabel(movement) }}</option></select></label>
         <ul v-if="savedGoals.length" class="space-y-1">
           <li v-for="goal in savedGoals" :key="goal.id" class="flex items-center justify-between text-sm">
             <span>{{ goal.name }} · {{ goal.targetCount }}/week · {{ goal.active ? 'active' : 'inactive' }}</span>
@@ -643,7 +715,7 @@ async function saveGoal() {
         </ul>
         <UButton type="submit" class="w-full" :loading="savingOrganization" :disabled="!goalName.trim() || goalTarget < 1">Save weekly goal</UButton>
       </form>
-    </section>
+    </details>
     <section v-if="selectedPlanProgram?.programId" class="rounded-xl bg-(--color-surface) p-4 space-y-3" aria-labelledby="program-adoption-heading">
       <h2 id="program-adoption-heading" class="font-semibold">Review Program adoption</h2>
       <p class="text-sm text-(--ui-text-muted)">{{ selectedPlanProgram.programName }} · {{ selectedPlanProgram.adoptedRevisionId ? 'Review a newer revision' : 'Not yet adopted' }}. Existing assignments remain unchanged until you review and apply.</p>

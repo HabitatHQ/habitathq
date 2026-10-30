@@ -67,8 +67,12 @@ function values(value: unknown): HistorySetValues {
     result: HistorySetValues = {}
   for (const key of ['weightKg', 'reps', 'rpe', 'rir', 'durationSec', 'distanceM'] as const) {
     if (!Object.hasOwn(source, key)) continue
-    const number = finite(property(source, key), key, key === 'rpe' ? 10 : Number.MAX_VALUE)
-    if (number !== null && ['reps', 'rir'].includes(key) && !Number.isSafeInteger(number))
+    const number = finite(
+      property(source, key),
+      key,
+      key === 'rpe' || key === 'rir' ? 10 : Number.MAX_VALUE,
+    )
+    if (number !== null && key === 'reps' && !Number.isSafeInteger(number))
       throw new Error(`${key} must be a whole number`)
     result[key] = number
   }

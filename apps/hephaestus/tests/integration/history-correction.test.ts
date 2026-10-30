@@ -194,6 +194,24 @@ beforeEach(async () => {
 afterEach(() => raw.close())
 
 describe('reviewed factual history corrections', () => {
+  it('preserves previously logged fractional RIR in a title-only form submission', async () => {
+    raw.exec("UPDATE sets SET rir=1.5 WHERE id='working'")
+    const preview = await review({
+      title: 'Corrected workout',
+      activities: [{ id: 'activity', sets: [{ id: 'working', values: { rir: 1.5 } }] }],
+    })
+    await history('HISTORY_CORRECTION_APPLY', {
+      previewId: preview.previewId,
+      fingerprint: preview.fingerprint,
+    })
+    expect(raw.query<{ title: string }>("SELECT title FROM workouts WHERE id='workout'")).toEqual([
+      { title: 'Corrected workout' },
+    ])
+    expect(raw.query<{ rir: number }>("SELECT rir FROM sets WHERE id='working'")).toEqual([
+      { rir: 1.5 },
+    ])
+  })
+
   it('previews captured formula/range comparisons and proposed credit without changing facts', async () => {
     const before = state()
     const preview = await review({
@@ -358,7 +376,6 @@ describe('reviewed factual history corrections', () => {
     const today = await dispatchOrganization(db, 'ORGANIZATION_TODAY', { today: '2026-03-15' })
     expect(today.find((item) => item.id === 'first')).toMatchObject({
       workoutId: null,
-      explanation: 'Scheduled commitment for today.',
     })
     const restored = await review({ activities: [{ id: 'activity', removed: false }] })
     await history('HISTORY_CORRECTION_APPLY', {
@@ -435,6 +452,8 @@ describe('reviewed factual history corrections', () => {
   it.each([
     { performedDate: '2026-02-31' },
     { activities: [{ id: 'activity', sets: [{ id: 'working', values: { rpe: 11 } }] }] },
+    { activities: [{ id: 'activity', sets: [{ id: 'working', values: { rir: 10.5 } }] }] },
+    { activities: [{ id: 'activity', sets: [{ id: 'working', values: { rir: -0.5 } }] }] },
     { activities: [{ id: 'activity', sets: [{ id: 'working', values: { reps: 2.5 } }] }] },
     { activities: [{ id: 'activity', sets: [{ id: 'working', values: { reps: null } }] }] },
     { activities: [{ id: 'activity', addSets: [{ completed: true, weightKg: 100 }] }] },

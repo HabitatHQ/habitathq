@@ -1,10 +1,6 @@
 <script setup lang="ts">
-import {
-  addCalendarDays,
-  formatCalendarDate,
-  formatDurationSeconds as formatDuration,
-  localCalendarDate,
-} from '@habitathq/utils'
+import { addCalendarDays, formatCalendarDate, localCalendarDate } from '@habitathq/utils'
+import { sessionLabel } from '~/lib/history'
 import type { ReadinessResult } from '~/lib/readiness'
 import type { WorkoutRow } from '~/types/database'
 
@@ -125,23 +121,6 @@ async function postponeAppointment(item: import('~/types/organization').Organiza
       cause instanceof Error ? cause.message : 'Could not postpone this appointment.'
   }
 }
-
-function sessionLabel(w: WorkoutRow): string {
-  if (w.session_type === 'run') return 'Run'
-  const elapsed = w.ended_at
-    ? formatDuration(
-        Math.round((new Date(w.ended_at).getTime() - new Date(w.started_at).getTime()) / 1000),
-      )
-    : '—'
-  const label = {
-    gym: 'Strength',
-    run: 'Run',
-    conditioning: 'Conditioning',
-    mobility: 'Mobility',
-    other: 'Other',
-  }[w.session_type]
-  return `${label} · ${elapsed}`
-}
 </script>
 
 <template>
@@ -152,7 +131,7 @@ function sessionLabel(w: WorkoutRow): string {
     </header>
     <section aria-labelledby="next-heading" class="space-y-3">
       <h2 id="next-heading" class="text-sm font-semibold uppercase tracking-wider text-(--ui-text-muted)">Next up</h2>
-      <p v-if="startError" role="alert" class="rounded-lg bg-red-500/10 p-3 text-sm text-red-300">{{ startError }}</p>
+      <p v-if="priorityItems.length === 0" class="rounded-xl bg-(--color-surface) p-4 text-sm text-(--ui-text-muted)">No scheduled workout today. Start a session when you’re ready, or browse your templates and training plans.</p>
       <article v-for="item in priorityItems" :key="`${item.kind}-${item.id}`" class="rounded-xl bg-(--color-surface) p-4 space-y-3">
         <div>
           <p class="font-semibold">{{ item.title }}</p>
@@ -172,13 +151,13 @@ function sessionLabel(w: WorkoutRow): string {
         </div>
       </article>
       <div class="flex gap-2">
-        <UButton class="flex-1" to="/workout" variant="outline">Start ad-hoc</UButton>
+        <UButton v-if="!unfinishedWorkout" class="flex-1" to="/workout" variant="outline">Start empty session</UButton>
         <UButton class="flex-1" to="/plans" variant="outline">Plans &amp; schedules</UButton>
       </div>
     </section>
 
     <!-- Streak + Readiness -->
-    <section class="grid grid-cols-2 gap-3">
+    <section v-if="recentWorkouts.length" class="grid grid-cols-2 gap-3">
       <!-- Streak -->
       <div class="bg-(--color-surface) rounded-xl p-4 flex flex-col items-center justify-center">
         <UIcon name="i-ph-flame" class="text-orange-400 text-2xl mb-1" aria-hidden="true" />
@@ -202,13 +181,6 @@ function sessionLabel(w: WorkoutRow): string {
     </section>
 
 
-    <!-- Quick start -->
-    <section aria-label="Quick start">
-      <UButton size="xl" color="primary" class="w-full" to="/workout">
-        <UIcon name="i-ph-lightning" class="w-5 h-5" aria-hidden="true" />
-        {{ unfinishedWorkout ? 'Resume Workout' : 'Start Workout' }}
-      </UButton>
-    </section>
     <section aria-label="Training tools" class="flex flex-wrap gap-2">
       <UButton to="/templates" variant="soft">Templates &amp; programs</UButton>
       <UButton to="/progress" variant="soft">Progress</UButton>

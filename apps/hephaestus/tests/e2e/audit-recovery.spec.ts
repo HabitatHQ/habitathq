@@ -1,0 +1,51 @@
+import { expect, test } from '@playwright/test'
+
+test('recovers the same paused interval after reload and saves its performed identity', async ({
+  page,
+}) => {
+  await page.goto('/templates/intervals/new')
+  await page.getByLabel('Name', { exact: true }).fill('Reload-safe intervals')
+  await page.getByLabel('Rounds', { exact: true }).fill('2')
+  await page.getByLabel('Work (s)', { exact: true }).fill('30')
+  await page.getByLabel('Rest (s)', { exact: true }).fill('10')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await page.getByRole('link', { name: 'Start', exact: true }).click()
+  await page.getByRole('button', { name: 'Start session', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: /^Work$/ })).toBeVisible()
+  await page.getByRole('button', { name: 'Pause timer', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: /^Paused$/ })).toBeVisible()
+  const remaining = await page.getByRole('timer').textContent()
+  await page.reload()
+  await expect(page.getByRole('status').filter({ hasText: /^Paused$/ })).toBeVisible()
+  await expect(page.getByRole('timer')).toHaveText(remaining ?? '')
+  await expect(page.getByRole('button', { name: 'Start session', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Resume timer', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: /^Work$/ })).toBeVisible()
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.getByRole('button', { name: 'Finish session', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: /Session saved/ })).toBeVisible()
+  await page.goto('/history')
+  await page.getByRole('link', { name: /Reload-safe intervals/ }).click()
+  await expect(
+    page.getByRole('heading', { name: 'Reload-safe intervals', exact: true }),
+  ).toBeVisible()
+})
+
+test('records a default mobility hold without inventing repetitions', async ({ page }) => {
+  await page.goto('/workout')
+  await page.getByLabel('Session type', { exact: true }).selectOption('mobility')
+  await page.getByRole('button', { name: 'Start Empty Session', exact: true }).click()
+  await page.getByRole('button', { name: 'Add Exercise', exact: true }).click()
+  const picker = page.getByRole('dialog', { name: 'Add exercise', exact: true })
+  await picker.getByRole('searchbox', { name: 'Search exercises', exact: true }).fill('plank')
+  await picker.getByRole('button', { name: /^Plank bodyweight · isolation$/i }).click()
+  const activity = page.getByRole('region', { name: 'Plank', exact: true })
+  await expect(activity.getByLabel('Reps for set 1 for Plank', { exact: true })).toHaveCount(0)
+  await activity.getByLabel('Duration (sec) for set 1 for Plank', { exact: true }).fill('45')
+  await activity.getByRole('button', { name: 'Complete set 1 for Plank', exact: true }).click()
+  await page.getByRole('button', { name: 'Finish', exact: true }).click()
+  await page.getByRole('button', { name: 'Save Workout', exact: true }).click()
+  await page.goto('/history')
+  await page.getByRole('link', { name: /Mobility session/ }).click()
+  await expect(page.getByRole('table', { name: /sets for plank/i })).toContainText('45')
+})

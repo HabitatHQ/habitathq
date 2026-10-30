@@ -27,15 +27,18 @@ const restTimer = ref<{
   total: number
   exerciseId: string | null
   setId: string | null
+  deadlineMs: number | null
 }>({
   active: false,
   remaining: 0,
   total: 0,
   exerciseId: null,
   setId: null,
+  deadlineMs: null,
 })
 const recoverySession = ref(false)
 const writerUnavailable = ref(false)
+const activeInterval = ref<WorkoutSession['interval']>(null)
 const runData = ref<RunRow | null>(null)
 let elapsedInterval: number | null = null
 const sessionIntensityModifier = ref(1)
@@ -68,6 +71,7 @@ function startElapsedClock() {
 function installSession(data: WorkoutSession) {
   activeWorkout.value = data.workout
   workoutExercises.value = data.exercises
+  activeInterval.value = data.interval
   templateGroups.value = new Map(data.groups.map((group) => [group.label, group]))
   runData.value = data.run
   sessionIntensityModifier.value = data.options?.intensity_modifier ?? 1
@@ -80,7 +84,10 @@ function installSession(data: WorkoutSession) {
   const byExercise = new Map<string, SetRow[]>()
   for (const exercise of data.exercises) {
     const exerciseSets = data.sets.filter((set) => set.workout_exercise_id === exercise.id)
-    if (!exerciseSets.some((set) => set.completed === 0 && !skippedSetIds.value.has(set.id))) {
+    if (
+      !prescription.value &&
+      !exerciseSets.some((set) => set.completed === 0 && !skippedSetIds.value.has(set.id))
+    ) {
       const lastCompleted = [...exerciseSets].reverse().find((set) => set.completed === 1) ?? null
       const nextSetNum = exerciseSets.reduce((max, set) => Math.max(max, set.set_num), 0) + 1
       exerciseSets.push(buildPendingSet(exercise.id, lastCompleted, nextSetNum))
@@ -130,6 +137,7 @@ function buildRunRow(workoutId: string, current: RunRow | null, partial: Partial
 
 export function useWorkout() {
   const db = useDatabase()
+  const { settings } = useAppSettings()
   const hasActiveWorkout = computed(() => activeWorkout.value !== null)
   async function loadProgressionHistory(exerciseId: string): Promise<{
     completedSessions: SetRow[][]
@@ -179,6 +187,7 @@ export function useWorkout() {
       if (!data) {
         stopElapsedClock()
         activeWorkout.value = null
+        activeInterval.value = null
         workoutExercises.value = []
         sets.value = new Map()
         templateGroups.value = new Map()
@@ -191,10 +200,6 @@ export function useWorkout() {
         recoverySession.value = false
         sessionIntensityModifier.value = 1
         sessionVolumeModifier.value = 1
-        setIntents.value = {}
-        skippedSetIds.value = new Set()
-        prescription.value = null
-        routine.value = null
         return false
       }
       const requiresResume = activeWorkout.value?.id !== data.workout.id || recoverySession.value
@@ -219,6 +224,7 @@ export function useWorkout() {
     stopElapsedClock()
     stopRestTimer()
     activeWorkout.value = null
+    activeInterval.value = null
     workoutExercises.value = []
     setIntents.value = {}
     activityIntents.value = {}
@@ -235,6 +241,7 @@ export function useWorkout() {
     options: {
       scale?: number
       excludedExerciseIds?: string[]
+      intervalTemplateId?: string
       sessionType?: SessionType
       intensityModifier?: number
       volumeModifier?: number
@@ -257,6 +264,9 @@ export function useWorkout() {
         routineId: routineId ?? null,
         options: {
           ...options,
+          ...(options.excludedExerciseIds === undefined
+            ? {}
+            : { excludedExerciseIds: [...options.excludedExerciseIds] }),
           ...(options.inputs === undefined ? {} : { inputs: { ...options.inputs } }),
           ...(options.fixedTargetValues === undefined
             ? {}
@@ -305,7 +315,7 @@ export function useWorkout() {
       exercise_id: exerciseId,
       order_num: opts.orderNum ?? workoutExercises.value.length + 1,
       superset_group: opts.supersetGroup ?? null,
-      rest_seconds: opts.restSeconds ?? 120,
+      rest_seconds: opts.restSeconds ?? settings.value.defaultRestSeconds,
     }
     const planned = Math.max(0, opts.setsPlanned ?? 0)
     const pending = Array.from({ length: planned }, (_, index) =>
@@ -463,7 +473,10 @@ export function useWorkout() {
     if (skipped) nextSkipped.add(committed.id)
     else nextSkipped.delete(committed.id)
     skippedSetIds.value = nextSkipped
-    if (!current.some((set) => set.completed === 0 && !nextSkipped.has(set.id))) {
+    if (
+      !prescription.value &&
+      !current.some((set) => set.completed === 0 && !nextSkipped.has(set.id))
+    ) {
       current.push(buildPendingSet(entry.exerciseId, null, nextSetNumber(current)))
     }
     sets.value = new Map(sets.value).set(entry.exerciseId, current)
@@ -477,7 +490,10 @@ export function useWorkout() {
     const updated = [...(sets.value.get(workoutExerciseId) ?? [])]
     if (pendingIdx >= 0) updated[pendingIdx] = set
     else updated.push(set)
-    if (!updated.some((item) => item.completed === 0 && !skippedSetIds.value.has(item.id))) {
+    if (
+      !prescription.value &&
+      !updated.some((item) => item.completed === 0 && !skippedSetIds.value.has(item.id))
+    ) {
       updated.push(buildPendingSet(workoutExerciseId, set, nextSetNumber(updated)))
     }
     sets.value = new Map(sets.value).set(workoutExerciseId, updated)
@@ -535,24 +551,45 @@ export function useWorkout() {
 
   function startRestTimer(seconds: number, exerciseId: string, setId: string | null = null) {
     window.clearInterval(restInterval ?? undefined)
-    restTimer.value = { active: true, remaining: seconds, total: seconds, exerciseId, setId }
+    const deadlineMs = Date.now() + seconds * 1000
+    restTimer.value = {
+      active: true,
+      remaining: seconds,
+      total: seconds,
+      exerciseId,
+      setId,
+      deadlineMs,
+    }
     restInterval = window.setInterval(() => {
-      restTimer.value.remaining--
-      if (restTimer.value.remaining <= 0) stopRestTimer()
-    }, 1000)
+      const remaining = Math.max(
+        0,
+        Math.ceil(((restTimer.value.deadlineMs ?? Date.now()) - Date.now()) / 1000),
+      )
+      if (remaining === 0) stopRestTimer()
+      else restTimer.value = { ...restTimer.value, remaining }
+    }, 250)
   }
 
   function stopRestTimer() {
     window.clearInterval(restInterval ?? undefined)
     restInterval = null
-    restTimer.value = { active: false, remaining: 0, total: 0, exerciseId: null, setId: null }
+    restTimer.value = {
+      active: false,
+      remaining: 0,
+      total: 0,
+      exerciseId: null,
+      setId: null,
+      deadlineMs: null,
+    }
   }
 
   function addRestTime(seconds: number) {
     if (restTimer.value.active) {
+      const deadlineMs = (restTimer.value.deadlineMs ?? Date.now()) + seconds * 1000
       restTimer.value = {
         ...restTimer.value,
-        remaining: restTimer.value.remaining + seconds,
+        deadlineMs,
+        remaining: Math.max(0, Math.ceil((deadlineMs - Date.now()) / 1000)),
         total: restTimer.value.total + seconds,
       }
     } else {
@@ -575,6 +612,7 @@ export function useWorkout() {
     stopElapsedClock()
     stopRestTimer()
     activeWorkout.value = null
+    activeInterval.value = null
     workoutExercises.value = []
     sets.value = new Map()
     templateGroups.value = new Map()
@@ -587,6 +625,23 @@ export function useWorkout() {
     sessionIntensityModifier.value = 1
     sessionVolumeModifier.value = 1
     return summary
+  }
+  async function saveIntervalState(
+    state: Pick<
+      NonNullable<WorkoutSession['interval']>,
+      'phase' | 'round' | 'phase_deadline_ms' | 'paused_remaining_sec'
+    >,
+  ) {
+    if (!activeWorkout.value) throw new Error('No active interval workout')
+    activeInterval.value = await db.workout('WORKOUT_INTERVAL_STATE', {
+      workoutId: activeWorkout.value.id,
+      state: {
+        phase: state.phase,
+        round: state.round,
+        phase_deadline_ms: state.phase_deadline_ms,
+        paused_remaining_sec: state.paused_remaining_sec,
+      },
+    })
   }
 
   return {
@@ -601,6 +656,7 @@ export function useWorkout() {
     prescription: readonly(prescription),
     routine: readonly(routine),
     lastFinishedWorkoutId: readonly(lastFinishedWorkoutId),
+    activeInterval: readonly(activeInterval),
     elapsedSeconds: readonly(elapsedSeconds),
     restTimer: readonly(restTimer),
     recoverySession: readonly(recoverySession),
@@ -626,5 +682,6 @@ export function useWorkout() {
     finishWorkout,
     stopRestTimer,
     addRestTime,
+    saveIntervalState,
   }
 }

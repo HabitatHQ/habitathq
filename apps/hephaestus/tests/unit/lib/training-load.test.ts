@@ -3,10 +3,40 @@ import {
   calculateAcuteLoad,
   calculateChronicLoad,
   calculateVolume,
+  completedWeekVolumes,
   getLoadRatio,
 } from '~/lib/training-load'
 import type { SetRow } from '~/types/database'
 
+describe('completed calendar-week load window', () => {
+  it('includes all four preceding weeks and excludes the current partial week', () => {
+    const volumes = completedWeekVolumes('2026-11-02', [
+      { week: '2026-W40', gym_volume: 5000 },
+      { week: '2026-W41', gym_volume: 500 },
+      { week: '2026-W42', gym_volume: 500 },
+      { week: '2026-W43', gym_volume: 500 },
+      { week: '2026-W44', gym_volume: 500 },
+      { week: '2026-W45', gym_volume: 50000 },
+    ])
+    expect(volumes).toEqual([5000, 500, 500, 500, 500])
+    expect(calculateChronicLoad(volumes)).toBe(1625)
+    expect(getLoadRatio(calculateAcuteLoad(volumes), calculateChronicLoad(volumes))).toBeCloseTo(
+      500 / 1625,
+    )
+  })
+
+  it('counts rest-week gaps as zero across the ISO year boundary', () => {
+    expect(
+      completedWeekVolumes('2026-01-05', [
+        { week: '2025-W48', gym_volume: 9000 },
+        { week: '2025-W49', gym_volume: 100 },
+        { week: '2025-W51', gym_volume: null },
+        { week: '2026-W01', gym_volume: 400 },
+        { week: '2026-W02', gym_volume: 5000 },
+      ]),
+    ).toEqual([100, 0, 0, 0, 400])
+  })
+})
 function makeSet(weightKg: number, reps: number, isWarmup: 0 | 1 = 0): SetRow {
   return {
     id: crypto.randomUUID(),

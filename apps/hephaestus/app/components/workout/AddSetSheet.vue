@@ -17,6 +17,8 @@ const props = defineProps<{
   suggestionReason?: string
   loggingMode?: LoggingMode
   showWarmupSuggestions?: boolean
+  showRpe?: boolean
+  showRir?: boolean
 }>()
 const modalFocus = useModalFocus(() => props.open)
 
@@ -47,7 +49,8 @@ const failureOptions: { value: FailureType; label: string }[] = [
 ]
 
 const displayedWeight = computed({
-  get: () => (weight.value == null ? null : fromKilograms(weight.value, unit.value)),
+  get: () =>
+    weight.value == null ? null : Math.round(fromKilograms(weight.value, unit.value) * 10) / 10,
   set: (value: number | null) => {
     weight.value = value == null ? null : toKilograms(value, unit.value)
   },
@@ -101,17 +104,14 @@ function handleConfirm() {
       ? {
           weight_kg: weight.value,
           reps: reps.value,
-          rpe: rpe.value,
-          rir: rir.value,
+          ...(props.showRpe === false ? {} : { rpe: rpe.value }),
+          ...(props.showRir || isFailure.value ? { rir: rir.value } : {}),
           is_warmup: isWarmup.value ? 1 : 0,
           failure_flag: isFailure.value ? 1 : 0,
           failure_type: isFailure.value ? failureType.value : null,
           partial_reps: isFailure.value ? partialReps.value || null : null,
         }
-      : {
-          distance_m: distanceM.value,
-          duration_sec: durationSec.value,
-        }),
+      : { distance_m: distanceM.value, duration_sec: durationSec.value }),
     notes: notes.value || null,
   })
 }
@@ -211,7 +211,7 @@ function handleConfirm() {
               type="number"
               step="any"
               min="0"
-              class="flex-1 text-center text-xl font-bold bg-transparent border-b border-(--ui-border) py-1"
+              class="min-w-0 w-0 flex-1 text-center text-xl font-bold bg-transparent border-b border-(--ui-border) py-1"
               aria-label="Weight"
             />
             <button
@@ -242,7 +242,7 @@ function handleConfirm() {
               type="number"
               step="1"
               min="1"
-              class="flex-1 text-center text-xl font-bold bg-transparent border-b border-(--ui-border) py-1"
+              class="min-w-0 w-0 flex-1 text-center text-xl font-bold bg-transparent border-b border-(--ui-border) py-1"
               aria-label="Reps"
             />
             <button
@@ -267,8 +267,8 @@ function handleConfirm() {
       </div>
 
       <!-- RPE (optional) -->
-      <div v-if="loggingMode === 'strength'" class="grid grid-cols-2 gap-4">
-        <div class="space-y-2">
+      <div v-if="loggingMode === 'strength' && (props.showRpe !== false || props.showRir)" class="grid grid-cols-2 gap-4">
+        <div v-if="props.showRpe !== false" class="space-y-2">
           <label class="text-xs font-medium text-(--ui-text-muted) uppercase tracking-wider">
             RPE (optional)
           </label>
@@ -299,16 +299,16 @@ function handleConfirm() {
             </button>
           </div>
         </div>
-        <div class="space-y-2">
+        <div v-if="props.showRir" class="space-y-2">
           <label class="text-xs font-medium text-(--ui-text-muted) uppercase tracking-wider">
             RIR (optional)
           </label>
           <input
             v-model.number="rir"
             type="number"
-            step="1"
+            step="0.5"
             min="0"
-            max="5"
+            max="10"
             placeholder="—"
             class="w-full text-center text-lg font-bold bg-transparent border-b border-(--ui-border) py-1"
             aria-label="Reps in reserve"

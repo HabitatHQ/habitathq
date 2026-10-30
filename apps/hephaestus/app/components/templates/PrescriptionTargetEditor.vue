@@ -1,5 +1,10 @@
 <script setup lang="ts">
 import { toRaw } from 'vue'
+import {
+  canonicalTargetValue,
+  displayTargetValue,
+  fieldLabel,
+} from '~/lib/prescription-presentation'
 import type {
   FormulaBinding,
   NumericTarget,
@@ -30,6 +35,13 @@ const emit = defineEmits<{ 'update:modelValue': [value: NumericTarget | null] }>
 const uid = () => crypto.randomUUID()
 const version = 'cel-js-8.0.0-js-number-v1'
 const numericInputs = computed(() => props.inputs.filter((input) => input.field !== 'boolean'))
+const { settings } = useAppSettings()
+const fixedValueLabel = computed(() =>
+  props.field === 'weightKg' || props.field === 'distanceM'
+    ? fieldLabel(props.field, settings.value.weightUnit, settings.value.distanceUnit)
+    : props.label,
+)
+const canEditAsFixed = computed(() => !props.modelValue || props.modelValue.rule.kind === 'fixed')
 const formulaInputs = computed(() => props.inputs)
 
 function createTarget(): NumericTarget {
@@ -68,10 +80,31 @@ function changeInput(id: string) {
 function updateFixed(value: number) {
   updateTarget((target) => {
     if (target.rule.kind === 'fixed') {
-      target.rule.value = value
-      target.resolvedValue = value
+      target.rule.value = canonicalTargetValue(
+        value,
+        props.field,
+        settings.value.weightUnit,
+        settings.value.distanceUnit,
+      )
+      target.resolvedValue = target.rule.value
     }
   })
+}
+function displayFixed(value: number) {
+  return displayTargetValue(
+    value,
+    props.field,
+    settings.value.weightUnit,
+    settings.value.distanceUnit,
+  )
+}
+function addFixedTarget() {
+  emit('update:modelValue', createTarget())
+}
+function changeMode(event: Event) {
+  const mode = (event.target as HTMLSelectElement).value
+  if (mode === 'absent') emit('update:modelValue', null)
+  else setMode(mode)
 }
 function updateSource(source: string) {
   updateTarget((target) => {
@@ -143,21 +176,27 @@ function isNumericField(value: string | undefined): value is PrescriptionNumeric
 <template>
   <fieldset class="space-y-2 rounded border border-(--ui-border) p-2">
     <legend class="px-1 text-sm font-medium">{{ label }}</legend>
-    <div class="flex flex-wrap gap-2">
-      <label class="flex-1">Target mode<select :value="modelValue?.rule.kind ?? 'absent'" class="mt-1 w-full rounded bg-(--color-surface) p-2" :aria-label="`${label} target mode`" @change="$event => { const mode = ($event.target as HTMLSelectElement).value; mode === 'absent' ? emit('update:modelValue', null) : setMode(mode) }"><option value="absent">Not prescribed</option><option value="fixed">Fixed</option><option value="input" :disabled="numericInputs.length === 0">Input</option><option value="formula">Formula</option></select></label>
-      <label v-if="modelValue?.rule.kind === 'fixed'" class="flex-1">Value<input :value="modelValue.rule.value" type="number" min="0" step="any" class="mt-1 w-full rounded bg-(--color-surface) p-2" :aria-label="`${label} fixed value`" @input="updateFixed(Number(($event.target as HTMLInputElement).value))" /></label>
-      <label v-else-if="modelValue?.rule.kind === 'input'" class="flex-1">Named input<select :value="modelValue.rule.inputId" class="mt-1 w-full rounded bg-(--color-surface) p-2" @change="changeInput(($event.target as HTMLSelectElement).value)"><option v-for="input in numericInputs" :key="input.id" :value="input.id">{{ input.name || 'Unnamed input' }} · {{ input.field }}</option></select></label>
+    <div v-if="canEditAsFixed" class="flex items-end gap-2">
+      <label class="min-w-0 flex-1 text-sm">{{ fixedValueLabel }}<input v-if="modelValue?.rule.kind === 'fixed'" :value="displayFixed(modelValue.rule.value)" type="number" min="0" step="any" class="mt-1 w-full rounded bg-(--color-surface) p-2" :aria-label="`${fixedValueLabel} fixed value`" @input="updateFixed(Number(($event.target as HTMLInputElement).value))" /><span v-else class="mt-1 block text-xs text-(--ui-text-muted)">Not prescribed</span></label>
+      <UButton v-if="!modelValue" type="button" size="xs" variant="outline" @click="addFixedTarget">Set fixed target</UButton>
     </div>
-    <template v-if="modelValue?.rule.kind === 'formula'">
-      <label class="block">CEL formula<textarea :value="modelValue.rule.source" rows="2" class="mt-1 w-full rounded bg-(--color-surface) p-2 font-mono text-sm" :aria-label="`${label} formula source`" placeholder="workingLoad * 0.9" @input="updateSource(($event.target as HTMLTextAreaElement).value)" /></label>
-      <div v-for="binding in modelValue.rule.bindings" :key="binding.id" class="grid grid-cols-[minmax(4rem,0.7fr)_minmax(0,1.3fr)_auto] gap-2">
-        <input :value="binding.variable" class="min-w-0 rounded bg-(--color-surface) p-2 font-mono" aria-label="Formula variable" @input="setVariable(binding.id, ($event.target as HTMLInputElement).value)" />
-        <select :value="bindingValue(binding)" class="min-w-0 rounded bg-(--color-surface) p-2" aria-label="Formula binding source" @change="setBinding(binding.id, ($event.target as HTMLSelectElement).value)"><optgroup label="Configuration inputs"><option v-for="input in formulaInputs" :key="input.id" :value="`input|${input.id}|`">{{ input.name || 'Unnamed input' }} · {{ input.field }}</option></optgroup><optgroup label="Planned target references"><option v-for="reference in references" :key="`${reference.targetId}:${reference.field}`" :value="`target|${reference.targetId}|${reference.field}`">{{ reference.label }} · {{ reference.field }}</option></optgroup></select>
-        <button type="button" class="rounded px-2" :aria-label="`Remove ${binding.variable} binding`" @click="removeBinding(binding.id)">Remove</button>
+    <details :open="modelValue !== null && modelValue?.rule.kind !== 'fixed'">
+      <summary class="cursor-pointer py-1 text-xs text-(--ui-text-muted)">Advanced target options</summary>
+      <div class="space-y-2 pt-2">
+        <label class="block text-sm">Target mode<select :value="modelValue?.rule.kind ?? 'absent'" class="mt-1 w-full rounded bg-(--color-surface) p-2" :aria-label="`${label} target mode`" @change="changeMode"><option value="absent">Not prescribed</option><option value="fixed">Fixed</option><option value="input" :disabled="numericInputs.length === 0">Input</option><option value="formula">Formula</option></select></label>
+        <label v-if="modelValue?.rule.kind === 'input'" class="block text-sm">Named input<select :value="modelValue.rule.inputId" class="mt-1 w-full rounded bg-(--color-surface) p-2" @change="changeInput(($event.target as HTMLSelectElement).value)"><option v-for="input in numericInputs" :key="input.id" :value="input.id">{{ input.name || 'Unnamed input' }} · {{ input.field }}</option></select></label>
+        <template v-if="modelValue?.rule.kind === 'formula'">
+          <label class="block">CEL formula<textarea :value="modelValue.rule.source" rows="2" class="mt-1 w-full rounded bg-(--color-surface) p-2 font-mono text-sm" :aria-label="`${label} formula source`" placeholder="workingLoad * 0.9" @input="updateSource(($event.target as HTMLTextAreaElement).value)" /></label>
+          <div v-for="binding in modelValue.rule.bindings" :key="binding.id" class="grid grid-cols-[minmax(4rem,0.7fr)_minmax(0,1.3fr)_auto] gap-2">
+            <input :value="binding.variable" class="min-w-0 rounded bg-(--color-surface) p-2 font-mono" aria-label="Formula variable" @input="setVariable(binding.id, ($event.target as HTMLInputElement).value)" />
+            <select :value="bindingValue(binding)" class="min-w-0 rounded bg-(--color-surface) p-2" aria-label="Formula binding source" @change="setBinding(binding.id, ($event.target as HTMLSelectElement).value)"><optgroup label="Configuration inputs"><option v-for="input in formulaInputs" :key="input.id" :value="`input|${input.id}|`">{{ input.name || 'Unnamed input' }} · {{ input.field }}</option></optgroup><optgroup label="Planned target references"><option v-for="reference in references" :key="`${reference.targetId}:${reference.field}`" :value="`target|${reference.targetId}|${reference.field}`">{{ reference.label }} · {{ reference.field }}</option></optgroup></select>
+            <button type="button" class="rounded px-2" :aria-label="`Remove ${binding.variable} binding`" @click="removeBinding(binding.id)">Remove</button>
+          </div>
+          <UButton type="button" size="xs" variant="outline" :disabled="formulaInputs.length + references.length === 0" @click="addBinding">Add formula reference</UButton>
+          <p class="text-xs text-(--ui-text-muted)">Allowed helpers: abs, min, max, roundLoad. Formulas read only named inputs and planned numeric targets.</p>
+        </template>
       </div>
-      <UButton type="button" size="xs" variant="outline" :disabled="formulaInputs.length + references.length === 0" @click="addBinding">Add formula reference</UButton>
-      <p class="text-xs text-(--ui-text-muted)">Allowed helpers: abs, min, max, roundLoad. Formulas read only named inputs and planned numeric targets.</p>
-    </template>
+    </details>
     <p v-if="validationMessage" role="alert" class="text-xs text-red-400">{{ label }}: {{ validationMessage }}</p>
   </fieldset>
 </template>

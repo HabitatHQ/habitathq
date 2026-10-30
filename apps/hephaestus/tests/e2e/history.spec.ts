@@ -1,28 +1,26 @@
 import { expect, test } from '@playwright/test'
 
 test.describe('History page', () => {
-  test('can switch to Gym filter', async ({ page }) => {
+  test('selecting a session filter updates its accessible state', async ({ page }) => {
     await page.goto('/history')
     const group = page.getByRole('group', { name: /filter by session type/i })
-    await group.getByRole('button', { name: 'Gym' }).click()
-    await expect(group.getByRole('button', { name: 'Gym' })).toHaveAttribute('aria-pressed', 'true')
-    await expect(group.getByRole('button', { name: 'All' })).toHaveAttribute(
-      'aria-pressed',
-      'false',
-    )
+    const strength = group.getByRole('button', { name: 'Strength', exact: true })
+    const all = group.getByRole('button', { name: 'All', exact: true })
+    await expect(all).toHaveAttribute('aria-pressed', 'true')
+    await strength.click()
+    await expect(strength).toHaveAttribute('aria-pressed', 'true')
+    await expect(all).toHaveAttribute('aria-pressed', 'false')
+    await all.click()
+    await expect(all).toHaveAttribute('aria-pressed', 'true')
+    await expect(strength).toHaveAttribute('aria-pressed', 'false')
   })
 
-  test('shows empty state when no workouts exist', async ({ page }) => {
-    await page.goto('/history')
-    // Wait for loading to complete
-    await expect(page.getByText(/loading workouts/i)).not.toBeVisible({ timeout: 15_000 })
-    // With a fresh DB, there should be no workouts
-    await expect(page.getByText(/no workouts yet/i)).toBeVisible()
-  })
-
-  test('empty state has link to start workout', async ({ page }) => {
+  test('empty history offers a working route to start a workout', async ({ page }) => {
     await page.goto('/history')
     await expect(page.getByText(/loading workouts/i)).not.toBeVisible({ timeout: 15_000 })
-    await expect(page.getByRole('link', { name: /start workout/i })).toBeVisible()
+    await expect(page.getByRole('main').getByRole('listitem')).toHaveCount(0)
+    await page.getByRole('link', { name: /start workout/i }).click()
+    await expect(page).toHaveURL('/workout')
+    await expect(page.getByRole('button', { name: /start empty session/i })).toBeEnabled()
   })
 })

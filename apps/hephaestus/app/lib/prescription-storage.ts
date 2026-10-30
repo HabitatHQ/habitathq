@@ -17,6 +17,7 @@ import type {
   ProgramSlot,
   RoutineInputValue,
   RoutineRevision,
+  RoutineSnapshot,
   SavedRoutine,
   SerializablePrescription,
   TemplateAdoptionIssue,
@@ -746,7 +747,10 @@ async function saveRoutine(db: DbAdapter, input: unknown): Promise<RoutineRevisi
   return revision
 }
 
-export async function getRoutineSnapshot(db: DbAdapter, routineId: string) {
+export async function getRoutineSnapshot(
+  db: DbAdapter,
+  routineId: string,
+): Promise<RoutineSnapshot> {
   return routineWithRevision(db, routineId)
 }
 async function routineWithRevision(db: DbAdapter, routineId: string) {

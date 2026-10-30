@@ -264,7 +264,32 @@ describe('buildExerciseHistory', () => {
         ],
       ),
     ).toEqual([
-      { date: REF_DATE, e1rm: 100 * (1 + 5 / 30), volume: 1000, maxWeight: 100, totalReps: 10 },
+      {
+        workoutId: 'w1',
+        date: REF_DATE,
+        e1rm: 100 * (1 + 5 / 30),
+        volume: 1000,
+        maxWeight: 100,
+        totalReps: 10,
+      },
+    ])
+  })
+  it('retains distinct workout identities for sessions on the same calendar date', () => {
+    const firstExercise = workoutExercises[0]
+    const firstSet = sets[0]
+    if (!firstExercise || !firstSet) throw new Error('Missing session fixture')
+    const history = buildExerciseHistory(
+      'e1',
+      [firstExercise, { ...firstExercise, id: 'we2', workout_id: 'w2' }],
+      [firstSet, { ...firstSet, id: 's3', workout_exercise_id: 'we2', weight_kg: 80, reps: 8 }],
+      [
+        { id: 'w1', date: REF_DATE },
+        { id: 'w2', date: REF_DATE },
+      ],
+    )
+    expect(history.map(({ workoutId, date }) => ({ workoutId, date }))).toEqual([
+      { workoutId: 'w1', date: REF_DATE },
+      { workoutId: 'w2', date: REF_DATE },
     ])
   })
 })

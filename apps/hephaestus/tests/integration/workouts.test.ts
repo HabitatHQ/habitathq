@@ -731,6 +731,69 @@ describe('atomic workout lifecycle operations', () => {
     ).toEqual([{ workout_id: started.workout.id, avg_pace_sec_km: 300 }])
   })
 
+  it('atomically captures interval configuration and recovers pauses after the reusable plan is removed', async () => {
+    const templateId = testId('interval-template')
+    db.exec(
+      'INSERT INTO interval_templates(id,name,intervals,type,rounds,work_sec,rest_sec,created_at) VALUES(?,?,?,?,?,?,?,?)',
+      [templateId, 'Tabata recovery', '[]', 'tabata', 8, 20, 10, NOW],
+    )
+    const started = await runWorkoutOperation<WorkoutSession>('WORKOUT_START', {
+      id: testId('interval-workout'),
+      now: NOW,
+      options: { intervalTemplateId: templateId },
+    })
+    expect(started.interval).toMatchObject({
+      template_id: templateId,
+      phase: 'work',
+      round: 1,
+      phase_deadline_ms: Date.parse(NOW) + 20000,
+      config: { work_sec: 20, rest_sec: 10, rounds: 8 },
+    })
+    const savedState = {
+      phase: 'rest',
+      round: 3,
+      phase_deadline_ms: null,
+      paused_remaining_sec: 7.25,
+    }
+    await runWorkoutOperation('WORKOUT_INTERVAL_STATE', {
+      workoutId: started.workout.id,
+      state: savedState,
+    })
+    db.exec('DELETE FROM interval_templates WHERE id=?', [templateId])
+    const recovered = await runWorkoutOperation<WorkoutSession>('WORKOUT_ACTIVE', {})
+    expect(recovered.interval).toMatchObject({
+      ...savedState,
+      template_id: templateId,
+      config: { name: 'Tabata recovery', work_sec: 20, rest_sec: 10, rounds: 8 },
+    })
+    const summary = await runWorkoutOperation<WorkoutSummary>('WORKOUT_FINISH', {
+      workoutId: started.workout.id,
+      endedAt: '2026-03-16T12:00:00Z',
+      options: {},
+    })
+    expect(summary.durationSec).toBe(83)
+  })
+
+  it('does not leave an orphaned unfinished workout if interval capture fails', async () => {
+    const templateId = testId('interval-template')
+    db.exec(
+      'INSERT INTO interval_templates(id,name,intervals,type,rounds,work_sec,rest_sec,created_at) VALUES(?,?,?,?,?,?,?,?)',
+      [templateId, 'Atomic interval', '[]', 'custom', 2, 30, 10, NOW],
+    )
+    db.exec(
+      "CREATE TRIGGER reject_interval_capture BEFORE INSERT ON workout_interval_sessions BEGIN SELECT RAISE(ABORT,'interval capture failure'); END",
+    )
+    await expect(
+      runWorkoutOperation('WORKOUT_START', {
+        id: testId('interval-workout'),
+        now: NOW,
+        options: { intervalTemplateId: templateId },
+      }),
+    ).rejects.toThrow('interval capture failure')
+    expect(db.query('SELECT id FROM workouts')).toEqual([])
+    expect(db.query('SELECT workout_id FROM workout_intents')).toEqual([])
+  })
+
   it('guards new starts while retaining and recovering legacy unfinished sessions one at a time', async () => {
     const first = testId('legacy-active')
     const second = testId('legacy-active')

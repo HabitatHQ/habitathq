@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { formatDurationSeconds as formatDuration, formatInstant } from '@habitathq/utils'
+import { formatDurationSeconds as formatDuration } from '@habitathq/utils'
 import WorkoutRoutineReview from '~/components/routines/WorkoutRoutineReview.vue'
 import type { EquipmentProfile } from '~/lib/equipment'
 import { formatWeight } from '~/lib/format'
-import { sessionLabel } from '~/lib/history'
+import { MOOD_RATINGS, sessionLabel } from '~/lib/history'
 import { historicalWeightSuggestion } from '~/lib/progression'
 import type { WorkoutSummary } from '~/lib/workout-storage'
 import type {
@@ -41,8 +41,10 @@ const showWarmupSuggestions = ref(false)
 const activeWorkingWeight = ref<number | null>(null)
 const editingSet = ref<SetRow | null>(null)
 const sessionType = ref<SessionType>('gym')
-const runDistanceKm = ref<number | null>(null)
-const runDurationSec = ref<number | null>(null)
+const runDistance = ref<number | null>(null)
+const runDurationMinutes = ref<number | null>(null)
+const runDurationSeconds = ref<number | null>(null)
+const runSaveStatus = ref('')
 const requestError = ref('')
 const equipmentProfiles = useEquipmentProfiles()
 const currentEquipmentProfile = ref<EquipmentProfile | null>(null)
@@ -65,18 +67,22 @@ const recoveryStartedAt = computed(() => {
   const date = new Date(startedAt)
   return Number.isNaN(date.getTime())
     ? 'start time unavailable'
-    : formatInstant(startedAt, {
-        locale: Intl.DateTimeFormat().resolvedOptions().locale,
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    : new Intl.DateTimeFormat(undefined, {
         dateStyle: 'medium',
         timeStyle: 'short',
-      })
+        hourCycle: settings.value.use24HourTime ? 'h23' : 'h12',
+      }).format(date)
 })
 
 function syncRunFields() {
-  runDistanceKm.value =
-    workout.runData.value?.distance_m == null ? null : workout.runData.value.distance_m / 1000
-  runDurationSec.value = workout.runData.value?.duration_sec ?? null
+  runDistance.value =
+    workout.runData.value?.distance_m == null
+      ? null
+      : workout.runData.value.distance_m / (settings.value.distanceUnit === 'mi' ? 1609.344 : 1000)
+  const duration = workout.runData.value?.duration_sec
+  runDurationMinutes.value = duration == null ? null : Math.floor(duration / 60)
+  runDurationSeconds.value = duration == null ? null : duration % 60
+  runSaveStatus.value = ''
 }
 // Load the shared exercise/template data and explicitly offer recovery for any unfinished session.
 onMounted(async () => {
@@ -143,6 +149,17 @@ watch(
       )
     )
       showFailureRestPrompt.value = true
+  },
+)
+
+watch(
+  [
+    () => workout.activeWorkout.value?.id,
+    () => workout.restTimer.value.active,
+    () => settings.value.showFailurePrompt,
+  ],
+  ([id, resting, enabled]) => {
+    if (!id || !resting || !enabled) showFailureRestPrompt.value = false
   },
 )
 
@@ -276,6 +293,10 @@ async function handleStartFromTemplate(templateId: string) {
 
 async function handleResume() {
   try {
+    if (workout.activeInterval.value) {
+      await navigateTo(`/templates/intervals/${workout.activeInterval.value.template_id}`)
+      return
+    }
     await workout.resumeWorkout()
     requestError.value = ''
   } catch (error) {
@@ -284,6 +305,12 @@ async function handleResume() {
 }
 
 async function handleDiscard() {
+  if (
+    !window.confirm(
+      `Discard the unfinished ${recoveryLabel.value}? This permanently removes its saved sets and notes.`,
+    )
+  )
+    return
   try {
     await workout.discardWorkout()
     syncRunFields()
@@ -295,11 +322,27 @@ async function handleDiscard() {
 
 async function saveRunData(): Promise<boolean> {
   try {
+    if (
+      (runDurationMinutes.value != null &&
+        (!Number.isSafeInteger(runDurationMinutes.value) || runDurationMinutes.value < 0)) ||
+      (runDurationSeconds.value != null &&
+        (!Number.isSafeInteger(runDurationSeconds.value) ||
+          runDurationSeconds.value < 0 ||
+          runDurationSeconds.value > 59))
+    )
+      throw new Error('Enter whole minutes and seconds from 0 to 59.')
     await workout.saveRunData({
-      distance_m: runDistanceKm.value == null ? null : runDistanceKm.value * 1000,
-      duration_sec: runDurationSec.value,
+      distance_m:
+        runDistance.value == null
+          ? null
+          : runDistance.value * (settings.value.distanceUnit === 'mi' ? 1609.344 : 1000),
+      duration_sec:
+        runDurationMinutes.value == null && runDurationSeconds.value == null
+          ? null
+          : (runDurationMinutes.value ?? 0) * 60 + (runDurationSeconds.value ?? 0),
     })
     requestError.value = ''
+    runSaveStatus.value = 'Run details saved. Finish will also save any further changes.'
     return true
   } catch (error) {
     requestError.value = error instanceof Error ? error.message : 'Could not save run details.'
@@ -331,8 +374,6 @@ async function addExercise(exerciseId: string) {
   exerciseSearch.value = ''
   await workout.addExercise(exerciseId)
 }
-
-const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
 </script>
 
 <template>
@@ -344,6 +385,11 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
       <p class="text-sm text-(--ui-text-muted)">
         {{ recoveryLabel }} · started {{ recoveryStartedAt }}
       </p>
+      <NuxtLink
+        v-if="workout.activeInterval.value"
+        class="block rounded-xl bg-(--color-surface) p-3 text-sm text-(--color-accent)"
+        :to="`/templates/intervals/${workout.activeInterval.value.template_id}`"
+      >Resume interval timer · round {{ workout.activeInterval.value.round }}</NuxtLink>
       <p class="text-sm">Your exercises, sets, and elapsed time are saved. Resume this session or discard it before starting another.</p>
       <div class="grid grid-cols-2 gap-3">
         <UButton color="primary" @click="handleResume">Resume</UButton>
@@ -427,13 +473,13 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
     <!-- ── Post-workout Summary ───────────────────────────────────────── -->
     <article v-else-if="summary" class="p-4 space-y-6">
       <header>
-        <h1 class="text-2xl font-bold">Session Complete — {{ summary.sessionType === 'gym' ? 'Strength' : summary.sessionType === 'other' ? 'Other' : summary.sessionType }}</h1>
+        <h1 class="text-2xl font-bold">Session Complete — {{ sessionLabel({ session_type: summary.sessionType }) }}</h1>
       </header>
       <section aria-labelledby="summary-heading" class="grid grid-cols-2 gap-3">
         <h2 id="summary-heading" class="sr-only">Workout summary</h2>
-        <CommonStatCard v-if="summary.sessionType === 'run'" label="Distance" :value="`${(summary.distanceM / 1000).toFixed(2)} km`" />
+        <CommonStatCard v-if="summary.sessionType === 'run'" label="Distance" :value="`${(summary.distanceM / (settings.distanceUnit === 'mi' ? 1609.344 : 1000)).toFixed(2)} ${settings.distanceUnit}`" />
         <CommonStatCard v-else :label="summary.sessionType === 'gym' ? 'Working Sets' : 'Logged Sets'" :value="String(summary.totalSets)" />
-        <CommonStatCard label="Elapsed" :value="formatDuration(summary.durationSec)" />
+        <CommonStatCard :label="summary.sessionType === 'run' ? 'Duration' : 'Elapsed'" :value="formatDuration(summary.durationSec)" />
         <CommonStatCard
           v-if="summary.sessionType === 'gym'"
           label="PRs"
@@ -497,11 +543,19 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
       <p v-if="requestError" role="alert" class="mx-4 mt-3 text-sm text-red-400">{{ requestError }}</p>
       <section v-if="workout.activeWorkout.value?.session_type === 'run'" class="mx-4 mt-4 rounded-xl bg-(--color-surface) p-4 space-y-3" aria-labelledby="run-entry-heading">
         <h2 id="run-entry-heading" class="font-semibold">Manual run details</h2>
-        <label class="block text-sm" for="run-distance">Distance (km)</label>
-        <input id="run-distance" v-model.number="runDistanceKm" type="number" min="0" step="0.01" class="w-full rounded-lg bg-(--color-surface-2) p-3" />
-        <label class="block text-sm" for="run-duration">Duration (seconds)</label>
-        <input id="run-duration" v-model.number="runDurationSec" type="number" min="0" step="1" class="w-full rounded-lg bg-(--color-surface-2) p-3" />
-        <UButton variant="outline" class="w-full" @click="async () => { await saveRunData() }">Save run details</UButton>
+        <label class="block text-sm" for="run-distance">Distance ({{ settings.distanceUnit }})</label>
+        <input id="run-distance" v-model.number="runDistance" type="number" min="0" step="0.01" class="w-full rounded-lg bg-(--color-surface-2) p-3" @input="runSaveStatus = ''" />
+        <div class="grid grid-cols-2 gap-3">
+          <label class="space-y-1 text-sm" for="run-duration">Duration (minutes)
+            <input id="run-duration" v-model.number="runDurationMinutes" type="number" min="0" step="1" class="w-full rounded-lg bg-(--color-surface-2) p-3" @input="runSaveStatus = ''" />
+          </label>
+          <label class="space-y-1 text-sm" for="run-seconds">Seconds
+            <input id="run-seconds" v-model.number="runDurationSeconds" type="number" min="0" max="59" step="1" class="w-full rounded-lg bg-(--color-surface-2) p-3" @input="runSaveStatus = ''" />
+          </label>
+        </div>
+        <p class="text-xs text-(--ui-text-muted)">Finish saves your run details too.</p>
+        <p v-if="runSaveStatus" role="status" class="text-sm">{{ runSaveStatus }}</p>
+        <UButton variant="outline" class="w-full" @click="saveRunData">Save run details</UButton>
       </section>
 
       <!-- Exercise blocks -->
@@ -564,6 +618,8 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
       :editing-set="editingSet"
       :unit="settings.weightUnit"
       :show-warmup-suggestions="settings.showWarmupSuggestions"
+      :show-rpe="settings.showRpe"
+      :show-rir="settings.showRir"
       @close="showAddSet = false"
       @confirm="handleSetConfirm"
       @suggest-warmups="handleSuggestWarmups"
@@ -582,7 +638,7 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
     <!-- ── Failure Rest Prompt ──────────────────────────────────────────── -->
     <Transition name="fade">
       <div
-        v-if="showFailureRestPrompt"
+        v-if="showFailureRestPrompt && workout.hasActiveWorkout.value && workout.restTimer.value.active && settings.showFailurePrompt"
         class="fixed bottom-20 left-4 right-4 z-[90] rounded-xl bg-(--color-surface) border border-(--ui-border) p-4 flex items-center gap-3 shadow-lg"
         role="alert"
         aria-live="polite"
@@ -658,17 +714,18 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
             <p class="text-sm font-medium text-(--ui-text-muted)">How did you feel?</p>
             <div class="flex justify-between">
               <button
-                v-for="(icon, i) in ratingIcons"
-                :key="i"
+                v-for="(rating, i) in MOOD_RATINGS"
+                :key="rating.label"
                 class="text-2xl w-11 h-11 rounded-xl transition-all"
                 :class="moodRating === i + 1 ? 'bg-(--color-accent)/20 scale-110' : 'opacity-50'"
                 :aria-pressed="moodRating === i + 1"
-                :aria-label="`Mood rating ${i + 1}`"
+                :aria-label="`Mood rating ${i + 1}: ${rating.label}`"
                 @click="moodRating = i + 1"
               >
-                {{ icon }}
+                {{ rating.icon }}
               </button>
             </div>
+            <p v-if="moodRating" class="text-sm text-(--ui-text-muted)">{{ MOOD_RATINGS[moodRating - 1]?.icon }} {{ MOOD_RATINGS[moodRating - 1]?.label }}</p>
           </div>
 
           <!-- Energy -->
@@ -676,15 +733,15 @@ const ratingIcons = ['😴', '😐', '🙂', '💪', '🔥']
             <p class="text-sm font-medium text-(--ui-text-muted)">Energy level?</p>
             <div class="flex justify-between">
               <button
-                v-for="(icon, i) in ratingIcons"
-                :key="i"
+                v-for="(rating, i) in MOOD_RATINGS"
+                :key="rating.label"
                 class="text-2xl w-11 h-11 rounded-xl transition-all"
                 :class="energyRating === i + 1 ? 'bg-(--color-accent)/20 scale-110' : 'opacity-50'"
                 :aria-pressed="energyRating === i + 1"
                 :aria-label="`Energy rating ${i + 1}`"
                 @click="energyRating = i + 1"
               >
-                {{ icon }}
+                {{ rating.icon }}
               </button>
             </div>
           </div>

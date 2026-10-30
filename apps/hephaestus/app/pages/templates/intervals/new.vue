@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { formatDurationSeconds } from '@habitathq/utils'
+import { trainingLabel } from '~/lib/format'
 import { buildEmom, buildTabata } from '~/lib/interval-templates'
 
 const db = useDatabase()
@@ -87,11 +88,11 @@ async function handleSave() {
       <button
         v-for="m in (['custom', 'tabata', 'emom', 'amrap', 'mobility'] as const)"
         :key="m"
-        class="py-1.5 text-xs font-semibold rounded-lg transition-colors capitalize"
+        class="py-1.5 text-xs font-semibold rounded-lg transition-colors"
         :class="mode === m ? 'bg-(--color-accent) text-(--color-on-accent)' : 'text-(--ui-text-muted)'"
         @click="mode = m"
       >
-        {{ m === 'mobility' ? 'Mobility' : m }}
+        {{ trainingLabel(m) }}
       </button>
     </div>
 

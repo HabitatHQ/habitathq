@@ -266,6 +266,7 @@ export interface WorkoutRow {
   session_type: SessionType
   training_block_id: string | null
   template_id: string | null
+  title?: string | null
   mood_rating: number | null
   energy_rating: number | null
   notes: string | null

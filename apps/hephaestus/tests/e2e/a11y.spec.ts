@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, type Page, test } from '@playwright/test'
-import { authorStrengthTemplate, selectLabeledOption } from './domain-helpers'
+import { authorStrengthTemplate, selectLabeledOption, startRoutine } from './domain-helpers'
 
 const routes = [
   '/',
@@ -69,7 +69,7 @@ for (const theme of themes) {
     ).toBeVisible()
     await selectLabeledOption(page, 'Continuation policy', 'Carry forward')
     await expect(page.getByLabel('Deferral mode')).toBeVisible()
-    await selectLabeledOption(page, 'Deferral mode', 'Manual deferral')
+    await selectLabeledOption(page, 'Deferral mode', 'Manual scheduling')
 
     const analyzePopulatedForm = async (formPage: Page) => {
       await formPage.getByRole('button', { name: /^Save(?: revision)?$/ }).hover()
@@ -93,6 +93,47 @@ for (const theme of themes) {
     await expect(page.getByLabel('Deferral mode')).toHaveValue('manual')
     await expect(page.getByRole('heading', { name: 'Barbell Squat' })).toBeVisible()
     await analyzePopulatedForm(page)
+
+    await startRoutine(page, routineName)
+    const exercise = page.getByRole('region', { name: 'Barbell Squat' })
+    const compactSet = exercise
+      .getByRole('listitem')
+      .filter({ hasText: 'Draft—not performed' })
+      .first()
+    await expect(
+      compactSet.getByRole('button', { name: 'Edit set 1 for Barbell Squat' }),
+    ).toBeVisible()
+    await compactSet.getByRole('button', { name: 'Edit set 1 for Barbell Squat' }).click()
+    await expect(compactSet.getByLabel('Weight (kg) for set 1')).toBeVisible()
+    await expect(compactSet.getByLabel('Reps for set 1')).toBeVisible()
+    await page.waitForFunction(
+      () => !document.getAnimations().some((animation) => animation.playState === 'running'),
+    )
+    const { violations: workoutViolations } = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze()
+    expect(workoutViolations, JSON.stringify(workoutViolations)).toEqual([])
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+
+    await page.goto('/plans')
+    await expect(page.getByRole('heading', { name: 'Training plans', exact: true })).toBeVisible()
+    const planName = page.getByRole('textbox', { name: 'New plan name', exact: true })
+    if (!(await planName.isVisible()))
+      await page.getByText('Create a personal plan', { exact: true }).click()
+    await planName.fill(`E2E Accessible Plan ${theme}`)
+    await page.getByRole('button', { name: 'Create personal plan', exact: true }).click()
+    await expect(page.getByRole('textbox', { name: 'Plan name', exact: true })).toHaveValue(
+      `E2E Accessible Plan ${theme}`,
+    )
+    await page.getByText('Ordered rotation', { exact: true }).click()
+    await page.getByText('Weekly frequency goal', { exact: true }).click()
+    await expect(page.getByLabel('Rotation name')).toBeVisible()
+    await expect(page.getByLabel('Goal name')).toBeVisible()
+    const { violations: planViolations } = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze()
+    expect(planViolations, JSON.stringify(planViolations)).toEqual([])
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   })
 }
 

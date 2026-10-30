@@ -80,6 +80,16 @@ export const WORKOUT_DDL = `
     issue TEXT,
     UNIQUE (plan_id, program_slot_id)
   );
+  CREATE TABLE IF NOT EXISTS workout_interval_sessions (
+    workout_id TEXT PRIMARY KEY REFERENCES workouts(id) ON DELETE CASCADE,
+    template_id TEXT NOT NULL,
+    config_json TEXT NOT NULL,
+    phase TEXT NOT NULL CHECK (phase IN ('work','rest','complete')),
+    round INTEGER NOT NULL CHECK (round >= 1),
+    phase_deadline_ms INTEGER,
+    paused_remaining_sec REAL,
+    updated_at TEXT NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS workout_intents (
     workout_id TEXT PRIMARY KEY REFERENCES workouts(id) ON DELETE CASCADE,
     availability TEXT NOT NULL CHECK (availability IN ('captured','absent','unavailable')),
@@ -89,6 +99,7 @@ export const WORKOUT_DDL = `
     adjustments_json TEXT,
     captured_at TEXT NOT NULL
   );
+  CREATE INDEX IF NOT EXISTS idx_workout_intervals_template ON workout_interval_sessions(template_id);
   CREATE TRIGGER IF NOT EXISTS trg_template_revisions_immutable_update
   BEFORE UPDATE ON template_revisions BEGIN SELECT RAISE(ABORT, 'Template revisions are immutable'); END;
   CREATE TRIGGER IF NOT EXISTS trg_routine_revisions_immutable_update

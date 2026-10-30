@@ -12,7 +12,9 @@ const props = defineProps<{
   intent?: Readonly<WorkoutSetIntent> | null
   skipped?: boolean
   prescribed?: boolean
+  active?: boolean
 }>()
+const { settings } = useAppSettings()
 const emit = defineEmits<{ tap: [set: SetRow] }>()
 const workout = useWorkout()
 const unit = computed(() => props.unit ?? 'kg')
@@ -32,6 +34,7 @@ const text = reactive<Record<Exclude<EditableField, 'warmup'>, string>>({
   notes: '',
 })
 const warmup = ref(false)
+const expanded = ref(false)
 const dirty = new Set<EditableField>()
 const invalid = new Set<EditableField>()
 let generation = 0
@@ -49,6 +52,12 @@ const targetReps = computed(() => {
   }
   return null
 })
+function fromMeters(value: number) {
+  return value / (settings.value.distanceUnit === 'mi' ? 1609.344 : 1000)
+}
+function toMeters(value: number) {
+  return value * (settings.value.distanceUnit === 'mi' ? 1609.344 : 1000)
+}
 
 function syncFields() {
   const set = props.set
@@ -60,7 +69,7 @@ function syncFields() {
           ? String(set.weight_kg)
           : String(Number(fromKilograms(set.weight_kg, unit.value).toFixed(1))),
     reps: set.reps === null ? '' : String(set.reps),
-    distance: set.distance_m === null ? '' : String(set.distance_m),
+    distance: set.distance_m === null ? '' : String(Number(fromMeters(set.distance_m).toFixed(3))),
     duration: set.duration_sec === null ? '' : String(set.duration_sec),
     rpe: set.rpe === null ? '' : String(set.rpe),
     rir: set.rir === null ? '' : String(set.rir),
@@ -115,7 +124,7 @@ function visiblePartial(): Partial<SetRow> {
   if (dirty.has('weight'))
     partial.weight_kg = weight === null ? null : toKilograms(weight, unit.value)
   if (dirty.has('reps')) partial.reps = reps
-  if (dirty.has('distance')) partial.distance_m = distance
+  if (dirty.has('distance')) partial.distance_m = distance === null ? null : toMeters(distance)
   if (dirty.has('duration')) partial.duration_sec = duration
   if (dirty.has('rpe')) partial.rpe = rpe
   if (dirty.has('rir')) partial.rir = rir
@@ -183,7 +192,7 @@ function syncFieldsFromCompleted(set: SetRow) {
           ? String(set.weight_kg)
           : String(Number(fromKilograms(set.weight_kg, unit.value).toFixed(1))),
     reps: set.reps === null ? '' : String(set.reps),
-    distance: set.distance_m === null ? '' : String(set.distance_m),
+    distance: set.distance_m === null ? '' : String(Number(fromMeters(set.distance_m).toFixed(3))),
     duration: set.duration_sec === null ? '' : String(set.duration_sec),
     rpe: set.rpe === null ? '' : String(set.rpe),
     rir: set.rir === null ? '' : String(set.rir),
@@ -222,7 +231,8 @@ async function toggleSkip() {
 </script>
 
 <template>
-  <li class="py-3 space-y-2 text-sm" :class="set.is_warmup ? 'opacity-70' : ''">
+  <li class="py-2 text-sm" :class="[set.is_warmup ? 'opacity-70' : '', active ? 'rounded-lg border border-(--color-accent) bg-(--color-accent)/5 p-3' : '']">
+    <p v-if="active" class="text-xs font-semibold text-(--color-accent)">Up next</p>
     <div class="flex items-center gap-2">
       <span class="font-medium">{{ label }}</span>
       <span v-if="intent?.role === 'top' || intent?.role === 'back_off'" class="text-xs text-(--ui-text-muted)">
@@ -241,10 +251,10 @@ async function toggleSkip() {
       <template v-if="intent.weightKg !== null && targetReps"> × </template>
       {{ targetReps }}
     </p>
-    <p v-if="intent && (intent.rpe !== null || intent.rir !== null)" class="text-xs text-(--ui-text-muted)">
+    <p v-if="(settings.showRpe && intent?.rpe != null) || (settings.showRir && intent?.rir != null)" class="text-xs text-(--ui-text-muted)">
       Effort target:
-      <span v-if="intent.rpe !== null">RPE {{ intent.rpe }}</span>
-      <span v-if="intent.rir !== null"> RIR {{ intent.rir }}</span>
+      <span v-if="settings.showRpe && intent?.rpe !== null && intent?.rpe !== undefined">RPE {{ intent.rpe }}</span>
+      <span v-if="settings.showRir && intent?.rir !== null && intent?.rir !== undefined"> RIR {{ intent.rir }}</span>
     </p>
 
     <div v-if="set.completed" class="flex items-center gap-3">
@@ -255,11 +265,11 @@ async function toggleSkip() {
           <span>{{ set.reps ?? '—' }} reps</span>
         </template>
         <template v-else>
-          <span v-if="set.distance_m !== null">{{ (set.distance_m / 1000).toFixed(2) }} km</span>
+          <span v-if="set.distance_m !== null">{{ fromMeters(set.distance_m).toFixed(2) }} {{ settings.distanceUnit }}</span>
           <span v-if="set.duration_sec !== null"> {{ set.duration_sec }} sec</span>
         </template>
-        <span v-if="set.rpe !== null" class="ml-2 text-xs">RPE {{ set.rpe }}</span>
-        <span v-if="set.rir !== null" class="ml-2 text-xs">RIR {{ set.rir }}</span>
+        <span v-if="settings.showRpe && set.rpe !== null" class="ml-2 text-xs">RPE {{ set.rpe }}</span>
+        <span v-if="settings.showRir && set.rir !== null" class="ml-2 text-xs">RIR {{ set.rir }}</span>
         <span v-if="set.failure_flag" class="ml-2 text-xs">Failure</span>
         <span v-if="set.notes" class="ml-2 text-xs" :title="set.notes">Note</span>
       </button>
@@ -267,6 +277,12 @@ async function toggleSkip() {
     </div>
 
     <template v-else-if="!skipped">
+      <div v-if="!active && !expanded" class="flex items-center justify-between gap-2 rounded-lg bg-(--color-surface) px-3 py-2">
+        <p class="min-w-0 flex-1 truncate text-xs text-(--ui-text-muted)">{{ loggingMode === 'strength' ? `${text.weight || 'Load'} ${unit} × ${text.reps || targetReps || 'reps'}` : `${text.distance || 'Distance'} · ${text.duration || 'Duration'}` }}</p>
+        <UButton size="xs" variant="outline" :aria-label="detailLabel" @click="expanded = true">Edit</UButton>
+        <UButton size="xs" variant="ghost" :disabled="busy" :aria-label="`Skip set ${set.set_num}${suffix}`" @click="toggleSkip">Skip</UButton>
+      </div>
+      <template v-else>
       <div class="grid grid-cols-2 gap-2">
         <template v-if="loggingMode === 'strength'">
           <label class="block text-xs">
@@ -286,9 +302,9 @@ async function toggleSkip() {
         </template>
         <template v-else>
           <label class="block text-xs">
-            Distance (m)
+            Distance ({{ settings.distanceUnit }})
             <input :value="text.distance" type="number" min="0" step="any" inputmode="decimal" :disabled="busy"
-              :aria-label="`Distance (m) for set ${set.set_num}${suffix}`"
+              :aria-label="`Distance (${settings.distanceUnit}) for set ${set.set_num}${suffix}`"
               class="mt-1 w-full min-h-11 rounded-lg bg-(--color-surface-2) px-3 text-base"
               @input="onInput('distance', $event)" />
           </label>
@@ -304,11 +320,11 @@ async function toggleSkip() {
       <details>
         <summary class="min-h-11 flex items-center text-xs text-(--ui-text-muted) cursor-pointer">Effort &amp; notes</summary>
         <div class="grid grid-cols-2 gap-2">
-          <label v-if="loggingMode === 'strength'" class="block text-xs">RPE
+          <label v-if="loggingMode === 'strength' && settings.showRpe" class="block text-xs">RPE
             <input :value="text.rpe" type="number" min="0" max="10" step="0.5" :disabled="busy" :aria-label="`RPE for set ${set.set_num}${suffix}`"
               class="mt-1 min-h-11 w-full rounded-lg bg-(--color-surface-2) px-3" @input="onInput('rpe', $event)" />
           </label>
-          <label v-if="loggingMode === 'strength'" class="block text-xs">RIR
+          <label v-if="loggingMode === 'strength' && settings.showRir" class="block text-xs">RIR
             <input :value="text.rir" type="number" min="0" max="10" step="0.5" :disabled="busy" :aria-label="`RIR for set ${set.set_num}${suffix}`"
               class="mt-1 min-h-11 w-full rounded-lg bg-(--color-surface-2) px-3" @input="onInput('rir', $event)" />
           </label>
@@ -327,6 +343,7 @@ async function toggleSkip() {
         <UButton variant="ghost" class="min-h-11" :disabled="busy" :aria-label="`Skip set ${set.set_num}${suffix}`" @click="toggleSkip">Skip</UButton>
       </div>
       <p class="min-h-4 text-xs text-(--ui-text-muted)" aria-live="polite">{{ saving ? 'Saving draft…' : 'Valid entries save automatically. Completion is separate.' }}</p>
+      </template>
     </template>
     <UButton v-else variant="outline" class="min-h-11" :loading="busy" :aria-label="`Restore set ${set.set_num}${suffix}`" @click="toggleSkip">Restore draft</UButton>
     <p v-if="error" role="alert" class="text-xs text-red-400">{{ error }}</p>

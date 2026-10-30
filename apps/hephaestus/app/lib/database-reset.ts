@@ -40,6 +40,7 @@ export const HEPHAESTUS_OWNED_TABLES = [
   'workout_intent_activities',
   'workout_intent_sets',
   'workout_set_skips',
+  'workout_interval_sessions',
   'prescription_previews',
   'history_correction_previews',
   'history_corrections',

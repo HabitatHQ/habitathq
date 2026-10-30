@@ -11,15 +11,14 @@ test.describe('Today page', () => {
     expect(text).toMatch(/Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday/)
   })
 
-  test('shows recent activity section', async ({ page }) => {
+  test('offers an empty session action when nothing is scheduled', async ({ page }) => {
     await page.goto('/')
-    await expect(page.getByText(/recent activity/i)).toBeVisible()
-  })
-
-  test('start workout button links to /workout', async ({ page }) => {
-    await page.goto('/')
-    const btn = page.getByRole('link', { name: /start workout/i })
-    await expect(btn).toHaveAttribute('href', '/workout')
+    const nextUp = page.getByRole('region', { name: 'Next up' })
+    const startEmptySession = nextUp.getByRole('link', { name: 'Start empty session', exact: true })
+    await expect(startEmptySession).toHaveAttribute('href', '/workout')
+    await startEmptySession.click()
+    await expect(page).toHaveURL('/workout')
+    await expect(page.getByRole('button', { name: /start empty session/i })).toBeEnabled()
   })
 })
 

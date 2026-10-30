@@ -27,20 +27,22 @@ async function addActivity(page: Page, exerciseName: string, occurrence = 0): Pr
 }
 
 async function configureSet(set: Locator, prescription: SetPrescription): Promise<void> {
-  await selectOptionControl(
-    set.getByRole('combobox', { name: 'Reps', exact: true }),
-    prescription.kind,
-  )
   if (prescription.kind === 'exact') {
-    await selectOptionControl(set.getByLabel('Exact reps target mode'), 'Fixed')
-    await set.getByLabel('Exact reps fixed value').fill(String(prescription.reps))
+    await set.getByLabel('Reps fixed value', { exact: true }).fill(String(prescription.reps))
   } else {
+    await set.getByText('Set role and rep scheme', { exact: true }).click()
+    await selectOptionControl(
+      set.getByRole('combobox', { name: 'Reps', exact: true }),
+      prescription.kind,
+    )
     await set.getByLabel('Minimum', { exact: true }).fill(String(prescription.minimum))
     await set.getByLabel('Maximum', { exact: true }).fill(String(prescription.maximum))
   }
   if (prescription.weightKg !== undefined) {
-    await selectOptionControl(set.getByLabel('Load (kg) target mode'), 'Fixed')
-    await set.getByLabel('Load (kg) fixed value').fill(String(prescription.weightKg))
+    await set.getByRole('button', { name: 'Set fixed target', exact: true }).click()
+    await set
+      .getByLabel('Load (kg) fixed value', { exact: true })
+      .fill(String(prescription.weightKg))
   }
 }
 
@@ -58,6 +60,11 @@ export async function authorStrengthTemplate(
     { kind: 'exact', reps: 5, weightKg: 100 },
   ]
   if (prescriptions.length === 0) throw new Error('A strength template needs at least one set')
+  if (prescriptions.some((set) => set.kind === 'range')) {
+    await page.goto('/profile')
+    const schemes = page.getByRole('switch', { name: 'Set schemes', exact: true })
+    if ((await schemes.getAttribute('aria-checked')) !== 'true') await schemes.click()
+  }
 
   await page.goto('/templates/new')
   await expect(page.getByRole('heading', { name: 'Create template' })).toBeVisible()
@@ -65,14 +72,14 @@ export async function authorStrengthTemplate(
   if (options.description) await page.getByLabel('Description').fill(options.description)
   const activity = await addActivity(page, exerciseName)
   for (let index = 1; index < prescriptions.length; index += 1) {
-    await activity.getByRole('button', { name: 'Add set', exact: true }).click()
+    await activity.getByRole('button', { name: 'Add default set', exact: true }).click()
   }
   for (const [index, prescription] of prescriptions.entries()) {
     await configureSet(setEditor(activity, index + 1), prescription)
   }
 
   await page.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(page).toHaveURL(/\/templates\/[^/]+$/)
+  await expect(page).toHaveURL(/\/templates\/[0-9a-f-]{36}$/)
   return page.url()
 }
 
@@ -85,12 +92,16 @@ export async function authorGroupedTemplate(
   },
 ): Promise<void> {
   const exercises = options.exercises ?? ['Bench Press', 'Barbell Row']
+  await page.goto('/profile')
+  const supersets = page.getByRole('switch', { name: 'Superset groups', exact: true })
+  if ((await supersets.getAttribute('aria-checked')) !== 'true') await supersets.click()
   await page.goto('/templates/new')
   await expect(page.getByRole('heading', { name: 'Create template' })).toBeVisible()
   await page.getByLabel('Name', { exact: true }).fill(options.name)
   await addActivity(page, exercises[0])
   await addActivity(page, exercises[1])
 
+  await page.getByText('Advanced authoring', { exact: true }).click()
   const groups = page
     .getByRole('heading', { name: 'Execution groups', exact: true })
     .locator('..')
@@ -98,13 +109,14 @@ export async function authorGroupedTemplate(
   await groups.getByRole('button', { name: 'Add group' }).click()
   await selectOptionControl(groups.getByLabel('Group type'), options.groupType)
   for (const exercise of exercises) {
+    await activityEditor(page, exercise).getByText('Activity options', { exact: true }).click()
     await selectOptionControl(
       activityEditor(page, exercise).getByLabel('Execution group'),
       `A · ${options.groupType}`,
     )
   }
   await page.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(page).toHaveURL(/\/templates\/[^/]+$/)
+  await expect(page).toHaveURL(/\/templates\/[0-9a-f-]{36}$/)
 }
 
 export async function configureRoutine(
@@ -118,21 +130,23 @@ export async function configureRoutine(
 ): Promise<void> {
   await page.goto('/routines/new')
   await expect(page.getByRole('heading', { name: 'Configure routine' })).toBeVisible()
+  await page
+    .getByRole('combobox', { name: 'Template', exact: true })
+    .selectOption({ label: options.templateName })
   await page.getByLabel('Routine name').fill(options.name)
-  await page.getByLabel('Template').selectOption({ label: options.templateName })
   await expect(
     page.getByRole('heading', { name: new RegExp(`${options.templateName} · revision`) }),
   ).toBeVisible()
   await selectLabeledOption(
     page,
     'Continuation policy',
-    options.continuation === 'carry_forward' ? 'Carry forward' : 'Calendar-bound',
+    options.continuation === 'carry_forward' ? 'Carry forward' : 'Follow scheduled dates',
   )
   if (options.continuation === 'carry_forward') {
     await selectLabeledOption(
       page,
       'Deferral mode',
-      options.deferral === 'manual' ? 'Manual deferral' : 'Automatic deferral',
+      options.deferral === 'manual' ? 'Manual scheduling' : 'Automatic scheduling',
     )
   }
   await page.getByRole('button', { name: 'Save', exact: true }).click()

@@ -3,11 +3,13 @@ import { formatCalendarDate, isCalendarDate } from '@habitathq/utils'
 export interface WorkoutCardSummary {
   date: string
   sessionType: string
+  title?: string | null
   durationMinutes: number
   exerciseCount: number
   workingSets: number
   volumeKg: number | null
   distanceMeters: number | null
+  distanceUnit?: 'km' | 'mi'
 }
 
 export interface WorkoutCard {
@@ -46,14 +48,31 @@ export function buildWorkoutCard(summary: WorkoutCardSummary): WorkoutCard {
     day: 'numeric',
     year: 'numeric',
   })
+  const sessionTypeLabels: Record<string, string> = {
+    gym: 'Strength',
+    run: 'Run',
+    conditioning: 'Conditioning',
+    mobility: 'Mobility',
+    other: 'Other',
+  }
+  const sessionLabel =
+    summary.title?.trim() || sessionTypeLabels[summary.sessionType] || summary.sessionType
+  const exerciseWord = summary.exerciseCount === 1 ? 'exercise' : 'exercises'
+  const setWord = summary.workingSets === 1 ? 'working set' : 'working sets'
+  const minuteWord = Math.round(summary.durationMinutes) === 1 ? 'minute' : 'minutes'
   const lines = [
-    `${summary.sessionType} workout — ${dateLabel}`,
-    `${Math.round(summary.durationMinutes)} minutes`,
-    `${summary.exerciseCount} exercises · ${summary.workingSets} working sets`,
+    `${sessionLabel} workout — ${dateLabel}`,
+    `${Math.round(summary.durationMinutes)} ${minuteWord}`,
   ]
+  if (summary.sessionType !== 'run')
+    lines.push(`${summary.exerciseCount} ${exerciseWord} · ${summary.workingSets} ${setWord}`)
   if (summary.volumeKg !== null) lines.push(`${Math.round(summary.volumeKg)} kg total volume`)
-  if (summary.distanceMeters !== null)
-    lines.push(`${(summary.distanceMeters / 1000).toFixed(2)} km`)
+  if (summary.distanceMeters !== null) {
+    const unit = summary.distanceUnit ?? 'km'
+    const distance =
+      unit === 'mi' ? summary.distanceMeters / 1609.344 : summary.distanceMeters / 1000
+    lines.push(`${distance.toFixed(2)} ${unit}`)
+  }
   const textAlternative = lines.join('. ')
   const content = lines
     .map(

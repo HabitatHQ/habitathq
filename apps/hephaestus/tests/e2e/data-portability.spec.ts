@@ -47,7 +47,7 @@ test.describe('data portability safety', () => {
     const exactSet = setEditor(activity, 1)
     const rangeSet = setEditor(activity, 2)
     await expect(exactSet).toBeVisible()
-    await expect(exactSet.getByLabel('Exact reps fixed value')).toHaveValue('5')
+    await expect(exactSet.getByLabel('Reps fixed value')).toHaveValue('5')
     await expect(exactSet.getByLabel('Load (kg) fixed value')).toHaveValue('105')
     await expect(rangeSet.getByLabel('Minimum', { exact: true })).toHaveValue('8')
     await expect(rangeSet.getByLabel('Maximum', { exact: true })).toHaveValue('10')

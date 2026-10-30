@@ -1,152 +1,188 @@
 <script setup lang="ts">
-import type { IntervalTemplate, IntervalType } from '~/lib/interval-templates'
-import { advanceIntervalPhase } from '~/lib/interval-templates'
+import {
+  intervalElapsedSeconds,
+  intervalProgressAt,
+  parseIntervalConfiguration,
+} from '~/lib/interval-clock'
+import type { IntervalTemplate } from '~/lib/interval-templates'
 import type { IntervalTemplateRow } from '~/types/database'
 
 const route = useRoute()
 const db = useDatabase()
 const workout = useWorkout()
-const template = ref<IntervalTemplateRow | null>(null)
-const phase = ref<'ready' | 'work' | 'rest' | 'complete'>('ready')
-const remaining = ref(0)
-const round = ref(1)
-const elapsed = ref(0)
-const starting = ref(false)
+const config = ref<IntervalTemplate | null>(null)
+const busy = ref(false)
 const error = ref('')
-let timer: number | null = null
-
-const sessionType = computed(() =>
-  template.value?.type === 'mobility' ? ('mobility' as const) : ('conditioning' as const),
+const finished = ref(false)
+const savedElapsed = ref(0)
+const finishedRound = ref(1)
+const now = ref(Date.now())
+let timer: number | undefined
+const ownSession = computed(() =>
+  workout.activeInterval.value?.template_id === String(route.params['id'])
+    ? workout.activeInterval.value
+    : null,
 )
-const isAmrap = computed(() => template.value?.type === 'amrap')
-const rounds = computed(() => (isAmrap.value ? null : (template.value?.rounds ?? 1)))
+const progress = computed(() =>
+  ownSession.value && config.value
+    ? intervalProgressAt(ownSession.value, config.value, now.value)
+    : null,
+)
 const phaseName = computed(() =>
-  phase.value === 'work'
-    ? sessionType.value === 'mobility'
-      ? 'Hold / practice'
-      : 'Work'
-    : phase.value === 'rest'
-      ? sessionType.value === 'mobility'
-        ? 'Recovery'
-        : 'Rest'
-      : phase.value === 'complete'
-        ? 'Complete'
-        : 'Ready',
+  finished.value
+    ? 'Complete'
+    : progress.value
+      ? progress.value.paused_remaining_sec === null
+        ? progress.value.phase === 'work'
+          ? config.value?.type === 'mobility'
+            ? 'Hold / practice'
+            : 'Work'
+          : progress.value.phase === 'rest'
+            ? 'Rest'
+            : 'Saving session'
+        : 'Paused'
+      : 'Ready',
+)
+const remaining = computed(() =>
+  Math.ceil(
+    progress.value?.paused_remaining_sec ??
+      Math.max(0, ((progress.value?.phase_deadline_ms ?? now.value) - now.value) / 1000),
+  ),
+)
+const elapsed = computed(() =>
+  finished.value
+    ? savedElapsed.value
+    : ownSession.value && config.value
+      ? intervalElapsedSeconds(ownSession.value, config.value, now.value)
+      : 0,
 )
 
-function intervalConfig(row: IntervalTemplateRow): IntervalTemplate {
-  const type: IntervalType =
-    row.type === 'tabata' || row.type === 'emom' || row.type === 'amrap' || row.type === 'mobility'
-      ? row.type
-      : 'custom'
-  return {
-    type,
-    name: row.name,
-    rounds: row.rounds ?? 0,
-    work_sec: row.work_sec ?? 0,
-    rest_sec: row.rest_sec ?? 0,
-    time_cap_sec: type === 'amrap' ? row.work_sec : null,
+function stopTicker() {
+  window.clearInterval(timer)
+  timer = undefined
+}
+
+async function runAction(action: () => Promise<void>) {
+  if (busy.value) return
+  busy.value = true
+  error.value = ''
+  try {
+    await action()
+  } catch (caught) {
+    error.value =
+      caught instanceof Error ? caught.message : 'Unable to save this session. Try again.'
+  } finally {
+    busy.value = false
   }
+}
+
+async function finishSession() {
+  const round = progress.value?.round ?? 1
+  const summary = await workout.finishWorkout({
+    notes: `${config.value?.name ?? 'Interval session'} · round ${progress.value?.round ?? 1}`,
+  })
+  savedElapsed.value = summary.durationSec
+  finishedRound.value = round
+  finished.value = true
+  stopTicker()
+}
+
+async function synchronize() {
+  now.value = Date.now()
+  const state = ownSession.value
+  const next = progress.value
+  if (!state || !next) return
+  if (state.phase !== next.phase || state.round !== next.round)
+    await workout.saveIntervalState(next)
+  if (next.phase === 'complete') await finishSession()
 }
 
 onMounted(async () => {
-  const rows = await db.query<IntervalTemplateRow>(
-    'SELECT * FROM interval_templates WHERE id = ?',
-    [route.params['id']],
-  )
-  template.value = rows[0] ?? null
-  if (!template.value) error.value = 'Interval plan not found.'
-})
-
-async function finish(completed = true) {
-  window.clearInterval(timer ?? 0)
-  timer = null
-  if (workout.activeWorkout.value) {
-    const outcome = completed ? 'completed' : `stopped during ${phase.value}`
-    try {
-      await workout.finishWorkout({
-        notes: `${template.value?.name ?? 'Training session'} · ${outcome} · round ${round.value}${rounds.value == null ? '' : ` of ${rounds.value}`} · ${elapsed.value}s`,
-      })
-    } catch (caught) {
-      error.value = caught instanceof Error ? caught.message : 'Unable to save this session.'
-      return
+  await runAction(async () => {
+    await workout.hydrateActiveWorkout()
+    if (ownSession.value) {
+      config.value = { ...ownSession.value.config }
+      await synchronize()
+    } else {
+      const rows = await db.query<IntervalTemplateRow>(
+        'SELECT * FROM interval_templates WHERE id=?',
+        [route.params['id']],
+      )
+      config.value = parseIntervalConfiguration(rows[0])
+      if (workout.activeWorkout.value)
+        error.value = 'Another session is unfinished. Resume or discard it from Workout first.'
     }
-  }
-  phase.value = 'complete'
-}
+  })
+  timer = window.setInterval(() => {
+    if (ownSession.value && !finished.value && !error.value) void runAction(synchronize)
+  }, 250)
+})
+onBeforeUnmount(stopTicker)
 
 async function start() {
-  if (!template.value || starting.value || phase.value !== 'ready') return
-  starting.value = true
-  error.value = ''
-  try {
-    await workout.startWorkout(undefined, { sessionType: sessionType.value })
-    phase.value = 'work'
-    remaining.value = isAmrap.value
-      ? Math.max(1, template.value.work_sec ?? 300)
-      : Math.max(1, template.value.work_sec ?? 1)
-    round.value = 1
-    elapsed.value = 0
-    timer = window.setInterval(() => {
-      elapsed.value++
-      remaining.value--
-      if (
-        remaining.value > 0 ||
-        !template.value ||
-        phase.value === 'ready' ||
-        phase.value === 'complete'
-      )
-        return
-      const next = advanceIntervalPhase(
-        { phase: phase.value, round: round.value, remainingSeconds: 0 },
-        intervalConfig(template.value),
-      )
-      if (next.phase === 'complete') {
-        void finish()
-        return
-      }
-      phase.value = next.phase
-      round.value = next.round
-      remaining.value = next.remainingSeconds
-    }, 1000)
-  } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : 'Unable to start this session.'
-  } finally {
-    starting.value = false
-  }
+  await runAction(async () => {
+    if (!config.value || workout.activeWorkout.value) return
+    await workout.startWorkout(undefined, { intervalTemplateId: String(route.params['id']) })
+    await workout.resumeWorkout()
+    await synchronize()
+  })
+}
+
+async function togglePause() {
+  await runAction(async () => {
+    await synchronize()
+    const state = ownSession.value
+    if (!state || finished.value) return
+    now.value = Date.now()
+    if (state.paused_remaining_sec === null) {
+      await workout.saveIntervalState({
+        ...state,
+        paused_remaining_sec: Math.max(
+          0,
+          ((state.phase_deadline_ms ?? now.value) - now.value) / 1000,
+        ),
+        phase_deadline_ms: null,
+      })
+    } else {
+      await workout.saveIntervalState({
+        ...state,
+        phase_deadline_ms: now.value + state.paused_remaining_sec * 1000,
+        paused_remaining_sec: null,
+      })
+    }
+  })
 }
 
 async function finishEarly() {
-  await finish(false)
+  if (!window.confirm('Finish and save this interval session now?')) return
+  await runAction(finishSession)
 }
-
-onBeforeUnmount(() => {
-  window.clearInterval(timer ?? 0)
-  timer = null
-})
 </script>
 
 <template>
-  <main class="mx-auto max-w-lg p-4 space-y-5">
+  <article class="mx-auto max-w-lg p-4 space-y-5">
     <header class="flex items-center gap-3">
       <NuxtLink to="/templates/intervals" aria-label="Back to interval plans"><UIcon name="i-ph-arrow-left" class="h-5 w-5" /></NuxtLink>
-      <h1 class="text-xl font-bold">{{ template?.name ?? 'Training session' }}</h1>
+      <h1 class="text-xl font-bold">{{ config?.name ?? 'Interval session' }}</h1>
     </header>
-    <p v-if="error" role="alert" class="text-red-500">{{ error }}</p>
-    <section v-if="template" class="rounded-2xl bg-(--color-surface) p-6 text-center space-y-4" aria-live="polite">
-      <p class="text-sm font-semibold uppercase tracking-wider text-(--ui-text-muted)">{{ phaseName }}</p>
-      <p class="text-6xl font-bold tabular-nums">{{ phase === 'ready' ? '—' : phase === 'complete' ? '✓' : remaining }}</p>
-      <p v-if="!isAmrap" class="text-sm text-(--ui-text-muted)">Round {{ Math.min(round, rounds ?? 1) }} of {{ rounds }}</p>
-      <p v-else class="text-sm text-(--ui-text-muted)">Time cap · {{ elapsed }}s elapsed</p>
-      <p class="text-xs text-(--ui-text-muted)">
-        {{ sessionType === 'mobility' ? 'Mobility holds are followed by recovery periods.' : 'Follow the work and rest cues; rounds advance automatically.' }}
-      </p>
-      <UButton v-if="phase === 'ready'" class="w-full" color="primary" :loading="starting" @click="start">Start session</UButton>
-      <UButton v-else-if="phase !== 'complete'" class="w-full" color="neutral" variant="outline" @click="finishEarly">Finish session</UButton>
+    <p v-if="error" role="alert" class="text-(--color-error)">{{ error }}</p>
+    <UButton v-if="workout.activeWorkout.value && !ownSession" to="/workout" variant="outline">Go to unfinished workout</UButton>
+    <section v-if="config" class="rounded-2xl bg-(--color-surface) p-6 text-center space-y-4">
+      <p role="status" class="text-sm font-semibold uppercase tracking-wider text-(--ui-text-muted)">{{ phaseName }}</p>
+      <p role="timer" :aria-label="`${phaseName}: ${remaining} seconds remaining`" class="text-6xl font-bold tabular-nums">{{ finished ? '✓' : !progress ? '—' : remaining }}</p>
+      <p v-if="config.type !== 'amrap'" class="text-sm text-(--ui-text-muted)">Round {{ finished ? finishedRound : progress?.round ?? 1 }} of {{ config.rounds }}</p>
+      <p class="text-sm text-(--ui-text-muted)">{{ elapsed }} seconds of training</p>
+      <p class="text-xs text-(--ui-text-muted)">Your timer survives navigation and reload. Pause when you need a break.</p>
+      <UButton v-if="!ownSession && !finished" class="w-full" :loading="busy" :disabled="!!workout.activeWorkout.value" @click="start">Start session</UButton>
+      <div v-else-if="!finished" class="space-y-2">
+        <UButton class="w-full" variant="outline" :disabled="busy" @click="togglePause">{{ progress?.paused_remaining_sec !== null ? 'Resume timer' : 'Pause timer' }}</UButton>
+        <UButton class="w-full" variant="outline" :disabled="busy" @click="finishEarly">Finish session</UButton>
+        <UButton v-if="error" class="w-full" :disabled="busy" @click="runAction(synchronize)">Retry saving</UButton>
+      </div>
       <div v-else class="space-y-2">
-        <p role="status">Session saved · {{ elapsed }} seconds</p>
+        <p role="status">Session saved · {{ savedElapsed }} seconds</p>
         <UButton class="w-full" to="/workout">Return to training</UButton>
       </div>
     </section>
-  </main>
+  </article>
 </template>

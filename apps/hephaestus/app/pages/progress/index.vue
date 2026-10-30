@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { addCalendarDays, formatCalendarDate, localCalendarDate } from '@habitathq/utils'
 import type { ExerciseSessionStat } from '~/lib/analytics'
-import { formatWeight } from '~/lib/format'
+import { formatWeight, trainingLabel } from '~/lib/format'
 import type { ReadinessResult } from '~/lib/readiness'
 import type { ExerciseRow, PersonalRecordRow } from '~/types/database'
 import type { OrganizationReport } from '~/types/organization'
 
 type ProgressPersonalRecordRow = PersonalRecordRow & {
   exercise_name: string | null
+  workout_id: string | null
 }
 
 const { settings } = useAppSettings()
@@ -42,15 +43,28 @@ async function load() {
   try {
     // Load recent PRs with exercise names
     prs.value = await db.query<ProgressPersonalRecordRow>(
-      `SELECT pr.*, e.name AS exercise_name
+      `SELECT pr.*, e.name AS exercise_name, w.id AS workout_id
        FROM personal_records pr
        LEFT JOIN exercises e ON e.id = pr.exercise_id
+       LEFT JOIN sets s ON s.id = pr.set_id
+       LEFT JOIN workout_exercises we ON we.id = s.workout_exercise_id
+       LEFT JOIN workouts w ON w.id = we.workout_id
        ORDER BY pr.date DESC, pr.id DESC LIMIT 20`,
     )
     exerciseChoices.value = await db.query<Pick<ExerciseRow, 'id' | 'name'>>(
       'SELECT id,name FROM exercises ORDER BY name,id',
     )
-    if (!selectedExerciseId.value) selectedExerciseId.value = exerciseChoices.value[0]?.id ?? ''
+    if (!selectedExerciseId.value) {
+      const recent = await db.query<{ exercise_id: string }>(
+        `SELECT we.exercise_id FROM workout_exercises we
+         JOIN workouts w ON w.id=we.workout_id
+         JOIN sets s ON s.workout_exercise_id=we.id
+         WHERE w.ended_at IS NOT NULL AND we.logging_mode='strength' AND we.removed_at IS NULL
+           AND s.completed=1 AND s.is_warmup=0 AND s.removed_at IS NULL
+         ORDER BY w.ended_at DESC, s.logged_at DESC LIMIT 1`,
+      )
+      selectedExerciseId.value = recent[0]?.exercise_id ?? exerciseChoices.value[0]?.id ?? ''
+    }
     readiness.value = await progress.readinessData()
     await loadOrganizationReport()
     await loadExerciseHistory()
@@ -70,16 +84,18 @@ async function loadExerciseHistory() {
     return
   }
   exerciseHistory.value = await progress.exerciseHistory(selectedExerciseId.value)
-  const effort = await db.query<{ date: string; rpe: number | null }>(
-    `SELECT w.date,AVG(s.rpe) AS rpe
+  const effort = await db.query<{ workout_id: string; rpe: number | null }>(
+    `SELECT w.id AS workout_id,AVG(s.rpe) AS rpe
      FROM sets s
      JOIN workout_exercises we ON we.id=s.workout_exercise_id
      JOIN workouts w ON w.id=we.workout_id
-       WHERE we.exercise_id = ? AND we.logging_mode='strength' AND w.ended_at IS NOT NULL AND s.completed=1 AND s.is_warmup=0 AND we.removed_at IS NULL AND s.removed_at IS NULL AND NOT EXISTS (SELECT 1 FROM workout_set_skips WHERE set_id=s.id)
-     GROUP BY w.id,w.date ORDER BY w.date DESC`,
+     WHERE we.exercise_id=? AND we.logging_mode='strength' AND w.ended_at IS NOT NULL
+       AND s.completed=1 AND s.is_warmup=0 AND we.removed_at IS NULL AND s.removed_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM workout_set_skips WHERE set_id=s.id)
+     GROUP BY w.id`,
     [selectedExerciseId.value],
   )
-  effortByDate.value = Object.fromEntries(effort.map((item) => [item.date, item.rpe]))
+  effortByDate.value = Object.fromEntries(effort.map((item) => [item.workout_id, item.rpe]))
 }
 function formatPrValue(pr: ProgressPersonalRecordRow): string {
   return pr.record_type === 'reps'
@@ -106,12 +122,14 @@ const recentPRs = computed(() => prs.value.slice(0, 5))
         <select id="exercise-history-select" v-model="selectedExerciseId" class="w-full rounded-lg bg-(--color-surface) p-3" @change="loadExerciseHistory">
           <option v-for="exercise in exerciseChoices" :key="exercise.id" :value="exercise.id">{{ exercise.name }}</option>
         </select>
-        <p class="text-xs text-(--ui-text-muted)">Completed strength sessions only. Loads use kg at rest and the selected display unit here. e1RM is a supporting estimate, not a measured max. Effort is the average recorded RPE; missing effort remains “Not recorded.”</p>
+        <p class="text-xs text-(--ui-text-muted)">Completed strength sessions only. e1RM is an estimate, not a measured maximum. Effort averages recorded RPE; missing effort remains “Not recorded.”</p>
         <ul v-if="exerciseHistory.length" class="space-y-2">
-          <li v-for="entry in exerciseHistory" :key="entry.date" class="rounded-xl bg-(--color-surface) p-3">
-            <p class="font-medium">{{ entry.date }}</p>
-            <p class="text-sm text-(--ui-text-muted)">Max completed load {{ entry.maxWeight === null ? '—' : formatWeight(entry.maxWeight, settings.weightUnit) }} · total reps {{ entry.totalReps }}</p>
-            <p class="text-xs text-(--ui-text-muted)">Supporting e1RM estimate {{ entry.e1rm === null ? '—' : formatWeight(entry.e1rm, settings.weightUnit) }} · average recorded RPE {{ effortByDate[entry.date] == null ? 'Not recorded' : effortByDate[entry.date]!.toFixed(1) }}</p>
+          <li v-for="entry in exerciseHistory" :key="entry.workoutId" class="rounded-xl bg-(--color-surface) p-3">
+            <NuxtLink :to="`/history/${entry.workoutId}`" class="block">
+              <p class="font-medium">{{ entry.date }} <span class="text-xs text-(--color-accent)">View workout</span></p>
+              <p class="text-sm text-(--ui-text-muted)">Max completed load {{ entry.maxWeight === null ? '—' : formatWeight(entry.maxWeight, settings.weightUnit) }} · total reps {{ entry.totalReps }}</p>
+              <p class="text-xs text-(--ui-text-muted)">Supporting e1RM estimate {{ entry.e1rm === null ? '—' : formatWeight(entry.e1rm, settings.weightUnit) }} · average recorded RPE {{ effortByDate[entry.workoutId]?.toFixed(1) ?? 'Not recorded' }}</p>
+            </NuxtLink>
           </li>
         </ul>
         <p v-else class="rounded-xl bg-(--color-surface) p-4 text-sm text-(--ui-text-muted)">No completed strength history for this exercise variant.</p>
@@ -138,6 +156,7 @@ const recentPRs = computed(() => prs.value.slice(0, 5))
                 {{ formatCalendarDate(pr.date, { month: 'short', day: 'numeric', year: 'numeric' }) }}
               </p>
             </div>
+            <NuxtLink v-if="pr.workout_id" :to="`/history/${pr.workout_id}`" class="text-xs text-(--color-accent)">View workout</NuxtLink>
             <span class="text-sm font-bold tabular-nums text-(--color-accent)">
               {{ formatPrValue(pr) }}
             </span>
@@ -176,10 +195,10 @@ const recentPRs = computed(() => prs.value.slice(0, 5))
         <div class="rounded-xl bg-(--color-surface) p-4 space-y-2">
           <p class="font-medium">Strength working sets: {{ organizationReport.workingSets }}</p>
           <p class="text-xs text-(--ui-text-muted)">Each eligible actual working set counts once overall. Warm-ups, pending/skipped rows, and unfinished workouts are excluded.</p>
-          <div><h3 class="text-sm font-medium">Comparable per-exercise external-load tonnage</h3><ul class="text-sm text-(--ui-text-muted)"><li v-for="item in organizationReport.exerciseTonnage" :key="`${item.exerciseId}-${item.equipment}`">{{ item.exerciseName }} · {{ item.equipment }}: {{ item.tonnageKgReps }} kg × reps across {{ item.sets }} sets</li></ul></div>
-          <div><h3 class="text-sm font-medium">Primary movement pattern · counts sum to working sets</h3><ul class="text-sm text-(--ui-text-muted)"><li v-for="item in organizationReport.movementPatterns" :key="item.pattern">{{ item.pattern }}: {{ item.sets }}</li></ul></div>
-          <div><h3 class="text-sm font-medium">Primary muscle credits · may overlap</h3><ul class="text-sm text-(--ui-text-muted)"><li v-for="item in organizationReport.primaryMuscles" :key="item.muscle">{{ item.muscle }}: {{ item.sets }}</li></ul><p class="text-xs text-(--ui-text-muted)">Secondary involvement is separate and is not a fractional share.</p><ul class="text-sm text-(--ui-text-muted)"><li v-for="item in organizationReport.secondaryMuscles" :key="item.muscle">{{ item.muscle }} secondary: {{ item.sets }}</li></ul><p class="text-xs text-(--ui-text-muted)">Unknown primary muscle classification: {{ organizationReport.unclassifiedSets }} sets.</p></div>
-          <div v-if="organizationReport.activities.length"><h3 class="text-sm font-medium">Non-strength measures · separate units</h3><p v-for="item in organizationReport.activities" :key="item.mode" class="text-sm text-(--ui-text-muted)">{{ item.mode }} · {{ item.items }} completed work items · {{ item.distanceM }} m · {{ item.durationSec }} sec</p></div>
+          <div><h3 class="text-sm font-medium">Load by exercise</h3><ul class="text-sm text-(--ui-text-muted)"><li v-for="item in organizationReport.exerciseTonnage" :key="`${item.exerciseId}-${item.equipment}`">{{ item.exerciseName }} · {{ trainingLabel(item.equipment) }}: {{ formatWeight(item.tonnageKgReps, settings.weightUnit) }} × reps across {{ item.sets }} sets</li></ul></div>
+          <div><h3 class="text-sm font-medium">Sets by movement</h3><ul class="text-sm text-(--ui-text-muted)"><li v-for="item in organizationReport.movementPatterns" :key="item.pattern">{{ trainingLabel(item.pattern) }}: {{ item.sets }}</li></ul></div>
+          <div><h3 class="text-sm font-medium">Sets by primary muscle</h3><ul class="text-sm text-(--ui-text-muted)"><li v-for="item in organizationReport.primaryMuscles" :key="item.muscle">{{ trainingLabel(item.muscle) }}: {{ item.sets }}</li></ul><p class="text-xs text-(--ui-text-muted)">A set can train several muscles. Secondary involvement is listed separately.</p><ul class="text-sm text-(--ui-text-muted)"><li v-for="item in organizationReport.secondaryMuscles" :key="item.muscle">{{ trainingLabel(item.muscle) }} secondary: {{ item.sets }}</li></ul><p v-if="organizationReport.unclassifiedSets" class="text-xs text-(--ui-text-muted)">Unclassified primary muscle: {{ organizationReport.unclassifiedSets }} sets.</p></div>
+          <div v-if="organizationReport.activities.length"><h3 class="text-sm font-medium">Other activity</h3><p v-for="item in organizationReport.activities" :key="item.mode" class="text-sm text-(--ui-text-muted)">{{ trainingLabel(item.mode) }} · {{ item.items }} completed results · {{ (item.distanceM / (settings.distanceUnit === 'mi' ? 1609.344 : 1000)).toFixed(2) }} {{ settings.distanceUnit }} · {{ item.durationSec }} seconds</p></div>
         </div>
       </section>
     </template>

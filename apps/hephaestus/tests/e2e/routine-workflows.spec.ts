@@ -31,6 +31,18 @@ async function finish(page: Page) {
   await page.getByRole('button', { name: 'Done', exact: true }).click()
 }
 
+async function createPlan(page: Page, name: string) {
+  await expect(page.getByRole('heading', { name: 'Training plans', exact: true })).toBeVisible()
+  const nameInput = page.getByRole('textbox', { name: 'New plan name', exact: true })
+  if (!(await nameInput.isVisible())) {
+    await page.getByText('Create a personal plan', { exact: true }).click()
+  }
+  await nameInput.fill(name)
+  await page.getByRole('button', { name: 'Create personal plan', exact: true }).click()
+  await selectLabeledOption(page, 'Select personal plan', name)
+  await expect(page.getByRole('textbox', { name: 'Plan name', exact: true })).toHaveValue(name)
+}
+
 test.describe('prescribed workout identity, completion, and correction', () => {
   test('persists a draft, completes and undoes it, reloads for explicit resume, then finishes', async ({
     page,
@@ -79,8 +91,12 @@ test.describe('prescribed workout identity, completion, and correction', () => {
     await finish(page)
 
     await page.goto('/history')
-    const entry = page.getByRole('link', { name: /gym session/i }).first()
+    const entry = page.getByRole('link', { name: /E2E Lifecycle Routine/ })
+    await expect(entry).toHaveCount(1)
     await entry.click()
+    await expect(
+      page.getByRole('heading', { name: 'E2E Lifecycle Routine', exact: true }),
+    ).toBeVisible()
     await expect(page.getByRole('table', { name: 'Sets for Barbell Squat' })).toContainText(
       '92.5 kg',
     )
@@ -127,6 +143,7 @@ test.describe('prescribed workout identity, completion, and correction', () => {
     await populateSet(page, '40', '8')
     await page.reload()
     await expect(page.getByRole('heading', { name: 'Unfinished session' })).toBeVisible()
+    page.once('dialog', (dialog) => dialog.accept())
     await page.getByRole('button', { name: 'Discard', exact: true }).click()
     await expect(page.getByRole('button', { name: /start empty session/i })).toBeVisible()
     await page.goto('/history')
@@ -145,20 +162,17 @@ test.describe('shared routine plan organization', () => {
     await configureRoutine(page, {
       name: 'E2E Shared Routine',
       templateName: 'E2E Shared Template',
+      continuation: 'carry_forward',
+      deferral: 'manual',
     })
     await page.goto('/plans')
     const today = localDate()
-    const planName = page.getByLabel('New plan name')
-    await planName.fill('E2E Plan Alpha')
-    await page.getByRole('button', { name: 'Create personal plan' }).click()
-    await selectLabeledOption(page, 'Select personal plan', 'E2E Plan Alpha')
+    await createPlan(page, 'E2E Plan Alpha')
     const appointmentSection = page.getByRole('region', { name: 'Calendar appointments' })
     await selectLabeledOption(appointmentSection, 'Saved routine', 'E2E Shared Routine')
     await fillLabeledDate(appointmentSection, 'Local date', today)
     await appointmentSection.getByRole('button', { name: 'Add appointment' }).click()
-    await page.getByLabel('New plan name').fill('E2E Plan Beta')
-    await page.getByRole('button', { name: 'Create personal plan' }).click()
-    await selectLabeledOption(page, 'Select personal plan', 'E2E Plan Beta')
+    await createPlan(page, 'E2E Plan Beta')
     await selectLabeledOption(appointmentSection, 'Saved routine', 'E2E Shared Routine')
     await fillLabeledDate(appointmentSection, 'Local date', today)
     await appointmentSection.getByRole('button', { name: 'Add appointment' }).click()
@@ -211,9 +225,9 @@ test.describe('shared routine plan organization', () => {
       templateName: 'E2E Rotation B Template',
     })
     await page.goto('/plans')
-    await page.getByLabel('New plan name').fill('E2E Rotation Plan')
-    await page.getByRole('button', { name: 'Create personal plan' }).click()
+    await createPlan(page, 'E2E Rotation Plan')
 
+    await page.getByText('Ordered rotation', { exact: true }).click()
     await page.getByLabel('Rotation name').fill('E2E AB Rotation')
     await page
       .getByLabel('Choose routines to add')
@@ -224,10 +238,20 @@ test.describe('shared routine plan organization', () => {
       'E2E Rotation A',
     )
 
+    await page.getByText('Weekly frequency goal', { exact: true }).click()
     await page.getByLabel('Goal name').fill('E2E Strength Goal')
     await page.getByLabel('Per Monday–Sunday week').fill('2')
     await page.getByLabel('Activity type').selectOption('gym')
     await page.getByRole('button', { name: 'Save weekly goal' }).click()
+    await expect(page.getByText('E2E Strength Goal · 2/week · active')).toBeVisible()
+
+    await page.reload()
+    await selectLabeledOption(page, 'Select personal plan', 'E2E Rotation Plan')
+    await page.getByText('Ordered rotation', { exact: true }).click()
+    const currentRotation = page.getByRole('list', { name: 'Current rotation items' })
+    await expect(currentRotation).toContainText('E2E Rotation A')
+    await expect(currentRotation).not.toContainText('E2E Rotation B')
+    await page.getByText('Weekly frequency goal', { exact: true }).click()
     await expect(page.getByText('E2E Strength Goal · 2/week · active')).toBeVisible()
 
     await page.goto('/')
@@ -245,9 +269,14 @@ test.describe('shared routine plan organization', () => {
       .click()
     await finish(page)
     await page.goto('/plans')
+    await selectLabeledOption(page, 'Select personal plan', 'E2E Rotation Plan')
+    await page.getByText('Ordered rotation', { exact: true }).click()
     await expect(page.getByText('E2E AB Rotation · 2 routines · 1 advances')).toBeVisible()
     await expect(page.getByRole('list', { name: 'Current rotation items' })).toContainText(
       'E2E Rotation B',
+    )
+    await expect(page.getByRole('list', { name: 'Current rotation items' })).not.toContainText(
+      'E2E Rotation A',
     )
   })
 })

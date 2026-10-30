@@ -175,7 +175,7 @@ const sortOptions: Array<{ value: TemplateSortOrder; label: string }> = [
     </div>
 
     <!-- Toolbar: sort + options -->
-    <div class="flex items-center gap-2 overflow-x-auto pb-1">
+    <div class="flex flex-wrap items-center gap-2 pb-1">
       <select
         v-model="sortOrder"
         class="text-xs bg-(--color-surface) rounded-lg px-2.5 py-1.5 outline-none focus-visible:ring-1 focus-visible:ring-(--color-accent) shrink-0"

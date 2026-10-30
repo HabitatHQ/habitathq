@@ -575,7 +575,7 @@ function validateBackupProgramSlots(
   templates: Set<string>,
   templateRevisions: Map<string, PortableRow>,
 ): Set<string> {
-  const slots = new Set<string>()
+  const slots = new Map<string, string>()
   for (const row of rows('program_revisions')) {
     if (!programs.has(String(row['program_id'])))
       throw new Error('Backup Program revision has no Program.')
@@ -583,15 +583,17 @@ function validateBackupProgramSlots(
     if (programStructureHash(design) !== row['structure_hash'])
       throw new Error('Backup Program revision structure fingerprint is inconsistent.')
     for (const slot of design.slots) {
-      if (slots.has(slot.id)) throw new Error('Backup Program slot identity is duplicated.')
-      slots.add(slot.id)
+      const owner = slots.get(slot.id)
+      if (owner !== undefined && owner !== row['program_id'])
+        throw new Error('Backup Program slot identity belongs to multiple Programs.')
+      slots.set(slot.id, String(row['program_id']))
       if (slot.templateId !== null && !templates.has(slot.templateId))
         throw new Error('Backup Program slot template is dangling.')
       if (slot.templateRevisionId !== null && !templateRevisions.has(slot.templateRevisionId))
         throw new Error('Backup Program slot revision is dangling.')
     }
   }
-  return slots
+  return new Set(slots.keys())
 }
 
 function validateBackupPlanBindings(
@@ -1141,6 +1143,15 @@ function addPortableExerciseDependencies(
     throw new Error('Single-template export requires its deload template dependency.')
 }
 
+function goalExerciseIds(row: PortableRow): string[] {
+  const filter: unknown = JSON.parse(String(row['filter_json']))
+  if (!isTransferObject(filter)) throw new Error('Goal filter must be an object.')
+  const ids = filter['exerciseIds'] ?? []
+  if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string' || !id))
+    throw new Error('Goal exercise filter must contain exercise identities.')
+  return ids
+}
+
 async function filterPortableExercises(
   db: DbAdapter,
   tables: PortableBundle['tables'],
@@ -1158,6 +1169,8 @@ async function filterPortableExercises(
       for (const activity of prescription.activities) exerciseIds.add(activity.exerciseId)
     }
   }
+  for (const goal of tables['organization_goals'] ?? [])
+    for (const exerciseId of goalExerciseIds(goal)) exerciseIds.add(exerciseId)
   const exercises = await db.queryAll<PortableRow>('SELECT * FROM exercises')
   const byId = new Set(exercises.map((row) => String(row['id'])))
   for (const id of exerciseIds) {
@@ -1214,8 +1227,8 @@ async function exportPortable(
     tables[table] = await db.queryAll<PortableRow>(`SELECT * FROM ${quoteIdentifier(table)}`)
   const selected = selectPortableGraph(tables, selection?.templateId)
   filterPortableDomain(tables, selected)
-  await filterPortableExercises(db, tables, selected.templateIds)
   filterPortableOrganization(tables, selected)
+  await filterPortableExercises(db, tables, selected.templateIds)
   return {
     format: PORTABLE_FORMAT,
     version: PORTABLE_VERSION,
@@ -1763,13 +1776,16 @@ function validatePortableProgramSlots(
   templateIds: Set<string>,
   templateRevisionIds: Set<string>,
   slotIds: Set<string>,
+  slotOwners: Map<string, string>,
 ): void {
   const design = validateProgramDesign(JSON.parse(String(row['design_json'])))
   if (programStructureHash(design) !== row['structure_hash'])
     throw new Error('Program revision structure fingerprint is inconsistent.')
   for (const slot of design.slots) {
-    if (slotIds.has(slot.id))
-      throw new Error(`Duplicate portable Program slot identity: ${slot.id}.`)
+    const owner = slotOwners.get(slot.id)
+    if (owner !== undefined && owner !== row['program_id'])
+      throw new Error(`Portable Program slot belongs to multiple Programs: ${slot.id}.`)
+    slotOwners.set(slot.id, String(row['program_id']))
     slotIds.add(slot.id)
     if (slot.templateId !== null && !templateIds.has(slot.templateId))
       throw new Error('Program revision refers to a missing template.')
@@ -1858,6 +1874,7 @@ function validatePortableProgramAndPlanGraph(
   planIds: Set<string>,
 ): { slotIds: Set<string>; programRevisionIds: Set<string>; organizationCount: number } {
   const slotIds = new Set<string>()
+  const slotOwners = new Map<string, string>()
   const programRevisionIds = new Set<string>()
   const programsWithRevisions = new Set<string>()
   for (const row of rowsFor('program_revisions')) {
@@ -1866,7 +1883,7 @@ function validatePortableProgramAndPlanGraph(
       throw new Error('Program revision has no portable parent program.')
     programRevisionIds.add(String(row['id']))
     programsWithRevisions.add(programId)
-    validatePortableProgramSlots(row, templateIds, templateRevisionIds, slotIds)
+    validatePortableProgramSlots(row, templateIds, templateRevisionIds, slotIds, slotOwners)
   }
   for (const program of rowsFor('programs')) {
     if (!programsWithRevisions.has(String(program['id'])))
@@ -1948,6 +1965,13 @@ async function previewPortableImport(db: DbAdapter, input: unknown): Promise<Res
       routineIds,
       planIds,
     )
+    for (const goal of rowsFor('organization_goals')) {
+      if (!planIds.has(String(goal['plan_id'])))
+        throw new Error('Goal refers to a missing personal plan.')
+      for (const exerciseId of goalExerciseIds(goal))
+        if (!validExerciseIds.has(exerciseId))
+          throw new Error('Goal filter refers to a missing exercise.')
+    }
     const rowCount = PORTABLE_TABLES.reduce((sum, table) => sum + rowsFor(table).length, 0)
     return {
       valid: true,
@@ -1967,49 +1991,56 @@ async function previewPortableImport(db: DbAdapter, input: unknown): Promise<Res
   }
 }
 
+const PORTABLE_JSON_REFERENCE_FIELDS: Record<string, true> = {
+  id: true,
+  exerciseId: true,
+  templateId: true,
+  legacyTemplateId: true,
+  templateRevisionId: true,
+  sourceRevisionId: true,
+  routineId: true,
+  routineRevisionId: true,
+  adoptedTemplateRevisionId: true,
+  programId: true,
+  programSlotId: true,
+  weekId: true,
+  planId: true,
+  executionGroupId: true,
+  inputId: true,
+  targetId: true,
+  template_id: true,
+  exercise_id: true,
+  template_revision_id: true,
+  program_id: true,
+  program_slot_id: true,
+  week_id: true,
+  plan_id: true,
+  routine_id: true,
+  rotation_id: true,
+  goal_id: true,
+  workout_id: true,
+  appointment_id: true,
+  source_id: true,
+  set_id: true,
+  workout_exercise_id: true,
+  deload_template_id: true,
+}
+const PORTABLE_JSON_REFERENCE_ARRAYS: Record<string, true> = {
+  activityIds: true,
+  activity_ids: true,
+  routineIds: true,
+  routine_ids: true,
+  exerciseIds: true,
+}
+
 function remapReference(value: unknown, idMap: Map<string, string>): unknown {
   if (Array.isArray(value)) return value.map((entry) => remapReference(entry, idMap))
   if (!isTransferObject(value)) return value
-  const referenceFields = new Set([
-    'id',
-    'exerciseId',
-    'templateId',
-    'legacyTemplateId',
-    'templateRevisionId',
-    'sourceRevisionId',
-    'routineId',
-    'routineRevisionId',
-    'adoptedTemplateRevisionId',
-    'programId',
-    'programSlotId',
-    'weekId',
-    'planId',
-    'executionGroupId',
-    'inputId',
-    'targetId',
-    'template_id',
-    'exercise_id',
-    'template_revision_id',
-    'program_id',
-    'program_slot_id',
-    'week_id',
-    'plan_id',
-    'routine_id',
-    'rotation_id',
-    'goal_id',
-    'workout_id',
-    'appointment_id',
-    'source_id',
-    'set_id',
-    'workout_exercise_id',
-    'deload_template_id',
-  ])
-  const referenceArrays = new Set(['activityIds', 'activity_ids', 'routineIds', 'routine_ids'])
   const result: Record<string, unknown> = {}
   for (const [key, entry] of Object.entries(value)) {
-    if (typeof entry === 'string' && referenceFields.has(key))
+    if (typeof entry === 'string' && Object.hasOwn(PORTABLE_JSON_REFERENCE_FIELDS, key))
       result[key] = idMap.get(entry) ?? entry
-    else if (Array.isArray(entry) && referenceArrays.has(key))
+    else if (Array.isArray(entry) && Object.hasOwn(PORTABLE_JSON_REFERENCE_ARRAYS, key))
       result[key] = entry.map((id) => (typeof id === 'string' ? (idMap.get(id) ?? id) : id))
     else result[key] = remapReference(entry, idMap)
   }
@@ -2035,18 +2066,30 @@ function registerPortableIdentities(rowsFor: PortableRows, idMap: Map<string, st
       idMap.set(id, crypto.randomUUID())
     }
   }
-  for (const row of rowsFor('program_revisions')) {
-    const design = validateProgramDesign(JSON.parse(String(row['design_json'])))
-    for (const slot of design.slots) {
-      if (idMap.has(slot.id)) throw new Error(`Portable identity is duplicated: ${slot.id}.`)
-      idMap.set(slot.id, crypto.randomUUID())
-    }
-  }
+  registerPortableProgramSlots(rowsFor, idMap)
   // Prescription identities recur across revisions; one map preserves their references
   // while making every imported graph independent of its source and prior imports.
   for (const table of ['template_revisions', 'routine_revisions'] as const)
     for (const row of rowsFor(table))
       registerPrescriptionIdentities(JSON.parse(String(row['prescription_json'])), idMap)
+}
+
+function registerPortableProgramSlots(rowsFor: PortableRows, idMap: Map<string, string>): void {
+  const slotOwners = new Map<string, string>()
+  for (const row of rowsFor('program_revisions')) {
+    const design = validateProgramDesign(JSON.parse(String(row['design_json'])))
+    for (const slot of design.slots) {
+      const owner = slotOwners.get(slot.id)
+      if (owner !== undefined) {
+        if (owner !== row['program_id'])
+          throw new Error(`Portable Program slot belongs to multiple Programs: ${slot.id}.`)
+        continue
+      }
+      if (idMap.has(slot.id)) throw new Error(`Portable identity is duplicated: ${slot.id}.`)
+      slotOwners.set(slot.id, String(row['program_id']))
+      idMap.set(slot.id, crypto.randomUUID())
+    }
+  }
 }
 
 const PORTABLE_REFERENCE_COLUMNS = new Set([

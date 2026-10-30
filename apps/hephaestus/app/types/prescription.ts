@@ -162,6 +162,11 @@ export interface SavedRoutine {
   updatedAt: string
 }
 
+export interface RoutineSnapshot {
+  routine: SavedRoutine
+  revision: RoutineRevision
+}
+
 export interface ProgramProgressionIntent {
   intensityModifier: number
   volumeModifier: number

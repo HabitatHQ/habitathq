@@ -3,6 +3,7 @@ import { downloadBlob } from '@habitathq/shared/app/composables/downloadBlob'
 import { formatCalendarDate, formatDurationSeconds as formatDuration } from '@habitathq/utils'
 import { useHistoryCorrection } from '~/composables/useHistoryCorrection'
 import { formatWeight } from '~/lib/format'
+import { moodRating, sessionLabel } from '~/lib/history'
 import { buildWorkoutCard } from '~/lib/workout-card'
 import type { ExerciseRow, SetRow, WorkoutExerciseRow, WorkoutRow } from '~/types/database'
 import type { FieldComparison, HistoryCorrectionDraft } from '~/types/history-correction'
@@ -75,7 +76,6 @@ async function loadData() {
           exercise_equipment_sub: string
           exercise_is_custom: number
           exercise_created_at: string
-          exercise_logging_mode: string
         }
       >(
         `SELECT we.*,
@@ -87,8 +87,7 @@ async function loadData() {
                 e.equipment AS exercise_equipment,
                 e.equipment_sub AS exercise_equipment_sub,
                 e.is_custom AS exercise_is_custom,
-                e.created_at AS exercise_created_at,
-                e.logging_mode AS exercise_logging_mode
+                e.created_at AS exercise_created_at
          FROM workout_exercises we
          JOIN exercises e ON e.id = we.exercise_id
          WHERE we.workout_id = ? AND we.removed_at IS NULL
@@ -140,7 +139,7 @@ async function loadData() {
         cues: null,
         icon: we.exercise_icon,
         is_custom: we.exercise_is_custom as 0 | 1,
-        logging_mode: we.exercise_logging_mode as ExerciseRow['logging_mode'],
+        logging_mode: we.logging_mode,
         created_at: we.exercise_created_at,
       } satisfies ExerciseRow,
       sets: setsByWeId.get(we.id) ?? [],
@@ -152,11 +151,31 @@ async function loadData() {
 
 const durationFormatted = computed(() => {
   if (!workout.value?.ended_at) return null
-  const secs = Math.round(
-    (new Date(workout.value.ended_at).getTime() - new Date(workout.value.started_at).getTime()) /
-      1000,
-  )
+  const secs =
+    workout.value.session_type === 'run' && runResult.value?.duration_sec != null
+      ? runResult.value.duration_sec
+      : Math.round(
+          (new Date(workout.value.ended_at).getTime() -
+            new Date(workout.value.started_at).getTime()) /
+            1000,
+        )
   return formatDuration(secs)
+})
+
+const runDistanceFormatted = computed(() => {
+  const meters = runResult.value?.distance_m
+  if (meters == null) return '—'
+  const unit = settings.value.distanceUnit
+  return `${(meters / (unit === 'mi' ? 1609.344 : 1000)).toFixed(2)} ${unit}`
+})
+const runPaceFormatted = computed(() => {
+  const meters = runResult.value?.distance_m
+  const seconds = runResult.value?.duration_sec
+  if (!meters || !seconds) return null
+  const perUnit = Math.round(
+    (seconds * (settings.value.distanceUnit === 'mi' ? 1609.344 : 1000)) / meters,
+  )
+  return `${Math.floor(perUnit / 60)}:${String(perUnit % 60).padStart(2, '0')} / ${settings.value.distanceUnit}`
 })
 
 const totalSets = computed(() =>
@@ -184,20 +203,32 @@ const workoutCard = computed(() => {
       .flatMap((block) => block.sets)
       .filter((set) => set.completed === 1)
       .reduce((sum, set) => sum + (set.distance_m ?? 0), 0)
+  const performedSeconds =
+    workout.value.session_type === 'run' && runResult.value?.duration_sec != null
+      ? runResult.value.duration_sec
+      : Math.max(
+          0,
+          (new Date(workout.value.ended_at).getTime() -
+            new Date(workout.value.started_at).getTime()) /
+            1000,
+        )
   return buildWorkoutCard({
     date: workout.value.date,
     sessionType: workout.value.session_type,
-    durationMinutes: Math.max(
-      0,
-      (new Date(workout.value.ended_at).getTime() - new Date(workout.value.started_at).getTime()) /
-        60000,
-    ),
+    title: workout.value.title ?? null,
+    durationMinutes: performedSeconds / 60,
     exerciseCount: exercises.value.length,
     workingSets: totalSets.value,
     volumeKg: null,
     distanceMeters: distance > 0 ? distance : null,
+    distanceUnit: settings.value.distanceUnit,
   })
 })
+const workoutCardPreview = computed(() =>
+  workoutCard.value
+    ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(workoutCard.value.svg)}`
+    : null,
+)
 
 function downloadWorkoutCard() {
   if (!workoutCard.value) return
@@ -207,10 +238,6 @@ function downloadWorkoutCard() {
   )
 }
 
-function moodEmoji(rating: number | null): string {
-  if (rating === null) return '—'
-  return ['😞', '😕', '😐', '🙂', '😄'][rating - 1] ?? '—'
-}
 async function reviewCorrection(
   draft: Omit<HistoryCorrectionDraft, 'workoutId' | 'expectedVersion'>,
 ) {
@@ -252,7 +279,7 @@ function openCorrection() {
       <NuxtLink to="/history" aria-label="Back to history">
         <UIcon name="i-ph-arrow-left" class="text-xl text-(--ui-text-muted)" aria-hidden="true" />
       </NuxtLink>
-      <h1 class="text-lg font-bold flex-1">Workout Detail</h1>
+      <h1 class="text-lg font-bold flex-1">{{ workout ? (workout.title?.trim() || sessionLabel(workout)) : 'Workout Detail' }}</h1>
     </header>
 
     <article class="pb-8">
@@ -319,18 +346,28 @@ function openCorrection() {
           <div class="grid grid-cols-2 gap-3 text-center">
             <div>
               <p class="text-xl font-bold tabular-nums">{{ durationFormatted ?? '—' }}</p>
-              <p class="text-xs text-(--ui-text-muted)">Duration</p>
+              <p class="text-xs text-(--ui-text-muted)">{{ workout.session_type === 'run' ? runResult?.duration_sec == null ? 'Logging time' : 'Performed duration' : 'Duration' }}</p>
             </div>
-            <div>
+            <div v-if="workout.session_type === 'gym'">
               <p class="text-xl font-bold tabular-nums">{{ totalSets }}</p>
               <p class="text-xs text-(--ui-text-muted)">Completed working sets</p>
+            </div>
+            <div v-else-if="workout.session_type === 'run'">
+              <p class="text-xl font-bold tabular-nums">{{ runDistanceFormatted }}</p>
+              <p class="text-xs text-(--ui-text-muted)">Distance</p>
+            </div>
+            <div v-if="workout.session_type === 'run' && runPaceFormatted" class="col-span-2">
+              <p class="text-xl font-bold tabular-nums">{{ runPaceFormatted }}</p>
+              <p class="text-xs text-(--ui-text-muted)">Average pace</p>
             </div>
           </div>
 
           <dl class="flex gap-4 mt-3 pt-3 border-t border-(--ui-border) text-sm">
             <div class="flex gap-1 items-center">
               <dt class="text-(--ui-text-muted) text-xs">Mood</dt>
-              <dd aria-label="Mood rating">{{ moodEmoji(workout.mood_rating) }}</dd>
+              <dd aria-label="Mood rating">
+                {{ moodRating(workout.mood_rating)?.icon ?? '—' }} {{ moodRating(workout.mood_rating)?.label ?? '' }}
+              </dd>
             </div>
             <div class="flex gap-1 items-center">
               <dt class="text-(--ui-text-muted) text-xs">Energy</dt>
@@ -350,9 +387,10 @@ function openCorrection() {
         <section v-if="workoutCard" aria-labelledby="card-heading" class="rounded-xl bg-(--color-surface) p-4">
           <h2 id="card-heading" class="text-sm font-semibold">Workout summary card</h2>
           <p class="mt-1 text-xs text-(--ui-text-muted)">
-            The image contains workout totals only; notes and identifying details are excluded.
+            The image includes the workout title and totals. Notes and account details are excluded.
           </p>
           <UButton class="mt-3" icon="i-ph-image" @click="downloadWorkoutCard">Download summary image</UButton>
+          <img v-if="workoutCardPreview" :src="workoutCardPreview" alt="Workout summary card preview" class="mt-3 w-full rounded-xl" />
           <p class="mt-3 text-sm" aria-label="Text alternative for workout summary card">
             {{ workoutCard.textAlternative }}
           </p>
@@ -380,26 +418,39 @@ function openCorrection() {
               </header>
 
               <div class="px-4 py-2" role="table" :aria-label="`Sets for ${block.exercise.name}`">
-                <div class="grid grid-cols-4 text-[10px] text-(--ui-text-muted) uppercase pb-1" role="row">
+                <div class="grid text-[10px] text-(--ui-text-muted) uppercase pb-1" :style="{ gridTemplateColumns: `repeat(${block.exercise.logging_mode === 'strength' ? 3 + Number(settings.showRpe) + Number(settings.showRir) : 3}, minmax(0, 1fr))` }" role="row">
                   <span role="columnheader">Set</span>
-                  <span role="columnheader" class="text-right">Weight</span>
-                  <span role="columnheader" class="text-right">Reps</span>
-                  <span role="columnheader" class="text-right">RPE</span>
+                  <template v-if="block.exercise.logging_mode === 'strength'">
+                    <span role="columnheader" class="text-right">Weight</span>
+                    <span role="columnheader" class="text-right">Reps</span>
+                    <span v-if="settings.showRpe" role="columnheader" class="text-right">RPE</span>
+                    <span v-if="settings.showRir" role="columnheader" class="text-right">RIR</span>
+                  </template>
+                  <template v-else>
+                    <span role="columnheader" class="text-right">Duration</span>
+                    <span role="columnheader" class="text-right">Distance</span>
+                  </template>
                 </div>
                 <div
                   v-for="s in block.sets.filter((s) => s.completed === 1)"
                   :key="s.id"
-                  class="grid grid-cols-4 py-1 text-sm border-t border-(--ui-border)/50"
+                  class="grid py-1 text-sm border-t border-(--ui-border)/50"
+                  :style="{ gridTemplateColumns: `repeat(${block.exercise.logging_mode === 'strength' ? 3 + Number(settings.showRpe) + Number(settings.showRir) : 3}, minmax(0, 1fr))` }"
                   role="row"
                 >
                   <span role="cell" class="text-(--ui-text-muted)">
                     {{ s.is_warmup ? 'W' : s.set_num }}
                   </span>
-                  <span role="cell" class="text-right">
-                    {{ s.weight_kg !== null ? `${s.weight_kg} kg` : '—' }}
-                  </span>
-                  <span role="cell" class="text-right">{{ s.reps ?? '—' }}</span>
-                  <span role="cell" class="text-right text-(--ui-text-muted)">{{ s.rpe ?? '—' }}</span>
+                  <template v-if="block.exercise.logging_mode === 'strength'">
+                    <span role="cell" class="text-right">{{ s.weight_kg !== null ? formatWeight(s.weight_kg, settings.weightUnit) : '—' }}</span>
+                    <span role="cell" class="text-right">{{ s.reps ?? '—' }}</span>
+                    <span v-if="settings.showRpe" role="cell" class="text-right text-(--ui-text-muted)">{{ s.rpe ?? '—' }}</span>
+                    <span v-if="settings.showRir" role="cell" class="text-right text-(--ui-text-muted)">{{ s.rir ?? '—' }}</span>
+                  </template>
+                  <template v-else>
+                    <span role="cell" class="text-right">{{ s.duration_sec !== null ? `${s.duration_sec}s` : '—' }}</span>
+                    <span role="cell" class="text-right">{{ s.distance_m !== null ? `${(s.distance_m / (settings.distanceUnit === 'mi' ? 1609.344 : 1000)).toFixed(2)} ${settings.distanceUnit}` : '—' }}</span>
+                  </template>
                 </div>
                 <p
                   v-if="block.sets.filter((s) => s.completed === 1).length === 0"

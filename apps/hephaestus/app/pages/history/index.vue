@@ -4,9 +4,12 @@ import { filterWorkouts, SESSION_TYPES, type SessionFilter, sessionLabel } from 
 import type { WorkoutRow } from '~/types/database'
 
 const db = useDatabase()
+const { settings } = useAppSettings()
 
 const workouts = ref<WorkoutRow[]>([])
 const loading = ref(true)
+const runDistances = ref<Map<string, number>>(new Map())
+const runDurations = ref<Map<string, number>>(new Map())
 const filter = ref<SessionFilter>('all')
 const searchQuery = ref('')
 
@@ -23,6 +26,22 @@ async function load() {
   try {
     workouts.value = await db.query<WorkoutRow>(
       'SELECT * FROM workouts WHERE ended_at IS NOT NULL ORDER BY date DESC, started_at DESC',
+    )
+    const runs = await db.query<{ workout_id: string; duration_sec: number | null }>(
+      'SELECT workout_id,duration_sec FROM runs WHERE duration_sec IS NOT NULL',
+    )
+    runDurations.value = new Map(
+      runs
+        .filter((run) => run.duration_sec != null)
+        .map((run) => [run.workout_id, run.duration_sec as number]),
+    )
+    const distances = await db.query<{ workout_id: string; distance_m: number | null }>(
+      'SELECT workout_id,distance_m FROM runs WHERE distance_m IS NOT NULL',
+    )
+    runDistances.value = new Map(
+      distances
+        .filter((run) => run.distance_m != null)
+        .map((run) => [run.workout_id, run.distance_m as number]),
     )
   } finally {
     loading.value = false
@@ -48,10 +67,19 @@ function monthLabel(ym: string): string {
 
 function duration(w: WorkoutRow): string {
   if (!w.ended_at) return '—'
-  const secs = Math.round(
+  const elapsed = Math.round(
     (new Date(w.ended_at).getTime() - new Date(w.started_at).getTime()) / 1000,
   )
-  return formatDuration(secs)
+  const recorded = w.session_type === 'run' ? runDurations.value.get(w.id) : undefined
+  return formatDuration(recorded ?? elapsed)
+}
+
+function distance(w: WorkoutRow): string | null {
+  const meters = runDistances.value.get(w.id)
+  if (w.session_type !== 'run' || meters == null) return null
+  const unit = settings.value.distanceUnit
+  const value = unit === 'mi' ? meters / 1609.344 : meters / 1000
+  return `${value.toFixed(2)} ${unit}`
 }
 </script>
 
@@ -129,6 +157,7 @@ function duration(w: WorkoutRow): string {
                 <p class="text-xs text-(--ui-text-muted)">
                   {{ formatCalendarDate(w.date, { weekday: 'short', month: 'short', day: 'numeric' }) }}
                   · {{ duration(w) }}
+                  <template v-if="distance(w)"> · {{ distance(w) }}</template>
                 </p>
                 <p v-if="w.notes" class="text-xs text-(--ui-text-muted) truncate mt-0.5">
                   {{ w.notes }}

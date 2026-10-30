@@ -4,26 +4,41 @@ export type SessionFilter = 'all' | 'gym' | 'run' | 'conditioning' | 'mobility' 
 
 export const SESSION_TYPES: ReadonlyArray<{ value: SessionFilter; label: string }> = [
   { value: 'all', label: 'All' },
-  { value: 'gym', label: 'Gym' },
-  { value: 'run', label: 'Runs' },
+  { value: 'gym', label: 'Strength' },
+  { value: 'run', label: 'Run' },
   { value: 'conditioning', label: 'Conditioning' },
   { value: 'mobility', label: 'Mobility' },
   { value: 'other', label: 'Other' },
 ]
 
-export function sessionLabel(workout: Pick<WorkoutRow, 'session_type'>): string {
+export function sessionLabel(
+  workout: Pick<WorkoutRow, 'session_type'> & Partial<Pick<WorkoutRow, 'title'>>,
+): string {
+  if (workout.title?.trim()) return workout.title
   switch (workout.session_type) {
     case 'gym':
-      return 'Gym Session'
+      return 'Strength session'
     case 'run':
       return 'Run'
     case 'conditioning':
-      return 'Conditioning Session'
+      return 'Conditioning session'
     case 'mobility':
-      return 'Mobility Session'
+      return 'Mobility session'
     case 'other':
-      return 'Other Session'
+      return 'Other session'
   }
+}
+
+export const MOOD_RATINGS = [
+  { label: 'Very low', icon: '😴' },
+  { label: 'Low', icon: '😐' },
+  { label: 'Okay', icon: '🙂' },
+  { label: 'Good', icon: '💪' },
+  { label: 'Excellent', icon: '🔥' },
+] as const
+
+export function moodRating(rating: number | null) {
+  return rating == null ? null : (MOOD_RATINGS[rating - 1] ?? null)
 }
 
 export function filterWorkouts(
@@ -36,7 +51,7 @@ export function filterWorkouts(
     if (filter !== 'all' && workout.session_type !== filter) return false
     return (
       !query ||
-      workout.date.includes(query) ||
+      (workout.title ?? '').toLocaleLowerCase().includes(query) ||
       (workout.notes ?? '').toLocaleLowerCase().includes(query)
     )
   })

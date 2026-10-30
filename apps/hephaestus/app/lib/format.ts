@@ -2,6 +2,17 @@ import type { WeightUnit } from '~/composables/useAppSettings'
 
 const LBS_PER_KG = 2.20462
 
+export function trainingLabel(value: string): string {
+  if (value === 'emom' || value === 'amrap') return value.toUpperCase()
+  if (value === 'gym') return 'Strength'
+  return [...new Set(value.split('/'))]
+    .map((part) => {
+      const label = part.replaceAll('_', ' ')
+      return label.charAt(0).toUpperCase() + label.slice(1)
+    })
+    .join(' · ')
+}
+
 export function kgToLbs(kg: number): number {
   return kg * LBS_PER_KG
 }

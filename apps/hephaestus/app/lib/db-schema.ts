@@ -313,7 +313,7 @@ export const SCHEMA_DDL = `
 
 export const HEPHAESTUS_SCHEMA: SchemaConfig = {
   schema: SCHEMA_DDL,
-  version: 2,
+  version: 3,
 }
 
 /** Apply baseline DDL and legacy repair in the same transaction as the version stamp. */

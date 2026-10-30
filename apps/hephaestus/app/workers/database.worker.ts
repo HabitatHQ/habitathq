@@ -11,18 +11,23 @@ import { dispatchWorkout } from '~/lib/workout-storage'
 import type { DbAdapter, WorkerRequest, WorkerResponse } from '~/types/database'
 
 await (async () => {
+  let releaseDbLock: (() => void) | undefined
   async function tryAcquireDbLock(): Promise<boolean> {
     for (let attempt = 0; attempt < 3; attempt++) {
       if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 1000))
       const { promise, resolve } = Promise.withResolvers<boolean>()
-      void navigator.locks.request('hephaestus-db', { ifAvailable: true }, (lock) => {
-        if (!lock) {
-          resolve(false)
-          return Promise.resolve()
-        }
-        resolve(true)
-        return new Promise(() => {})
-      })
+      void navigator.locks
+        .request('hephaestus-db', { ifAvailable: true }, (lock) => {
+          if (!lock) {
+            resolve(false)
+            return Promise.resolve()
+          }
+          resolve(true)
+          const lifetime = Promise.withResolvers<void>()
+          releaseDbLock = () => lifetime.resolve()
+          return lifetime.promise
+        })
+        .catch(() => resolve(false))
       if (await promise) return true
     }
     return false
@@ -73,10 +78,14 @@ await (async () => {
     })
     self.postMessage({ type: 'READY' } satisfies WorkerResponse)
   } catch (error) {
+    releaseDbLock?.()
     self.postMessage({
       type: 'INIT_ERROR',
       message: error instanceof Error ? error.message : String(error),
     } satisfies WorkerResponse)
+    // The SAH-pool VFS retains access handles beyond connection close.
+    // Exit this terminal worker so a retry can reopen the same database.
+    self.close()
   }
 
   async function dispatch(type: string, payload: unknown): Promise<unknown> {

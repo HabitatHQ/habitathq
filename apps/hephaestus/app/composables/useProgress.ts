@@ -1,4 +1,9 @@
-import { addCalendarDays, differenceInCalendarDays, localCalendarDate } from '@habitathq/utils'
+import {
+  addCalendarDays,
+  differenceInCalendarDays,
+  localCalendarDate,
+  parseDateString,
+} from '@habitathq/utils'
 import type {
   ExerciseSessionStat,
   MuscleFrequency,
@@ -6,9 +11,15 @@ import type {
   WorkoutComparison,
 } from '~/lib/analytics'
 import { aggregateMuscleFrequency, buildExerciseHistory, buildWeekGrid } from '~/lib/analytics'
+import { isoWeek } from '~/lib/format'
 import type { ReadinessResult } from '~/lib/readiness'
 import { calculateReadiness } from '~/lib/readiness'
-import { calculateAcuteLoad, calculateChronicLoad, getLoadRatio } from '~/lib/training-load'
+import {
+  calculateAcuteLoad,
+  calculateChronicLoad,
+  completedWeekVolumes,
+  getLoadRatio,
+} from '~/lib/training-load'
 import type {
   ExerciseRow,
   PersonalRecordRow,
@@ -62,8 +73,8 @@ export function useProgress() {
         "SELECT we.* FROM workout_exercises we WHERE we.exercise_id = ? AND we.logging_mode='strength' AND we.removed_at IS NULL",
         [exerciseId],
       ),
-      db.query<SetRow>(
-        `SELECT s.* FROM sets s
+      db.query<SetRow & { workout_id: string }>(
+        `SELECT s.*, we.workout_id FROM sets s
          JOIN workout_exercises we ON we.id = s.workout_exercise_id
          JOIN workouts w ON w.id = we.workout_id
          WHERE we.exercise_id = ? AND we.logging_mode='strength' AND w.ended_at IS NOT NULL AND we.removed_at IS NULL AND s.removed_at IS NULL AND NOT EXISTS (SELECT 1 FROM workout_set_skips WHERE set_id=s.id)`,
@@ -185,10 +196,11 @@ export function useProgress() {
         ? moodWorkouts.reduce((sum, w) => sum + (w.mood_rating ?? 0), 0) / moodWorkouts.length
         : null
 
-    const loadRows = await db.query<{ gym_volume: number | null }>(
-      'SELECT gym_volume FROM weekly_training_load ORDER BY week DESC LIMIT 4',
+    const loadRows = await db.query<{ week: string; gym_volume: number | null }>(
+      'SELECT week,gym_volume FROM weekly_training_load WHERE week < ? ORDER BY week DESC LIMIT 5',
+      [isoWeek(parseDateString(today))],
     )
-    const volumes = loadRows.map((r) => r.gym_volume ?? 0).reverse()
+    const volumes = completedWeekVolumes(today, loadRows)
     const acute = calculateAcuteLoad(volumes)
     const chronic = calculateChronicLoad(volumes)
     const acwr = getLoadRatio(acute, chronic)

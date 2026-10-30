@@ -1,17 +1,20 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { resolvePrescription } from '~/lib/prescription-evaluator'
-import type {
-  NumericTarget,
-  RoutineInputValue,
-  SerializablePrescription,
-} from '~/types/prescription'
+import {
+  canonicalTargetValue,
+  displayTargetValue,
+  fieldLabel,
+  setSummary,
+} from '~/lib/prescription-presentation'
+import type { NumericTarget, RoutineInputValue, RoutineSnapshot } from '~/types/prescription'
 
 const route = useRoute()
 const routineId = computed(() => String(route.params['id'] ?? ''))
 const routines = useRoutines()
 const { exercises, load: loadExercises } = useExercises()
-const data = ref<Awaited<ReturnType<typeof routines.get>> | null>(null)
+const { settings } = useAppSettings()
+const data = ref<RoutineSnapshot | null>(null)
 const inputs = ref<Record<string, RoutineInputValue>>({})
 const fixedValues = ref<Record<string, number>>({})
 const name = ref('')
@@ -19,7 +22,7 @@ const policy = ref<'calendar_bound' | 'carry_forward'>('calendar_bound')
 const deferral = ref<'automatic' | 'manual'>('automatic')
 const error = ref('')
 const exerciseName = (id: string) =>
-  exercises.value.find((exercise) => exercise.id === id)?.name ?? `Unknown exercise (${id})`
+  exercises.value.find((exercise) => exercise.id === id)?.name ?? 'Exercise unavailable'
 const resolved = computed(() => {
   if (!data.value) return null
   try {
@@ -74,6 +77,46 @@ const fixedTargets = computed(() =>
       )
     : [],
 )
+function targetField(targetId: string) {
+  for (const activity of data.value?.revision.prescription.activities ?? []) {
+    if (activity.targets.distanceM?.id === targetId) return 'distanceM'
+    for (const set of activity.sets) {
+      for (const [field, target] of [
+        ['weightKg', set.weightKg],
+        ['rpe', set.rpe],
+        ['rir', set.rir],
+      ] as const)
+        if (target?.id === targetId) return field
+    }
+  }
+  return 'scalar'
+}
+const visibleFixedTargets = computed(() =>
+  fixedTargets.value.filter(
+    (entry) =>
+      (targetField(entry.target.id) !== 'rpe' || settings.value.showRpe) &&
+      (targetField(entry.target.id) !== 'rir' || settings.value.showRir),
+  ),
+)
+function displayFixedTarget(targetId: string) {
+  const value = fixedValues.value[targetId]
+  return value === undefined
+    ? ''
+    : displayTargetValue(
+        value,
+        targetField(targetId),
+        settings.value.weightUnit,
+        settings.value.distanceUnit,
+      )
+}
+function updateFixedTarget(targetId: string, value: number) {
+  fixedValues.value[targetId] = canonicalTargetValue(
+    value,
+    targetField(targetId),
+    settings.value.weightUnit,
+    settings.value.distanceUnit,
+  )
+}
 await Promise.all([
   loadExercises(),
   routines.get(routineId.value).then((value) => {
@@ -116,14 +159,19 @@ async function save() {
     error.value = cause instanceof Error ? cause.message : String(cause)
   }
 }
-function repsLabel(set: SerializablePrescription['activities'][number]['sets'][number]): string {
-  if (!set.reps) return 'not prescribed'
-  if (set.reps.kind === 'exact') return String(set.reps.value.resolvedValue ?? 'unresolved')
-  if (set.reps.kind === 'range') return `${set.reps.minimum}–${set.reps.maximum}`
-  return `${set.reps.minimum}+`
-}
 </script>
 
 <template>
-  <article class="space-y-5 p-4 pb-24"><header class="flex items-center justify-between gap-2"><NuxtLink :to="`/routines/${routineId}`">Back</NuxtLink><h1 class="font-bold">Edit routine configuration</h1><UButton color="primary" :disabled="!resolved" @click="save">Save revision</UButton></header><p v-if="error" role="alert" class="text-red-400">{{ error }}</p><template v-if="data"><label class="block">Name<input v-model="name" class="mt-1 w-full rounded-lg bg-(--color-surface) p-2" /></label><section v-for="input in data.revision.prescription.inputs" :key="input.id" class="rounded-lg bg-(--color-surface) p-3"><label>{{ input.name }} · {{ input.field }}<input v-if="input.field === 'boolean'" v-model="inputs[input.id]" type="checkbox" class="ml-2" /><input v-else v-model.number="inputs[input.id]" type="number" :min="input.minimum ?? undefined" :max="input.maximum ?? undefined" :step="input.integer ? 1 : 'any'" class="ml-2 rounded bg-(--color-bg) p-1" /></label></section><section class="space-y-2 rounded-xl bg-(--color-surface) p-3"><h2 class="font-semibold">Direct fixed targets</h2><label v-for="entry in fixedTargets" :key="entry.target.id" class="flex items-center justify-between gap-2 text-sm"><span>{{ entry.label }}</span><input v-model.number="fixedValues[entry.target.id]" type="number" min="0" step="any" class="w-24 rounded bg-(--color-bg) p-1" /></label></section><label>Continuation<select v-model="policy" aria-label="Continuation policy" class="ml-2 rounded bg-(--color-surface) p-2"><option value="calendar_bound">Calendar-bound</option><option value="carry_forward">Carry forward</option></select></label><select v-if="policy === 'carry_forward'" v-model="deferral" aria-label="Deferral mode" class="rounded bg-(--color-surface) p-2"><option value="automatic">Automatic</option><option value="manual">Manual</option></select><section v-if="resolved" class="space-y-2 rounded-xl border border-(--ui-border) p-3"><h2 class="font-semibold">Named recalculated targets</h2><div v-for="activity in resolved.activities" :key="activity.id"><h3 class="font-medium">{{ exerciseName(activity.exerciseId) }}</h3><p v-if="activity.loggingMode !== 'strength'" class="text-sm">{{ activity.loggingMode }} · duration {{ activity.targets.durationSec?.resolvedValue ?? 'not prescribed' }} sec · distance {{ activity.targets.distanceM?.resolvedValue ?? 'not prescribed' }} m</p><p v-for="set in activity.sets" :key="set.id" class="text-sm">{{ set.role }} · {{ set.weightKg?.resolvedValue ?? 'load not prescribed' }} kg × {{ repsLabel(set) }} reps · rest {{ set.restSec?.resolvedValue ?? 'not prescribed' }} sec · RPE {{ set.rpe?.resolvedValue ?? 'unknown' }} · RIR {{ set.rir?.resolvedValue ?? 'unknown' }}</p></div></section></template></article>
+  <article class="space-y-5 p-4 pb-24">
+    <header class="flex flex-wrap items-center justify-between gap-2"><NuxtLink :to="`/routines/${routineId}`">Back</NuxtLink><h1 class="font-bold">Edit routine configuration</h1><UButton color="primary" :disabled="!resolved" @click="save">Save revision</UButton></header>
+    <p v-if="error" role="alert" class="text-red-400">{{ error }}</p>
+    <template v-if="data">
+      <label class="block">Name<input v-model="name" class="mt-1 w-full rounded-lg bg-(--color-surface) p-2" /></label>
+      <section v-for="input in data.revision.prescription.inputs" :key="input.id" class="rounded-lg bg-(--color-surface) p-3"><label>{{ input.name }} · {{ fieldLabel(input.field, settings.weightUnit, settings.distanceUnit) }}<input v-if="input.field === 'boolean'" v-model="inputs[input.id]" type="checkbox" class="ml-2" /><input v-else :value="typeof inputs[input.id] === 'number' ? displayTargetValue(Number(inputs[input.id]), input.field, settings.weightUnit, settings.distanceUnit) : ''" type="number" step="any" class="ml-2 min-w-0 rounded bg-(--color-bg) p-1" @change="inputs[input.id] = canonicalTargetValue(Number(($event.target as HTMLInputElement).value), input.field, settings.weightUnit, settings.distanceUnit)" /></label></section>
+      <section v-if="visibleFixedTargets.length" class="space-y-2 rounded-xl bg-(--color-surface) p-3"><h2 class="font-semibold">Adjust fixed targets</h2><label v-for="entry in visibleFixedTargets" :key="entry.target.id" class="flex flex-wrap items-center justify-between gap-2 text-sm"><span>{{ entry.label.replace('(kg)', `(${settings.weightUnit})`).replace('(m)', `(${settings.distanceUnit})`) }}</span><input :value="displayFixedTarget(entry.target.id)" type="number" min="0" step="any" class="w-24 rounded bg-(--color-bg) p-1" @change="updateFixedTarget(entry.target.id, Number(($event.target as HTMLInputElement).value))" /></label></section>
+      <label>Continuation<select v-model="policy" aria-label="Continuation policy" class="ml-2 rounded bg-(--color-surface) p-2"><option value="calendar_bound">Follow scheduled dates</option><option value="carry_forward">Carry forward</option></select></label>
+      <select v-if="policy === 'carry_forward'" v-model="deferral" aria-label="Deferral mode" class="rounded bg-(--color-surface) p-2"><option value="automatic">Automatic scheduling</option><option value="manual">Manual scheduling</option></select>
+      <section v-if="resolved" class="space-y-2 rounded-xl border border-(--ui-border) p-3"><h2 class="font-semibold">Workout preview</h2><div v-for="activity in resolved.activities" :key="activity.id"><h3 class="font-medium">{{ exerciseName(activity.exerciseId) }}</h3><p v-if="activity.targets.durationSec?.resolvedValue != null">{{ activity.targets.durationSec.resolvedValue }} seconds</p><p v-if="activity.targets.distanceM?.resolvedValue != null">{{ displayTargetValue(activity.targets.distanceM.resolvedValue, 'distanceM', settings.weightUnit, settings.distanceUnit) }} {{ settings.distanceUnit }}</p><p v-for="set in activity.sets" :key="set.id" class="text-sm">{{ setSummary(set, settings.weightUnit, settings) }}</p></div></section>
+    </template>
+  </article>
 </template>

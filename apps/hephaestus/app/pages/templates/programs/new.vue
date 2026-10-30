@@ -8,6 +8,7 @@ const weekCount = ref(4)
 const saving = ref(false)
 const seeding = ref(false)
 
+const selectedBuiltins = ref<string[]>([])
 const canSave = computed(() => programName.value.trim().length > 0 && weekCount.value > 0)
 
 async function handleSave() {
@@ -27,7 +28,7 @@ async function handleSave() {
 async function handleSeedBuiltins() {
   seeding.value = true
   try {
-    await seedBuiltinPrograms()
+    await seedBuiltinPrograms(selectedBuiltins.value)
     await navigateTo('/templates/programs')
   } finally {
     seeding.value = false
@@ -75,14 +76,13 @@ async function handleSeedBuiltins() {
     </div>
 
     <div class="rounded-xl bg-(--color-surface) p-4 space-y-3">
-      <p class="text-sm font-medium">Or use a built-in program</p>
-      <p class="text-xs text-(--ui-text-muted)">Popular programs pre-configured with standard structures:</p>
-      <ul class="space-y-1 text-xs text-(--ui-text-muted)">
-        <li v-for="bp in BUILTIN_PROGRAMS" :key="bp.name">• {{ bp.name }} ({{ bp.weeks }} weeks)</li>
-      </ul>
-      <UButton class="w-full" variant="outline" :loading="seeding" @click="handleSeedBuiltins">
-        Import Built-in Programs
-      </UButton>
+      <p class="text-sm font-medium">Use a built-in design preset</p>
+      <p class="text-xs text-(--ui-text-muted)">These presets contain progression suggestions and empty template slots, not ready-made workouts. Add your own templates to the slots before following a program.</p>
+      <label v-for="program in BUILTIN_PROGRAMS" :key="program.name" class="flex items-start gap-3 rounded-lg bg-(--color-surface-2) p-3">
+        <input v-model="selectedBuiltins" type="checkbox" :value="program.name" class="mt-1" />
+        <span><strong>{{ program.name }}</strong><span class="block text-xs text-(--ui-text-muted)">{{ program.weeks }} weeks · {{ program.description }}</span></span>
+      </label>
+      <UButton class="w-full" variant="outline" :disabled="selectedBuiltins.length === 0" :loading="seeding" @click="handleSeedBuiltins">Import selected designs</UButton>
     </div>
   </article>
 </template>

@@ -148,6 +148,10 @@ async function previewRecurrence(db: DbAdapter, input: unknown): Promise<Recurre
     `SELECT * FROM organization_appointments WHERE plan_id=? AND source_kind='recurrence' AND source_id=? ORDER BY planned_date,id`,
     [rule.planId, rule.id],
   )
+  const sourceRule = await db.queryOne<Row>(
+    'SELECT * FROM organization_recurrence_rules WHERE id=?',
+    [rule.id],
+  )
   const expected = new Set(createDates.map((day) => `recurrence:${rule.id}:${day}`))
   const updateAppointments: Appointment[] = []
   const removeAppointmentIds: string[] = []
@@ -168,6 +172,7 @@ async function previewRecurrence(db: DbAdapter, input: unknown): Promise<Recurre
     updateAppointments,
     removeAppointmentIds,
     protectedAppointmentIds,
+    sourceFingerprint: fingerprint({ rule: sourceRule, appointments: existing }),
   }
   const hash = fingerprint(changed)
   const previewId = crypto.randomUUID()
@@ -190,8 +195,20 @@ async function applyRecurrence(db: DbAdapter, input: unknown): Promise<Organizat
   const data = JSON.parse(review.snapshot_json) as Omit<
     RecurrenceReview,
     'previewId' | 'fingerprint'
-  >
+  > & { sourceFingerprint: string }
   const rule = data.rule
+  const sourceRule = await db.queryOne<Row>(
+    'SELECT * FROM organization_recurrence_rules WHERE id=?',
+    [rule.id],
+  )
+  const sourceAppointments = await db.queryAll<Row>(
+    `SELECT * FROM organization_appointments WHERE plan_id=? AND source_kind='recurrence' AND source_id=? ORDER BY planned_date,id`,
+    [rule.planId, rule.id],
+  )
+  if (
+    data.sourceFingerprint !== fingerprint({ rule: sourceRule, appointments: sourceAppointments })
+  )
+    throw new Error('Appointments or recurrence changed; refresh recurrence review')
   for (const id of data.protectedAppointmentIds) {
     const current = await appointmentRow(db, id)
     if (current.status === 'open' && !current.workoutId && current.plannedDate > localToday()) {
@@ -444,6 +461,19 @@ const operations: {
       'INSERT INTO organization_goals(id,plan_id,name,target_count,filter_json,active,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,target_count=excluded.target_count,filter_json=excluded.filter_json,active=excluded.active',
       [id, planId, name, target, JSON.stringify(filter), active, now],
     )
+    await db.exec('DELETE FROM organization_goal_credits WHERE goal_id=?', [id])
+    if (active) {
+      const workouts = await db.queryAll<{ id: string; date: string }>(
+        'SELECT id,date FROM workouts WHERE ended_at IS NOT NULL',
+      )
+      for (const workout of workouts) {
+        if ((await qualifyingWork(db, workout.id)) && (await matchesFilter(db, workout.id, filter)))
+          await db.exec(
+            'INSERT INTO organization_goal_credits(goal_id,workout_id,week_start) VALUES(?,?,?)',
+            [id, workout.id, monday(workout.date)],
+          )
+      }
+    }
     return { id, planId, name, targetCount: target, filter, active: active === 1, createdAt: now }
   },
   ORGANIZATION_TODAY: todayItems,
@@ -881,11 +911,13 @@ async function todayItems(db: DbAdapter, input: unknown): Promise<OrganizationTo
       planId: String(a['plan_id']),
       planName: String(a['plan_name']),
       title: String(a['routine_name']),
-      explanation: a['workout_id']
-        ? 'Linked unfinished workout is protected.'
-        : String(a['planned_date']) < today
-          ? 'Overdue commitment; resolve, postpone or start.'
-          : 'Scheduled commitment for today.',
+      explanation: `${a['source_kind'] === 'recurrence' ? 'Recurring schedule' : a['source_kind'] === 'program' ? 'Program schedule' : 'Manual appointment'} · ${
+        a['workout_id']
+          ? 'Unfinished workout in progress.'
+          : String(a['planned_date']) < today
+            ? 'Overdue; postpone or start.'
+            : 'Planned for today.'
+      }`,
       date: String(a['planned_date']),
       time: a['planned_time'] == null ? null : String(a['planned_time']),
       routineId: String(a['routine_id']),

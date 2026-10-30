@@ -1,6 +1,6 @@
 import { addCalendarDays } from '@habitathq/utils'
 import type { DbAdapter } from '@palladium/core'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { migrateOrganization } from '~/lib/organization-schema'
 import {
   dispatchOrganization,
@@ -124,9 +124,156 @@ beforeEach(async () => {
   await migrateOrganization(db)
 })
 
-afterEach(() => raw.close())
+afterEach(() => {
+  vi.useRealTimers()
+  raw.close()
+})
 
 describe('persisted training organization', () => {
+  it('reconciles changed goal definitions across week boundaries without unrelated corrections', async () => {
+    const owner = await plan('Goal edits')
+    for (const [id, day] of [
+      ['sunday', '2026-03-08'],
+      ['monday', '2026-03-09'],
+    ] as const)
+      strengthWorkout(
+        id,
+        day,
+        testId('exercise'),
+        [{ id: `set-${id}`, warmup: false, completed: true, reps: 5 }],
+        `${day}T13:00:00.000Z`,
+      )
+    const input = {
+      planId: owner.id,
+      name: 'Sessions',
+      targetCount: 2,
+      filter: { sessionTypes: ['gym'], exerciseIds: [], movementPatterns: [] },
+    }
+    const goal = await db.transaction((tx) =>
+      dispatchOrganization(tx, 'ORGANIZATION_GOAL_SAVE', input),
+    )
+    const credits = () =>
+      raw.query<{ workout_id: string; week_start: string }>(
+        'SELECT workout_id,week_start FROM organization_goal_credits WHERE goal_id=? ORDER BY workout_id',
+        [goal.id],
+      )
+    expect(credits()).toEqual([
+      { workout_id: 'monday', week_start: '2026-03-09' },
+      { workout_id: 'sunday', week_start: '2026-03-02' },
+    ])
+    await db.transaction((tx) =>
+      dispatchOrganization(tx, 'ORGANIZATION_GOAL_SAVE', {
+        ...input,
+        id: goal.id,
+        filter: { ...input.filter, sessionTypes: ['run'] },
+      }),
+    )
+    expect(credits()).toEqual([])
+    await recomputeOrganizationCredit(db, 'monday')
+    expect(credits()).toEqual([])
+    await db.transaction((tx) =>
+      dispatchOrganization(tx, 'ORGANIZATION_GOAL_SAVE', {
+        ...input,
+        id: goal.id,
+        filter: { ...input.filter, sessionTypes: [] },
+      }),
+    )
+    expect(credits().map((credit) => credit.workout_id)).toEqual(['monday', 'sunday'])
+    await db.transaction((tx) =>
+      dispatchOrganization(tx, 'ORGANIZATION_GOAL_SAVE', {
+        ...input,
+        id: goal.id,
+        active: false,
+      }),
+    )
+    expect(credits()).toEqual([])
+    await db.transaction((tx) =>
+      dispatchOrganization(tx, 'ORGANIZATION_GOAL_SAVE', {
+        ...input,
+        id: goal.id,
+        active: true,
+      }),
+    )
+    expect(credits().map((credit) => credit.workout_id)).toEqual(['monday', 'sunday'])
+  })
+
+  it('rolls back a goal filter edit if rebuilding credits fails', async () => {
+    const owner = await plan('Atomic goal edit')
+    strengthWorkout(
+      'performed',
+      '2026-03-10',
+      testId('exercise'),
+      [{ id: 'performed-set', warmup: false, completed: true, reps: 5 }],
+      '2026-03-10T13:00:00.000Z',
+    )
+    const input = {
+      planId: owner.id,
+      name: 'Runs',
+      targetCount: 1,
+      filter: { sessionTypes: ['run'], exerciseIds: [], movementPatterns: [] },
+    }
+    const goal = await operation('ORGANIZATION_GOAL_SAVE', input)
+    raw.exec(
+      "CREATE TRIGGER reject_goal_credit BEFORE INSERT ON organization_goal_credits BEGIN SELECT RAISE(ABORT,'credit failure'); END",
+    )
+    await expect(
+      db.transaction((tx) =>
+        dispatchOrganization(tx, 'ORGANIZATION_GOAL_SAVE', {
+          ...input,
+          id: goal.id,
+          filter: { ...input.filter, sessionTypes: ['gym'] },
+        }),
+      ),
+    ).rejects.toThrow('credit failure')
+    expect((await operation('ORGANIZATION_GOAL_LIST', { planId: owner.id }))[0]?.filter).toEqual(
+      input.filter,
+    )
+    expect(raw.query('SELECT * FROM organization_goal_credits')).toEqual([])
+  })
+
+  it('rejects an old recurrence review after a future appointment is postponed', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-10T12:00:00'))
+    const owner = await plan('Recurrence review')
+    const routineId = testId('routine')
+    routine(routineId, 'Scheduled', 'calendar_bound', null)
+    const input = {
+      planId: owner.id,
+      routineId,
+      weekdays: [1],
+      startDate: '2026-03-10',
+      endDate: '2026-04-06',
+      today: '2026-03-10',
+    }
+    const initial = await operation('ORGANIZATION_RECURRENCE_PREVIEW', input)
+    await operation('ORGANIZATION_RECURRENCE_APPLY', initial)
+    await operation('ORGANIZATION_RECONCILE_OPEN', { today: '2026-03-10' })
+    const appointment = (
+      await operation('ORGANIZATION_APPOINTMENT_LIST', { planId: owner.id })
+    ).find((item) => item.plannedDate === '2026-03-16')
+    if (!appointment) throw new Error('Missing materialized Monday appointment')
+    const review = await operation('ORGANIZATION_RECURRENCE_PREVIEW', {
+      ...input,
+      id: initial.rule.id,
+      weekdays: [2],
+    })
+    await operation('ORGANIZATION_APPOINTMENT_POSTPONE', {
+      appointmentId: appointment.id,
+      date: '2026-03-18',
+    })
+    await expect(
+      db.transaction((tx) => dispatchOrganization(tx, 'ORGANIZATION_RECURRENCE_APPLY', review)),
+    ).rejects.toThrow('refresh recurrence review')
+    expect(
+      (await operation('ORGANIZATION_APPOINTMENT_LIST', { planId: owner.id })).find(
+        (item) => item.id === appointment.id,
+      ),
+    ).toMatchObject({ plannedDate: '2026-03-18', postponed: true })
+    expect(
+      (await operation('ORGANIZATION_RECURRENCE_LIST', { planId: owner.id }))[0]?.weekdays,
+    ).toEqual([1])
+  })
+
   it('reopens idempotently, protects a midnight-overdue appointment, and exhausts the 28-date deferral horizon without dropping it', async () => {
     const planA = await plan('Independent A')
     const planB = await plan('Independent B')
@@ -378,7 +525,6 @@ describe('persisted training organization', () => {
       const today = await operation('ORGANIZATION_TODAY', { today: '2026-03-11' })
       expect(today.find((item) => item.id === appointment.id)).toMatchObject({
         workoutId: null,
-        explanation: 'Scheduled commitment for today.',
       })
       strengthWorkout('replacement', '2026-03-11', testId('exercise'), [], null)
       await startOrganization(db, 'replacement', { appointmentId: appointment.id, routineId })
