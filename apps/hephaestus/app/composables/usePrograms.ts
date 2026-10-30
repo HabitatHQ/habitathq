@@ -75,10 +75,13 @@ export function usePrograms() {
     return slot.id
   }
 
-  async function seedBuiltinPrograms(): Promise<void> {
-    if (await db.isDefaultApplied('builtin-programs')) return
+  async function seedBuiltinPrograms(
+    selectedNames: string[] = BUILTIN_PROGRAMS.map((program) => program.name),
+  ): Promise<void> {
+    const selected = new Set(selectedNames)
     const now = new Date().toISOString()
     for (const builtin of BUILTIN_PROGRAMS) {
+      if (!selected.has(builtin.name)) continue
       const existing = await db.query<{ id: string }>(
         'SELECT id FROM programs WHERE name=? AND is_builtin=1 ORDER BY created_at LIMIT 1',
         [builtin.name],

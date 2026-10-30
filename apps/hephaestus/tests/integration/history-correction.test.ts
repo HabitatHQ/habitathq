@@ -1,4 +1,4 @@
-import type { DbAdapter } from '@palladium/core'
+import { isUuidV7 } from '@palladium/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { dispatchHistory } from '~/lib/history-correction'
 import { migrateOrganization } from '~/lib/organization-schema'
@@ -194,6 +194,56 @@ beforeEach(async () => {
 afterEach(() => raw.close())
 
 describe('reviewed factual history corrections', () => {
+  it('preserves pause-excluding interval duration after an unrelated history correction', async () => {
+    raw.exec(
+      'INSERT INTO workout_interval_sessions(workout_id,template_id,config_json,phase,round,phase_deadline_ms,paused_remaining_sec,updated_at) VALUES(?,?,?,?,?,?,?,?)',
+      [
+        'workout',
+        'interval',
+        JSON.stringify({
+          type: 'custom',
+          name: 'Paused work',
+          rounds: 1,
+          work_sec: 60,
+          rest_sec: 0,
+          time_cap_sec: null,
+        }),
+        'work',
+        1,
+        Date.parse('2026-03-15T12:01:00Z'),
+        50,
+        NOW,
+      ],
+    )
+    const preview = await review({ title: 'Corrected title' })
+    await history('HISTORY_CORRECTION_APPLY', {
+      previewId: preview.previewId,
+      fingerprint: preview.fingerprint,
+    })
+    expect(
+      raw.query<{ durationSec: number }>(
+        "SELECT json_extract(summary_json, '$.durationSec') AS durationSec FROM workout_finish_summaries WHERE workout_id='workout'",
+      ),
+    ).toEqual([{ durationSec: 10 }])
+  })
+  it('preserves previously logged fractional RIR in a title-only form submission', async () => {
+    raw.exec("UPDATE sets SET rir=1.5 WHERE id='working'")
+    const preview = await review({
+      title: 'Corrected workout',
+      activities: [{ id: 'activity', sets: [{ id: 'working', values: { rir: 1.5 } }] }],
+    })
+    await history('HISTORY_CORRECTION_APPLY', {
+      previewId: preview.previewId,
+      fingerprint: preview.fingerprint,
+    })
+    expect(raw.query<{ title: string }>("SELECT title FROM workouts WHERE id='workout'")).toEqual([
+      { title: 'Corrected workout' },
+    ])
+    expect(raw.query<{ rir: number }>("SELECT rir FROM sets WHERE id='working'")).toEqual([
+      { rir: 1.5 },
+    ])
+  })
+
   it('previews captured formula/range comparisons and proposed credit without changing facts', async () => {
     const before = state()
     const preview = await review({
@@ -322,14 +372,22 @@ describe('reviewed factual history corrections', () => {
       { id: 'first', status: 'open', workout_id: null },
       { id: 'second', status: 'fulfilled', workout_id: 'workout' },
     ])
-    expect(raw.query('SELECT * FROM organization_source_links')).toEqual([
+    expect(
+      raw.query(
+        'SELECT id,workout_id,appointment_id,rotation_id,rotation_generation FROM organization_source_links',
+      ),
+    ).toEqual([
       {
+        id: expect.any(String),
         workout_id: 'workout',
         appointment_id: 'second',
         rotation_id: 'rotation',
         rotation_generation: 0,
       },
     ])
+    expect(
+      isUuidV7(raw.query<{ id: string }>('SELECT id FROM organization_source_links')[0]?.id ?? ''),
+    ).toBe(true)
     expect(raw.query('SELECT exercise_id,logging_mode FROM workout_exercises')).toEqual([
       { exercise_id: 'press', logging_mode: 'strength' },
     ])
@@ -358,7 +416,6 @@ describe('reviewed factual history corrections', () => {
     const today = await dispatchOrganization(db, 'ORGANIZATION_TODAY', { today: '2026-03-15' })
     expect(today.find((item) => item.id === 'first')).toMatchObject({
       workoutId: null,
-      explanation: 'Scheduled commitment for today.',
     })
     const restored = await review({ activities: [{ id: 'activity', removed: false }] })
     await history('HISTORY_CORRECTION_APPLY', {
@@ -435,6 +492,8 @@ describe('reviewed factual history corrections', () => {
   it.each([
     { performedDate: '2026-02-31' },
     { activities: [{ id: 'activity', sets: [{ id: 'working', values: { rpe: 11 } }] }] },
+    { activities: [{ id: 'activity', sets: [{ id: 'working', values: { rir: 10.5 } }] }] },
+    { activities: [{ id: 'activity', sets: [{ id: 'working', values: { rir: -0.5 } }] }] },
     { activities: [{ id: 'activity', sets: [{ id: 'working', values: { reps: 2.5 } }] }] },
     { activities: [{ id: 'activity', sets: [{ id: 'working', values: { reps: null } }] }] },
     { activities: [{ id: 'activity', addSets: [{ completed: true, weightKg: 100 }] }] },

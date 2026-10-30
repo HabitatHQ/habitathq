@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { filterWorkouts, SESSION_TYPES, sessionLabel } from '~/lib/history'
+import { filterWorkouts, sessionLabel } from '~/lib/history'
 import type { SessionType, WorkoutRow } from '~/types/database'
 
 function workout(id: string, sessionType: SessionType, notes: string | null = null): WorkoutRow {
@@ -28,22 +28,10 @@ const workouts = [
 ]
 
 describe('history session modes', () => {
-  it('provides truthful labels for every supported and legacy mode', () => {
-    expect(SESSION_TYPES.map(({ value, label }) => [value, label])).toEqual([
-      ['all', 'All'],
-      ['gym', 'Gym'],
-      ['run', 'Runs'],
-      ['conditioning', 'Conditioning'],
-      ['mobility', 'Mobility'],
-      ['other', 'Other'],
-    ])
-    expect(workouts.map(sessionLabel)).toEqual([
-      'Gym Session',
-      'Run',
-      'Conditioning Session',
-      'Mobility Session',
-      'Other Session',
-    ])
+  it('keeps recorded workout identity visible and searchable', () => {
+    const saved = { ...workout('custom-title', 'gym'), title: 'Morning strength — completed' }
+    expect(sessionLabel(saved)).toBe(saved.title)
+    expect(filterWorkouts([saved], 'gym', 'morning strength')).toEqual([saved])
   })
 
   it('filters each mode independently and combines mode with search', () => {

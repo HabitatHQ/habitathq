@@ -6,16 +6,29 @@ const db = useDatabase()
 
 const programs = ref<ProgramRow[]>([])
 const loading = ref(true)
+let loadGeneration = 0
+
+async function refresh() {
+  const generation = ++loadGeneration
+  const rows = await load()
+  if (generation === loadGeneration) {
+    programs.value = rows
+    loading.value = false
+  }
+}
 
 watch(
   db.status,
-  async (s) => {
-    if (s !== 'ready') return
-    loading.value = true
-    programs.value = await load()
-    loading.value = false
+  (status) => {
+    if (status === 'ready') void refresh()
   },
   { immediate: true },
+)
+watch(
+  () => db.invalidation.value.revision,
+  () => {
+    if (db.status.value === 'ready') void refresh()
+  },
 )
 </script>
 

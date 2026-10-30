@@ -2,7 +2,7 @@
 import type { Equipment, EquipmentSub, LoggingMode, MovementPattern } from '~/types/database'
 
 const db = useDatabase()
-const { exercises, load, addCustom } = useExercises()
+const { exercises, load, addCustom, updateCustom } = useExercises()
 
 watch(
   db.status,
@@ -11,12 +11,29 @@ watch(
   },
   { immediate: true },
 )
+watch(
+  () => db.invalidation.value.revision,
+  () => {
+    if (db.status.value === 'ready' && db.invalidation.value.tables.includes('exercises'))
+      void load()
+  },
+)
 
 const searchQuery = ref('')
 const equipFilter = ref<Equipment | 'all'>('all')
 const movFilter = ref<MovementPattern | 'all'>('all')
 const showCreateSheet = ref(false)
 const modalFocus = useModalFocus(() => showCreateSheet.value)
+const editingExerciseId = ref<string | null>(null)
+function editExercise(exercise: (typeof exercises.value)[number]) {
+  if (exercise.is_custom !== 1) return
+  editingExerciseId.value = exercise.id
+  newName.value = exercise.name
+  newEquipment.value = exercise.equipment_sub as EquipmentSub
+  newMovement.value = exercise.movement
+  loggingMode.value = exercise.logging_mode
+  showCreateSheet.value = true
+}
 
 const newName = ref('')
 const newEquipment = ref<EquipmentSub>('barbell')
@@ -93,14 +110,25 @@ async function handleCreate() {
   saving.value = true
   createError.value = null
   try {
-    await addCustom(
-      newName.value.trim(),
-      newEquipment.value,
-      newMovement.value,
-      [],
-      [],
-      loggingMode.value,
-    )
+    if (editingExerciseId.value) {
+      await updateCustom(
+        editingExerciseId.value,
+        newName.value,
+        newEquipment.value,
+        newMovement.value,
+        loggingMode.value,
+      )
+    } else {
+      await addCustom(
+        newName.value.trim(),
+        newEquipment.value,
+        newMovement.value,
+        [],
+        [],
+        loggingMode.value,
+      )
+    }
+    editingExerciseId.value = null
     showCreateSheet.value = false
     newName.value = ''
   } catch (error) {
@@ -116,7 +144,7 @@ async function handleCreate() {
     <header class="pt-2">
       <div class="flex items-center justify-between mb-3">
         <h1 class="text-2xl font-bold">Exercises</h1>
-        <UButton size="sm" color="primary" @click="showCreateSheet = true">
+        <UButton size="sm" color="primary" @click="editingExerciseId = null; newName = ''; showCreateSheet = true">
           <UIcon name="i-ph-plus" class="w-4 h-4" aria-hidden="true" />
           New
         </UButton>
@@ -195,6 +223,7 @@ async function handleCreate() {
           >
             Custom
           </span>
+          <UButton v-if="ex.is_custom === 1" type="button" size="xs" variant="outline" :aria-label="`Edit ${ex.name}`" @click="editExercise(ex)">Edit</UButton>
         </div>
       </li>
       <li v-if="filtered.length === 0" class="py-12 text-center text-(--ui-text-muted)">
@@ -206,7 +235,7 @@ async function handleCreate() {
     <UModal v-model:open="showCreateSheet" :content="modalFocus" title="Create custom exercise" description="Add an exercise to your local training library.">
       <template #content>
         <div class="p-6 space-y-4 safe-area-bottom max-h-[85dvh] overflow-y-auto">
-          <h2 class="text-lg font-semibold">New Exercise</h2>
+          <h2 class="text-lg font-semibold">{{ editingExerciseId ? 'Edit custom exercise' : 'New Exercise' }}</h2>
 
           <div class="space-y-1">
             <label class="text-xs font-medium text-(--ui-text-muted) uppercase tracking-wider">Name</label>

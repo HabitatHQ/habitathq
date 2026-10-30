@@ -1,3 +1,5 @@
+import { logError } from '@habitathq/utils'
+import { generateUuidV7 } from '~/lib/db-identity'
 import { buildPendingSet } from '~/lib/workout-helpers'
 import type { WorkoutSession, WorkoutSetIntent, WorkoutSummary } from '~/lib/workout-storage'
 import type {
@@ -27,17 +29,21 @@ const restTimer = ref<{
   total: number
   exerciseId: string | null
   setId: string | null
+  deadlineMs: number | null
 }>({
   active: false,
   remaining: 0,
   total: 0,
   exerciseId: null,
   setId: null,
+  deadlineMs: null,
 })
 const recoverySession = ref(false)
 const writerUnavailable = ref(false)
+const activeInterval = ref<WorkoutSession['interval']>(null)
 const runData = ref<RunRow | null>(null)
 let elapsedInterval: number | null = null
+let hydrationGeneration = 0
 const sessionIntensityModifier = ref(1)
 const sessionVolumeModifier = ref(1)
 
@@ -68,6 +74,7 @@ function startElapsedClock() {
 function installSession(data: WorkoutSession) {
   activeWorkout.value = data.workout
   workoutExercises.value = data.exercises
+  activeInterval.value = data.interval
   templateGroups.value = new Map(data.groups.map((group) => [group.label, group]))
   runData.value = data.run
   sessionIntensityModifier.value = data.options?.intensity_modifier ?? 1
@@ -80,7 +87,10 @@ function installSession(data: WorkoutSession) {
   const byExercise = new Map<string, SetRow[]>()
   for (const exercise of data.exercises) {
     const exerciseSets = data.sets.filter((set) => set.workout_exercise_id === exercise.id)
-    if (!exerciseSets.some((set) => set.completed === 0 && !skippedSetIds.value.has(set.id))) {
+    if (
+      !prescription.value &&
+      !exerciseSets.some((set) => set.completed === 0 && !skippedSetIds.value.has(set.id))
+    ) {
       const lastCompleted = [...exerciseSets].reverse().find((set) => set.completed === 1) ?? null
       const nextSetNum = exerciseSets.reduce((max, set) => Math.max(max, set.set_num), 0) + 1
       exerciseSets.push(buildPendingSet(exercise.id, lastCompleted, nextSetNum))
@@ -113,7 +123,7 @@ function mergeRunMetric(
 
 function buildRunRow(workoutId: string, current: RunRow | null, partial: Partial<RunRow>): RunRow {
   return {
-    id: current?.id ?? crypto.randomUUID(),
+    id: current?.id ?? generateUuidV7(),
     workout_id: workoutId,
     run_type: partial.run_type ?? current?.run_type ?? 'easy',
     distance_m: mergeRunMetric(current, partial, 'distance_m'),
@@ -130,6 +140,7 @@ function buildRunRow(workoutId: string, current: RunRow | null, partial: Partial
 
 export function useWorkout() {
   const db = useDatabase()
+  const { settings } = useAppSettings()
   const hasActiveWorkout = computed(() => activeWorkout.value !== null)
   async function loadProgressionHistory(exerciseId: string): Promise<{
     completedSessions: SetRow[][]
@@ -179,6 +190,7 @@ export function useWorkout() {
       if (!data) {
         stopElapsedClock()
         activeWorkout.value = null
+        activeInterval.value = null
         workoutExercises.value = []
         sets.value = new Map()
         templateGroups.value = new Map()
@@ -191,10 +203,6 @@ export function useWorkout() {
         recoverySession.value = false
         sessionIntensityModifier.value = 1
         sessionVolumeModifier.value = 1
-        setIntents.value = {}
-        skippedSetIds.value = new Set()
-        prescription.value = null
-        routine.value = null
         return false
       }
       const requiresResume = activeWorkout.value?.id !== data.workout.id || recoverySession.value
@@ -202,10 +210,94 @@ export function useWorkout() {
       recoverySession.value = requiresResume
       return true
     } catch (error) {
-      writerUnavailable.value = db.status.value === 'lock_unavailable'
+      writerUnavailable.value = db.status.value !== 'ready'
       throw error
     }
   }
+  let active = true
+  // Active workout controls may hold uncommitted form state; only hydrate
+  // a new session or a pending recovery prompt, never replace a live draft.
+  function hasUncommittedDraft(): boolean {
+    return Object.keys(setIntents.value).length > 0 || Object.keys(activityIntents.value).length > 0
+  }
+
+  async function refreshIntervalAfterInvalidation(
+    workoutId: string,
+    generation: number,
+  ): Promise<void> {
+    try {
+      const data = await db.workout('WORKOUT_ACTIVE', {})
+      if (!active || generation !== hydrationGeneration || activeWorkout.value?.id !== workoutId)
+        return
+      if (!data) {
+        stopElapsedClock()
+        stopRestTimer()
+        activeWorkout.value = null
+        activeInterval.value = null
+        recoverySession.value = false
+        return
+      }
+      if (
+        data.workout.id === workoutId &&
+        data.interval &&
+        (!activeInterval.value || activeInterval.value.updated_at < data.interval.updated_at)
+      )
+        activeInterval.value = data.interval
+    } catch (error) {
+      logError('workout-interval-refresh', error)
+    }
+  }
+
+  async function refreshAfterInvalidation(
+    previousWorkoutId: string | null,
+    generation: number,
+  ): Promise<void> {
+    try {
+      const data = await db.workout('WORKOUT_ACTIVE', {})
+      if (!active || generation !== hydrationGeneration) return
+      if ((activeWorkout.value?.id ?? null) !== previousWorkoutId) return
+      if (hasUncommittedDraft()) return
+      if (!data) {
+        if (previousWorkoutId) await hydrateActiveWorkout()
+        return
+      }
+      const requiresResume = activeWorkout.value?.id !== data.workout.id
+      installSession(data)
+      if (requiresResume) recoverySession.value = true
+    } catch (error) {
+      logError('workout-refresh', error)
+    }
+  }
+
+  const stopInvalidationWatch = watch(
+    () => db.invalidation.value.revision,
+    (revision, previousRevision) => {
+      if (revision === previousRevision || !active) return
+      const tables = db.invalidation.value.tables
+      const previousWorkoutId = activeWorkout.value?.id ?? null
+      if (
+        tables.some((table) => ['workout_interval_sessions', 'workouts'].includes(table)) &&
+        previousWorkoutId &&
+        activeInterval.value
+      ) {
+        const generation = ++hydrationGeneration
+        void refreshIntervalAfterInvalidation(previousWorkoutId, generation)
+        return
+      }
+      if (
+        !tables.some((table) => ['workouts', 'workout_exercises', 'sets', 'runs'].includes(table))
+      )
+        return
+      if (activeWorkout.value && !recoverySession.value) return
+      if (hasUncommittedDraft()) return
+      const generation = ++hydrationGeneration
+      void refreshAfterInvalidation(previousWorkoutId, generation)
+    },
+  )
+  onScopeDispose(() => {
+    active = false
+    stopInvalidationWatch()
+  })
 
   async function resumeWorkout(): Promise<void> {
     recoverySession.value = false
@@ -219,6 +311,7 @@ export function useWorkout() {
     stopElapsedClock()
     stopRestTimer()
     activeWorkout.value = null
+    activeInterval.value = null
     workoutExercises.value = []
     setIntents.value = {}
     activityIntents.value = {}
@@ -235,6 +328,7 @@ export function useWorkout() {
     options: {
       scale?: number
       excludedExerciseIds?: string[]
+      intervalTemplateId?: string
       sessionType?: SessionType
       intensityModifier?: number
       volumeModifier?: number
@@ -251,12 +345,15 @@ export function useWorkout() {
     if (activeWorkout.value) throw new Error('An active workout already exists')
     try {
       const data = await db.workout('WORKOUT_START', {
-        id: crypto.randomUUID(),
+        id: generateUuidV7(),
         now: new Date().toISOString(),
         templateId: templateId ?? null,
         routineId: routineId ?? null,
         options: {
           ...options,
+          ...(options.excludedExerciseIds === undefined
+            ? {}
+            : { excludedExerciseIds: [...options.excludedExerciseIds] }),
           ...(options.inputs === undefined ? {} : { inputs: { ...options.inputs } }),
           ...(options.fixedTargetValues === undefined
             ? {}
@@ -268,7 +365,7 @@ export function useWorkout() {
       writerUnavailable.value = false
       templateGroups.value = new Map(data.groups.map((group) => [group.label, group]))
     } catch (error) {
-      writerUnavailable.value = db.status.value === 'lock_unavailable'
+      writerUnavailable.value = db.status.value !== 'ready'
       throw error
     }
   }
@@ -300,12 +397,12 @@ export function useWorkout() {
   ): Promise<WorkoutExerciseRow> {
     if (!activeWorkout.value) throw new Error('No active workout')
     const row: Omit<WorkoutExerciseRow, 'logging_mode'> = {
-      id: crypto.randomUUID(),
+      id: generateUuidV7(),
       workout_id: activeWorkout.value.id,
       exercise_id: exerciseId,
       order_num: opts.orderNum ?? workoutExercises.value.length + 1,
       superset_group: opts.supersetGroup ?? null,
-      rest_seconds: opts.restSeconds ?? 120,
+      rest_seconds: opts.restSeconds ?? settings.value.defaultRestSeconds,
     }
     const planned = Math.max(0, opts.setsPlanned ?? 0)
     const pending = Array.from({ length: planned }, (_, index) =>
@@ -341,7 +438,7 @@ export function useWorkout() {
         ? (current[pendingIdx]?.set_num ?? nextSetNumber(current))
         : nextSetNumber(current)
     const set: SetRow = {
-      id: pendingIdx >= 0 ? (current[pendingIdx]?.id ?? crypto.randomUUID()) : crypto.randomUUID(),
+      id: pendingIdx >= 0 ? (current[pendingIdx]?.id ?? generateUuidV7()) : generateUuidV7(),
       workout_exercise_id: workoutExerciseId,
       set_num: setNum,
       is_warmup: partial.is_warmup ?? 0,
@@ -463,7 +560,10 @@ export function useWorkout() {
     if (skipped) nextSkipped.add(committed.id)
     else nextSkipped.delete(committed.id)
     skippedSetIds.value = nextSkipped
-    if (!current.some((set) => set.completed === 0 && !nextSkipped.has(set.id))) {
+    if (
+      !prescription.value &&
+      !current.some((set) => set.completed === 0 && !nextSkipped.has(set.id))
+    ) {
       current.push(buildPendingSet(entry.exerciseId, null, nextSetNumber(current)))
     }
     sets.value = new Map(sets.value).set(entry.exerciseId, current)
@@ -477,7 +577,10 @@ export function useWorkout() {
     const updated = [...(sets.value.get(workoutExerciseId) ?? [])]
     if (pendingIdx >= 0) updated[pendingIdx] = set
     else updated.push(set)
-    if (!updated.some((item) => item.completed === 0 && !skippedSetIds.value.has(item.id))) {
+    if (
+      !prescription.value &&
+      !updated.some((item) => item.completed === 0 && !skippedSetIds.value.has(item.id))
+    ) {
       updated.push(buildPendingSet(workoutExerciseId, set, nextSetNumber(updated)))
     }
     sets.value = new Map(sets.value).set(workoutExerciseId, updated)
@@ -535,24 +638,45 @@ export function useWorkout() {
 
   function startRestTimer(seconds: number, exerciseId: string, setId: string | null = null) {
     window.clearInterval(restInterval ?? undefined)
-    restTimer.value = { active: true, remaining: seconds, total: seconds, exerciseId, setId }
+    const deadlineMs = Date.now() + seconds * 1000
+    restTimer.value = {
+      active: true,
+      remaining: seconds,
+      total: seconds,
+      exerciseId,
+      setId,
+      deadlineMs,
+    }
     restInterval = window.setInterval(() => {
-      restTimer.value.remaining--
-      if (restTimer.value.remaining <= 0) stopRestTimer()
-    }, 1000)
+      const remaining = Math.max(
+        0,
+        Math.ceil(((restTimer.value.deadlineMs ?? Date.now()) - Date.now()) / 1000),
+      )
+      if (remaining === 0) stopRestTimer()
+      else restTimer.value = { ...restTimer.value, remaining }
+    }, 250)
   }
 
   function stopRestTimer() {
     window.clearInterval(restInterval ?? undefined)
     restInterval = null
-    restTimer.value = { active: false, remaining: 0, total: 0, exerciseId: null, setId: null }
+    restTimer.value = {
+      active: false,
+      remaining: 0,
+      total: 0,
+      exerciseId: null,
+      setId: null,
+      deadlineMs: null,
+    }
   }
 
   function addRestTime(seconds: number) {
     if (restTimer.value.active) {
+      const deadlineMs = (restTimer.value.deadlineMs ?? Date.now()) + seconds * 1000
       restTimer.value = {
         ...restTimer.value,
-        remaining: restTimer.value.remaining + seconds,
+        deadlineMs,
+        remaining: Math.max(0, Math.ceil((deadlineMs - Date.now()) / 1000)),
         total: restTimer.value.total + seconds,
       }
     } else {
@@ -575,6 +699,7 @@ export function useWorkout() {
     stopElapsedClock()
     stopRestTimer()
     activeWorkout.value = null
+    activeInterval.value = null
     workoutExercises.value = []
     sets.value = new Map()
     templateGroups.value = new Map()
@@ -587,6 +712,58 @@ export function useWorkout() {
     sessionIntensityModifier.value = 1
     sessionVolumeModifier.value = 1
     return summary
+  }
+  async function saveIntervalState(
+    expected: Pick<
+      NonNullable<WorkoutSession['interval']>,
+      'phase' | 'round' | 'phase_deadline_ms' | 'paused_remaining_sec' | 'updated_at'
+    >,
+    state: Pick<
+      NonNullable<WorkoutSession['interval']>,
+      'phase' | 'round' | 'phase_deadline_ms' | 'paused_remaining_sec'
+    >,
+  ) {
+    const workoutId = activeWorkout.value?.id
+    if (!workoutId) throw new Error('No active interval workout')
+    const result = await db.workout('WORKOUT_INTERVAL_STATE', {
+      workoutId,
+      expected: {
+        phase: expected.phase,
+        round: expected.round,
+        phase_deadline_ms: expected.phase_deadline_ms,
+        paused_remaining_sec: expected.paused_remaining_sec,
+        updated_at: expected.updated_at,
+      },
+      state: {
+        phase: state.phase,
+        round: state.round,
+        phase_deadline_ms: state.phase_deadline_ms,
+        paused_remaining_sec: state.paused_remaining_sec,
+      },
+    })
+    if (!activeInterval.value || activeInterval.value.updated_at <= result.state.updated_at)
+      activeInterval.value = result.state
+    if (result.summary) {
+      lastFinishedWorkoutId.value = workoutId
+      if (activeWorkout.value?.id === workoutId) {
+        stopElapsedClock()
+        stopRestTimer()
+        activeWorkout.value = null
+        activeInterval.value = null
+        workoutExercises.value = []
+        sets.value = new Map()
+        templateGroups.value = new Map()
+        runData.value = null
+        setIntents.value = {}
+        activityIntents.value = {}
+        skippedSetIds.value = new Set()
+        prescription.value = null
+        routine.value = null
+        sessionIntensityModifier.value = 1
+        sessionVolumeModifier.value = 1
+      }
+    }
+    return result
   }
 
   return {
@@ -601,6 +778,7 @@ export function useWorkout() {
     prescription: readonly(prescription),
     routine: readonly(routine),
     lastFinishedWorkoutId: readonly(lastFinishedWorkoutId),
+    activeInterval: readonly(activeInterval),
     elapsedSeconds: readonly(elapsedSeconds),
     restTimer: readonly(restTimer),
     recoverySession: readonly(recoverySession),
@@ -626,5 +804,6 @@ export function useWorkout() {
     finishWorkout,
     stopRestTimer,
     addRestTime,
+    saveIntervalState,
   }
 }

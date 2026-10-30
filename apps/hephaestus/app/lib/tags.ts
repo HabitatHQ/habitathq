@@ -1,3 +1,4 @@
+import { stableLegacyUuidV7 } from '~/lib/db-identity'
 import type { TagCategory, TagRow } from '~/types/database'
 
 export interface PredefinedTagDef {
@@ -26,7 +27,7 @@ export const PREDEFINED_TAGS: PredefinedTagDef[] = [
  */
 export function buildTagSeed(createdAt: string = new Date().toISOString()): TagRow[] {
   return PREDEFINED_TAGS.map((t, i) => ({
-    id: `tag-predefined-${String(i + 1).padStart(3, '0')}`,
+    id: stableLegacyUuidV7(`tag-predefined-${String(i + 1).padStart(3, '0')}`),
     name: t.name,
     category: t.category,
     is_predefined: 1 as const,

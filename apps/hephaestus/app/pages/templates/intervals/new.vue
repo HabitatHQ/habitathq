@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { formatDurationSeconds } from '@habitathq/utils'
+import { generateUuidV7 } from '~/lib/db-identity'
+import { trainingLabel } from '~/lib/format'
 import { buildEmom, buildTabata } from '~/lib/interval-templates'
 
 const db = useDatabase()
@@ -48,7 +50,7 @@ async function handleSave() {
   if (!canSave.value) return
   saving.value = true
   try {
-    const id = crypto.randomUUID()
+    const id = generateUuidV7()
     const now = new Date().toISOString()
     await db.exec(
       'INSERT INTO interval_templates (id, name, intervals, created_at, type, work_sec, rest_sec, rounds) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
@@ -87,11 +89,11 @@ async function handleSave() {
       <button
         v-for="m in (['custom', 'tabata', 'emom', 'amrap', 'mobility'] as const)"
         :key="m"
-        class="py-1.5 text-xs font-semibold rounded-lg transition-colors capitalize"
+        class="py-1.5 text-xs font-semibold rounded-lg transition-colors"
         :class="mode === m ? 'bg-(--color-accent) text-(--color-on-accent)' : 'text-(--ui-text-muted)'"
         @click="mode = m"
       >
-        {{ m === 'mobility' ? 'Mobility' : m }}
+        {{ trainingLabel(m) }}
       </button>
     </div>
 

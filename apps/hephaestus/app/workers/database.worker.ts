@@ -1,135 +1,71 @@
 import { BrowserSqliteAdapter } from '@palladium/sqlite-browser'
-import { dispatchTransfer } from '~/lib/data-transfer'
-import { createSerialQueue, executeBatch } from '~/lib/database-operations'
-import { resetDatabase } from '~/lib/database-reset'
-import { initializeSchema } from '~/lib/db-schema'
-import { dispatchHistory } from '~/lib/history-correction'
-import { dispatchOrganization, isOrganizationOperation } from '~/lib/organization-storage'
-import { toAppDbAdapter } from '~/lib/palladium-database'
-import { dispatchPrescriptionOperation, isDomainOperation } from '~/lib/prescription-storage'
-import { dispatchWorkout } from '~/lib/workout-storage'
-import type { DbAdapter, WorkerRequest, WorkerResponse } from '~/types/database'
+import type { DbOwnerConfig } from '@palladium/worker'
+import { startDbOwner } from '@palladium/worker/owner'
+import {
+  createHephaestusBackend,
+  type HephaestusBackend,
+  type HephaestusRequest,
+} from '~/lib/hephaestus-backend'
 
-await (async () => {
-  async function tryAcquireDbLock(): Promise<boolean> {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 1000))
-      const { promise, resolve } = Promise.withResolvers<boolean>()
-      void navigator.locks.request('hephaestus-db', { ifAvailable: true }, (lock) => {
-        if (!lock) {
-          resolve(false)
-          return Promise.resolve()
-        }
-        resolve(true)
-        return new Promise(() => {})
-      })
-      if (await promise) return true
-    }
-    return false
-  }
+interface HephaestusService {
+  ping(): Promise<boolean>
+  query<T = Record<string, unknown>>(sql: string, params?: readonly unknown[]): Promise<T[]>
+  mutate(sql: string, params?: readonly unknown[]): Promise<number>
+  dispatch(request: HephaestusRequest): Promise<unknown>
+}
 
-  if (!(await tryAcquireDbLock())) {
-    self.postMessage({ type: 'LOCK_UNAVAILABLE' } satisfies WorkerResponse)
-    return
-  }
+let storage: BrowserSqliteAdapter | null = null
+let backend: HephaestusBackend | null = null
 
-  let storage: BrowserSqliteAdapter | null = null
-  let db: DbAdapter | null = null
-
-  async function openDatabase(): Promise<void> {
-    const opened = new BrowserSqliteAdapter({
-      vfs: { type: 'opfs-sah-pool', directory: '/hephaestus', filename: '/hephaestus.db' },
-    })
-    try {
-      await opened.open()
-      const adapter = toAppDbAdapter(opened)
-      await initializeSchema(opened)
-      storage = opened
-      db = adapter
-    } catch (error) {
-      await opened.close()
-      throw error
-    }
-  }
-
-  const enqueue = createSerialQueue()
-
-  try {
-    await openDatabase()
-    self.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
-      const request = event.data
-      void enqueue(async () => {
+const owner: DbOwnerConfig<HephaestusService> = {
+  dbName: 'hephaestus',
+  methods: ['ping', 'query', 'mutate', 'dispatch'],
+  create(context) {
+    return {
+      async open() {
+        const opened = new BrowserSqliteAdapter({
+          vfs: { type: 'opfs-sah-pool', directory: '/hephaestus', filename: '/hephaestus.db' },
+        })
+        storage = opened
         try {
-          const result = await dispatch(request.type, request.payload)
-          self.postMessage({ id: request.id, ok: true, data: result } satisfies WorkerResponse)
+          backend = await createHephaestusBackend(opened, {
+            invalidate: (tables) => context.invalidate(tables),
+          })
         } catch (error) {
-          self.postMessage({
-            id: request.id,
-            ok: false,
-            error: error instanceof Error ? error.message : String(error),
-          } satisfies WorkerResponse)
+          await opened.close()
+          storage = null
+          throw error
         }
-      })
-    })
-    self.postMessage({ type: 'READY' } satisfies WorkerResponse)
-  } catch (error) {
-    self.postMessage({
-      type: 'INIT_ERROR',
-      message: error instanceof Error ? error.message : String(error),
-    } satisfies WorkerResponse)
-  }
+      },
+      async ping() {
+        if (!backend) throw new Error('Hephaestus database is not initialized')
+        return true
+      },
+      async query<T = Record<string, unknown>>(sql: string, params?: readonly unknown[]) {
+        if (!backend) throw new Error('Hephaestus database is not initialized')
+        return backend.query<T>(sql, params)
+      },
+      async mutate(sql, params) {
+        if (!backend) throw new Error('Hephaestus database is not initialized')
+        return backend.mutate(sql, params)
+      },
+      async dispatch(request) {
+        if (!backend) throw new Error('Hephaestus database is not initialized')
+        return backend.dispatch(request)
+      },
+      async close() {
+        const opened = storage
+        const current = backend
+        storage = null
+        backend = null
+        try {
+          await current?.close()
+        } finally {
+          await opened?.close()
+        }
+      },
+    }
+  },
+}
 
-  async function dispatch(type: string, payload: unknown): Promise<unknown> {
-    if (type === 'RESET_DATABASE') {
-      const adapter = db
-      if (!adapter) throw new Error('Database is not initialized')
-      await resetDatabase(adapter)
-      return null
-    }
-    if (type === 'EXPORT_DB') {
-      if (!storage) throw new Error('Database is not initialized')
-      return storage.serialize()
-    }
-    const adapter = db
-    if (!adapter) throw new Error('Database is not initialized')
-    if (type === 'QUERY') {
-      const { sql, bind } = payload as { sql: string; bind?: unknown[] }
-      return adapter.queryAll(sql, bind)
-    }
-    if (type === 'EXEC') {
-      const { sql, bind } = payload as { sql: string; bind?: unknown[] }
-      await adapter.exec(sql, bind)
-      return null
-    }
-    if (type === 'BATCH') {
-      const { statements } = payload as { statements: Array<{ sql: string; bind?: unknown[] }> }
-      await executeBatch(adapter, statements)
-      return null
-    }
-    if (type === 'IS_DEFAULT_APPLIED') {
-      const { key } = payload as { key: string }
-      return (
-        (await adapter.queryOne('SELECT key FROM applied_defaults WHERE key = ?', [key])) !== null
-      )
-    }
-    if (type === 'MARK_DEFAULT_APPLIED') {
-      const { key } = payload as { key: string }
-      await adapter.exec('INSERT OR IGNORE INTO applied_defaults (key) VALUES (?)', [key])
-      return null
-    }
-    if (isDomainOperation(type)) {
-      return adapter.transaction((tx) => dispatchPrescriptionOperation(tx, type, payload))
-    }
-    if (isOrganizationOperation(type)) {
-      return adapter.transaction((tx) => dispatchOrganization(tx, type, payload))
-    }
-    if (type.startsWith('HISTORY_')) {
-      return adapter.transaction((tx) => dispatchHistory(tx, type, payload))
-    }
-    if (type.startsWith('WORKOUT_')) {
-      return adapter.transaction((tx) => dispatchWorkout(tx, type, payload))
-    }
-    if (type.startsWith('TRANSFER_')) return dispatchTransfer(adapter, type, payload)
-    throw new Error(`Unknown message type: ${type}`)
-  }
-})()
+startDbOwner(owner)

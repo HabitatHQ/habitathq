@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { generateUuidV7 } from '~/lib/db-identity'
 import type {
   AppointmentCandidate,
   HistoryCorrectionDetail,
@@ -132,7 +133,7 @@ function addActualSet(activityId: string) {
   const activity = activities.value.find((item) => item.id === activityId)
   if (!activity) return
   activity.sets.push({
-    id: crypto.randomUUID(),
+    id: generateUuidV7(),
     isNew: true,
     setNumber: Math.max(0, ...activity.sets.map((set) => set.setNumber)) + 1,
     skipped: false,
@@ -239,7 +240,7 @@ function submit() {
           <label class="text-xs">Weight kg<input v-model="set.weightKg" type="number" min="0" step="any" class="w-full rounded border border-(--ui-border) bg-(--color-bg) p-2"></label>
           <label class="text-xs">Reps<input v-model="set.reps" type="number" min="0" step="1" class="w-full rounded border border-(--ui-border) bg-(--color-bg) p-2"></label>
           <label class="text-xs">RPE<input v-model="set.rpe" type="number" min="0" step="any" class="w-full rounded border border-(--ui-border) bg-(--color-bg) p-2"></label>
-          <label class="text-xs">RIR<input v-model="set.rir" type="number" min="0" step="1" class="w-full rounded border border-(--ui-border) bg-(--color-bg) p-2"></label>
+          <label class="text-xs">RIR<input v-model="set.rir" type="number" min="0" max="10" step="any" class="w-full rounded border border-(--ui-border) bg-(--color-bg) p-2"></label>
           <label class="text-xs">Duration (s)<input v-model="set.durationSec" type="number" min="0" step="1" class="w-full rounded border border-(--ui-border) bg-(--color-bg) p-2"></label>
           <label class="text-xs">Distance (m)<input v-model="set.distanceM" type="number" min="0" step="any" class="w-full rounded border border-(--ui-border) bg-(--color-bg) p-2"></label>
         </div>
@@ -255,7 +256,7 @@ function submit() {
         <label class="text-xs">Weight kg<input v-model="set.weightKg" type="number" min="0" step="any" class="w-full rounded border border-(--ui-border) bg-(--color-bg) p-2"></label>
         <label class="text-xs">Reps<input v-model="set.reps" type="number" min="0" step="1" class="w-full rounded border border-(--ui-border) bg-(--color-bg) p-2"></label>
         <label class="text-xs">RPE<input v-model="set.rpe" type="number" min="0" step="any" class="w-full rounded border border-(--ui-border) bg-(--color-bg) p-2"></label>
-        <label class="text-xs">RIR<input v-model="set.rir" type="number" min="0" step="1" class="w-full rounded border border-(--ui-border) bg-(--color-bg) p-2"></label>
+        <label class="text-xs">RIR<input v-model="set.rir" type="number" min="0" max="10" step="any" class="w-full rounded border border-(--ui-border) bg-(--color-bg) p-2"></label>
         <label class="text-xs">Duration (s)<input v-model="set.durationSec" type="number" min="0" step="1" class="w-full rounded border border-(--ui-border) bg-(--color-bg) p-2"></label>
         <label class="text-xs">Distance (m)<input v-model="set.distanceM" type="number" min="0" step="any" class="w-full rounded border border-(--ui-border) bg-(--color-bg) p-2"></label>
         <label class="col-span-2 text-xs">Notes<input v-model="set.notes" class="w-full rounded border border-(--ui-border) bg-(--color-bg) p-2"></label>

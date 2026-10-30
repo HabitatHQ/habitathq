@@ -1,3 +1,4 @@
+import { generateUuidV7 } from '~/lib/db-identity'
 import type { CircuitRestMode, GroupType, TemplateGroupRow } from '~/types/database'
 
 export function useTemplateGroups() {
@@ -26,7 +27,7 @@ export function useTemplateGroups() {
       sortOrder?: number
     } = {},
   ): Promise<TemplateGroupRow> {
-    const id = crypto.randomUUID()
+    const id = generateUuidV7()
     const {
       transitionRestSec = 15,
       restAfterRoundSec = 120,

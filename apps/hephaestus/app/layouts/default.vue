@@ -27,7 +27,7 @@ function isActive(to: string) {
     </main>
 
     <nav aria-label="Primary navigation" class="fixed bottom-0 left-0 right-0 safe-area-bottom bg-(--ui-bg) border-t border-(--ui-border) z-50">
-      <ul role="list" class="flex items-center justify-around h-14">
+      <ul role="list" class="mx-auto flex max-w-3xl items-center justify-around h-14">
         <li v-for="item in navItems" :key="item.to">
           <NuxtLink
             :to="item.to"

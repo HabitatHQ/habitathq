@@ -1,9 +1,13 @@
-import type { StorageAdapter, TransactableStorageAdapter } from '@palladium/core'
+import {
+  generateUuidV7,
+  isUuidV7,
+  type StorageAdapter,
+  type TransactableStorageAdapter,
+} from '@palladium/core'
 import initSqlJs from 'sql.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createSerialQueue, executeBatch } from '../../../app/lib/database-operations'
 import { resetDatabase } from '../../../app/lib/database-reset'
-import { dispatchNative, initNativeDb } from '../../../app/lib/db-native'
 import { HEPHAESTUS_SCHEMA, initializeSchema } from '../../../app/lib/db-schema'
 import { toAppDbAdapter } from '../../../app/lib/palladium-database'
 import { dispatchWorkout } from '../../../app/lib/workout-storage'
@@ -151,24 +155,47 @@ describe('Palladium Hephaestus local database boundary', () => {
       `ALTER TABLE exercises ADD COLUMN logging_mode TEXT NOT NULL DEFAULT 'strength'`,
     )
     await initializeSchema(storage)
-    await initializeSchema(storage)
 
     const exercise = await adapter.queryOne<{ id: string; name: string; logging_mode: string }>(
-      'SELECT id,name,logging_mode FROM exercises WHERE id = ?',
-      ['legacy'],
+      'SELECT id,name,logging_mode FROM exercises WHERE slug = ?',
+      ['squat'],
     )
-    expect(exercise).toEqual({ id: 'legacy', name: 'Squat', logging_mode: 'strength' })
+    expect(exercise).toEqual({
+      id: expect.any(String),
+      name: 'Squat',
+      logging_mode: 'strength',
+    })
+    expect(isUuidV7(exercise?.id ?? '')).toBe(true)
+    const workouts = await adapter.queryAll<{ id: string; session_type: string }>(
+      'SELECT id,session_type FROM workouts',
+    )
+    expect(workouts).toEqual([{ id: expect.any(String), session_type: 'other' }])
+    expect(isUuidV7(workouts[0]?.id ?? '')).toBe(true)
+    const program = await adapter.queryOne<{ id: string; completed_at: string | null }>(
+      'SELECT id,completed_at FROM programs WHERE name = ?',
+      ['Legacy plan'],
+    )
+    expect(program).toEqual({ id: expect.any(String), completed_at: null })
+    expect(isUuidV7(program?.id ?? '')).toBe(true)
+    const weeks = await adapter.queryAll<{
+      id: string
+      program_id: string
+      intensity_modifier: number
+    }>('SELECT id,program_id,intensity_modifier FROM program_weeks')
+    expect(weeks).toEqual([
+      { id: expect.any(String), program_id: program?.id, intensity_modifier: 1 },
+    ])
+    expect(isUuidV7(weeks[0]?.id ?? '')).toBe(true)
+    await initializeSchema(storage)
+    expect(await adapter.queryAll('SELECT id,session_type FROM workouts')).toEqual(workouts)
     expect(
-      await adapter.queryOne('SELECT session_type FROM workouts WHERE id = ?', ['legacy-other']),
-    ).toEqual({ session_type: 'other' })
+      await adapter.queryAll('SELECT id,program_id,intensity_modifier FROM program_weeks'),
+    ).toEqual(weeks)
     expect(
-      await adapter.queryOne('SELECT completed_at FROM programs WHERE id = ?', ['legacy-program']),
-    ).toEqual({ completed_at: null })
-    expect(
-      await adapter.queryOne('SELECT intensity_modifier FROM program_weeks WHERE id = ?', [
-        'legacy-week',
+      await adapter.queryOne('SELECT id,name,logging_mode FROM exercises WHERE slug = ?', [
+        'squat',
       ]),
-    ).toEqual({ intensity_modifier: 1 })
+    ).toEqual(exercise)
 
     await adapter.transaction((tx: DbAdapter) =>
       dispatchWorkout(tx, 'WORKOUT_START', {
@@ -211,9 +238,12 @@ describe('Palladium Hephaestus local database boundary', () => {
     expect(await adapter.queryOne<{ user_version: number }>('PRAGMA user_version')).toEqual({
       user_version: HEPHAESTUS_SCHEMA.version,
     })
-    expect(await adapter.queryOne('SELECT id FROM exercises WHERE id = ?', ['retry'])).toEqual({
-      id: 'retry',
-    })
+    const migrated = await adapter.queryAll<{ id: string; name: string }>(
+      'SELECT id,name FROM exercises WHERE slug = ?',
+      ['retry-squat'],
+    )
+    expect(migrated).toEqual([{ id: expect.any(String), name: 'Squat' }])
+    expect(isUuidV7(migrated[0]?.id ?? '')).toBe(true)
   })
 
   it('rolls back versioned prescription conversion and retries without duplicating legacy revisions', async () => {
@@ -242,10 +272,15 @@ describe('Palladium Hephaestus local database boundary', () => {
     expect(await adapter.queryOne('PRAGMA user_version')).toEqual({
       user_version: HEPHAESTUS_SCHEMA.version,
     })
+    const template = await adapter.queryOne<{ id: string }>(
+      'SELECT id FROM templates WHERE name=?',
+      ['Preserved template'],
+    )
+    expect(isUuidV7(template?.id ?? '')).toBe(true)
     expect(
       await adapter.queryOne(
         'SELECT COUNT(*) AS revision_count FROM template_revisions WHERE template_id=?',
-        ['legacy-prescription'],
+        [template?.id],
       ),
     ).toEqual({ revision_count: 1 })
   })
@@ -253,13 +288,15 @@ describe('Palladium Hephaestus local database boundary', () => {
   it('replays the current schema without changing existing user data', async () => {
     const { storage, adapter } = await makeDatabase()
     await initializeSchema(storage)
+    const exerciseId = generateUuidV7()
     await adapter.exec(
-      "INSERT INTO exercises (id,name,slug,equipment,movement,created_at) VALUES ('current','Bench','bench','barbell','press','2026-01-01')",
+      'INSERT INTO exercises (id,name,slug,equipment,movement,created_at) VALUES (?,?,?,?,?,?)',
+      [exerciseId, 'Bench', 'bench', 'barbell', 'press', '2026-01-01'],
     )
     await initializeSchema(storage)
-    expect(await adapter.queryOne('SELECT id FROM exercises WHERE id = ?', ['current'])).toEqual({
-      id: 'current',
-    })
+    expect(await adapter.queryAll('SELECT id,name,slug FROM exercises')).toEqual([
+      { id: exerciseId, name: 'Bench', slug: 'bench' },
+    ])
   })
 
   it('rolls back every batch statement after a later failure', async () => {
@@ -309,10 +346,10 @@ describe('Palladium Hephaestus local database boundary', () => {
       `INSERT INTO exercises (id,name,slug,equipment,movement,created_at) VALUES ('reset-me','Row','row','barbell','row','2026-01-01')`,
     )
     await adapter.exec(
-      `INSERT INTO equipment_profiles VALUES ('reset-me', 2.5, 1.25, 20, '[]', '2026-01-01')`,
+      `INSERT INTO equipment_profiles (exercise_id,minimum_kg,increment_kg,maximum_kg,additional_loads_kg,updated_at) VALUES ('reset-me', 2.5, 1.25, 20, '[]', '2026-01-01')`,
     )
     await adapter.exec(
-      `INSERT INTO organization_source_links VALUES ('reset-me', NULL, NULL, NULL)`,
+      `INSERT INTO organization_source_links (workout_id,appointment_id,rotation_id,rotation_generation) VALUES ('reset-me', NULL, NULL, NULL)`,
     )
     await adapter.exec(`INSERT INTO _palladium_private VALUES ('preserve')`)
     await adapter.exec(`INSERT INTO _sync_state VALUES ('preserve-sync')`)
@@ -340,13 +377,5 @@ describe('Palladium Hephaestus local database boundary', () => {
     )
     await expect(resetDatabase(adapter)).rejects.toThrow('reset rejected')
     expect(await adapter.queryAll('SELECT id FROM exercises')).toEqual([{ id: 'keep-on-error' }])
-  })
-  it('rejects native database operations explicitly instead of pretending reset succeeded', async () => {
-    await expect(initNativeDb()).rejects.toThrow(
-      'Native database operations are unavailable; Hephaestus is PWA-only.',
-    )
-    await expect(dispatchNative({ type: 'RESET_DATABASE' })).rejects.toThrow(
-      'Native database operations are unavailable; Hephaestus is PWA-only.',
-    )
   })
 })

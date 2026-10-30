@@ -1,3 +1,5 @@
+import { generateUuidV7 } from '@palladium/core'
+import { migrateAppIdentities, naturalRowUuidV7 } from '~/lib/db-identity'
 import {
   parseSerializablePrescription,
   structuralFingerprint,
@@ -5,6 +7,7 @@ import {
 } from '~/lib/prescription-domain'
 import { validatePrescriptionExpressions } from '~/lib/prescription-evaluator'
 import { migratePrescriptionDomain } from '~/lib/prescription-storage'
+import { programStructureHash } from '~/lib/program-structure'
 import { type LegacyTemplatePayload, parseLegacyTemplatePayload } from '~/lib/template-export'
 import type { DbAdapter } from '~/types/database'
 import type { ProgramDesign } from '~/types/prescription'
@@ -51,6 +54,22 @@ interface SqliteColumn {
 
 const SAFE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
 const EXCLUDED_TABLE_PREFIXES = ['sqlite_', '_palladium', 'palladium_', '_sync_']
+const OPTIONAL_LEGACY_ID_TABLES = new Set([
+  'weekly_training_load',
+  'workout_tags',
+  'template_folder_items',
+  'template_tags',
+  'workout_finish_summaries',
+  'workout_session_options',
+  'workout_interval_sessions',
+  'workout_intents',
+  'workout_intent_activities',
+  'workout_intent_sets',
+  'workout_set_skips',
+  'equipment_profiles',
+  'organization_goal_credits',
+  'organization_source_links',
+])
 
 function isTransferObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -297,14 +316,19 @@ function validateBackupTableColumns(
   metadata: SqliteColumn[],
   version: number,
 ): void {
+  const optionalId = OPTIONAL_LEGACY_ID_TABLES.has(name)
+  const supportedMetadata = optionalId
+    ? metadata.filter((column) => column.name !== 'id')
+    : metadata
   const hasUnsupportedColumn = table.columns.some(
     (column) => !metadata.some((item) => item.name === column),
   )
   const hasDuplicateColumn = new Set(table.columns).size !== table.columns.length
   const isIncompleteCurrentSchema =
     version >= 2 &&
-    (table.columns.length !== metadata.length ||
-      metadata.some((column) => !table.columns.includes(column.name)))
+    (table.columns.length < supportedMetadata.length ||
+      supportedMetadata.some((column) => !table.columns.includes(column.name)) ||
+      table.columns.length > metadata.length)
   if (hasUnsupportedColumn || hasDuplicateColumn || isIncompleteCurrentSchema)
     throw new Error(`Backup does not contain the complete supported schema for ${name}.`)
 }
@@ -319,11 +343,14 @@ function validateRequiredBackupValues(
     for (const column of metadata)
       if (
         !Object.hasOwn(row, column.name) &&
+        !(column.name === 'id' && OPTIONAL_LEGACY_ID_TABLES.has(name)) &&
         (version >= 2 || (column.notnull === 1 && column.dflt_value === null))
       )
         throw new Error(`Required backup value is missing for ${name}.${column.name}.`)
 }
 
+// Known compatibility defect: pre-interval version-2 backups lack
+// workout_interval_sessions and are intentionally not migrated by this validator.
 async function validateBackupSchema(db: DbAdapter, backup: BackupEnvelope): Promise<void> {
   const current = new Set(await discoverTables(db))
   const included = new Set(Object.keys(backup.tables))
@@ -575,7 +602,7 @@ function validateBackupProgramSlots(
   templates: Set<string>,
   templateRevisions: Map<string, PortableRow>,
 ): Set<string> {
-  const slots = new Set<string>()
+  const slots = new Map<string, string>()
   for (const row of rows('program_revisions')) {
     if (!programs.has(String(row['program_id'])))
       throw new Error('Backup Program revision has no Program.')
@@ -583,15 +610,17 @@ function validateBackupProgramSlots(
     if (programStructureHash(design) !== row['structure_hash'])
       throw new Error('Backup Program revision structure fingerprint is inconsistent.')
     for (const slot of design.slots) {
-      if (slots.has(slot.id)) throw new Error('Backup Program slot identity is duplicated.')
-      slots.add(slot.id)
+      const owner = slots.get(slot.id)
+      if (owner !== undefined && owner !== row['program_id'])
+        throw new Error('Backup Program slot identity belongs to multiple Programs.')
+      slots.set(slot.id, String(row['program_id']))
       if (slot.templateId !== null && !templates.has(slot.templateId))
         throw new Error('Backup Program slot template is dangling.')
       if (slot.templateRevisionId !== null && !templateRevisions.has(slot.templateRevisionId))
         throw new Error('Backup Program slot revision is dangling.')
     }
   }
-  return slots
+  return new Set(slots.keys())
 }
 
 function validateBackupPlanBindings(
@@ -745,6 +774,7 @@ const PORTABLE_ENTITY_ID_TABLES = [
   'organization_rotations',
   'organization_rotation_advances',
   'organization_goals',
+  'equipment_profiles',
 ] as const
 
 function normalizePortableTables(
@@ -846,32 +876,6 @@ function validateProgramDesign(value: unknown): ProgramDesign {
     slotIds.add(slot['id'])
   }
   return value as unknown as ProgramDesign
-}
-
-function programStructureHash(design: ProgramDesign): string {
-  return structuralFingerprint({
-    schemaVersion: 1,
-    evaluatorVersion: 'program-v1',
-    inputs: [],
-    defaults: { incrementKg: 1, restSec: 0 },
-    groups: [],
-    activities: design.slots.map((slot, index) => ({
-      id: slot.id,
-      exerciseId: slot.templateId ?? '',
-      order: index + 1,
-      loggingMode: 'strength',
-      executionGroupId: null,
-      sets: [],
-      targets: { durationSec: null, distanceM: null },
-      notes: null,
-    })),
-    provenance: {
-      kind: 'authored',
-      migratedAt: null,
-      legacyTemplateId: null,
-      unresolvedFields: [],
-    },
-  })
 }
 
 interface PortableSelection {
@@ -1141,6 +1145,15 @@ function addPortableExerciseDependencies(
     throw new Error('Single-template export requires its deload template dependency.')
 }
 
+function goalExerciseIds(row: PortableRow): string[] {
+  const filter: unknown = JSON.parse(String(row['filter_json']))
+  if (!isTransferObject(filter)) throw new Error('Goal filter must be an object.')
+  const ids = filter['exerciseIds'] ?? []
+  if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string' || !id))
+    throw new Error('Goal exercise filter must contain exercise identities.')
+  return ids
+}
+
 async function filterPortableExercises(
   db: DbAdapter,
   tables: PortableBundle['tables'],
@@ -1158,6 +1171,8 @@ async function filterPortableExercises(
       for (const activity of prescription.activities) exerciseIds.add(activity.exerciseId)
     }
   }
+  for (const goal of tables['organization_goals'] ?? [])
+    for (const exerciseId of goalExerciseIds(goal)) exerciseIds.add(exerciseId)
   const exercises = await db.queryAll<PortableRow>('SELECT * FROM exercises')
   const byId = new Set(exercises.map((row) => String(row['id'])))
   for (const id of exerciseIds) {
@@ -1214,8 +1229,8 @@ async function exportPortable(
     tables[table] = await db.queryAll<PortableRow>(`SELECT * FROM ${quoteIdentifier(table)}`)
   const selected = selectPortableGraph(tables, selection?.templateId)
   filterPortableDomain(tables, selected)
-  await filterPortableExercises(db, tables, selected.templateIds)
   filterPortableOrganization(tables, selected)
+  await filterPortableExercises(db, tables, selected.templateIds)
   return {
     format: PORTABLE_FORMAT,
     version: PORTABLE_VERSION,
@@ -1255,7 +1270,7 @@ async function resolvePortableExerciseIds(
     incomingSlugs.add(slug)
     const destination = currentBySlug.get(slug)
     if (row['is_custom'] === 1) {
-      idMap.set(id, crypto.randomUUID())
+      idMap.set(id, generateUuidV7())
     } else if (destination) {
       if (destination.name !== name || destination.movement !== movement)
         throw new Error(`Exercise slug is already used by incompatible catalog content: ${slug}.`)
@@ -1274,10 +1289,16 @@ function validatePortableRow(
   columnNames: Set<string>,
 ): void {
   const keys = Object.keys(row)
-  if (keys.length !== columns.length || keys.some((column) => !columnNames.has(column))) {
+  const missingOptionalId =
+    OPTIONAL_LEGACY_ID_TABLES.has(table) && !Object.hasOwn(row, 'id') && columnNames.has('id')
+  if (
+    keys.length + Number(missingOptionalId) !== columns.length ||
+    keys.some((column) => !columnNames.has(column))
+  ) {
     throw new Error(`Portable ${table} row is missing required content or has unsupported fields.`)
   }
   for (const column of columns) {
+    if (column.name === 'id' && missingOptionalId) continue
     const value = row[column.name]
     if (
       value !== null &&
@@ -1316,7 +1337,7 @@ async function portableIdentities(
 ): Promise<{ incomingIds: Map<string, Set<string>>; currentIds: Map<string, Set<string>> }> {
   const incomingIds = new Map<string, Set<string>>()
   const currentIds = new Map<string, Set<string>>()
-  for (const table of [...PORTABLE_ENTITY_ID_TABLES, 'exercises', 'equipment_profiles'] as const) {
+  for (const table of [...PORTABLE_ENTITY_ID_TABLES, 'exercises'] as const) {
     const idColumn = portableIdColumn(table)
     const ids = new Set<string>()
     for (const row of rowsFor(table)) {
@@ -1597,7 +1618,7 @@ async function importLegacyTemplate(
 ): Promise<RestorePreview> {
   const { payload } = prepared
   await db.transaction(async (tx) => {
-    const templateId = crypto.randomUUID()
+    const templateId = generateUuidV7()
     const template = payload.template
     await tx.exec(
       'INSERT INTO templates (id,name,description,created_at,archived_at,sort_order,pinned_at,last_used_at,use_count,cover_emoji,scheduled_days,notification_enabled,notification_time) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
@@ -1621,7 +1642,7 @@ async function importLegacyTemplate(
       await tx.exec(
         'INSERT INTO template_groups (id,template_id,label,name,group_type,transition_rest_sec,rest_after_round_sec,circuit_rest_mode,sort_order,display_name,rounds,amrap,time_cap_sec) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
         [
-          crypto.randomUUID(),
+          generateUuidV7(),
           templateId,
           group['label'],
           group['name'],
@@ -1641,7 +1662,7 @@ async function importLegacyTemplate(
       await tx.exec(
         'INSERT INTO template_exercises (id,template_id,exercise_id,order_num,superset_group,sets_planned,reps_planned,rpe_target,increment_kg,rest_seconds,set_rest_seconds,transition_rest_sec,warmup_counts,set_scheme,notes,failure_target,rpe_targets,progression_rule,deload_template_id,substitutes,tempo,resistance_note,unilateral) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
         [
-          crypto.randomUUID(),
+          generateUuidV7(),
           templateId,
           prepared.exerciseIds[index],
           exercise['order_num'],
@@ -1763,13 +1784,16 @@ function validatePortableProgramSlots(
   templateIds: Set<string>,
   templateRevisionIds: Set<string>,
   slotIds: Set<string>,
+  slotOwners: Map<string, string>,
 ): void {
   const design = validateProgramDesign(JSON.parse(String(row['design_json'])))
   if (programStructureHash(design) !== row['structure_hash'])
     throw new Error('Program revision structure fingerprint is inconsistent.')
   for (const slot of design.slots) {
-    if (slotIds.has(slot.id))
-      throw new Error(`Duplicate portable Program slot identity: ${slot.id}.`)
+    const owner = slotOwners.get(slot.id)
+    if (owner !== undefined && owner !== row['program_id'])
+      throw new Error(`Portable Program slot belongs to multiple Programs: ${slot.id}.`)
+    slotOwners.set(slot.id, String(row['program_id']))
     slotIds.add(slot.id)
     if (slot.templateId !== null && !templateIds.has(slot.templateId))
       throw new Error('Program revision refers to a missing template.')
@@ -1858,6 +1882,7 @@ function validatePortableProgramAndPlanGraph(
   planIds: Set<string>,
 ): { slotIds: Set<string>; programRevisionIds: Set<string>; organizationCount: number } {
   const slotIds = new Set<string>()
+  const slotOwners = new Map<string, string>()
   const programRevisionIds = new Set<string>()
   const programsWithRevisions = new Set<string>()
   for (const row of rowsFor('program_revisions')) {
@@ -1866,7 +1891,7 @@ function validatePortableProgramAndPlanGraph(
       throw new Error('Program revision has no portable parent program.')
     programRevisionIds.add(String(row['id']))
     programsWithRevisions.add(programId)
-    validatePortableProgramSlots(row, templateIds, templateRevisionIds, slotIds)
+    validatePortableProgramSlots(row, templateIds, templateRevisionIds, slotIds, slotOwners)
   }
   for (const program of rowsFor('programs')) {
     if (!programsWithRevisions.has(String(program['id'])))
@@ -1948,6 +1973,13 @@ async function previewPortableImport(db: DbAdapter, input: unknown): Promise<Res
       routineIds,
       planIds,
     )
+    for (const goal of rowsFor('organization_goals')) {
+      if (!planIds.has(String(goal['plan_id'])))
+        throw new Error('Goal refers to a missing personal plan.')
+      for (const exerciseId of goalExerciseIds(goal))
+        if (!validExerciseIds.has(exerciseId))
+          throw new Error('Goal filter refers to a missing exercise.')
+    }
     const rowCount = PORTABLE_TABLES.reduce((sum, table) => sum + rowsFor(table).length, 0)
     return {
       valid: true,
@@ -1967,49 +1999,56 @@ async function previewPortableImport(db: DbAdapter, input: unknown): Promise<Res
   }
 }
 
+const PORTABLE_JSON_REFERENCE_FIELDS: Record<string, true> = {
+  id: true,
+  exerciseId: true,
+  templateId: true,
+  legacyTemplateId: true,
+  templateRevisionId: true,
+  sourceRevisionId: true,
+  routineId: true,
+  routineRevisionId: true,
+  adoptedTemplateRevisionId: true,
+  programId: true,
+  programSlotId: true,
+  weekId: true,
+  planId: true,
+  executionGroupId: true,
+  inputId: true,
+  targetId: true,
+  template_id: true,
+  exercise_id: true,
+  template_revision_id: true,
+  program_id: true,
+  program_slot_id: true,
+  week_id: true,
+  plan_id: true,
+  routine_id: true,
+  rotation_id: true,
+  goal_id: true,
+  workout_id: true,
+  appointment_id: true,
+  source_id: true,
+  set_id: true,
+  workout_exercise_id: true,
+  deload_template_id: true,
+}
+const PORTABLE_JSON_REFERENCE_ARRAYS: Record<string, true> = {
+  activityIds: true,
+  activity_ids: true,
+  routineIds: true,
+  routine_ids: true,
+  exerciseIds: true,
+}
+
 function remapReference(value: unknown, idMap: Map<string, string>): unknown {
   if (Array.isArray(value)) return value.map((entry) => remapReference(entry, idMap))
   if (!isTransferObject(value)) return value
-  const referenceFields = new Set([
-    'id',
-    'exerciseId',
-    'templateId',
-    'legacyTemplateId',
-    'templateRevisionId',
-    'sourceRevisionId',
-    'routineId',
-    'routineRevisionId',
-    'adoptedTemplateRevisionId',
-    'programId',
-    'programSlotId',
-    'weekId',
-    'planId',
-    'executionGroupId',
-    'inputId',
-    'targetId',
-    'template_id',
-    'exercise_id',
-    'template_revision_id',
-    'program_id',
-    'program_slot_id',
-    'week_id',
-    'plan_id',
-    'routine_id',
-    'rotation_id',
-    'goal_id',
-    'workout_id',
-    'appointment_id',
-    'source_id',
-    'set_id',
-    'workout_exercise_id',
-    'deload_template_id',
-  ])
-  const referenceArrays = new Set(['activityIds', 'activity_ids', 'routineIds', 'routine_ids'])
   const result: Record<string, unknown> = {}
   for (const [key, entry] of Object.entries(value)) {
-    if (typeof entry === 'string' && referenceFields.has(key))
+    if (typeof entry === 'string' && Object.hasOwn(PORTABLE_JSON_REFERENCE_FIELDS, key))
       result[key] = idMap.get(entry) ?? entry
-    else if (Array.isArray(entry) && referenceArrays.has(key))
+    else if (Array.isArray(entry) && Object.hasOwn(PORTABLE_JSON_REFERENCE_ARRAYS, key))
       result[key] = entry.map((id) => (typeof id === 'string' ? (idMap.get(id) ?? id) : id))
     else result[key] = remapReference(entry, idMap)
   }
@@ -2021,7 +2060,7 @@ function registerPrescriptionIdentities(value: unknown, idMap: Map<string, strin
     for (const entry of value) registerPrescriptionIdentities(entry, idMap)
   } else if (isTransferObject(value)) {
     const id = value['id']
-    if (typeof id === 'string' && !idMap.has(id)) idMap.set(id, crypto.randomUUID())
+    if (typeof id === 'string' && !idMap.has(id)) idMap.set(id, generateUuidV7())
     for (const entry of Object.values(value)) registerPrescriptionIdentities(entry, idMap)
   }
 }
@@ -2030,23 +2069,37 @@ function registerPortableIdentities(rowsFor: PortableRows, idMap: Map<string, st
   for (const table of PORTABLE_ENTITY_ID_TABLES) {
     for (const row of rowsFor(table)) {
       const id = row['id']
+      // Older portable bundles may omit this table's optional surrogate ID.
+      if (table === 'equipment_profiles' && id === undefined) continue
       if (typeof id !== 'string' || !id || idMap.has(id))
         throw new Error(`Portable identity is duplicated or invalid: ${String(id)}.`)
-      idMap.set(id, crypto.randomUUID())
+      idMap.set(id, generateUuidV7())
     }
   }
-  for (const row of rowsFor('program_revisions')) {
-    const design = validateProgramDesign(JSON.parse(String(row['design_json'])))
-    for (const slot of design.slots) {
-      if (idMap.has(slot.id)) throw new Error(`Portable identity is duplicated: ${slot.id}.`)
-      idMap.set(slot.id, crypto.randomUUID())
-    }
-  }
+  registerPortableProgramSlots(rowsFor, idMap)
   // Prescription identities recur across revisions; one map preserves their references
   // while making every imported graph independent of its source and prior imports.
   for (const table of ['template_revisions', 'routine_revisions'] as const)
     for (const row of rowsFor(table))
       registerPrescriptionIdentities(JSON.parse(String(row['prescription_json'])), idMap)
+}
+
+function registerPortableProgramSlots(rowsFor: PortableRows, idMap: Map<string, string>): void {
+  const slotOwners = new Map<string, string>()
+  for (const row of rowsFor('program_revisions')) {
+    const design = validateProgramDesign(JSON.parse(String(row['design_json'])))
+    for (const slot of design.slots) {
+      const owner = slotOwners.get(slot.id)
+      if (owner !== undefined) {
+        if (owner !== row['program_id'])
+          throw new Error(`Portable Program slot belongs to multiple Programs: ${slot.id}.`)
+        continue
+      }
+      if (idMap.has(slot.id)) throw new Error(`Portable identity is duplicated: ${slot.id}.`)
+      slotOwners.set(slot.id, String(row['program_id']))
+      idMap.set(slot.id, generateUuidV7())
+    }
+  }
 }
 
 const PORTABLE_REFERENCE_COLUMNS = new Set([
@@ -2129,13 +2182,21 @@ async function insertPortableRow(
   if (!isTransferObject(row)) throw new Error(`Invalid portable row in ${table}.`)
   if (table === 'exercises' && row['is_custom'] !== 1) return
   const next = remapPortableRow(table, row, idMap)
+  // Legacy rows without the surrogate identity keep the deterministic natural
+  // identity; installs without the column get it from the identity migration.
+  if (
+    OPTIONAL_LEGACY_ID_TABLES.has(table) &&
+    !Object.hasOwn(next, 'id') &&
+    (await columnsFor(tx, table)).some((column) => column.name === 'id')
+  )
+    next['id'] = naturalRowUuidV7(table, next)
   if (
     table === 'exercises' &&
     row['is_custom'] === 1 &&
     typeof row['slug'] === 'string' &&
     (await tx.queryOne('SELECT id FROM exercises WHERE slug = ?', [row['slug']]))
   )
-    next['slug'] = `${row['slug']}-${String(idMap.get(String(row['id']))).slice(0, 8)}`
+    next['slug'] = `${row['slug']}-${idMap.get(String(row['id']))}`
   const columns = Object.keys(next)
   await tx.exec(
     `INSERT INTO ${quoteIdentifier(table)} (${columns.map(quoteIdentifier).join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
@@ -2180,6 +2241,7 @@ async function importPortable(db: DbAdapter, input: unknown): Promise<RestorePre
   await db.transaction(async (tx) => {
     for (const table of insertOrder)
       for (const row of rowsFor(table)) await insertPortableRow(tx, table, row, idMap)
+    await migrateAppIdentities(tx)
   })
   return preview
 }
@@ -2187,7 +2249,10 @@ async function restoreBackup(db: DbAdapter, input: unknown): Promise<RestorePrev
   const preview = await preflightRestore(db, input)
   if (!preview.valid) throw new Error(preview.error ?? 'Backup validation failed.')
   const { backup } = validateBackup(input)
-  await db.transaction((tx) => applyBackupRestore(tx, backup))
+  await db.transaction(async (tx) => {
+    await applyBackupRestore(tx, backup)
+    await migrateAppIdentities(tx)
+  })
   return preview
 }
 
@@ -2247,8 +2312,13 @@ async function insertBackupRows(
 ): Promise<void> {
   const columns = await columnsFor(tx, name)
   const columnNames = columns.map((column) => column.name)
+  const hasIdentityColumn = columnNames.includes('id')
   for (const row of definition.rows) {
     const entries = Object.entries(row)
+    // Legacy rows without the surrogate identity keep the deterministic natural
+    // identity; installs without the column get it from the identity migration.
+    if (OPTIONAL_LEGACY_ID_TABLES.has(name) && hasIdentityColumn && !Object.hasOwn(row, 'id'))
+      entries.push(['id', naturalRowUuidV7(name, row)])
     validateRestoredRow(name, entries, columns)
     const insertColumns = entries.map(([column]) => quoteIdentifier(column))
     if (insertColumns.length === 0) throw new Error(`Empty backup row for ${name}.`)

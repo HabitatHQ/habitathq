@@ -134,6 +134,7 @@ const roundsCompleted = computed(() => {
                 v-for="set in ex.sets"
                 :key="set.id"
                 :set="set"
+                :active="set.id === ex.sets.find((item) => item.completed === 0 && !skippedSetIds?.has(item.id))?.id"
                 :unit="unit"
                 :logging-mode="ex.we.logging_mode"
                 :exercise-name="ex.exercise.name"

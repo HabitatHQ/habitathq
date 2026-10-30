@@ -1,3 +1,5 @@
+import { addCalendarDays, parseDateString } from '@habitathq/utils'
+import { isoWeek } from '~/lib/format'
 import type { SetRow } from '~/types/database'
 
 /**
@@ -20,6 +22,19 @@ export function calculateChronicLoad(weeklyVolumes: number[]): number {
   const previousWeeks = weeklyVolumes.slice(-5, -1)
   if (previousWeeks.length === 0) return 0
   return previousWeeks.reduce((sum, volume) => sum + volume, 0) / previousWeeks.length
+}
+
+/** Missing completed calendar weeks are rest weeks; the current partial week is excluded. */
+export function completedWeekVolumes(
+  today: string,
+  rows: { week: string; gym_volume: number | null }[],
+): number[] {
+  const monday = addCalendarDays(today, -((parseDateString(today).getDay() + 6) % 7))
+  const volumeByWeek = new Map(rows.map((row) => [row.week, row.gym_volume ?? 0]))
+  return Array.from({ length: 5 }, (_, index) => {
+    const week = isoWeek(parseDateString(addCalendarDays(monday, (index - 5) * 7)))
+    return volumeByWeek.get(week) ?? 0
+  })
 }
 
 /**

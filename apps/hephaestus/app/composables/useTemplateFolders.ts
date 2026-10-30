@@ -1,3 +1,4 @@
+import { generateUuidV7 } from '~/lib/db-identity'
 import type { TemplateFolderRow, TemplateRow } from '~/types/database'
 
 export function useTemplateFolders() {
@@ -10,7 +11,7 @@ export function useTemplateFolders() {
   }
 
   async function create(name: string, color?: string): Promise<TemplateFolderRow> {
-    const id = crypto.randomUUID()
+    const id = generateUuidV7()
     const now = new Date().toISOString()
     await db.exec(
       'INSERT INTO template_folders (id, name, color, created_at) VALUES (?, ?, ?, ?)',

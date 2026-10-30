@@ -109,9 +109,14 @@ export interface PalladiumClient {
   ): () => void;
 }
 /** Convenience client for the query/mutate {@link DbApi} service shape. */
-export function createClient(worker: Worker): PalladiumClient {
-  const conn = connect<DbApi>(worker);
-
+export function createClient(worker: Worker): PalladiumClient;
+/** Build a query/mutate client on an existing typed connection. */
+export function createClient(connection: WorkerConnection<DbApi>): PalladiumClient;
+export function createClient(
+  workerOrConnection: Worker | WorkerConnection<DbApi>,
+): PalladiumClient {
+  const conn =
+    "service" in workerOrConnection ? workerOrConnection : connect<DbApi>(workerOrConnection);
   const client: PalladiumClient = {
     query: (sql, params) => conn.service.query(sql, params) as Promise<never>,
     mutate: (sql, params) => conn.service.mutate(sql, params),

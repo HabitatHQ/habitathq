@@ -30,6 +30,8 @@ const restoreConfirmation = useDestructiveConfirmation<[]>()
 const importConfirmation = useDestructiveConfirmation<[]>()
 const resetConfirmation = useDestructiveConfirmation<[]>()
 const resetPreferencesConfirmation = useDestructiveConfirmation<[]>()
+const resetDialogOpen = ref(false)
+const resetDialogFocus = useModalFocus(() => resetDialogOpen.value)
 
 async function runOperation(action: () => Promise<void>) {
   errorMessage.value = ''
@@ -473,7 +475,7 @@ const timeFormatToggle = useSettingsToggle('use24HourTime')
         <input v-model="resetPreferences" type="checkbox">
         Also reset Hephaestus app preferences (hephaestus-app-settings only)
       </label>
-      <UButton class="text-(--color-danger)" color="error" variant="outline" icon="i-ph-trash" :disabled="operation.busy.value" @click="resetConfirmation.request()">
+      <UButton class="text-(--color-danger)" color="error" variant="outline" icon="i-ph-trash" :disabled="operation.busy.value" @click="resetDialogOpen = true">
         Reset Hephaestus database
       </UButton>
       <AppOperationFeedback :busy="operation.busy.value" :error="errorMessage || operation.error.value" :success="Boolean(statusMessage)">
@@ -483,7 +485,9 @@ const timeFormatToggle = useSettingsToggle('use24HourTime')
       </AppOperationFeedback>
       <AppDestructiveConfirm :model-value="restoreConfirmation.pending.value" title="Replace Hephaestus data?" message="Replace all Hephaestus database data and app settings with this backup? This cannot be undone." confirm-label="Replace data" :busy="operation.busy.value" @cancel="restoreConfirmation.cancel()" @confirm="confirmRestore" />
       <AppDestructiveConfirm :model-value="importConfirmation.pending.value" title="Import training configuration?" message="Import these templates, Programs, saved routines and personal plans? Existing content will not be overwritten." confirm-label="Import" :busy="operation.busy.value" @cancel="importConfirmation.cancel()" @confirm="confirmImport" />
-      <AppDestructiveConfirm :model-value="resetConfirmation.pending.value" title="Reset Hephaestus database?" message="Clear all Hephaestus application database records? This cannot be undone. App preferences are kept unless you separately confirm their reset." confirm-label="Reset database" :busy="operation.busy.value" @cancel="resetConfirmation.cancel()" @confirm="confirmReset" />
+      <UModal v-model:open="resetDialogOpen" :content="resetDialogFocus" title="Reset Hephaestus database?" description="Clear all Hephaestus application database records? This cannot be undone.">
+        <template #content><div class="w-full max-w-md space-y-4 rounded-xl bg-(--ui-bg) p-6 shadow-xl"><h2 class="text-lg font-semibold">Reset Hephaestus database?</h2><p class="text-sm text-(--ui-text-muted)">Clear all Hephaestus application database records? This cannot be undone. App preferences are kept unless you separately confirm their reset.</p><div class="flex justify-end gap-3"><UButton variant="outline" :disabled="operation.busy.value" @click="resetDialogOpen = false">Cancel</UButton><UButton color="error" :loading="operation.busy.value" @click="resetDialogOpen = false; confirmReset()">Reset database</UButton></div></div></template>
+      </UModal>
       <AppDestructiveConfirm :model-value="resetPreferencesConfirmation.pending.value" title="Reset app preferences?" message="Also reset Hephaestus app preferences stored under hephaestus-app-settings?" confirm-label="Reset preferences" :busy="operation.busy.value" @cancel="cancelResetPreferences" @confirm="confirmResetPreferences" />
     </section>
     <!-- Accessibility -->

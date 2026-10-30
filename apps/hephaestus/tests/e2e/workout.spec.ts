@@ -192,7 +192,7 @@ test.describe('populated local-first acceptance journey', () => {
     await page.goto('/history')
     await expect(page.getByText(/loading workouts/i)).not.toBeVisible({ timeout: 15_000 })
     const historyEntry = page.getByRole('link', {
-      name: /gym session.*restored journey marker/i,
+      name: /E2E Complete Journey.*restored journey marker/i,
     })
     await expect(historyEntry).toBeVisible()
     await historyEntry.click()
@@ -228,7 +228,7 @@ test.describe('populated local-first acceptance journey', () => {
     if (!backupPath) throw new Error('Backup download did not produce a local file.')
 
     await page.getByRole('button', { name: /reset hephaestus database/i }).click()
-    const resetConfirmation = page.getByRole('alertdialog', { name: /reset hephaestus database/i })
+    const resetConfirmation = page.getByRole('dialog', { name: /reset hephaestus database/i })
     const resetReload = page.waitForEvent('load')
     await resetConfirmation.getByRole('button', { name: 'Reset database' }).click()
     await resetReload
@@ -247,7 +247,7 @@ test.describe('populated local-first acceptance journey', () => {
     await page.goto('/history')
     await expect(page.getByText(/loading workouts/i)).not.toBeVisible({ timeout: 15_000 })
     await expect(
-      page.getByRole('link', { name: /gym session.*restored journey marker/i }),
+      page.getByRole('link', { name: /E2E Complete Journey.*restored journey marker/i }),
     ).toHaveCount(0)
 
     await page.goto('/profile')
@@ -269,7 +269,7 @@ test.describe('populated local-first acceptance journey', () => {
     await page.goto('/history')
     await expect(page.getByText(/loading workouts/i)).not.toBeVisible({ timeout: 15_000 })
     await expect(
-      page.getByRole('link', { name: /gym session.*restored journey marker/i }),
+      page.getByRole('link', { name: /E2E Complete Journey.*restored journey marker/i }),
     ).toBeVisible()
     await page.goto('/progress')
     await expect(page.getByText(/loading analytics/i)).not.toBeVisible({ timeout: 15_000 })
@@ -313,8 +313,8 @@ test.describe('manual strength recovery', () => {
     await page.goto('/history')
     await page.context().setOffline(true)
     await page.reload()
-    await expect(page.getByRole('link', { name: /gym session/i })).toBeVisible()
-    await page.getByRole('link', { name: /gym session/i }).click()
+    await expect(page.getByRole('link', { name: /strength session/i })).toBeVisible()
+    await page.getByRole('link', { name: /strength session/i }).click()
     await expect(page.getByRole('table', { name: /sets for barbell squat/i })).toContainText(
       '80 kg',
     )
@@ -328,7 +328,7 @@ test.describe('session modes', () => {
     await page.getByRole('button', { name: /start empty session/i }).click()
     await expect(page.getByRole('heading', { name: /manual run details/i })).toBeVisible()
     await page.getByLabel('Distance (km)').fill('5.25')
-    await page.getByLabel('Duration (seconds)').fill('1500')
+    await page.getByLabel('Duration (minutes)').fill('25')
     await page.getByRole('button', { name: /save run details/i }).click()
     await page.getByRole('button', { name: /^finish$/i }).click()
     await page.getByRole('button', { name: /save workout/i }).click()
@@ -355,12 +355,13 @@ test.describe('session modes', () => {
       await expect(page.getByRole('heading', { name: `E2E ${mode.label} interval` })).toBeVisible()
       await page.getByRole('button', { name: /start session/i }).click()
       await expect(page.getByText(mode.phase, { exact: true })).toBeVisible()
+      page.once('dialog', (dialog) => dialog.accept())
       await page.getByRole('button', { name: /finish session/i }).click()
-      await expect(page.getByRole('status')).toContainText(/session saved/i)
+      await expect(page.getByRole('status').filter({ hasText: /session saved/i })).toBeVisible()
 
       await page.goto('/history')
       await expect(
-        page.getByRole('link', { name: new RegExp(`${mode.session} session`, 'i') }),
+        page.getByRole('link', { name: new RegExp(`E2E ${mode.label} interval`) }),
       ).toBeVisible()
     })
   }
@@ -387,6 +388,10 @@ test.describe('equipment-aware progression', () => {
     await page.getByRole('button', { name: /^done$/i }).click()
 
     await page.goto('/equipment')
+    await page.getByLabel('Find a strength exercise').fill('Barbell Squat')
+    await page
+      .getByRole('combobox', { name: 'Exercise', exact: true })
+      .selectOption({ label: 'Barbell Squat' })
     const profile = page
       .locator('section')
       .filter({ has: page.getByRole('heading', { name: 'Barbell Squat' }) })

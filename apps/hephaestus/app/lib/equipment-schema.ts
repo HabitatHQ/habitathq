@@ -1,5 +1,7 @@
+import { UUID_V7_SQL_DEFAULT } from '~/lib/db-identity'
 export const EQUIPMENT_DDL = `
 CREATE TABLE IF NOT EXISTS equipment_profiles (
+  id TEXT UNIQUE NOT NULL DEFAULT ${UUID_V7_SQL_DEFAULT},
   exercise_id TEXT PRIMARY KEY REFERENCES exercises(id) ON DELETE CASCADE,
   minimum_kg REAL NOT NULL CHECK (minimum_kg >= 0),
   increment_kg REAL NOT NULL CHECK (increment_kg > 0),

@@ -23,6 +23,9 @@ const loggingMode = computed(() => props.workoutExercise.logging_mode)
 const workingCount = computed(
   () => props.sets.filter((s) => s.completed === 1 && s.is_warmup === 0).length,
 )
+const activeSetId = computed(
+  () => props.sets.find((set) => set.completed === 0 && !props.skippedSetIds?.has(set.id))?.id,
+)
 </script>
 
 <template>
@@ -73,6 +76,7 @@ const workingCount = computed(
         v-for="set in sets"
         :key="set.id"
         :set="set"
+        :active="set.id === activeSetId"
         :unit="unit"
         :logging-mode="loggingMode"
         :exercise-name="exercise.name"

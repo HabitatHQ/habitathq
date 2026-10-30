@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { isUuidV7 } from '@palladium/core'
+import { describe, expect, it, vi } from 'vitest'
 import {
   BACKUP_FORMAT,
   BACKUP_VERSION,
@@ -88,6 +89,7 @@ async function assertRestoreRollback(db: DbAdapter, raw: TestDb, backup: BackupE
   ).toEqual([{ week_start: '2026-09-28' }])
   raw.exec('DROP TRIGGER reject_restored_workout')
 }
+const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 describe('database transfer', () => {
   it('round-trips all discovered app tables and preserves settings', async () => {
@@ -154,27 +156,34 @@ describe('database transfer', () => {
         planCount: 1,
       })
       await dispatchTransfer(db, 'TRANSFER_RESTORE_BACKUP', { backup })
-      expect(
-        testDb.query<{ notes: string }>('SELECT notes FROM workouts WHERE id = ?', ['workout-1']),
-      ).toEqual([{ notes: 'original' }])
-      expect(
-        testDb.query<{ id: string; ended_at: string | null }>(
-          "SELECT id, ended_at FROM workouts WHERE id = 'workout-draft'",
-        ),
-      ).toEqual([{ id: 'workout-draft', ended_at: null }])
+      const workouts = testDb.query<{ id: string; notes: string; ended_at: string | null }>(
+        'SELECT id,notes,ended_at FROM workouts ORDER BY notes',
+      )
+      expect(workouts).toEqual([
+        { id: expect.stringMatching(UUID_V7), notes: 'draft', ended_at: null },
+        {
+          id: expect.stringMatching(UUID_V7),
+          notes: 'original',
+          ended_at: '2026-10-02T10:00:00Z',
+        },
+      ])
+      const originalId = workouts.find((workout) => workout.notes === 'original')?.id
       expect(
         testDb.query<{ summary_json: string }>(
-          "SELECT summary_json FROM workout_finish_summaries WHERE workout_id = 'workout-1'",
+          'SELECT summary_json FROM workout_finish_summaries WHERE workout_id=?',
+          [originalId],
         ),
       ).toEqual([{ summary_json: '{"note":"summary"}' }])
       expect(
         testDb.query<{ operation_json: string }>(
-          "SELECT operation_json FROM history_corrections WHERE id = 'correction-1'",
+          'SELECT operation_json FROM history_corrections WHERE workout_id=?',
+          [originalId],
         ),
       ).toEqual([{ operation_json: '{"kind":"replace"}' }])
       expect(
         testDb.query<{ week_start: string }>(
-          "SELECT week_start FROM organization_goal_credits WHERE goal_id = 'goal-1' AND workout_id = 'workout-1'",
+          "SELECT credit.week_start FROM organization_goal_credits credit JOIN organization_goals goal ON goal.id=credit.goal_id WHERE goal.name='Weekly goal' AND credit.workout_id=?",
+          [originalId],
         ),
       ).toEqual([{ week_start: '2026-09-28' }])
       expect(testDb.query<{ value: string }>('SELECT value FROM future_durable')).toEqual([
@@ -206,14 +215,20 @@ describe('database transfer', () => {
         await dispatchTransfer(db, 'TRANSFER_PREVIEW_RESTORE', { backup: legacy }),
       ).toMatchObject({ valid: true, legacy: true, restoreMode: 'additive' })
       await dispatchTransfer(db, 'TRANSFER_RESTORE_BACKUP', { backup: legacy })
+      const restored = destination.query<{ id: string; notes: string }>(
+        "SELECT id,notes FROM workouts WHERE notes='from legacy backup'",
+      )
+      expect(restored).toHaveLength(1)
+      expect(restored[0]).toMatchObject({
+        id: expect.stringMatching(UUID_V7),
+        notes: 'from legacy backup',
+      })
+      expect(isUuidV7(restored[0]?.id ?? '')).toBe(true)
       expect(
         destination.query<{ id: string; notes: string }>(
-          'SELECT id, notes FROM workouts ORDER BY id',
+          "SELECT id,notes FROM workouts WHERE notes='keep'",
         ),
-      ).toEqual([
-        { id: 'keep-workout', notes: 'keep' },
-        { id: 'workout-1', notes: 'from legacy backup' },
-      ])
+      ).toEqual([{ id: expect.stringMatching(UUID_V7), notes: 'keep' }])
     } finally {
       source.close()
       destination.close()
@@ -267,6 +282,8 @@ describe('database transfer', () => {
     const source = await createTestDb()
     const destination = await createTestDb()
     try {
+      source.exec('ALTER TABLE equipment_profiles ADD COLUMN id TEXT')
+      destination.exec('ALTER TABLE equipment_profiles ADD COLUMN id TEXT')
       source.exec(
         `INSERT INTO exercises (id, name, slug, equipment, movement, is_custom, created_at)
          VALUES ('custom-ex-1', 'Cable Press', 'cable-press', 'cable', 'push', 1, '2026-10-02T00:00:00Z')`,
@@ -284,8 +301,8 @@ describe('database transfer', () => {
          VALUES ('portable-te-1', 'portable-tpl-1', 'custom-ex-1', 1, 'group-1', 3)`,
       )
       source.exec(
-        `INSERT INTO equipment_profiles (exercise_id, minimum_kg, increment_kg, updated_at)
-         VALUES ('custom-ex-1', 1, 0.5, '2026-10-02T00:00:00Z')`,
+        `INSERT INTO equipment_profiles (exercise_id, minimum_kg, increment_kg, updated_at, id)
+         VALUES ('custom-ex-1', 1, 0.5, '2026-10-02T00:00:00Z', '55555555-5555-4555-8555-555555555555')`,
       )
       source.exec(
         `INSERT INTO programs (id, name, weeks, created_at, is_builtin)
@@ -365,6 +382,15 @@ describe('database transfer', () => {
       expect(bundle.tables['exercises']).toHaveLength(1)
       expect(bundle.tables['equipment_profiles']).toHaveLength(1)
       expect(bundle.tables['programs']).toHaveLength(1)
+      expect(
+        await dispatchTransfer(sourceAdapter, 'TRANSFER_PREVIEW_PORTABLE_IMPORT', { bundle }),
+      ).toMatchObject({ valid: true, templateCount: 1 })
+      await dispatchTransfer(sourceAdapter, 'TRANSFER_IMPORT_PORTABLE', { bundle })
+      const sameInstallProfileIds = source.query<{ id: string }>(
+        'SELECT id FROM equipment_profiles ORDER BY id',
+      )
+      expect(sameInstallProfileIds).toHaveLength(2)
+      expect(new Set(sameInstallProfileIds.map((profile) => profile.id)).size).toBe(2)
 
       const missingField = structuredClone(bundle)
       const missingNameTemplate = missingField.tables['templates']?.[0]
@@ -412,6 +438,8 @@ describe('database transfer', () => {
         dispatchTransfer(destinationAdapter, 'TRANSFER_IMPORT_PORTABLE', { bundle: malformed }),
       ).rejects.toThrow('missing template, exercise, group, deload template, or substitute')
       expect(destination.query<{ id: string }>('SELECT id FROM templates')).toEqual([])
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-10-31T12:00:00.000Z'))
 
       expect(
         await dispatchTransfer(destinationAdapter, 'TRANSFER_PREVIEW_PORTABLE_IMPORT', { bundle }),
@@ -441,12 +469,38 @@ describe('database transfer', () => {
         ),
       ).toEqual([{ exercise_id: importedExercise, increment_kg: 0.5 }])
       await dispatchTransfer(destinationAdapter, 'TRANSFER_IMPORT_PORTABLE', { bundle })
+      const profileIds = destination.query<{ id: string }>(
+        'SELECT id FROM equipment_profiles ORDER BY id',
+      )
+      expect(profileIds).toHaveLength(2)
+      expect(new Set(profileIds.map((profile) => profile.id)).size).toBe(2)
+      expect(
+        profileIds.every((profile) => profile.id !== '55555555-5555-4555-8555-555555555555'),
+      ).toBe(true)
+      const importedSlugs = destination.query<{ slug: string }>(
+        "SELECT slug FROM exercises WHERE slug LIKE 'cable-press%' ORDER BY slug",
+      )
+      expect(importedSlugs).toHaveLength(2)
+      expect(new Set(importedSlugs.map((exercise) => exercise.slug)).size).toBe(2)
+      const oldOptionalIdBundle = structuredClone(bundle)
+      const oldProfile = oldOptionalIdBundle.tables['equipment_profiles']?.[0]
+      if (!oldProfile) throw new Error('Portable bundle has no equipment profile')
+      delete oldProfile['id']
+      expect(
+        await dispatchTransfer(destinationAdapter, 'TRANSFER_PREVIEW_PORTABLE_IMPORT', {
+          bundle: oldOptionalIdBundle,
+        }),
+      ).toMatchObject({ valid: true })
+      await dispatchTransfer(destinationAdapter, 'TRANSFER_IMPORT_PORTABLE', {
+        bundle: oldOptionalIdBundle,
+      })
+      expect(destination.query<{ id: string }>('SELECT id FROM equipment_profiles')).toHaveLength(3)
       const importedPairs = destination.query<{ template_id: string; exercise_id: string }>(
         'SELECT template_id, exercise_id FROM template_exercises ORDER BY template_id',
       )
-      expect(importedPairs).toHaveLength(2)
-      expect(new Set(importedPairs.map((row) => row.template_id)).size).toBe(2)
-      expect(new Set(importedPairs.map((row) => row.exercise_id)).size).toBe(2)
+      expect(importedPairs).toHaveLength(3)
+      expect(new Set(importedPairs.map((row) => row.template_id)).size).toBe(3)
+      expect(new Set(importedPairs.map((row) => row.exercise_id)).size).toBe(3)
       expect(
         importedPairs.every(
           (row) => row.template_id !== 'portable-tpl-1' && row.exercise_id !== 'custom-ex-1',
@@ -455,14 +509,15 @@ describe('database transfer', () => {
       const repeatedDayLinks = destination.query<{ template_id: string; program_id: string }>(
         'SELECT pd.template_id, pw.program_id FROM program_days pd JOIN program_weeks pw ON pw.id = pd.week_id ORDER BY pw.program_id',
       )
-      expect(repeatedDayLinks).toHaveLength(2)
-      expect(new Set(repeatedDayLinks.map((row) => row.program_id)).size).toBe(2)
+      expect(repeatedDayLinks).toHaveLength(3)
+      expect(new Set(repeatedDayLinks.map((row) => row.program_id)).size).toBe(3)
       expect(
         repeatedDayLinks.every((row) =>
           importedPairs.some((pair) => pair.template_id === row.template_id),
         ),
       ).toBe(true)
     } finally {
+      vi.useRealTimers()
       source.close()
       destination.close()
     }

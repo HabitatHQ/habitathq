@@ -73,10 +73,23 @@ callback receives the adapter and owns the storage queue for its full async
 lifetime; it is not itself a transaction. Use `adapter.transaction()` inside it
 when atomicity is needed. Do not re-enter queued engine methods from that
 callback—they would wait on the callback and deadlock.
+`engine.captureLocal(callback)` adds a transaction-scoped low-level path for
+SQL scripts that must preserve database-native upsert, cascade, or savepoint
+behavior. It serializes the callback with engine writes, runs it inside the
+adapter's real transaction, and accepts `{ result, ops }` where `ops` are the
+already-applied, canonical net row changes. The engine never replays those
+operations; it validates and snapshots them, stamps row metadata/HLC and runs
+registered durable checkpoints before commit, then publishes only after commit.
+The trusted callback must report every net row effect, including cascades,
+must not retain the transaction adapter, and must not re-enter engine methods.
+Queued methods can deadlock; clock/state methods can escape the transaction.
+An empty operation list records no change and does not advance the HLC.
 
 Raw SQL through Kysely or the adapter does not generate replicated operations,
-outbox entries, or live-query write notifications. Use engine mutations for
-replicated writes; Kysely transactions are for explicitly low-level SQL work.
+outbox entries, or live-query write notifications unless it runs through
+`engine.captureLocal()` with accurate canonical net operations. Use engine
+mutations for ordinary replicated writes; Kysely transactions are for explicitly
+low-level SQL work that is not captured.
 
 The sync transport reads committed outbox snapshots under the same storage
 ownership queue, releases ownership for network I/O, and serializes durable

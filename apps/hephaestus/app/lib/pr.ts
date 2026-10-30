@@ -1,3 +1,4 @@
+import { generateUuidV7 } from '~/lib/db-identity'
 import type { PersonalRecordRow, RecordType, SetRow } from '~/types/database'
 import { calculateE1RM } from './e1rm'
 
@@ -35,7 +36,7 @@ export function detectPRs(
   const bestWeight = bestWeightSet.weight_kg ?? 0
   if (bestWeight > existingBest('weight')) {
     newPRs.push({
-      id: crypto.randomUUID(),
+      id: generateUuidV7(),
       exercise_id: exerciseId,
       record_type: 'weight',
       value: bestWeight,
@@ -52,7 +53,7 @@ export function detectPRs(
   const bestReps = bestRepsSet.reps ?? 0
   if (bestReps > existingBest('reps')) {
     newPRs.push({
-      id: crypto.randomUUID(),
+      id: generateUuidV7(),
       exercise_id: exerciseId,
       record_type: 'reps',
       value: bestReps,
@@ -75,7 +76,7 @@ export function detectPRs(
   }
   if (bestE1rmSet !== null && bestE1rm > existingBest('e1rm')) {
     newPRs.push({
-      id: crypto.randomUUID(),
+      id: generateUuidV7(),
       exercise_id: exerciseId,
       record_type: 'e1rm',
       value: bestE1rm,

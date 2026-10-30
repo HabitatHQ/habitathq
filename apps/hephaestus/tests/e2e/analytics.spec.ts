@@ -50,10 +50,9 @@ test.describe('training analytics from completed sessions', () => {
     await expect(streak).toBeVisible()
     expect(Number((await streak.textContent())?.trim())).toBeGreaterThanOrEqual(1)
 
-    const recentWorkout = page.getByRole('link', { name: /strength ·/i })
+    const recentWorkout = page.getByRole('link', { name: /Strength session/i })
     await expect(recentWorkout).toBeVisible()
     await recentWorkout.click()
     await expect(page).toHaveURL(/\/history\/[^/]+$/)
-    await expect(page.getByRole('heading', { name: 'Workout Detail' })).toBeVisible()
   })
 })

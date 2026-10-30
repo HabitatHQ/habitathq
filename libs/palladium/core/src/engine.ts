@@ -208,6 +208,90 @@ function canonicalOp<S extends SchemaMap>(
   return { ...op, table: table as keyof S & string };
 }
 
+/** A runtime JSON object with string-keyed own properties. */
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Runtime shape of one captured operation after shape validation. */
+type CapturedOpShape =
+  | {
+      readonly kind: "insert";
+      readonly table: string;
+      readonly id: string;
+      readonly data: Record<string, unknown>;
+    }
+  | {
+      readonly kind: "update";
+      readonly table: string;
+      readonly id: string;
+      readonly patch: Record<string, unknown>;
+    }
+  | { readonly kind: "delete"; readonly table: string; readonly id: string };
+
+/** Read and validate the identity fields every captured operation carries. */
+function capturedOpIdentity(value: Record<string, unknown>): { table: string; id: string } {
+  const id = value["id"];
+  if (typeof id !== "string" || !isUuidV7(id)) {
+    throw new TypeError("Captured operation row id must be a canonical UUIDv7");
+  }
+  const table = value["table"];
+  if (typeof table !== "string") {
+    throw new TypeError("Captured operation table must be a canonical schema table");
+  }
+  return { table, id };
+}
+
+/**
+ * Validate the runtime shape of one captured operation.
+ *
+ * Callers are trusted to report accurate net row effects, but the engine
+ * still refuses anything it cannot interpret unambiguously: unknown operation
+ * kinds, missing or extra fields, non-object payloads, non-UUIDv7 ids and
+ * primary-key updates. The engine performs no schema lookup here, so this
+ * stays a pure boundary check.
+ */
+function parseCapturedOp(value: unknown): CapturedOpShape {
+  if (!isPlainRecord(value)) throw new TypeError("Captured operation type is invalid");
+  const kind = value["type"];
+  if (kind !== "insert" && kind !== "update" && kind !== "delete") {
+    throw new TypeError("Captured operation type is invalid");
+  }
+  const expectedKeys =
+    kind === "insert"
+      ? ["type", "table", "id", "data"]
+      : kind === "update"
+        ? ["type", "table", "id", "patch"]
+        : ["type", "table", "id"];
+  if (
+    Object.keys(value).length !== expectedKeys.length ||
+    !expectedKeys.every((key) => Object.hasOwn(value, key))
+  ) {
+    throw new TypeError("Captured operation has unexpected fields");
+  }
+  if (kind === "insert") {
+    const data = value["data"];
+    if (!isPlainRecord(data)) {
+      throw new TypeError("Captured insert data must be a JSON object");
+    }
+    const { table, id } = capturedOpIdentity(value);
+    return { kind, table, id, data };
+  }
+  if (kind === "update") {
+    const patch = value["patch"];
+    if (!isPlainRecord(patch)) {
+      throw new TypeError("Captured update patch must be a JSON object");
+    }
+    const { table, id } = capturedOpIdentity(value);
+    if (Object.keys(patch).some((column) => column.toLowerCase() === "id")) {
+      throw new TypeError("Cannot update the immutable primary key");
+    }
+    return { kind, table, id, patch };
+  }
+  const { table, id } = capturedOpIdentity(value);
+  return { kind, table, id };
+}
+
 /**
  * Rewrite legacy metadata/pending rows that
  * were persisted under a mixed-case alias so the new canonical LWW keys see
@@ -1047,6 +1131,120 @@ export class PalladiumEngine<S extends SchemaMap> {
       await this.#applyOp(adpt, op);
       if (hlc !== null) await this.#stampLocalMeta(adpt, op, hlc);
     }
+  }
+
+  /**
+   * Validate captured operations and return their canonical, net forms.
+   *
+   * The caller's SQL is already applied, so this never writes rows: it only
+   * admits operations the engine can faithfully stamp and publish. Rejections
+   * abort the surrounding transaction, rolling the caller's writes back.
+   */
+  #admitCapturedOps(ops: readonly Op<S>[]): readonly Op<S>[] {
+    const admitted: Op<S>[] = [];
+    const seenRows = new Set<string>();
+    for (const op of ops) {
+      const shape = parseCapturedOp(op);
+      const canonical = canonicalOp(op, (name) => this.#columnsFor(name));
+      const tableColumns = this.#columnsFor(shape.table);
+      const columnNames =
+        shape.kind === "insert"
+          ? Object.keys(shape.data)
+          : shape.kind === "update"
+            ? Object.keys(shape.patch)
+            : [];
+      if (
+        !this.#knownTables.has(shape.table.toLowerCase()) ||
+        shape.table !== String(canonical.table) ||
+        !columnNames.every((column) => column === "id" || tableColumns.has(column)) ||
+        !sameOps([op], [canonical])
+      ) {
+        throw new TypeError("Captured operation must use canonical schema table and columns");
+      }
+      if (shape.kind === "insert") {
+        const dataId = shape.data["id"];
+        if (typeof dataId !== "string" || dataId !== shape.id) {
+          throw new TypeError("Captured insert id must match data.id");
+        }
+      }
+      const identity = `${shape.table}\u0000${shape.id}`;
+      if (seenRows.has(identity)) throw new TypeError("Captured ops must be net row changes");
+      seenRows.add(identity);
+      admitted.push(canonical);
+    }
+    return freezeOps(admitted);
+  }
+
+  /**
+   * Run caller-owned SQL writes in one engine-serialized transaction, then
+   * atomically record their canonical net operations and durable checkpoints.
+   *
+   * The trusted callback must report every net row effect accurately. Its
+   * writes are already applied and are never replayed. Do not retain the
+   * transaction adapter or re-enter engine methods: queued methods can deadlock,
+   * and clock/state methods can escape the captured transaction.
+   */
+  async captureLocal<T>(
+    callback: (
+      adapter: StorageAdapter,
+    ) => Promise<{ readonly result: T; readonly ops: readonly Op<S>[] }>,
+  ): Promise<T> {
+    if (!isTransactable(this.adapter)) {
+      throw new Error("PalladiumEngine writes require transaction support");
+    }
+    let committedResult!: T;
+    const touchedTables = new Set<string>();
+    await this.#serialize(async () => {
+      const previousHlc = this.#currentHlc;
+      let result!: T;
+      let localChange: ChangesLocal<S> | null = null;
+      try {
+        await this.#transaction(async (transaction) => {
+          const captured = await callback(transaction);
+          if (!Array.isArray(captured.ops)) throw new TypeError("Captured ops must be an array");
+          const owned: readonly Op<S>[] = snapshotJson(captured.ops);
+          const immutableOps = this.#admitCapturedOps(owned);
+          if (immutableOps.length > 0) {
+            const hlc = this.nextSendHlc();
+            const changeId = crypto.randomUUID();
+            localChange = Object.freeze({
+              ops: immutableOps,
+              touchedTables: Object.freeze([
+                ...new Set(immutableOps.map((op) => String(op.table))),
+              ]),
+              hlc: Object.freeze({ ...hlc }),
+              changeId,
+            });
+            await this.#ensureSyncTables(transaction);
+            await this.#assertLocalRowsNotRetired(transaction, immutableOps);
+            for (const op of immutableOps) {
+              touchedTables.add(String(op.table));
+              await this.#stampLocalMeta(transaction, op, hlc);
+            }
+            await this.setSyncState(STATE_HLC, hlcToString(hlc), transaction);
+            if (!this.#suppressLocalEmit) {
+              for (const checkpoint of [...this.#localChangeCheckpoints]) {
+                await checkpoint(localChange, transaction);
+              }
+            }
+          }
+          result = captured.result;
+        });
+      } catch (error) {
+        this.#currentHlc = previousHlc;
+        throw error;
+      }
+      if (localChange !== null && !this.#suppressLocalEmit) {
+        this.emitter.emitObserved(
+          (error) => this.#reportObserverErrors([error]),
+          "changes:local",
+          localChange,
+        );
+      }
+      committedResult = result;
+    });
+    await this.#notifyLiveQueries([...touchedTables]);
+    return committedResult;
   }
 
   /**

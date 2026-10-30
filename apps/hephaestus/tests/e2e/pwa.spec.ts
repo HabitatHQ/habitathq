@@ -79,6 +79,6 @@ test('a clean headerless static-host navigation installs isolation before openin
   })
   expect(await page.evaluate(() => sessionStorage.getItem('initial-isolation'))).toBe('false')
   expect(await page.evaluate(() => crossOriginIsolated)).toBe(true)
-  await page.getByRole('link', { name: 'Start Workout', exact: true }).click()
+  await page.getByRole('link', { name: 'Start empty session', exact: true }).click()
   await expect(page.getByRole('button', { name: /start empty session/i })).toBeVisible()
 })

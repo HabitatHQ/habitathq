@@ -1,4 +1,5 @@
 import { isCalendarDate } from '@habitathq/utils'
+import { generateUuidV7 } from '~/lib/db-identity'
 import { organizationCreditPreview, recomputeOrganizationCredit } from '~/lib/organization-storage'
 import { parseSerializablePrescription } from '~/lib/prescription-domain'
 import { recomputeWorkoutDerivedState } from '~/lib/workout-storage'
@@ -67,8 +68,12 @@ function values(value: unknown): HistorySetValues {
     result: HistorySetValues = {}
   for (const key of ['weightKg', 'reps', 'rpe', 'rir', 'durationSec', 'distanceM'] as const) {
     if (!Object.hasOwn(source, key)) continue
-    const number = finite(property(source, key), key, key === 'rpe' ? 10 : Number.MAX_VALUE)
-    if (number !== null && ['reps', 'rir'].includes(key) && !Number.isSafeInteger(number))
+    const number = finite(
+      property(source, key),
+      key,
+      key === 'rpe' || key === 'rir' ? 10 : Number.MAX_VALUE,
+    )
+    if (number !== null && key === 'reps' && !Number.isSafeInteger(number))
       throw new Error(`${key} must be a whole number`)
     result[key] = number
   }
@@ -411,7 +416,7 @@ async function insertActualSet(
   const columns = ['id', 'workout_exercise_id', 'set_num', ...entries.map(([column]) => column)]
   await db.exec(
     `INSERT INTO sets(${columns.join(',')}) VALUES(${columns.map(() => '?').join(',')})`,
-    [crypto.randomUUID(), activityId, setNumber, ...entries.map(([, value]) => value)],
+    [generateUuidV7(), activityId, setNumber, ...entries.map(([, value]) => value)],
   )
 }
 
@@ -480,7 +485,7 @@ async function addActualActivities(db: DbAdapter, change: HistoryCorrectionDraft
     )?.n ?? 0
   for (const activity of change.addActivities ?? []) {
     const mode = await exerciseMode(db, activity.exerciseId)
-    const id = crypto.randomUUID()
+    const id = generateUuidV7()
     await db.exec(
       'INSERT INTO workout_exercises(id,workout_id,exercise_id,logging_mode,order_num,rest_seconds) VALUES(?,?,?,?,?,120)',
       [id, change.workoutId, activity.exerciseId, mode, ++order],
@@ -535,7 +540,7 @@ async function preview(db: DbAdapter, input: unknown): Promise<HistoryCorrection
   let proposed: HistoryCorrectionDetail, afterCredit: HistoryCorrectionPreview['credit']['after']
   await db.exec('SAVEPOINT history_correction_review')
   try {
-    await applyFacts(db, detail, change, crypto.randomUUID())
+    await applyFacts(db, detail, change, generateUuidV7())
     proposed = await readDetail(db, change.workoutId)
     afterCredit = await organizationCreditPreview(db, { workoutId: change.workoutId })
   } finally {
@@ -547,7 +552,7 @@ async function preview(db: DbAdapter, input: unknown): Promise<HistoryCorrection
     detailFingerprint: JSON.stringify(detail),
     creditFingerprint: JSON.stringify(beforeCredit),
   }
-  const id = crypto.randomUUID(),
+  const id = generateUuidV7(),
     fingerprint = JSON.stringify(snapshot)
   await db.exec(
     'INSERT INTO history_correction_previews(id,workout_id,fingerprint,snapshot_json,created_at) VALUES(?,?,?,?,?)',
@@ -620,7 +625,7 @@ async function apply(db: DbAdapter, input: unknown): Promise<HistoryCorrectionRe
     property(snapshot, 'creditFingerprint')
   )
     throw new Error('Workout credit changed after correction preview')
-  const correctionId = crypto.randomUUID()
+  const correctionId = generateUuidV7()
   await applyFacts(db, detail, change, correctionId)
   await recomputeWorkoutDerivedState(db, stored.workout_id)
   await recomputeOrganizationCredit(db, stored.workout_id)

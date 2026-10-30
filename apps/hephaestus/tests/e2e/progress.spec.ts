@@ -102,11 +102,11 @@ test.describe('DB persistence — PR tracking', () => {
     await completeWorkoutWithSet(page, '80', '8')
     await page.goto('/history')
     await expect(page.getByText(/loading workouts/i)).not.toBeVisible({ timeout: 15_000 })
-    await page.getByRole('link', { name: /gym session/i }).click()
-    await expect(page.getByRole('table', { name: /sets for barbell squat/i })).toContainText(
-      '80 kg',
-    )
-    await expect(page.getByRole('table', { name: /sets for barbell squat/i })).toContainText('8')
+    await page.getByRole('link', { name: /^strength session\b/i }).click()
+    const sets = page.getByRole('table', { name: 'Sets for Barbell Squat' })
+    await expect(sets.getByRole('row')).toHaveCount(2)
+    await expect(sets.getByRole('cell', { name: '80 kg', exact: true })).toBeVisible()
+    await expect(sets.getByRole('cell', { name: '8', exact: true })).toBeVisible()
   })
 
   test('training organization reports performed sets and per-exercise tonnage', async ({
@@ -120,7 +120,7 @@ test.describe('DB persistence — PR tracking', () => {
     })
     await expect(organization.getByText('Strength working sets: 1', { exact: true })).toBeVisible()
     const tonnage = organization
-      .getByRole('heading', { name: 'Comparable per-exercise external-load tonnage' })
+      .getByRole('heading', { name: 'Load by exercise' })
       .locator('..')
       .getByRole('listitem')
       .filter({ hasText: 'Barbell Squat' })

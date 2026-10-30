@@ -44,31 +44,22 @@ async function completeWorkout(page: Page) {
 // ---------------------------------------------------------------------------
 
 test.describe('history detail page', () => {
-  test('filter chips toggle aria-pressed', async ({ page }) => {
-    await page.goto('/history')
-
-    const allBtn = page.getByRole('button', { name: /^all$/i })
-    const gymBtn = page.getByRole('button', { name: /^gym$/i })
-    await expect(allBtn).toHaveAttribute('aria-pressed', 'true')
-    await gymBtn.click()
-    await expect(gymBtn).toHaveAttribute('aria-pressed', 'true')
-    await expect(allBtn).toHaveAttribute('aria-pressed', 'false')
-  })
-
-  test('history items link to detail page after completing a workout', async ({ page }) => {
+  test('filters completed sessions and opens their detail page', async ({ page }) => {
     await completeWorkout(page)
-
     await page.goto('/history')
-    await expect(page.getByText(/loading workouts/i)).not.toBeVisible({ timeout: 15_000 })
-
-    // A gym session entry should appear
-    await expect(page.getByText(/gym session/i)).toBeVisible({ timeout: 10_000 })
-
-    const workoutLink = page.getByRole('link', { name: /gym session/i })
+    const filters = page.getByRole('group', { name: 'Filter by session type' })
+    const workoutLink = page.getByRole('link', { name: /^strength session\b/i })
     await expect(workoutLink).toBeVisible({ timeout: 10_000 })
+    const href = await workoutLink.getAttribute('href')
+    expect(href).toMatch(/^\/history\/[^/]+$/)
+    await filters.getByRole('button', { name: 'Strength', exact: true }).click()
+    await expect(workoutLink).toBeVisible()
+    await filters.getByRole('button', { name: 'Run', exact: true }).click()
+    await expect(workoutLink).toHaveCount(0)
+    await filters.getByRole('button', { name: 'All', exact: true }).click()
+    await expect(workoutLink).toHaveAttribute('href', href as string)
     await workoutLink.click()
-
-    await expect(page).toHaveURL(/\/history\/[^/]+$/)
+    await expect(page).toHaveURL(href as string)
   })
 
   test('reviews and persists numeric factual corrections without duplicating completed work', async ({
@@ -76,7 +67,7 @@ test.describe('history detail page', () => {
   }) => {
     await completeWorkout(page)
     await page.goto('/history')
-    await page.getByRole('link', { name: /gym session/i }).click()
+    await page.getByRole('link', { name: /^strength session\b/i }).click()
     const sets = page.getByRole('table', { name: 'Sets for Barbell Squat' })
     await expect(sets.getByRole('row')).toHaveCount(2)
     await expect(sets.getByRole('cell', { name: '80 kg', exact: true })).toBeVisible()
@@ -84,19 +75,32 @@ test.describe('history detail page', () => {
     await page.locator('summary').filter({ hasText: 'Barbell Squat · included' }).click()
     await page.locator('summary').filter({ hasText: 'Set 1 · included' }).click()
     const panel = page.getByRole('region', { name: 'Correct workout facts' })
+    const correctedTitle = 'Corrected squat session'
+    await panel.getByLabel('Title', { exact: true }).fill(correctedTitle)
     await panel.getByLabel('Weight kg', { exact: true }).fill('85')
     await panel.getByLabel('Reps', { exact: true }).fill('6')
     await panel.getByRole('button', { name: 'Review correction', exact: true }).click()
     await expect(sets.getByRole('cell', { name: '80 kg', exact: true })).toBeVisible()
-    await panel.getByRole('button', { name: 'Apply reviewed correction', exact: true }).click()
+    await page.getByRole('button', { name: 'Apply reviewed correction', exact: true }).click()
     await expect(panel).not.toBeVisible()
     await expect(sets.getByRole('row')).toHaveCount(2)
     await expect(sets.getByRole('cell', { name: '85 kg', exact: true })).toBeVisible()
     await expect(sets.getByRole('cell', { name: '6', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1, name: correctedTitle })).toBeVisible()
     await page.reload()
     await expect(sets.getByRole('row')).toHaveCount(2)
     await expect(sets.getByRole('cell', { name: '85 kg', exact: true })).toBeVisible()
     await expect(sets.getByRole('cell', { name: '6', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1, name: correctedTitle })).toBeVisible()
+    const detailPath = new URL(page.url()).pathname
+    await page.goto('/history')
+    const historyLink = page.getByRole('link', { name: new RegExp(`^${correctedTitle}\\b`) })
+    await expect(historyLink).toHaveAttribute('href', detailPath)
+    await page.goto('/')
+    const recentActivity = page.getByRole('region', { name: 'Recent Activity' })
+    await expect(
+      recentActivity.getByRole('link', { name: new RegExp(`^${correctedTitle}\\b`) }),
+    ).toHaveAttribute('href', detailPath)
   })
 
   test('detail page shows exercise with set data', async ({ page }) => {
@@ -105,13 +109,14 @@ test.describe('history detail page', () => {
     await page.goto('/history')
     await expect(page.getByText(/loading workouts/i)).not.toBeVisible({ timeout: 15_000 })
 
-    const workoutLink = page.getByRole('link', { name: /gym session/i })
+    const workoutLink = page.getByRole('link', { name: /^strength session\b/i })
     await workoutLink.click()
 
-    // Exercise name should appear in the detail
-    await expect(page.getByText(/barbell squat/i)).toBeVisible({ timeout: 10_000 })
-    // Set weight logged: 80 kg
-    await expect(page.getByText(/80 kg/i)).toBeVisible({ timeout: 10_000 })
+    const exercise = page.getByRole('region', { name: 'Barbell Squat', exact: true })
+    const sets = exercise.getByRole('table', { name: 'Sets for Barbell Squat' })
+    await expect(sets.getByRole('row')).toHaveCount(2)
+    await expect(sets.getByRole('cell', { name: '80 kg', exact: true })).toBeVisible()
+    await expect(sets.getByRole('cell', { name: '8', exact: true })).toBeVisible()
   })
 
   test('back link navigates to history list', async ({ page }) => {
@@ -120,7 +125,7 @@ test.describe('history detail page', () => {
     await page.goto('/history')
     await expect(page.getByText(/loading workouts/i)).not.toBeVisible({ timeout: 15_000 })
 
-    const workoutLink = page.getByRole('link', { name: /gym session/i })
+    const workoutLink = page.getByRole('link', { name: /^strength session\b/i })
     await workoutLink.click()
 
     await page.getByRole('link', { name: /back to history/i }).click()
@@ -128,17 +133,11 @@ test.describe('history detail page', () => {
     await expect(page.url()).toMatch(/\/history$/)
   })
 
-  test('detail page shows not found for invalid id', async ({ page }) => {
+  test('invalid workout IDs offer a working route back to history', async ({ page }) => {
     await page.goto('/history/nonexistent-id-that-does-not-exist')
-
-    // "not found" message appears
-    await expect(page.getByText(/workout not found/i)).toBeVisible({ timeout: 10_000 })
-  })
-
-  test('not found page still has back link to history', async ({ page }) => {
-    await page.goto('/history/nonexistent-id-that-does-not-exist')
-
-    await expect(page.getByText(/workout not found/i)).toBeVisible({ timeout: 10_000 })
-    await expect(page.getByRole('link', { name: /go to history/i })).toBeVisible()
+    await expect(page.getByRole('alert')).toContainText(/workout not found/i)
+    await page.getByRole('link', { name: /go to history/i }).click()
+    await expect(page).toHaveURL('/history')
+    await expect(page.getByRole('heading', { name: 'History', exact: true })).toBeVisible()
   })
 })

@@ -1,3 +1,4 @@
+import { generateUuidV7 } from '~/lib/db-identity'
 import type { SetRow } from '~/types/database'
 import { calculateVolume } from './training-load'
 
@@ -42,7 +43,7 @@ export function buildPendingSet(
   setNum: number,
 ): SetRow {
   return {
-    id: crypto.randomUUID(),
+    id: generateUuidV7(),
     workout_exercise_id: workoutExerciseId,
     set_num: setNum,
     is_warmup: 0 as const,
@@ -68,7 +69,7 @@ export function applySetDefaults(
   setNum: number,
 ): SetRow {
   return {
-    id: crypto.randomUUID(),
+    id: generateUuidV7(),
     workout_exercise_id: workoutExerciseId,
     set_num: setNum,
     is_warmup: 0 as const,

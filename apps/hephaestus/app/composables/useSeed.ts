@@ -1,4 +1,5 @@
 import exercisesData from '~/assets/seed/exercises.json'
+import { generateUuidV7 } from '~/lib/db-identity'
 import type { Equipment, EquipmentSub, MovementPattern } from '~/types/database'
 
 interface ExerciseSeed {
@@ -14,11 +15,21 @@ interface ExerciseSeed {
 }
 
 const seeds = exercisesData as ExerciseSeed[]
+const timedHoldSlugs = new Set(['plank', 'side-plank', 'hollow-body-hold'])
 
 export function useSeed() {
   const db = useDatabase()
 
   async function seedExercises(): Promise<void> {
+    const timedHoldsApplied = await db.isDefaultApplied('seed:timed-holds:v1')
+    if (!timedHoldsApplied) {
+      await db.batch([
+        {
+          sql: "UPDATE exercises SET logging_mode='cardio' WHERE is_custom=0 AND slug IN ('plank','side-plank','hollow-body-hold')",
+        },
+        { sql: "INSERT OR IGNORE INTO applied_defaults (key) VALUES ('seed:timed-holds:v1')" },
+      ])
+    }
     const alreadyApplied = await db.isDefaultApplied('seed:exercises:v6')
     if (alreadyApplied) return
 
@@ -31,7 +42,7 @@ export function useSeed() {
       const batch = seeds.slice(i, i + BATCH)
       const placeholders = batch.map(() => '(?,?,?,?,?,?,?,?,?,?,0,?,?)').join(',\n')
       const bind: (string | null)[] = batch.flatMap((ex) => [
-        crypto.randomUUID(),
+        generateUuidV7(),
         ex.name,
         ex.slug,
         ex.equipment,
@@ -41,7 +52,7 @@ export function useSeed() {
         JSON.stringify(ex.muscles_sec),
         ex.cues ?? null,
         ex.icon ?? null,
-        ex.movement === 'cardio' ? 'cardio' : 'strength',
+        ex.movement === 'cardio' || timedHoldSlugs.has(ex.slug) ? 'cardio' : 'strength',
         now,
       ])
       statements.push({

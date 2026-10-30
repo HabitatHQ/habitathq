@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { formatDurationMinutes, formatDurationSeconds, formatRelativeTime } from '@habitathq/utils'
 import type { TemplateExerciseWithName } from '~/composables/useTemplates'
+import { setSummary } from '~/lib/prescription-presentation'
 import { estimateTemplateDuration } from '~/lib/template-stats'
-import type { SessionType, TemplateRow } from '~/types/database'
+import type { TemplateRow } from '~/types/database'
 
 const route = useRoute()
 const {
   getById,
   getExercises,
+  getRevision,
   deleteTemplate,
   cloneTemplate,
   pinTemplate,
@@ -20,12 +22,13 @@ const templateId = computed(() => String(route.params['id'] ?? ''))
 
 const template = ref<TemplateRow | null>(null)
 const exercises = ref<TemplateExerciseWithName[]>([])
+const revision = ref<Awaited<ReturnType<typeof getRevision>> | null>(null)
+const { settings } = useAppSettings()
 const loading = ref(true)
 const showDeleteConfirm = ref(false)
 const startError = ref('')
 const starting = ref(false)
 const deleting = ref(false)
-const showPreview = ref(false)
 const expandedExercises = ref<Set<string>>(new Set())
 
 // Inline edit
@@ -40,6 +43,7 @@ watch(
     try {
       template.value = await getById(templateId.value)
       exercises.value = await getExercises(templateId.value)
+      revision.value = await getRevision(templateId.value)
     } finally {
       loading.value = false
     }
@@ -48,21 +52,7 @@ watch(
 )
 
 async function handleStart() {
-  showPreview.value = true
-}
-
-async function handleStartConfirm(opts: {
-  scaleFactor: number
-  excludedExerciseIds: string[]
-  sessionType: SessionType
-}) {
-  showPreview.value = false
-  const query = new URLSearchParams({
-    scale: String(opts.scaleFactor),
-    exclude: opts.excludedExerciseIds.join(','),
-    sessionType: opts.sessionType,
-  })
-  await navigateTo(`/templates/${templateId.value}/start?${query.toString()}`)
+  await navigateTo(`/templates/${templateId.value}/start`)
 }
 
 async function handleDelete() {
@@ -216,7 +206,8 @@ const estimatedDuration = computed(() => {
           {{ template.description }}
         </p>
 
-        <section aria-labelledby="tpl-exercises-heading">
+        <section v-if="revision" aria-labelledby="revision-exercises-heading" class="space-y-2"><h2 id="revision-exercises-heading" class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-muted)">Revision {{ revision.revisionNumber }} · current prescriptions</h2><article v-for="activity in revision.prescription.activities" :key="activity.id" class="rounded-xl bg-(--color-surface) p-3"><h3 class="font-medium">{{ activity.order }}. {{ exercises.find(item => item.exercise_id === activity.exerciseId)?.exercise_name ?? 'Exercise' }}</h3><p v-if="activity.loggingMode !== 'strength'" class="text-sm text-(--ui-text-muted)">{{ activity.targets.durationSec?.resolvedValue ? `${activity.targets.durationSec.resolvedValue} sec` : '' }}{{ activity.targets.distanceM?.resolvedValue ? ` · ${activity.targets.distanceM.resolvedValue} m` : '' }}</p><p v-for="set in activity.sets" :key="set.id" class="text-sm text-(--ui-text-muted)">{{ setSummary(set, settings.weightUnit, { showRpe: settings.showRpe, showRir: settings.showRir }) }}</p></article><p v-if="revision.prescription.activities.length === 0" class="text-sm text-(--ui-text-muted)">No exercises in this revision.</p></section>
+        <section v-if="!revision" aria-labelledby="tpl-exercises-heading">
           <h2
             id="tpl-exercises-heading"
             class="text-xs font-semibold uppercase tracking-wider text-(--ui-text-muted) mb-3"
@@ -352,14 +343,5 @@ const estimatedDuration = computed(() => {
       <p v-if="startError" class="text-sm text-red-500 mt-2" role="alert">{{ startError }}</p>
     </div>
 
-    <!-- Preview sheet -->
-    <WorkoutTemplatePreviewSheet
-      v-if="template && exercises.length > 0"
-      :open="showPreview"
-      :template="template"
-      :exercises="exercises"
-      @close="showPreview = false"
-      @start="handleStartConfirm"
-    />
   </div>
 </template>

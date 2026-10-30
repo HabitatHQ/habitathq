@@ -1,3 +1,4 @@
+import { generateUuidV7 } from '~/lib/db-identity'
 import { filterExercises, searchExercises, sortExercises } from '~/lib/exercise-helpers'
 import { movementIcon } from '~/lib/exercise-icons'
 import type {
@@ -9,19 +10,21 @@ import type {
 } from '~/types/database'
 import { equipmentCategory } from '~/types/database'
 
+let exerciseLoadGeneration = 0
+
 export function useExercises() {
   const db = useDatabase()
   const exercises = useState<ExerciseRow[]>('exercises', () => [])
   const loading = ref(false)
 
   async function load() {
-    if (loading.value) return // already in-flight, skip duplicate call
+    const generation = ++exerciseLoadGeneration
     loading.value = true
     try {
       const rows = await db.query<ExerciseRow>('SELECT * FROM exercises ORDER BY name ASC')
-      exercises.value = rows
+      if (generation === exerciseLoadGeneration) exercises.value = rows
     } finally {
-      loading.value = false
+      if (generation === exerciseLoadGeneration) loading.value = false
     }
   }
 
@@ -49,7 +52,7 @@ export function useExercises() {
     musclesSec: string[] = [],
     loggingMode: LoggingMode = 'strength',
   ): Promise<ExerciseRow> {
-    const id = crypto.randomUUID()
+    const id = generateUuidV7()
     const slug = name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
@@ -94,6 +97,53 @@ export function useExercises() {
     exercises.value = [...exercises.value, row]
     return row
   }
+  async function updateCustom(
+    id: string,
+    name: string,
+    equipmentSub: EquipmentSub,
+    movement: MovementPattern,
+    loggingMode: LoggingMode,
+  ): Promise<void> {
+    const current = getById(id)
+    if (current?.is_custom !== 1) throw new Error('Only saved custom exercises can be edited.')
+    const normalizedName = name.trim()
+    if (!normalizedName) throw new Error('Exercise name is required.')
+    const equipment = equipmentCategory(equipmentSub)
+    const icon = movementIcon[movement] ?? 'i-ph-barbell'
+    await db.exec(
+      'UPDATE exercises SET name=?,slug=?,equipment=?,equipment_sub=?,movement=?,icon=?,logging_mode=? WHERE id=? AND is_custom=1',
+      [
+        normalizedName,
+        normalizedName
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, ''),
+        equipment,
+        equipmentSub,
+        movement,
+        icon,
+        loggingMode,
+        id,
+      ],
+    )
+    exercises.value = exercises.value.map((exercise) =>
+      exercise.id === id
+        ? {
+            ...exercise,
+            name: normalizedName,
+            slug: normalizedName
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-|-$/g, ''),
+            equipment,
+            equipment_sub: equipmentSub,
+            movement,
+            icon,
+            logging_mode: loggingMode,
+          }
+        : exercise,
+    )
+  }
 
   return {
     exercises: readonly(exercises),
@@ -103,5 +153,6 @@ export function useExercises() {
     filter,
     getById,
     addCustom,
+    updateCustom,
   }
 }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { toRaw } from 'vue'
+import { generateUuidV7 } from '~/lib/db-identity'
 import type { ProgramRow } from '~/types/database'
 import type { ProgramDesign, ProgramRevision } from '~/types/prescription'
 
@@ -62,7 +63,7 @@ async function addSlot() {
       ? await templates.getRevision(selectedTemplate.value)
       : null
     draft.value.slots.push({
-      id: crypto.randomUUID(),
+      id: generateUuidV7(),
       templateId: source?.templateId ?? null,
       templateRevisionId: source?.id ?? null,
       assignmentResolved: source !== null,
@@ -121,7 +122,7 @@ async function save() {
       <p class="text-sm text-(--ui-text-muted)">Design revision {{ revision.revisionNumber }}. Personal plans keep their adopted revision until reviewed. This design never contains personal working loads.</p>
       <label class="block">Name<input v-model="name" required class="mt-1 min-h-11 w-full rounded bg-(--color-surface) p-2" /></label>
       <label class="block">Description<textarea v-model="description" class="mt-1 w-full rounded bg-(--color-surface) p-2" /></label>
-      <UButton to="/plans" variant="outline">Follow in a personal Training Plan</UButton>
+      <UButton :to="{ path: '/plans', query: { programId: programId } }" variant="outline">Follow in a personal Training Plan</UButton>
       <label class="block">Design week<select v-model.number="selectedWeek" class="mt-1 min-h-11 w-full rounded bg-(--color-surface) p-2"><option v-for="number in draft.weeks" :key="number" :value="number">Week {{ number }}</option></select></label>
       <section v-if="week" class="space-y-3 rounded-xl bg-(--color-surface) p-4">
         <h2 class="font-semibold">Week {{ selectedWeek }} progression intent</h2>

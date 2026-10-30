@@ -4,6 +4,8 @@
 
 The subsequent [UX/routines handoff](../../docs/plans/hephaestus-ux-routines-handoff-20261002.md) records the logging/feedback fixes and the configured-training cutover: revisioned templates, saved routines, reusable Programs, independent personal-plan calendars, captured intent, restricted scalar formulas, durable drafts/completion/undo, reviewed future updates, factual corrections, and versioned portability. Its acceptance section distinguishes current verification from this historical audit. Pending rows complete through the log operation; completed-set corrections preserve identity; PRs show exercise names and appropriate kg/lbs/rep units; recovery labels are human-readable.
 
+The [2026-10-30 audit repair matrix](../../docs/plans/hephaestus-audit-fixes-20261030.md) records the later recovery, portability, history/reporting, and training UX fixes, with current verification evidence and platform limits.
+
 ## Bugs
 
 ### B1 — `logSet` INSERT drops cardio/advanced columns

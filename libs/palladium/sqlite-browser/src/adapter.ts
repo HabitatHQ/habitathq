@@ -52,6 +52,9 @@ export class BrowserSqliteAdapter
   #sqlite3: any = null;
   #pool: {
     unlink(filename: string): boolean;
+    isPaused(): boolean;
+    pauseVfs(): unknown;
+    unpauseVfs(): Promise<unknown>;
     OpfsSAHPoolDb: new (filename: string) => Sqlite3Db;
   } | null = null;
 
@@ -68,10 +71,9 @@ export class BrowserSqliteAdapter
 
   async open(): Promise<void> {
     if (this.#db !== null) return;
+    this.#sqlite3 ??= await sqlite3InitModule();
     const vfs = this.#config.vfs;
     dbg("sqlite-browser", "open start", { type: vfs.type });
-
-    this.#sqlite3 ??= await sqlite3InitModule({ print: () => {}, printErr: () => {} });
 
     if (vfs.type === "memory") {
       this.#db = new this.#sqlite3.oo1.DB(":memory:");
@@ -87,8 +89,21 @@ export class BrowserSqliteAdapter
         clearOnInit: false,
       });
       if (!this.#pool) throw new Error("SAH pool initialization failed");
-      this.#db = new this.#pool.OpfsSAHPoolDb(vfs.filename);
-      this.#db.exec("PRAGMA foreign_keys = ON");
+      if (this.#pool.isPaused()) await this.#pool.unpauseVfs();
+
+      let db: Sqlite3Db | null = null;
+      try {
+        db = new this.#pool.OpfsSAHPoolDb(vfs.filename);
+        db.exec("PRAGMA foreign_keys = ON");
+        this.#db = db;
+      } catch (err) {
+        try {
+          db?.close();
+        } finally {
+          if (!this.#pool.isPaused()) this.#pool.pauseVfs();
+        }
+        throw err;
+      }
     }
 
     dbg("sqlite-browser", "open complete", { type: vfs.type });
@@ -211,11 +226,16 @@ export class BrowserSqliteAdapter
       await directory.removeEntry(filename);
     } else if (vfs.type === "opfs-sah-pool") {
       if (!this.#pool) throw new Error("Open the SAH pool before resetting storage");
-      await this.close();
-      // unlink releases the closed database's virtual file back to this pool.
-      // Removing the origin directory would invalidate live SAHs and sibling data.
-      if (!this.#pool.unlink(vfs.filename)) {
-        throw new Error(`SAH pool could not delete database ${vfs.filename}`);
+      await this.#closeDatabase();
+      try {
+        // close() pauses the pool and clears its filename map. Resume before
+        // unlinking, then release the handles even if reset fails.
+        if (this.#pool.isPaused()) await this.#pool.unpauseVfs();
+        if (!this.#pool.unlink(vfs.filename)) {
+          throw new Error(`SAH pool could not delete database ${vfs.filename}`);
+        }
+      } finally {
+        this.#pausePool();
       }
     } else {
       await this.close();
@@ -223,11 +243,26 @@ export class BrowserSqliteAdapter
     await this.open();
   }
 
-  async close(): Promise<void> {
+  async #closeDatabase(): Promise<void> {
     if (this.#db !== null) {
       dbg("sqlite-browser", "close");
       this.#db.close();
       this.#db = null;
     }
+  }
+
+  /**
+   * Closing SQLite does not release the SAH pool's worker-owned access
+   * handles, so the next owner of this database could not open it.
+   */
+  #pausePool(): void {
+    if (this.#config.vfs.type === "opfs-sah-pool" && this.#pool && !this.#pool.isPaused()) {
+      this.#pool.pauseVfs();
+    }
+  }
+
+  async close(): Promise<void> {
+    await this.#closeDatabase();
+    this.#pausePool();
   }
 }
