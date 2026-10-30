@@ -1,3 +1,5 @@
+import { generateUuidV7 } from '@palladium/core'
+import { migrateAppIdentities, naturalRowUuidV7 } from '~/lib/db-identity'
 import {
   parseSerializablePrescription,
   structuralFingerprint,
@@ -5,6 +7,7 @@ import {
 } from '~/lib/prescription-domain'
 import { validatePrescriptionExpressions } from '~/lib/prescription-evaluator'
 import { migratePrescriptionDomain } from '~/lib/prescription-storage'
+import { programStructureHash } from '~/lib/program-structure'
 import { type LegacyTemplatePayload, parseLegacyTemplatePayload } from '~/lib/template-export'
 import type { DbAdapter } from '~/types/database'
 import type { ProgramDesign } from '~/types/prescription'
@@ -51,6 +54,22 @@ interface SqliteColumn {
 
 const SAFE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
 const EXCLUDED_TABLE_PREFIXES = ['sqlite_', '_palladium', 'palladium_', '_sync_']
+const OPTIONAL_LEGACY_ID_TABLES = new Set([
+  'weekly_training_load',
+  'workout_tags',
+  'template_folder_items',
+  'template_tags',
+  'workout_finish_summaries',
+  'workout_session_options',
+  'workout_interval_sessions',
+  'workout_intents',
+  'workout_intent_activities',
+  'workout_intent_sets',
+  'workout_set_skips',
+  'equipment_profiles',
+  'organization_goal_credits',
+  'organization_source_links',
+])
 
 function isTransferObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -297,14 +316,19 @@ function validateBackupTableColumns(
   metadata: SqliteColumn[],
   version: number,
 ): void {
+  const optionalId = OPTIONAL_LEGACY_ID_TABLES.has(name)
+  const supportedMetadata = optionalId
+    ? metadata.filter((column) => column.name !== 'id')
+    : metadata
   const hasUnsupportedColumn = table.columns.some(
     (column) => !metadata.some((item) => item.name === column),
   )
   const hasDuplicateColumn = new Set(table.columns).size !== table.columns.length
   const isIncompleteCurrentSchema =
     version >= 2 &&
-    (table.columns.length !== metadata.length ||
-      metadata.some((column) => !table.columns.includes(column.name)))
+    (table.columns.length < supportedMetadata.length ||
+      supportedMetadata.some((column) => !table.columns.includes(column.name)) ||
+      table.columns.length > metadata.length)
   if (hasUnsupportedColumn || hasDuplicateColumn || isIncompleteCurrentSchema)
     throw new Error(`Backup does not contain the complete supported schema for ${name}.`)
 }
@@ -319,6 +343,7 @@ function validateRequiredBackupValues(
     for (const column of metadata)
       if (
         !Object.hasOwn(row, column.name) &&
+        !(column.name === 'id' && OPTIONAL_LEGACY_ID_TABLES.has(name)) &&
         (version >= 2 || (column.notnull === 1 && column.dflt_value === null))
       )
         throw new Error(`Required backup value is missing for ${name}.${column.name}.`)
@@ -850,32 +875,6 @@ function validateProgramDesign(value: unknown): ProgramDesign {
   return value as unknown as ProgramDesign
 }
 
-function programStructureHash(design: ProgramDesign): string {
-  return structuralFingerprint({
-    schemaVersion: 1,
-    evaluatorVersion: 'program-v1',
-    inputs: [],
-    defaults: { incrementKg: 1, restSec: 0 },
-    groups: [],
-    activities: design.slots.map((slot, index) => ({
-      id: slot.id,
-      exerciseId: slot.templateId ?? '',
-      order: index + 1,
-      loggingMode: 'strength',
-      executionGroupId: null,
-      sets: [],
-      targets: { durationSec: null, distanceM: null },
-      notes: null,
-    })),
-    provenance: {
-      kind: 'authored',
-      migratedAt: null,
-      legacyTemplateId: null,
-      unresolvedFields: [],
-    },
-  })
-}
-
 interface PortableSelection {
   templateIds: Set<string>
   routineIds: Set<string>
@@ -1268,7 +1267,7 @@ async function resolvePortableExerciseIds(
     incomingSlugs.add(slug)
     const destination = currentBySlug.get(slug)
     if (row['is_custom'] === 1) {
-      idMap.set(id, crypto.randomUUID())
+      idMap.set(id, generateUuidV7())
     } else if (destination) {
       if (destination.name !== name || destination.movement !== movement)
         throw new Error(`Exercise slug is already used by incompatible catalog content: ${slug}.`)
@@ -1287,10 +1286,16 @@ function validatePortableRow(
   columnNames: Set<string>,
 ): void {
   const keys = Object.keys(row)
-  if (keys.length !== columns.length || keys.some((column) => !columnNames.has(column))) {
+  const missingOptionalId =
+    OPTIONAL_LEGACY_ID_TABLES.has(table) && !Object.hasOwn(row, 'id') && columnNames.has('id')
+  if (
+    keys.length + Number(missingOptionalId) !== columns.length ||
+    keys.some((column) => !columnNames.has(column))
+  ) {
     throw new Error(`Portable ${table} row is missing required content or has unsupported fields.`)
   }
   for (const column of columns) {
+    if (column.name === 'id' && missingOptionalId) continue
     const value = row[column.name]
     if (
       value !== null &&
@@ -1610,7 +1615,7 @@ async function importLegacyTemplate(
 ): Promise<RestorePreview> {
   const { payload } = prepared
   await db.transaction(async (tx) => {
-    const templateId = crypto.randomUUID()
+    const templateId = generateUuidV7()
     const template = payload.template
     await tx.exec(
       'INSERT INTO templates (id,name,description,created_at,archived_at,sort_order,pinned_at,last_used_at,use_count,cover_emoji,scheduled_days,notification_enabled,notification_time) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
@@ -1634,7 +1639,7 @@ async function importLegacyTemplate(
       await tx.exec(
         'INSERT INTO template_groups (id,template_id,label,name,group_type,transition_rest_sec,rest_after_round_sec,circuit_rest_mode,sort_order,display_name,rounds,amrap,time_cap_sec) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
         [
-          crypto.randomUUID(),
+          generateUuidV7(),
           templateId,
           group['label'],
           group['name'],
@@ -1654,7 +1659,7 @@ async function importLegacyTemplate(
       await tx.exec(
         'INSERT INTO template_exercises (id,template_id,exercise_id,order_num,superset_group,sets_planned,reps_planned,rpe_target,increment_kg,rest_seconds,set_rest_seconds,transition_rest_sec,warmup_counts,set_scheme,notes,failure_target,rpe_targets,progression_rule,deload_template_id,substitutes,tempo,resistance_note,unilateral) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
         [
-          crypto.randomUUID(),
+          generateUuidV7(),
           templateId,
           prepared.exerciseIds[index],
           exercise['order_num'],
@@ -2052,7 +2057,7 @@ function registerPrescriptionIdentities(value: unknown, idMap: Map<string, strin
     for (const entry of value) registerPrescriptionIdentities(entry, idMap)
   } else if (isTransferObject(value)) {
     const id = value['id']
-    if (typeof id === 'string' && !idMap.has(id)) idMap.set(id, crypto.randomUUID())
+    if (typeof id === 'string' && !idMap.has(id)) idMap.set(id, generateUuidV7())
     for (const entry of Object.values(value)) registerPrescriptionIdentities(entry, idMap)
   }
 }
@@ -2063,7 +2068,7 @@ function registerPortableIdentities(rowsFor: PortableRows, idMap: Map<string, st
       const id = row['id']
       if (typeof id !== 'string' || !id || idMap.has(id))
         throw new Error(`Portable identity is duplicated or invalid: ${String(id)}.`)
-      idMap.set(id, crypto.randomUUID())
+      idMap.set(id, generateUuidV7())
     }
   }
   registerPortableProgramSlots(rowsFor, idMap)
@@ -2087,7 +2092,7 @@ function registerPortableProgramSlots(rowsFor: PortableRows, idMap: Map<string, 
       }
       if (idMap.has(slot.id)) throw new Error(`Portable identity is duplicated: ${slot.id}.`)
       slotOwners.set(slot.id, String(row['program_id']))
-      idMap.set(slot.id, crypto.randomUUID())
+      idMap.set(slot.id, generateUuidV7())
     }
   }
 }
@@ -2172,6 +2177,14 @@ async function insertPortableRow(
   if (!isTransferObject(row)) throw new Error(`Invalid portable row in ${table}.`)
   if (table === 'exercises' && row['is_custom'] !== 1) return
   const next = remapPortableRow(table, row, idMap)
+  // Legacy rows without the surrogate identity keep the deterministic natural
+  // identity; installs without the column get it from the identity migration.
+  if (
+    OPTIONAL_LEGACY_ID_TABLES.has(table) &&
+    !Object.hasOwn(next, 'id') &&
+    (await columnsFor(tx, table)).some((column) => column.name === 'id')
+  )
+    next['id'] = naturalRowUuidV7(table, next)
   if (
     table === 'exercises' &&
     row['is_custom'] === 1 &&
@@ -2223,6 +2236,7 @@ async function importPortable(db: DbAdapter, input: unknown): Promise<RestorePre
   await db.transaction(async (tx) => {
     for (const table of insertOrder)
       for (const row of rowsFor(table)) await insertPortableRow(tx, table, row, idMap)
+    await migrateAppIdentities(tx)
   })
   return preview
 }
@@ -2230,7 +2244,10 @@ async function restoreBackup(db: DbAdapter, input: unknown): Promise<RestorePrev
   const preview = await preflightRestore(db, input)
   if (!preview.valid) throw new Error(preview.error ?? 'Backup validation failed.')
   const { backup } = validateBackup(input)
-  await db.transaction((tx) => applyBackupRestore(tx, backup))
+  await db.transaction(async (tx) => {
+    await applyBackupRestore(tx, backup)
+    await migrateAppIdentities(tx)
+  })
   return preview
 }
 
@@ -2290,8 +2307,13 @@ async function insertBackupRows(
 ): Promise<void> {
   const columns = await columnsFor(tx, name)
   const columnNames = columns.map((column) => column.name)
+  const hasIdentityColumn = columnNames.includes('id')
   for (const row of definition.rows) {
     const entries = Object.entries(row)
+    // Legacy rows without the surrogate identity keep the deterministic natural
+    // identity; installs without the column get it from the identity migration.
+    if (OPTIONAL_LEGACY_ID_TABLES.has(name) && hasIdentityColumn && !Object.hasOwn(row, 'id'))
+      entries.push(['id', naturalRowUuidV7(name, row)])
     validateRestoredRow(name, entries, columns)
     const insertColumns = entries.map(([column]) => quoteIdentifier(column))
     if (insertColumns.length === 0) throw new Error(`Empty backup row for ${name}.`)

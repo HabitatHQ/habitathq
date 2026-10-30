@@ -1,4 +1,5 @@
 import type { DbAdapter } from '@palladium/core'
+import { UUID_V7_SQL_DEFAULT } from '~/lib/db-identity'
 
 export const ORGANIZATION_DDL = `
 CREATE TABLE IF NOT EXISTS organization_appointments (
@@ -44,7 +45,10 @@ CREATE TABLE IF NOT EXISTS organization_goals (
  created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS organization_goal_credits (
- goal_id TEXT NOT NULL REFERENCES organization_goals(id), workout_id TEXT NOT NULL, week_start TEXT NOT NULL,
+ id TEXT UNIQUE NOT NULL DEFAULT ${UUID_V7_SQL_DEFAULT},
+ goal_id TEXT NOT NULL REFERENCES organization_goals(id),
+ workout_id TEXT NOT NULL,
+ week_start TEXT NOT NULL,
  PRIMARY KEY(goal_id,workout_id)
 );
 CREATE INDEX IF NOT EXISTS idx_org_goal_week ON organization_goal_credits(goal_id,week_start);
@@ -53,6 +57,7 @@ CREATE TABLE IF NOT EXISTS organization_reviews (
  owner_id TEXT NOT NULL, fingerprint TEXT NOT NULL, snapshot_json TEXT NOT NULL, created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS organization_source_links (
+ id TEXT UNIQUE NOT NULL DEFAULT ${UUID_V7_SQL_DEFAULT},
  workout_id TEXT PRIMARY KEY, appointment_id TEXT, rotation_id TEXT, rotation_generation INTEGER
 );
 `

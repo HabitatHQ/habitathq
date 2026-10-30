@@ -11,6 +11,13 @@ watch(
   },
   { immediate: true },
 )
+watch(
+  () => db.invalidation.value.revision,
+  () => {
+    if (db.status.value === 'ready' && db.invalidation.value.tables.includes('exercises'))
+      void load()
+  },
+)
 
 const searchQuery = ref('')
 const equipFilter = ref<Equipment | 'all'>('all')

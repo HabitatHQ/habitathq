@@ -4,8 +4,9 @@ import {
   type SchemaConfig,
   type StorageAdapter,
 } from '@palladium/core'
+import { migrateAppIdentities, UUID_V7_SQL_DEFAULT } from '~/lib/db-identity'
 import { EQUIPMENT_DDL } from '~/lib/equipment-schema'
-import { migrateOrganization } from '~/lib/organization-schema'
+import { migrateOrganization, ORGANIZATION_DDL } from '~/lib/organization-schema'
 import { toAppDbAdapter } from '~/lib/palladium-database'
 import { migratePrescriptionDomain } from '~/lib/prescription-storage'
 import { migrateHistoryCorrection, migrateWorkout, WORKOUT_DDL } from '~/lib/workout-schema'
@@ -250,10 +251,11 @@ export const SCHEMA_DDL = `
   );
 
   CREATE TABLE IF NOT EXISTS weekly_training_load (
-    week             TEXT PRIMARY KEY,
-    gym_volume       REAL,
-    gym_sets         INTEGER,
-    run_distance_m   REAL,
+    id TEXT UNIQUE NOT NULL DEFAULT ${UUID_V7_SQL_DEFAULT},
+    week TEXT PRIMARY KEY,
+    gym_volume REAL,
+    gym_sets INTEGER,
+    run_distance_m REAL,
     run_duration_sec INTEGER
   );
 
@@ -267,8 +269,9 @@ export const SCHEMA_DDL = `
   );
 
   CREATE TABLE IF NOT EXISTS workout_tags (
+    id TEXT UNIQUE NOT NULL DEFAULT ${UUID_V7_SQL_DEFAULT},
     workout_id TEXT NOT NULL REFERENCES workouts(id) ON DELETE CASCADE,
-    tag_id     TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
     PRIMARY KEY (workout_id, tag_id)
   );
 
@@ -281,15 +284,17 @@ export const SCHEMA_DDL = `
   );
 
   CREATE TABLE IF NOT EXISTS template_folder_items (
+    id TEXT UNIQUE NOT NULL DEFAULT ${UUID_V7_SQL_DEFAULT},
     template_id TEXT NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
-    folder_id   TEXT NOT NULL REFERENCES template_folders(id) ON DELETE CASCADE,
-    sort_order  INTEGER DEFAULT 0,
+    folder_id TEXT NOT NULL REFERENCES template_folders(id) ON DELETE CASCADE,
+    sort_order INTEGER DEFAULT 0,
     PRIMARY KEY (template_id, folder_id)
   );
 
   CREATE TABLE IF NOT EXISTS template_tags (
+    id TEXT UNIQUE NOT NULL DEFAULT ${UUID_V7_SQL_DEFAULT},
     template_id TEXT NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
-    tag_id      TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
     PRIMARY KEY (template_id, tag_id)
   );
 
@@ -309,11 +314,12 @@ export const SCHEMA_DDL = `
   CREATE INDEX IF NOT EXISTS idx_workout_tags_workout ON workout_tags(workout_id);
   ${EQUIPMENT_DDL}
   ${WORKOUT_DDL}
+  ${ORGANIZATION_DDL}
 `
 
 export const HEPHAESTUS_SCHEMA: SchemaConfig = {
   schema: SCHEMA_DDL,
-  version: 3,
+  version: 4,
 }
 
 /** Apply baseline DDL and legacy repair in the same transaction as the version stamp. */
@@ -325,9 +331,10 @@ export async function initializeSchema(storage: StorageAdapter): Promise<void> {
     const target = toAppDbAdapter(transaction, false)
     await runMigrations(target)
     await migrateWorkout(target)
-    await migrateHistoryCorrection(target)
     await migratePrescriptionDomain(target)
     await migrateOrganization(target)
+    await migrateHistoryCorrection(target)
+    await migrateAppIdentities(target)
   })
 }
 

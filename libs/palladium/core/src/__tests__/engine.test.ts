@@ -3,11 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NodeSqliteAdapter } from "@palladium/sqlite-node";
 import { describe, expect, it, vi } from "vitest";
-import { createEngine, PalladiumEngine, type RemoteChange } from "../engine.js";
+import { type ChangesLocal, createEngine, PalladiumEngine, type RemoteChange } from "../engine.js";
 import { compareHlc, createHlc } from "../hlc.js";
 import type { SchemaConfig } from "../migration.js";
 import { sql } from "../sql.js";
 import type { StorageAdapter } from "../storage.js";
+import type { Op } from "../tx.js";
 
 // SQLite stores booleans as integers; schema done field is INTEGER.
 type Schema = {
@@ -397,6 +398,284 @@ describe("createEngine (SQLite)", () => {
 
     expect(await db.exec(sql`SELECT * FROM tasks`)).toHaveLength(0);
     expect(await db.exec(sql`SELECT * FROM comments`)).toHaveLength(0);
+  });
+
+  it("rejects nontransactional capture before invoking its callback", async () => {
+    const db = createEngine<Schema>(new NonTransactableStorageAdapter());
+    await db.init(SCHEMA);
+    const callback = vi.fn(async () => ({ result: undefined, ops: [] }));
+    await expect(db.captureLocal(callback)).rejects.toThrow(
+      "PalladiumEngine writes require transaction support",
+    );
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it("rolls back callback failures without publishing a local change", async () => {
+    const db = makeDb();
+    await db.init(SCHEMA);
+    const changes = vi.fn();
+    db.on("changes:local", changes);
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    await expect(
+      db.captureLocal(async (adapter) => {
+        await adapter.exec("INSERT INTO tasks (id, name, done) VALUES (?, ?, ?)", [id, "x", 0]);
+        throw new Error("callback failed");
+      }),
+    ).rejects.toThrow("callback failed");
+    expect(await db.exec(sql`SELECT * FROM tasks`)).toEqual([]);
+    expect(changes).not.toHaveBeenCalled();
+    expect(db.currentHlc).toBeNull();
+  });
+
+  it("captures already-applied SQL once and publishes only after commit", async () => {
+    const db = makeDb();
+    await db.init(SCHEMA);
+    await db.exec(
+      sql`CREATE TRIGGER forbid_capture_replay
+          BEFORE INSERT ON tasks
+          WHEN EXISTS (SELECT 1 FROM tasks WHERE id = NEW.id)
+          BEGIN SELECT RAISE(ABORT, 'unexpected replay'); END`,
+    );
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    const invalidations: string[][] = [];
+    let observedRead: Promise<Schema["tasks"][]> | null = null;
+    const published: ChangesLocal<Schema>[] = [];
+    db.on("changes:local", (change) => {
+      published.push(change);
+      observedRead = db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks`);
+    });
+    db.on("tables:changed", (tables) => invalidations.push([...tables]));
+    const result = await db.captureLocal(async (adapter) => {
+      await adapter.exec("INSERT INTO tasks (id, name, done) VALUES (?, ?, ?)", [id, "first", 0]);
+      const rows = await adapter.exec<Schema["tasks"]>("SELECT * FROM tasks WHERE id = ?", [id]);
+      return {
+        result: rows[0]?.name,
+        ops: [{ type: "insert", table: "tasks", id, data: { id, name: "first", done: 0 } }],
+      };
+    });
+    expect(result).toBe("first");
+    expect(await db.exec<Schema["tasks"]>(sql`SELECT * FROM tasks`)).toEqual([
+      { id, name: "first", done: 0 },
+    ]);
+    const committedRead = observedRead;
+    if (committedRead === null) throw new Error("expected a post-commit observer read");
+    await expect(committedRead).resolves.toEqual([{ id, name: "first", done: 0 }]);
+    expect(invalidations).toEqual([["tasks"]]);
+    expect(published).toHaveLength(1);
+    const publishedOp = published[0]?.ops[0];
+    expect(Object.isFrozen(published[0]?.ops)).toBe(true);
+    expect(Object.isFrozen(publishedOp)).toBe(true);
+    if (publishedOp?.type === "insert") {
+      expect(Object.isFrozen(publishedOp.data)).toBe(true);
+    }
+  });
+
+  it("rolls back captured SQL, metadata, checkpoints and HLC when checkpoint fails", async () => {
+    const db = makeDb();
+    await db.init(SCHEMA);
+    const beforeHlc = db.currentHlc;
+    db.registerLocalChangeCheckpoint(async (_change, adapter) => {
+      await adapter.exec("INSERT INTO checkpoint_rows (id) VALUES (?)", ["checkpoint"]);
+      throw new Error("capture checkpoint failed");
+    });
+    await db.exec(sql`CREATE TABLE checkpoint_rows (id TEXT PRIMARY KEY)`);
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    await expect(
+      db.captureLocal(async (adapter) => {
+        await adapter.exec("INSERT INTO tasks (id, name, done) VALUES (?, ?, ?)", [id, "x", 0]);
+        return {
+          result: undefined,
+          ops: [{ type: "insert", table: "tasks", id, data: { id, name: "x", done: 0 } }],
+        };
+      }),
+    ).rejects.toThrow("capture checkpoint failed");
+    expect(await db.exec(sql`SELECT * FROM tasks`)).toEqual([]);
+    expect(await db.exec(sql`SELECT * FROM checkpoint_rows`)).toEqual([]);
+    expect(await db.exec(sql`SELECT * FROM _sync_row_meta`)).toEqual([]);
+    expect(await db.exec(sql`SELECT value FROM _sync_state WHERE key = 'hlc'`)).toEqual([]);
+    expect(db.currentHlc).toEqual(beforeHlc);
+  });
+
+  it("rejects invalid captured ops by rolling back their already-applied SQL", async () => {
+    const db = makeDb();
+    await db.init(SCHEMA);
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    await expect(
+      db.captureLocal(async (adapter) => {
+        await adapter.exec("INSERT INTO tasks (id, name, done) VALUES (?, ?, ?)", [id, "x", 0]);
+        return {
+          result: undefined,
+          ops: [
+            {
+              type: "update",
+              table: "tasks",
+              id,
+              patch: { unknown_column: 1 },
+            } as never,
+          ],
+        };
+      }),
+    ).rejects.toThrow("Captured operation must use canonical schema table and columns");
+    expect(await db.exec(sql`SELECT * FROM tasks`)).toEqual([]);
+    expect(await db.exec(sql`SELECT * FROM _sync_row_meta`)).toEqual([]);
+    expect(db.currentHlc).toBeNull();
+  });
+
+  it("rejects case-insensitive primary-key patches before committing capture SQL", async () => {
+    const db = makeDb();
+    await db.init(SCHEMA);
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    await expect(
+      db.captureLocal(async (adapter) => {
+        await adapter.exec("INSERT INTO tasks (id, name, done) VALUES (?, ?, ?)", [id, "x", 0]);
+        return {
+          result: undefined,
+          ops: [{ type: "update", table: "tasks", id, patch: { ID: id } } as never],
+        };
+      }),
+    ).rejects.toThrow("Cannot update the immutable primary key");
+    expect(await db.exec(sql`SELECT * FROM tasks`)).toEqual([]);
+    expect(db.currentHlc).toBeNull();
+  });
+
+  it("records no change for a read-only or net-zero capture", async () => {
+    const db = makeDb();
+    await db.init(SCHEMA);
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    await db.insert("tasks", { id, name: "before", done: 0 });
+    const priorHlc = db.currentHlc;
+    const changes = vi.fn();
+    const invalidations = vi.fn();
+    db.on("changes:local", changes);
+    db.on("tables:changed", invalidations);
+
+    const preview = await db.captureLocal(async (adapter) => {
+      const rows = await adapter.exec<Schema["tasks"]>("SELECT * FROM tasks WHERE id = ?", [id]);
+      return { result: rows[0]?.name, ops: [] };
+    });
+    expect(preview).toBe("before");
+
+    const netZero = await db.captureLocal(async (adapter) => {
+      await adapter.exec("INSERT INTO tasks (id, name, done) VALUES (?, ?, ?)", [
+        "018f0f50-7b8d-7a1c-8e2f-1234567890ac",
+        "temporary",
+        0,
+      ]);
+      await adapter.exec("DELETE FROM tasks WHERE id = ?", [
+        "018f0f50-7b8d-7a1c-8e2f-1234567890ac",
+      ]);
+      const rows = await adapter.exec<Schema["tasks"]>("SELECT * FROM tasks ORDER BY id");
+      return { result: rows.length, ops: [] };
+    });
+    expect(netZero).toBe(1);
+
+    expect(await db.exec(sql`SELECT name FROM tasks`)).toEqual([{ name: "before" }]);
+    expect(db.currentHlc).toEqual(priorHlc);
+    expect(changes).not.toHaveBeenCalled();
+    expect(invalidations).not.toHaveBeenCalled();
+  });
+  it("rejects malformed captured operations before committing their SQL", async () => {
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    const cases: readonly {
+      readonly label: string;
+      readonly message: string;
+      readonly ops: readonly unknown[];
+    }[] = [
+      {
+        label: "unknown operation kind",
+        message: "Captured operation type is invalid",
+        ops: [{ type: "upsert", table: "tasks", id }],
+      },
+      {
+        label: "unexpected operation fields",
+        message: "Captured operation has unexpected fields",
+        ops: [{ type: "delete", table: "tasks", id, extra: true }],
+      },
+      {
+        label: "non-object insert data",
+        message: "Captured insert data must be a JSON object",
+        ops: [{ type: "insert", table: "tasks", id, data: "not-an-object" }],
+      },
+      {
+        label: "non-object update patch",
+        message: "Captured update patch must be a JSON object",
+        ops: [{ type: "update", table: "tasks", id, patch: 7 }],
+      },
+      {
+        label: "non-UUIDv7 row id",
+        message: "Captured operation row id must be a canonical UUIDv7",
+        ops: [{ type: "delete", table: "tasks", id: "not-a-uuid" }],
+      },
+      {
+        label: "unknown schema table",
+        message: "Captured operation must use canonical schema table and columns",
+        ops: [{ type: "delete", table: "missing", id }],
+      },
+      {
+        label: "duplicate row in one capture",
+        message: "Captured ops must be net row changes",
+        ops: [
+          { type: "insert", table: "tasks", id, data: { id, name: "x", done: 0 } },
+          { type: "insert", table: "tasks", id, data: { id, name: "x", done: 0 } },
+        ],
+      },
+    ];
+
+    for (const testCase of cases) {
+      const db = makeDb();
+      await db.init(SCHEMA);
+      await expect(
+        db.captureLocal(async (adapter) => {
+          await adapter.exec("INSERT INTO tasks (id, name, done) VALUES (?, ?, ?)", [id, "x", 0]);
+          // `captureLocal` is typed for trusted callers, but its runtime
+          // admission must still reject malformed shapes from untyped callers.
+          return { result: undefined, ops: testCase.ops as readonly Op<Schema>[] };
+        }),
+      ).rejects.toThrow(testCase.message);
+      expect(await db.exec(sql`SELECT * FROM tasks`), testCase.label).toEqual([]);
+      expect(await db.exec(sql`SELECT * FROM _sync_row_meta`), testCase.label).toEqual([]);
+      expect(db.currentHlc, testCase.label).toBeNull();
+      await db.adapter.close();
+    }
+  });
+
+  it("serializes an ordinary transaction behind an asynchronous capture", async () => {
+    const db = makeDb();
+    await db.init(SCHEMA);
+    let entered!: () => void;
+    let release!: () => void;
+    const callbackEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const capture = db.captureLocal(async (adapter) => {
+      entered();
+      await gate;
+      const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+      await adapter.exec("INSERT INTO tasks (id, name, done) VALUES (?, ?, ?)", [
+        id,
+        "captured",
+        0,
+      ]);
+      return {
+        result: undefined,
+        ops: [{ type: "insert", table: "tasks", id, data: { id, name: "captured", done: 0 } }],
+      };
+    });
+    await callbackEntered;
+    const queued = db.insert("tasks", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac",
+      name: "queued",
+      done: 0,
+    });
+    release();
+    await Promise.all([capture, queued]);
+    expect(await db.exec(sql`SELECT name FROM tasks ORDER BY name`)).toEqual([
+      { name: "captured" },
+      { name: "queued" },
+    ]);
   });
 
   it("init with schema config runs DDL and seeds", async () => {

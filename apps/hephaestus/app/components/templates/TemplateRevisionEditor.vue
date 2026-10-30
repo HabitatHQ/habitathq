@@ -3,6 +3,7 @@ import { toRaw } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import type { TargetReferenceOption } from '~/components/templates/PrescriptionTargetEditor.vue'
 import PrescriptionTargetEditor from '~/components/templates/PrescriptionTargetEditor.vue'
+import { generateUuidV7 } from '~/lib/db-identity'
 import { parseSerializablePrescription } from '~/lib/prescription-domain'
 import {
   PrescriptionTargetError,
@@ -150,7 +151,7 @@ function empty(): SerializablePrescription {
     },
   }
 }
-const uid = () => crypto.randomUUID()
+const uid = () => generateUuidV7()
 function fixed(value: number): NumericTarget {
   return { id: uid(), rule: { kind: 'fixed', value }, resolvedValue: value }
 }

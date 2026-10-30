@@ -1,3 +1,4 @@
+import { generateUuidV7 } from '~/lib/db-identity'
 import { buildTagSeed } from '~/lib/tags'
 import type { TagRow } from '~/types/database'
 
@@ -51,7 +52,7 @@ export function useTags() {
     name: string,
     category: 'custom' | 'performance' | 'feel' | 'environment',
   ): Promise<TagRow> {
-    const id = crypto.randomUUID()
+    const id = generateUuidV7()
     const createdAt = new Date().toISOString()
     await db.exec(
       `INSERT INTO tags (id, name, category, is_predefined, color, created_at)

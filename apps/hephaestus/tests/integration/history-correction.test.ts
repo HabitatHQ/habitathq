@@ -1,4 +1,4 @@
-import type { DbAdapter } from '@palladium/core'
+import { isUuidV7 } from '@palladium/core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { dispatchHistory } from '~/lib/history-correction'
 import { migrateOrganization } from '~/lib/organization-schema'
@@ -340,14 +340,22 @@ describe('reviewed factual history corrections', () => {
       { id: 'first', status: 'open', workout_id: null },
       { id: 'second', status: 'fulfilled', workout_id: 'workout' },
     ])
-    expect(raw.query('SELECT * FROM organization_source_links')).toEqual([
+    expect(
+      raw.query(
+        'SELECT id,workout_id,appointment_id,rotation_id,rotation_generation FROM organization_source_links',
+      ),
+    ).toEqual([
       {
+        id: expect.any(String),
         workout_id: 'workout',
         appointment_id: 'second',
         rotation_id: 'rotation',
         rotation_generation: 0,
       },
     ])
+    expect(
+      isUuidV7(raw.query<{ id: string }>('SELECT id FROM organization_source_links')[0]?.id ?? ''),
+    ).toBe(true)
     expect(raw.query('SELECT exercise_id,logging_mode FROM workout_exercises')).toEqual([
       { exercise_id: 'press', logging_mode: 'strength' },
     ])

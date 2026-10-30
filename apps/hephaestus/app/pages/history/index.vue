@@ -13,6 +13,13 @@ const runDurations = ref<Map<string, number>>(new Map())
 const filter = ref<SessionFilter>('all')
 const searchQuery = ref('')
 
+let loadGeneration = 0
+watch(
+  () => db.invalidation.value.revision,
+  () => {
+    if (db.status.value === 'ready') void load()
+  },
+)
 watch(
   db.status,
   async (s) => {
@@ -22,21 +29,24 @@ watch(
 )
 
 async function load() {
+  const generation = ++loadGeneration
   loading.value = true
   try {
-    workouts.value = await db.query<WorkoutRow>(
+    const workoutsResult = await db.query<WorkoutRow>(
       'SELECT * FROM workouts WHERE ended_at IS NOT NULL ORDER BY date DESC, started_at DESC',
     )
     const runs = await db.query<{ workout_id: string; duration_sec: number | null }>(
       'SELECT workout_id,duration_sec FROM runs WHERE duration_sec IS NOT NULL',
     )
+    const distances = await db.query<{ workout_id: string; distance_m: number | null }>(
+      'SELECT workout_id,distance_m FROM runs WHERE distance_m IS NOT NULL',
+    )
+    if (generation !== loadGeneration) return
+    workouts.value = workoutsResult
     runDurations.value = new Map(
       runs
         .filter((run) => run.duration_sec != null)
         .map((run) => [run.workout_id, run.duration_sec as number]),
-    )
-    const distances = await db.query<{ workout_id: string; distance_m: number | null }>(
-      'SELECT workout_id,distance_m FROM runs WHERE distance_m IS NOT NULL',
     )
     runDistances.value = new Map(
       distances
@@ -44,7 +54,7 @@ async function load() {
         .map((run) => [run.workout_id, run.distance_m as number]),
     )
   } finally {
-    loading.value = false
+    if (generation === loadGeneration) loading.value = false
   }
 }
 

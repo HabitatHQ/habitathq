@@ -1,4 +1,5 @@
 import type { DbAdapter } from '@palladium/core'
+import { UUID_V7_SQL_DEFAULT } from '~/lib/db-identity'
 
 /** Durable lifecycle data kept separately so legacy workout rows remain readable. */
 export const WORKOUT_DDL = `
@@ -11,10 +12,12 @@ export const WORKOUT_DDL = `
   WHEN NEW.ended_at IS NULL AND EXISTS (SELECT 1 FROM workouts WHERE id != NEW.id AND ended_at IS NULL)
   BEGIN SELECT RAISE(ABORT, 'An unfinished workout already exists'); END;
   CREATE TABLE IF NOT EXISTS workout_finish_summaries (
+    id TEXT UNIQUE NOT NULL DEFAULT ${UUID_V7_SQL_DEFAULT},
     workout_id TEXT PRIMARY KEY REFERENCES workouts(id) ON DELETE CASCADE,
     summary_json TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS workout_session_options (
+    id TEXT UNIQUE NOT NULL DEFAULT ${UUID_V7_SQL_DEFAULT},
     workout_id TEXT PRIMARY KEY REFERENCES workouts(id) ON DELETE CASCADE,
     intensity_modifier REAL NOT NULL DEFAULT 1,
     volume_modifier REAL NOT NULL DEFAULT 1
@@ -81,6 +84,7 @@ export const WORKOUT_DDL = `
     UNIQUE (plan_id, program_slot_id)
   );
   CREATE TABLE IF NOT EXISTS workout_interval_sessions (
+    id TEXT UNIQUE NOT NULL DEFAULT ${UUID_V7_SQL_DEFAULT},
     workout_id TEXT PRIMARY KEY REFERENCES workouts(id) ON DELETE CASCADE,
     template_id TEXT NOT NULL,
     config_json TEXT NOT NULL,
@@ -91,6 +95,7 @@ export const WORKOUT_DDL = `
     updated_at TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS workout_intents (
+    id TEXT UNIQUE NOT NULL DEFAULT ${UUID_V7_SQL_DEFAULT},
     workout_id TEXT PRIMARY KEY REFERENCES workouts(id) ON DELETE CASCADE,
     availability TEXT NOT NULL CHECK (availability IN ('captured','absent','unavailable')),
     prescription_json TEXT,
@@ -107,32 +112,72 @@ export const WORKOUT_DDL = `
   CREATE TRIGGER IF NOT EXISTS trg_program_revisions_immutable_update
   BEFORE UPDATE ON program_revisions BEGIN SELECT RAISE(ABORT, 'Program revisions are immutable'); END;
   CREATE TRIGGER IF NOT EXISTS trg_workout_intents_immutable_update
-  BEFORE UPDATE ON workout_intents BEGIN SELECT RAISE(ABORT, 'Captured workout intent is immutable'); END;
+  BEFORE UPDATE ON workout_intents
+  WHEN NOT (
+    NEW.id IS NOT OLD.id AND OLD.id IS NULL AND
+    NEW.workout_id IS OLD.workout_id AND NEW.availability IS OLD.availability AND
+    NEW.prescription_json IS OLD.prescription_json AND NEW.provenance_json IS OLD.provenance_json AND
+    NEW.inputs_json IS OLD.inputs_json AND NEW.adjustments_json IS OLD.adjustments_json AND
+    NEW.captured_at IS OLD.captured_at
+  )
+  BEGIN SELECT RAISE(ABORT, 'Captured workout intent is immutable'); END;
   CREATE TABLE IF NOT EXISTS workout_intent_activities (
+    id TEXT UNIQUE NOT NULL DEFAULT ${UUID_V7_SQL_DEFAULT},
     workout_exercise_id TEXT PRIMARY KEY REFERENCES workout_exercises(id) ON DELETE CASCADE,
     intent_activity_id TEXT NOT NULL,
     intent_order INTEGER NOT NULL,
     execution_group_id TEXT
   );
   CREATE TABLE IF NOT EXISTS workout_intent_sets (
+    id TEXT UNIQUE NOT NULL DEFAULT ${UUID_V7_SQL_DEFAULT},
     set_id TEXT PRIMARY KEY REFERENCES sets(id) ON DELETE CASCADE,
     intent_set_id TEXT NOT NULL,
     target_snapshot_json TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS workout_set_skips (
+    id TEXT UNIQUE NOT NULL DEFAULT ${UUID_V7_SQL_DEFAULT},
     set_id TEXT PRIMARY KEY REFERENCES sets(id) ON DELETE CASCADE,
     skipped_at TEXT NOT NULL
   );
   CREATE TRIGGER IF NOT EXISTS trg_workout_intent_activities_immutable_update
-  BEFORE UPDATE ON workout_intent_activities BEGIN SELECT RAISE(ABORT, 'Captured activity intent is immutable'); END;
+  BEFORE UPDATE ON workout_intent_activities
+  WHEN NOT (
+    NEW.id IS NOT OLD.id AND OLD.id IS NULL AND
+    NEW.workout_exercise_id IS OLD.workout_exercise_id AND
+    NEW.intent_activity_id IS OLD.intent_activity_id AND
+    NEW.intent_order IS OLD.intent_order AND
+    NEW.execution_group_id IS OLD.execution_group_id
+  )
+  BEGIN SELECT RAISE(ABORT, 'Captured activity intent is immutable'); END;
   CREATE TRIGGER IF NOT EXISTS trg_workout_intent_sets_immutable_update
-  BEFORE UPDATE ON workout_intent_sets BEGIN SELECT RAISE(ABORT, 'Captured set intent is immutable'); END;
+  BEFORE UPDATE ON workout_intent_sets
+  WHEN NOT (
+    NEW.id IS NOT OLD.id AND OLD.id IS NULL AND
+    NEW.set_id IS OLD.set_id AND
+    NEW.intent_set_id IS OLD.intent_set_id AND
+    NEW.target_snapshot_json IS OLD.target_snapshot_json
+  )
+  BEGIN SELECT RAISE(ABORT, 'Captured set intent is immutable'); END;
   CREATE INDEX IF NOT EXISTS idx_template_revisions_template ON template_revisions(template_id, revision_num);
   CREATE INDEX IF NOT EXISTS idx_routine_revisions_routine ON routine_revisions(routine_id, revision_num);
   CREATE INDEX IF NOT EXISTS idx_program_revisions_program ON program_revisions(program_id, revision_num);
   CREATE INDEX IF NOT EXISTS idx_training_plans_program ON training_plans(program_id, active);
   CREATE INDEX IF NOT EXISTS idx_training_plan_bindings_routine ON training_plan_bindings(routine_id);
   CREATE INDEX IF NOT EXISTS idx_workout_intents_availability ON workout_intents(availability);
+  CREATE TABLE IF NOT EXISTS history_correction_previews (
+    id TEXT PRIMARY KEY,
+    workout_id TEXT NOT NULL REFERENCES workouts(id) ON DELETE CASCADE,
+    fingerprint TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS history_corrections (
+    id TEXT PRIMARY KEY,
+    workout_id TEXT NOT NULL REFERENCES workouts(id) ON DELETE CASCADE,
+    base_version INTEGER NOT NULL,
+    operation_json TEXT NOT NULL,
+    applied_at TEXT NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS prescription_previews (
     id TEXT PRIMARY KEY,
     kind TEXT NOT NULL CHECK (kind IN ('template_adoption','program_adoption')),

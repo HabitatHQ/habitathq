@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { toRaw } from 'vue'
+import { generateUuidV7 } from '~/lib/db-identity'
 import {
   canonicalTargetValue,
   displayTargetValue,
@@ -32,7 +32,7 @@ const props = defineProps<{
   validationMessage?: string
 }>()
 const emit = defineEmits<{ 'update:modelValue': [value: NumericTarget | null] }>()
-const uid = () => crypto.randomUUID()
+const uid = () => generateUuidV7()
 const version = 'cel-js-8.0.0-js-number-v1'
 const numericInputs = computed(() => props.inputs.filter((input) => input.field !== 'boolean'))
 const { settings } = useAppSettings()

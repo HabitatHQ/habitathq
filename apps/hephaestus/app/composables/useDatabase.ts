@@ -1,21 +1,24 @@
 import type { WorkoutOperation, WorkoutOperationMap } from '~/lib/workout-storage'
-import { sendToWorker } from '~/plugins/database.client'
+import type { DatabaseStatus } from '~/plugins/database.client'
+import { databaseClient, sendToWorker } from '~/plugins/database.client'
 import type { DbStatement } from '~/types/database'
 import type { HistoryOperation, HistoryOperationMap } from '~/types/history-correction'
 import type { OrganizationOperation, OrganizationOperationMap } from '~/types/organization'
 import type { DomainOperation, DomainOperationMap } from '~/types/prescription'
 
-type DbStatus = 'initializing' | 'ready' | 'lock_unavailable' | 'error'
-
 export function useDatabase() {
-  const status = useState<DbStatus>('db-status', () => 'initializing')
+  const status = useState<DatabaseStatus>('db-status', () => 'initializing')
+  const invalidation = useState<{ revision: number; tables: readonly string[] }>(
+    'db-invalidation',
+    () => ({ revision: 0, tables: [] }),
+  )
 
   function query<T = Record<string, unknown>>(sql: string, bind?: unknown[]): Promise<T[]> {
-    return sendToWorker<T[]>({ type: 'QUERY', payload: { sql, bind } })
+    return databaseClient().query<T>(sql, bind)
   }
 
-  function exec(sql: string, bind?: unknown[]): Promise<void> {
-    return sendToWorker<void>({ type: 'EXEC', payload: { sql, bind } })
+  async function exec(sql: string, bind?: unknown[]): Promise<void> {
+    await databaseClient().mutate(sql, bind)
   }
 
   function batch(statements: DbStatement[]): Promise<void> {
@@ -68,6 +71,7 @@ export function useDatabase() {
 
   return {
     status: readonly(status),
+    invalidation: readonly(invalidation),
     query,
     exec,
     batch,

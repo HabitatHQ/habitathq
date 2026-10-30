@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { generateUuidV7 } from '~/lib/db-identity'
 import type {
   AppointmentCandidate,
   HistoryCorrectionDetail,
@@ -132,7 +133,7 @@ function addActualSet(activityId: string) {
   const activity = activities.value.find((item) => item.id === activityId)
   if (!activity) return
   activity.sets.push({
-    id: crypto.randomUUID(),
+    id: generateUuidV7(),
     isNew: true,
     setNumber: Math.max(0, ...activity.sets.map((set) => set.setNumber)) + 1,
     skipped: false,

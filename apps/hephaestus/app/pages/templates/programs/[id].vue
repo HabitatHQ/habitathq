@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { toRaw } from 'vue'
+import { generateUuidV7 } from '~/lib/db-identity'
 import type { ProgramRow } from '~/types/database'
 import type { ProgramDesign, ProgramRevision } from '~/types/prescription'
 
@@ -62,7 +63,7 @@ async function addSlot() {
       ? await templates.getRevision(selectedTemplate.value)
       : null
     draft.value.slots.push({
-      id: crypto.randomUUID(),
+      id: generateUuidV7(),
       templateId: source?.templateId ?? null,
       templateRevisionId: source?.id ?? null,
       assignmentResolved: source !== null,

@@ -52,7 +52,7 @@ onMounted(() => {
       <section v-if="dbError || seedError" role="alert" class="m-4 rounded-xl border border-(--ui-border) bg-(--color-surface) p-5 space-y-3">
         <h1 class="text-xl font-bold">Unable to open your training log</h1>
         <p>{{ dbError || seedError }}</p>
-        <p class="text-sm text-(--ui-text-muted)">If another tab is open, close it before retrying. Your local data stays on this device.</p>
+        <p class="text-sm text-(--ui-text-muted)">Your local data stays on this device. Retry to reconnect to the database owner.</p>
         <UButton @click="refresh">Retry opening log</UButton>
       </section>
       <template v-else>

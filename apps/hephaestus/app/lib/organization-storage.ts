@@ -1,3 +1,5 @@
+import { generateUuidV7 } from '~/lib/db-identity'
+
 function recurrenceDates(
   weekdays: number[],
   start: string,
@@ -121,7 +123,7 @@ async function previewRecurrence(db: DbAdapter, input: unknown): Promise<Recurre
   const p = isRecord(input) ? input : {}
   const today = date(p['today'])
   const rule: OrganizationRecurrenceRule = {
-    id: typeof p['id'] === 'string' ? p['id'] : crypto.randomUUID(),
+    id: typeof p['id'] === 'string' ? p['id'] : generateUuidV7(),
     planId: text(p['planId'], 'Plan'),
     routineId: text(p['routineId'], 'Routine'),
     weekdays: Array.isArray(p['weekdays']) ? (p['weekdays'] as number[]) : [],
@@ -175,7 +177,7 @@ async function previewRecurrence(db: DbAdapter, input: unknown): Promise<Recurre
     sourceFingerprint: fingerprint({ rule: sourceRule, appointments: existing }),
   }
   const hash = fingerprint(changed)
-  const previewId = crypto.randomUUID()
+  const previewId = generateUuidV7()
   await db.exec(
     'INSERT INTO organization_reviews(id,kind,owner_id,fingerprint,snapshot_json,created_at) VALUES(?,?,?,?,?,?)',
     [previewId, 'recurrence', rule.planId, hash, JSON.stringify(changed), new Date().toISOString()],
@@ -262,7 +264,7 @@ const operations: {
     })),
   ORGANIZATION_PLAN_SAVE: async (db, input) => {
     const p = isRecord(input) ? input : {}
-    const id = typeof p['id'] === 'string' ? p['id'] : crypto.randomUUID()
+    const id = typeof p['id'] === 'string' ? p['id'] : generateUuidV7()
     const now = new Date().toISOString()
     const start = date(p['startDate'] ?? localToday(), 'Plan start date')
     const name = text(p['name'], 'Plan name').trim()
@@ -287,7 +289,7 @@ const operations: {
   },
   ORGANIZATION_APPOINTMENT_CREATE: async (db, input) => {
     const p = isRecord(input) ? input : {}
-    const id = typeof p['id'] === 'string' ? p['id'] : crypto.randomUUID()
+    const id = typeof p['id'] === 'string' ? p['id'] : generateUuidV7()
     const planId = text(p['planId'], 'Plan')
     const routineId = text(p['routineId'], 'Routine')
     const planned = date(p['date'])
@@ -387,7 +389,7 @@ const operations: {
   },
   ORGANIZATION_ROTATION_SAVE: async (db, input) => {
     const p = isRecord(input) ? input : {}
-    const id = typeof p['id'] === 'string' ? p['id'] : crypto.randomUUID()
+    const id = typeof p['id'] === 'string' ? p['id'] : generateUuidV7()
     const routineIds = p['routineIds']
     if (
       !Array.isArray(routineIds) ||
@@ -449,7 +451,7 @@ const operations: {
   ORGANIZATION_GOAL_SAVE: async (db, input) => {
     const p = isRecord(input) ? input : {}
     const filter = parseFilter(p['filter'])
-    const id = typeof p['id'] === 'string' ? p['id'] : crypto.randomUUID()
+    const id = typeof p['id'] === 'string' ? p['id'] : generateUuidV7()
     const target = Number(p['targetCount'])
     if (!Number.isSafeInteger(target) || target < 1)
       throw new Error('Weekly goal target must be a positive integer')
@@ -532,7 +534,7 @@ async function materializeRecurrenceOccurrences(db: DbAdapter, today: string): P
       await db.exec(
         `INSERT OR IGNORE INTO organization_appointments(id,plan_id,routine_id,original_date,planned_date,planned_time,status,created_at,occurrence_key,source_kind,source_id,original_time) VALUES(?,?,?,?,?,?,'open',?,?, 'recurrence',?,?)`,
         [
-          crypto.randomUUID(),
+          generateUuidV7(),
           rule.planId,
           rule.routineId,
           occurrenceDate,
@@ -579,7 +581,7 @@ async function insertProgramOccurrences(
     await db.exec(
       `INSERT OR IGNORE INTO organization_appointments(id,plan_id,routine_id,original_date,planned_date,planned_time,status,created_at,occurrence_key,source_kind,source_id,original_time) VALUES(?,?,?,?,?,NULL,'open',?,?, 'program',?,NULL)`,
       [
-        crypto.randomUUID(),
+        generateUuidV7(),
         planId,
         target.routineId,
         target.date,
@@ -773,7 +775,7 @@ async function previewSchedule(db: DbAdapter, input: unknown): Promise<Appointme
     db,
     changed.map((entry) => entry.appointment),
   )
-  const previewId = crypto.randomUUID()
+  const previewId = generateUuidV7()
   const value = { planId, changed }
   const hash = fingerprint(value)
   await db.exec(
@@ -859,7 +861,7 @@ async function advanceRotation(
   if (receipt) return
   await db.exec(
     'INSERT INTO organization_rotation_advances(id,rotation_id,generation,workout_id,reason,created_at) VALUES(?,?,?,?,?,?)',
-    [crypto.randomUUID(), rotationId, generation + 1, workoutId, reason, new Date().toISOString()],
+    [generateUuidV7(), rotationId, generation + 1, workoutId, reason, new Date().toISOString()],
   )
   await db.exec(
     'UPDATE organization_rotations SET position=?,generation=generation+1 WHERE id=? AND generation=?',

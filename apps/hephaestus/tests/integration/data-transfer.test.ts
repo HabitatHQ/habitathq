@@ -1,3 +1,4 @@
+import { isUuidV7 } from '@palladium/core'
 import { describe, expect, it } from 'vitest'
 import {
   BACKUP_FORMAT,
@@ -88,6 +89,7 @@ async function assertRestoreRollback(db: DbAdapter, raw: TestDb, backup: BackupE
   ).toEqual([{ week_start: '2026-09-28' }])
   raw.exec('DROP TRIGGER reject_restored_workout')
 }
+const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 describe('database transfer', () => {
   it('round-trips all discovered app tables and preserves settings', async () => {
@@ -154,27 +156,34 @@ describe('database transfer', () => {
         planCount: 1,
       })
       await dispatchTransfer(db, 'TRANSFER_RESTORE_BACKUP', { backup })
-      expect(
-        testDb.query<{ notes: string }>('SELECT notes FROM workouts WHERE id = ?', ['workout-1']),
-      ).toEqual([{ notes: 'original' }])
-      expect(
-        testDb.query<{ id: string; ended_at: string | null }>(
-          "SELECT id, ended_at FROM workouts WHERE id = 'workout-draft'",
-        ),
-      ).toEqual([{ id: 'workout-draft', ended_at: null }])
+      const workouts = testDb.query<{ id: string; notes: string; ended_at: string | null }>(
+        'SELECT id,notes,ended_at FROM workouts ORDER BY notes',
+      )
+      expect(workouts).toEqual([
+        { id: expect.stringMatching(UUID_V7), notes: 'draft', ended_at: null },
+        {
+          id: expect.stringMatching(UUID_V7),
+          notes: 'original',
+          ended_at: '2026-10-02T10:00:00Z',
+        },
+      ])
+      const originalId = workouts.find((workout) => workout.notes === 'original')?.id
       expect(
         testDb.query<{ summary_json: string }>(
-          "SELECT summary_json FROM workout_finish_summaries WHERE workout_id = 'workout-1'",
+          'SELECT summary_json FROM workout_finish_summaries WHERE workout_id=?',
+          [originalId],
         ),
       ).toEqual([{ summary_json: '{"note":"summary"}' }])
       expect(
         testDb.query<{ operation_json: string }>(
-          "SELECT operation_json FROM history_corrections WHERE id = 'correction-1'",
+          'SELECT operation_json FROM history_corrections WHERE workout_id=?',
+          [originalId],
         ),
       ).toEqual([{ operation_json: '{"kind":"replace"}' }])
       expect(
         testDb.query<{ week_start: string }>(
-          "SELECT week_start FROM organization_goal_credits WHERE goal_id = 'goal-1' AND workout_id = 'workout-1'",
+          "SELECT credit.week_start FROM organization_goal_credits credit JOIN organization_goals goal ON goal.id=credit.goal_id WHERE goal.name='Weekly goal' AND credit.workout_id=?",
+          [originalId],
         ),
       ).toEqual([{ week_start: '2026-09-28' }])
       expect(testDb.query<{ value: string }>('SELECT value FROM future_durable')).toEqual([
@@ -206,14 +215,20 @@ describe('database transfer', () => {
         await dispatchTransfer(db, 'TRANSFER_PREVIEW_RESTORE', { backup: legacy }),
       ).toMatchObject({ valid: true, legacy: true, restoreMode: 'additive' })
       await dispatchTransfer(db, 'TRANSFER_RESTORE_BACKUP', { backup: legacy })
+      const restored = destination.query<{ id: string; notes: string }>(
+        "SELECT id,notes FROM workouts WHERE notes='from legacy backup'",
+      )
+      expect(restored).toHaveLength(1)
+      expect(restored[0]).toMatchObject({
+        id: expect.stringMatching(UUID_V7),
+        notes: 'from legacy backup',
+      })
+      expect(isUuidV7(restored[0]?.id ?? '')).toBe(true)
       expect(
         destination.query<{ id: string; notes: string }>(
-          'SELECT id, notes FROM workouts ORDER BY id',
+          "SELECT id,notes FROM workouts WHERE notes='keep'",
         ),
-      ).toEqual([
-        { id: 'keep-workout', notes: 'keep' },
-        { id: 'workout-1', notes: 'from legacy backup' },
-      ])
+      ).toEqual([{ id: expect.stringMatching(UUID_V7), notes: 'keep' }])
     } finally {
       source.close()
       destination.close()

@@ -1,4 +1,4 @@
-import type { DbAdapter } from '@palladium/core'
+import { isUuidV7 } from '@palladium/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { dispatchTransfer, type PortableBundle } from '~/lib/data-transfer'
 import { dispatchOrganization } from '../../app/lib/organization-storage'
@@ -285,6 +285,12 @@ describe('reviewed Program calendar adoption', () => {
       )
       await dispatchTransfer(destination, 'TRANSFER_IMPORT_PORTABLE', { bundle })
       await dispatchTransfer(destination, 'TRANSFER_IMPORT_PORTABLE', { bundle })
+      const currentDestinationExercise = destinationRaw.query<{ id: string }>(
+        'SELECT id FROM exercises WHERE slug=?',
+        [catalog.slug],
+      )[0]?.id
+      expect(currentDestinationExercise).not.toBe(destinationExercise)
+      expect(isUuidV7(currentDestinationExercise ?? '')).toBe(true)
       const goals = destinationRaw.query<{ id: string; name: string; filter_json: string }>(
         'SELECT id,name,filter_json FROM organization_goals ORDER BY name,id',
       )
@@ -292,7 +298,7 @@ describe('reviewed Program calendar adoption', () => {
       const customGoals = goals.filter((goal) => goal.name === 'Custom goal')
       expect(catalogGoals).toHaveLength(2)
       for (const goal of catalogGoals)
-        expect(JSON.parse(goal.filter_json).exerciseIds).toEqual([destinationExercise])
+        expect(JSON.parse(goal.filter_json).exerciseIds).toEqual([currentDestinationExercise])
       const customFilters = customGoals.map((goal) => JSON.parse(goal.filter_json).exerciseIds[0])
       expect(customFilters).toHaveLength(2)
       expect(new Set(customFilters).size).toBe(2)

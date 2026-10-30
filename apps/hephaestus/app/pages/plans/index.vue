@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { addCalendarDays, localCalendarDate, parseDateString } from '@habitathq/utils'
+import { generateUuidV7 } from '~/lib/db-identity'
 import { trainingLabel } from '~/lib/format'
 import type {
   Appointment,
@@ -236,7 +237,7 @@ async function createPlan() {
   try {
     if (selectedProgramId.value) {
       const created = await db.domain('TRAINING_PLAN_SAVE', {
-        id: crypto.randomUUID(),
+        id: generateUuidV7(),
         name: planName.value.trim(),
         programId: selectedProgramId.value,
         adoptedProgramRevisionId: null,

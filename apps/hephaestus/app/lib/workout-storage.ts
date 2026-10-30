@@ -1,5 +1,6 @@
 import { localCalendarDate, parseDateString } from '@habitathq/utils'
 import type { DbAdapter } from '@palladium/core'
+import { generateUuidV7 } from '~/lib/db-identity'
 import type {
   PersonalRecordRow,
   RunRow,
@@ -412,7 +413,7 @@ function readStartOptions(source: Payload): StartOptions {
 function readStartRequest(payload: Payload) {
   const now = typeof payload['now'] === 'string' ? payload['now'] : new Date().toISOString()
   if (!Number.isFinite(Date.parse(now))) throw new Error('Invalid workout start time')
-  const id = typeof payload['id'] === 'string' ? payload['id'] : crypto.randomUUID()
+  const id = typeof payload['id'] === 'string' ? payload['id'] : generateUuidV7()
   const templateId = typeof payload['templateId'] === 'string' ? payload['templateId'] : null
   const routineId = typeof payload['routineId'] === 'string' ? payload['routineId'] : null
   const options = readStartOptions(record(payload['options'] ?? {}))
@@ -468,7 +469,7 @@ async function createPrescribedExercises(
   const excluded = new Set(options.excludedExerciseIds ?? [])
   for (const activity of prescription.activities) {
     if (excluded.has(activity.exerciseId)) continue
-    const exerciseId = crypto.randomUUID()
+    const exerciseId = generateUuidV7()
     const group = activity.executionGroupId
       ? prescription.groups.find((entry) => entry.id === activity.executionGroupId)
       : null
@@ -527,7 +528,7 @@ async function createPrescribedSets(
     await db.exec(
       `INSERT INTO sets (${SET_COLUMNS}) VALUES (?, ?, 1, 0, NULL, NULL, NULL, NULL, ?, 0, NULL, ?, ?, NULL, NULL, NULL, NULL, 0, NULL, NULL)`,
       [
-        crypto.randomUUID(),
+        generateUuidV7(),
         exerciseId,
         activity.notes,
         resolvedTargetValue(activity.targets.distanceM),
@@ -540,7 +541,7 @@ async function createPrescribedSets(
     const original = retained[index]
     const targetSet = original ?? lastWorking
     if (!targetSet) throw new Error('Missing prescribed set')
-    const setId = crypto.randomUUID()
+    const setId = generateUuidV7()
     const weight = resolvedTargetValue(targetSet.weightKg)
     const reps = targetSet.reps?.kind === 'exact' ? resolvedTargetValue(targetSet.reps.value) : null
     await db.exec(

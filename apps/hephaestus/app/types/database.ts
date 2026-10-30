@@ -441,22 +441,6 @@ export interface DbAdapter extends PalladiumDbAdapter {
 }
 
 export type DbStatement = { sql: string; bind?: unknown[] }
-
-// ─── Worker message types ─────────────────────────────────────────────────────
-
-export interface WorkerRequest {
-  id: string
-  type: string
-  payload?: unknown
-}
-
-export type WorkerResponse =
-  | { type: 'READY' }
-  | { type: 'LOCK_UNAVAILABLE' }
-  | { type: 'INIT_ERROR'; message: string }
-  | { id: string; ok: true; data: unknown }
-  | { id: string; ok: false; error: string }
-
 // ─── Type guards ──────────────────────────────────────────────────────────────
 
 export function isSetRow(value: unknown): value is SetRow {

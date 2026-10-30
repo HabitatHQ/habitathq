@@ -1,26 +1,30 @@
 ---
 scope: apps/hephaestus
 applies_to: "apps/hephaestus/**"
-last_verified: 2026-10-02
+last_verified: 2026-10-30
 ---
 
 # Hephaestus
 
-Local-first workout tracker for independent lifters. The release target is an installable Nuxt 4 PWA using Palladium schema/storage transactions over SQLite WASM + app-scoped OPFS. Capacitor dependencies remain in the repository, but native builds and native database operations are not a supported release surface.
+Local-first workout tracker for independent lifters. The release target is an installable Nuxt 4 PWA using the Palladium engine/client over SQLite WASM + app-scoped OPFS. Capacitor dependencies remain in the repository, but native builds and native database operations are not a supported release surface.
 
 ## Product boundary
 
 - Supported sessions: strength/hypertrophy (`gym`), manual run/cardio (`run`), mixed conditioning, and mobility/recovery. Historical `other` rows remain readable.
-- One unfinished session and one browser writer at a time. The workout page explicitly resumes or discards durable unfinished data.
+- One unfinished session and one elected database writer at a time. Browser tabs share that writer through Palladium ownership/failover. The workout page explicitly resumes or discards durable unfinished data.
 - Readiness and training load are estimates, not medical advice.
-- Backup/restore and exports are local-only. Palladium cross-device sync remains deferred until account, authorization, identity-conversion, deletion, and recovery contracts are approved.
+- Backup/restore and exports are local-only. The engine runs without a transport or network endpoint. Cross-device sync remains deferred until account, authorization, deletion, and recovery contracts are approved.
 - Body metrics/photos, GPS, health integrations, and native certification are deferred. Preserve legacy tables/data; do not add new UI that implies support.
 
 ## Database path
 
-Pages/composables send serialized requests through `useDatabase()` → `database.client.ts` → `database.worker.ts`. The worker owns `BrowserSqliteAdapter`, the Palladium `DbAdapter` transaction bridge, schema application, and domain dispatchers. Additions must use a typed domain operation or `batch()` for atomic multi-write behavior; never create another connection or mutate OPFS directly.
+Pages/composables use `useDatabase()` → the Palladium client/typed worker connection → `@palladium/worker` ownership → `createHephaestusBackend()`. The elected worker owns one `BrowserSqliteAdapter` at `/hephaestus/hephaestus.db` and one `PalladiumEngine`. Other tabs forward requests and refresh from committed invalidations; they do not open another database.
 
-Schema startup must preserve unversioned and partially migrated installs. Baseline DDL, additive repair, workout/equipment schema, and version stamp share a transaction. Clear-data is a confirmed logical delete of Hephaestus app tables; it keeps Palladium/SQLite metadata, local preference settings, and every sibling-app OPFS directory.
+All runtime SQL, including multi-step domain operations, executes through the engine-owned capture adapter. Connection-local SQLite triggers collect actual net row changes, including cascades and upserts; savepoint rollback discards preview effects. `captureLocal()` commits those effects, canonical row identities, HLC metadata, and checkpoints together. Use typed domain operations or `batch()` for multi-write behavior; never mutate the engine adapter or OPFS outside owned startup/administrative reset work. Previews and device-local seed bookkeeping are intentionally not replicated entities.
+
+Schema startup preserves unversioned and partially migrated installs. Baseline DDL, additive repair, domain schema, UUIDv7 identity conversion, and the version stamp share a transaction. Natural-key uniqueness remains intact when a table gains a canonical `id`; new durable IDs use `generateUuidV7()`. Remap structured references during migration/import, never user prose.
+
+Clear-data is a confirmed local-only administrative transaction: erase Hephaestus app tables and their row metadata together, retaining engine node/clock identity, preferences, and every sibling-app OPFS directory. Full-backup replacement admits all restored rows and their metadata atomically, even when the backup is identical or contains previously deleted IDs.
 
 ## Commands
 

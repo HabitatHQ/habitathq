@@ -1,5 +1,7 @@
 import { addCalendarDays, localCalendarDate } from '@habitathq/utils'
 import type { DbAdapter } from '@palladium/core'
+import { generateUuidV7 } from '~/lib/db-identity'
+import { programStructureHash } from '~/lib/program-structure'
 import type { ProgramPhase, SetSchemeConfig } from '~/types/database'
 import type {
   DomainOperation,
@@ -150,7 +152,7 @@ function exactReps(
   const exact = /^(\d+)$/.exec(textValue)
   if (exact) {
     const n = Number(exact[1])
-    return { kind: 'exact', value: unresolvedTarget(crypto.randomUUID(), n) }
+    return { kind: 'exact', value: unresolvedTarget(generateUuidV7(), n) }
   }
   const range = /^(\d+)\s*[-–]\s*(\d+)$/.exec(textValue)
   if (range) return { kind: 'range', minimum: Number(range[1]), maximum: Number(range[2]) }
@@ -320,12 +322,12 @@ function legacySet(
         : ('back_off' as const)
       : ('working' as const)
   return {
-    id: crypto.randomUUID(),
+    id: generateUuidV7(),
     order: index + 1,
     role,
     reps,
     weightKg: null,
-    restSec: unresolvedTarget(crypto.randomUUID(), rest),
+    restSec: unresolvedTarget(generateUuidV7(), rest),
     rpe: null,
     rir: null,
     notes: null,
@@ -377,8 +379,8 @@ async function legacyTemplatePrescription(
     amrap: number
     time_cap_sec: number | null
   }>('SELECT * FROM template_groups WHERE template_id=? ORDER BY sort_order,label', [templateId])
-  const groupIds = new Map(groupRows.map((group) => [group.label, crypto.randomUUID()]))
-  const activityIds = new Map(rows.map((row) => [row.id, crypto.randomUUID()]))
+  const groupIds = new Map(groupRows.map((group) => [group.label, generateUuidV7()]))
+  const activityIds = new Map(rows.map((row) => [row.id, generateUuidV7()]))
   const groups = groupRows.map((group) => ({
     id: groupIds.get(group.label) as string,
     label: group.label,
@@ -444,7 +446,7 @@ async function insertTemplateRevision(
   createdAt: string,
 ): Promise<TemplateRevision> {
   const revisionNumber = await nextTemplateRevision(db, templateId)
-  const id = crypto.randomUUID()
+  const id = generateUuidV7()
   const structureHash = structuralFingerprint(prescription)
   await db.exec(
     'INSERT INTO template_revisions (id,template_id,revision_num,prescription_json,structure_hash,created_at) VALUES (?,?,?,?,?,?)',
@@ -596,7 +598,7 @@ async function createTemplate(db: DbAdapter, input: unknown): Promise<TemplateRe
   const name = payload.name.trim()
   const description = payload.description ?? null
   const createdAt = payload.now ?? new Date().toISOString()
-  const templateId = payload.id ?? crypto.randomUUID()
+  const templateId = payload.id ?? generateUuidV7()
   await db.exec('INSERT INTO templates (id,name,description,created_at) VALUES (?,?,?,?)', [
     templateId,
     name,
@@ -632,19 +634,19 @@ async function duplicateTemplate(db: DbAdapter, input: unknown): Promise<Templat
   const payload = object(input, 'template duplicate')
   const source = await loadTemplateRevision(db, text(payload['templateId'], 'Template identity'))
   const cloned = structuredClone(source.prescription)
-  for (const group of cloned.groups) group.id = crypto.randomUUID()
+  for (const group of cloned.groups) group.id = generateUuidV7()
   const oldGroups = new Map(
     source.prescription.groups.map((group, index) => [group.id, cloned.groups[index]?.id ?? '']),
   )
   for (const activity of cloned.activities) {
-    activity.id = crypto.randomUUID()
+    activity.id = generateUuidV7()
     if (activity.executionGroupId)
       activity.executionGroupId = oldGroups.get(activity.executionGroupId) ?? null
     for (const set of activity.sets) {
-      set.id = crypto.randomUUID()
-      if (set.reps?.kind === 'exact') set.reps.value.id = crypto.randomUUID()
+      set.id = generateUuidV7()
+      if (set.reps?.kind === 'exact') set.reps.value.id = generateUuidV7()
       for (const target of [set.weightKg, set.restSec, set.rpe, set.rir])
-        if (target) target.id = crypto.randomUUID()
+        if (target) target.id = generateUuidV7()
     }
   }
   for (const group of cloned.groups)
@@ -704,8 +706,8 @@ async function saveRoutine(db: DbAdapter, input: unknown): Promise<RoutineRevisi
   if (continuationPolicy === 'calendar_bound' && deferralMode !== null)
     throw new Error('Calendar-bound routines cannot have a deferral mode')
   const now = nowOf(payload)
-  const routineId = typeof payload['id'] === 'string' ? payload['id'] : crypto.randomUUID()
-  const revisionId = crypto.randomUUID()
+  const routineId = typeof payload['id'] === 'string' ? payload['id'] : generateUuidV7()
+  const revisionId = generateUuidV7()
   const structureHash = templateRevision.structureHash
   const provenance = { templateId, adoptedTemplateRevisionId: templateRevisionId }
   const revision: RoutineRevision = {
@@ -817,7 +819,7 @@ async function editRoutine(db: DbAdapter, input: unknown): Promise<RoutineRevisi
   const prescription = resolvePrescription(draftPrescription, inputs)
   const now = nowOf(payload)
   const nextNumber = current.revisionNumber + 1
-  const revisionId = crypto.randomUUID()
+  const revisionId = generateUuidV7()
   const revision: RoutineRevision = {
     id: revisionId,
     routineId: id,
@@ -988,7 +990,7 @@ async function previewTemplateAdoption(
   const preservedInputs = inputChanges.preservedInputs
   const preservedFixedTargetValues = targetChanges.preservedFixedTargetValues
   const preview: TemplateAdoptionPreview = {
-    previewId: crypto.randomUUID(),
+    previewId: generateUuidV7(),
     routineId,
     currentRoutineRevisionId: revision.id,
     targetTemplateRevisionId: target.id,
@@ -1049,7 +1051,7 @@ async function applyTemplateAdoption(db: DbAdapter, input: unknown): Promise<Rou
   })
   validatePrescriptionExpressions(prescription)
   const resolvedPrescription = resolvePrescription(prescription, inputs)
-  const revisionId = crypto.randomUUID()
+  const revisionId = generateUuidV7()
   const now = nowOf(payload)
   const next: RoutineRevision = {
     id: revisionId,
@@ -1319,7 +1321,7 @@ async function previewFutureUpdate(
   }
   const referencingPlans = await getRoutineReferencePlans(db, routineId)
   const preview: FutureUpdatePreview = {
-    previewId: crypto.randomUUID(),
+    previewId: generateUuidV7(),
     workoutId,
     routineId,
     currentRoutineRevisionId: current.id,
@@ -1383,7 +1385,7 @@ async function applyFutureUpdate(db: DbAdapter, input: unknown): Promise<Routine
   validatePrescriptionExpressions(prescription)
   const resolvedPrescription = resolvePrescription(prescription, validInputs)
   const now = nowOf(payload)
-  const id = crypto.randomUUID()
+  const id = generateUuidV7()
   const next: RoutineRevision = {
     id,
     routineId: routine.id,
@@ -1553,30 +1555,8 @@ async function insertProgramRevision(
     [programId],
   )
   const revisionNumber = (row?.revision_num ?? 0) + 1
-  const id = crypto.randomUUID()
-  const structureHash = structuralFingerprint({
-    schemaVersion: 1,
-    evaluatorVersion: 'program-v1',
-    inputs: [],
-    defaults: { incrementKg: 1, restSec: 0 },
-    groups: [],
-    activities: design.slots.map((slot, index) => ({
-      id: slot.id,
-      exerciseId: slot.templateId ?? '',
-      order: index + 1,
-      loggingMode: 'strength',
-      executionGroupId: null,
-      sets: [],
-      targets: { durationSec: null, distanceM: null },
-      notes: null,
-    })),
-    provenance: {
-      kind: 'authored',
-      migratedAt: null,
-      legacyTemplateId: null,
-      unresolvedFields: [],
-    },
-  })
+  const id = generateUuidV7()
+  const structureHash = programStructureHash(design)
   await db.exec(
     'INSERT INTO program_revisions (id,program_id,revision_num,design_json,structure_hash,created_at) VALUES (?,?,?,?,?,?)',
     [id, programId, revisionNumber, JSON.stringify(design), structureHash, createdAt],
@@ -1586,7 +1566,7 @@ async function insertProgramRevision(
 
 async function createProgram(db: DbAdapter, input: unknown): Promise<ProgramRevision> {
   const payload = object(input, 'Program create') as unknown as ProgramCreateRequest
-  const id = payload.id ?? crypto.randomUUID()
+  const id = payload.id ?? generateUuidV7()
   const now = payload.now ?? new Date().toISOString()
   validateProgramDesign(payload.design)
   await db.exec(
@@ -1604,7 +1584,7 @@ async function createProgram(db: DbAdapter, input: unknown): Promise<ProgramRevi
     await db.exec(
       'INSERT INTO program_weeks (id,program_id,week_num,is_deload,intensity_modifier,volume_modifier,phase) VALUES (?,?,?,?,?,?,?)',
       [
-        crypto.randomUUID(),
+        generateUuidV7(),
         id,
         week.week,
         week.progression.isDeload ? 1 : 0,
@@ -1702,7 +1682,7 @@ async function addProgramWeek(db: DbAdapter, input: unknown): Promise<ProgramRev
     await db.exec(
       'INSERT INTO program_weeks (id,program_id,week_num,is_deload,intensity_modifier,volume_modifier,phase) VALUES (?,?,?,?,?,?,?)',
       [
-        crypto.randomUUID(),
+        generateUuidV7(),
         payload.programId,
         payload.weekNum,
         progression.isDeload ? 1 : 0,
@@ -1754,7 +1734,7 @@ async function addProgramSlot(db: DbAdapter, input: unknown): Promise<ProgramSlo
     ? await ensureTemplateRevision(db, payload.templateId)
     : null
   const slot: ProgramSlot = {
-    id: crypto.randomUUID(),
+    id: generateUuidV7(),
     templateId: payload.templateId,
     templateRevisionId: templateRevision?.id ?? null,
     assignmentResolved: payload.templateId !== null,
@@ -1771,7 +1751,7 @@ async function addProgramSlot(db: DbAdapter, input: unknown): Promise<ProgramSlo
   )
   await db.exec(
     'INSERT INTO program_days (id,week_id,day_num,template_id,label) VALUES (?,?,?,?,?)',
-    [crypto.randomUUID(), week.id, payload.dayNum, payload.templateId, payload.label ?? null],
+    [generateUuidV7(), week.id, payload.dayNum, payload.templateId, payload.label ?? null],
   )
   return slot
 }
@@ -1887,7 +1867,7 @@ async function saveTrainingPlan(db: DbAdapter, input: unknown): Promise<Training
   )
     throw new Error('A standalone plan cannot adopt Program revisions or bindings')
   await validateTrainingPlanBindings(db, payload)
-  const id = payload.id ?? crypto.randomUUID()
+  const id = payload.id ?? generateUuidV7()
   const now = payload.now ?? new Date().toISOString()
   const current = await db.queryOne<{ id: string }>('SELECT id FROM training_plans WHERE id=?', [
     id,
@@ -1945,7 +1925,7 @@ async function replacePlanBindings(
     await db.exec(
       'INSERT INTO training_plan_bindings (id,plan_id,program_slot_id,template_id,routine_id,status,issue) VALUES (?,?,?,?,?,?,?)',
       [
-        binding.id || crypto.randomUUID(),
+        binding.id || generateUuidV7(),
         planId,
         binding.programSlotId,
         binding.templateId,
@@ -2016,7 +1996,7 @@ async function createLegacyProgramSlots(
         ? await ensureTemplateRevision(db, referencedTemplate.id)
         : null
       slots.push({
-        id: crypto.randomUUID(),
+        id: generateUuidV7(),
         templateId: day.template_id,
         templateRevisionId: templateRevision?.id ?? null,
         assignmentResolved: templateRevision !== null,
@@ -2098,7 +2078,7 @@ async function migrateLegacyPrograms(db: DbAdapter): Promise<void> {
       await db.exec(
         'INSERT INTO training_plan_bindings (id,plan_id,program_slot_id,template_id,routine_id,status,issue) VALUES (?,?,?,?,NULL,?,?) ON CONFLICT(plan_id,program_slot_id) DO NOTHING',
         [
-          crypto.randomUUID(),
+          generateUuidV7(),
           planId,
           slot.id,
           slot.templateId,
@@ -2303,7 +2283,7 @@ async function applyProgramCalendar(
       await db.exec(
         "INSERT INTO organization_appointments(id,plan_id,routine_id,original_date,planned_date,status,created_at,occurrence_key,source_kind,source_id) VALUES(?,?,?,?,?,'open',?,?,'program',?)",
         [
-          crypto.randomUUID(),
+          generateUuidV7(),
           planId,
           change.routineId,
           change.plannedDate,
@@ -2361,7 +2341,7 @@ async function previewProgramAdoption(
     bindings.push(binding)
   }
   const preview: ProgramAdoptionPreview = {
-    previewId: crypto.randomUUID(),
+    previewId: generateUuidV7(),
     planId: payload.planId,
     currentProgramRevisionId: plan.adopted_program_revision_id,
     targetProgramRevisionId: revision.id,
@@ -2505,7 +2485,7 @@ async function bindProgramRoutine(db: DbAdapter, input: unknown): Promise<Traini
   const slotRevision = await loadTemplateRevision(db, slot.templateId, slot.templateRevisionId)
   if (slotRevision.structureHash !== routineRevision.structureHash)
     throw new Error('Routine structure is incompatible with this Program slot')
-  const id = crypto.randomUUID()
+  const id = generateUuidV7()
   await db.exec(
     "INSERT INTO training_plan_bindings (id,plan_id,program_slot_id,template_id,routine_id,status,issue) VALUES (?,?,?,?,?,'bound',NULL) ON CONFLICT(plan_id,program_slot_id) DO UPDATE SET template_id=excluded.template_id,routine_id=excluded.routine_id,status='bound',issue=NULL",
     [id, planId, programSlotId, slot.templateId, routineId],
@@ -2665,7 +2645,7 @@ async function previewProgramBinding(
       issue = 'Existing routine binding is incompatible with the adopted Program slot'
   }
   return {
-    id: existing?.id ?? crypto.randomUUID(),
+    id: existing?.id ?? generateUuidV7(),
     planId,
     programSlotId: slot.id,
     templateId: slot.templateId,

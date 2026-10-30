@@ -1,3 +1,5 @@
+import { logError } from '@habitathq/utils'
+import { generateUuidV7 } from '~/lib/db-identity'
 import { buildPendingSet } from '~/lib/workout-helpers'
 import type { WorkoutSession, WorkoutSetIntent, WorkoutSummary } from '~/lib/workout-storage'
 import type {
@@ -41,6 +43,7 @@ const writerUnavailable = ref(false)
 const activeInterval = ref<WorkoutSession['interval']>(null)
 const runData = ref<RunRow | null>(null)
 let elapsedInterval: number | null = null
+let hydrationGeneration = 0
 const sessionIntensityModifier = ref(1)
 const sessionVolumeModifier = ref(1)
 
@@ -120,7 +123,7 @@ function mergeRunMetric(
 
 function buildRunRow(workoutId: string, current: RunRow | null, partial: Partial<RunRow>): RunRow {
   return {
-    id: current?.id ?? crypto.randomUUID(),
+    id: current?.id ?? generateUuidV7(),
     workout_id: workoutId,
     run_type: partial.run_type ?? current?.run_type ?? 'easy',
     distance_m: mergeRunMetric(current, partial, 'distance_m'),
@@ -207,10 +210,60 @@ export function useWorkout() {
       recoverySession.value = requiresResume
       return true
     } catch (error) {
-      writerUnavailable.value = db.status.value === 'lock_unavailable'
+      writerUnavailable.value = db.status.value !== 'ready'
       throw error
     }
   }
+  let active = true
+  // Active workout controls may hold uncommitted form state; only hydrate
+  // a new session or a pending recovery prompt, never replace a live draft.
+  function hasUncommittedDraft(): boolean {
+    return Object.keys(setIntents.value).length > 0 || Object.keys(activityIntents.value).length > 0
+  }
+
+  async function refreshAfterInvalidation(
+    previousWorkoutId: string | null,
+    generation: number,
+  ): Promise<void> {
+    try {
+      const data = await db.workout('WORKOUT_ACTIVE', {})
+      if (!active || generation !== hydrationGeneration) return
+      if ((activeWorkout.value?.id ?? null) !== previousWorkoutId) return
+      if (hasUncommittedDraft()) return
+      if (!data) {
+        if (previousWorkoutId) await hydrateActiveWorkout()
+        return
+      }
+      const requiresResume = activeWorkout.value?.id !== data.workout.id
+      installSession(data)
+      if (requiresResume) recoverySession.value = true
+    } catch (error) {
+      logError('workout-refresh', error)
+    }
+  }
+
+  const stopInvalidationWatch = watch(
+    () => db.invalidation.value.revision,
+    (revision, previousRevision) => {
+      if (revision === previousRevision || !active) return
+      const tables = db.invalidation.value.tables
+      if (
+        !tables.some((table) =>
+          ['workouts', 'workout_exercises', 'sets', 'runs', 'workout_intervals'].includes(table),
+        )
+      )
+        return
+      if (activeWorkout.value && !recoverySession.value) return
+      if (hasUncommittedDraft()) return
+      const previousWorkoutId = activeWorkout.value?.id ?? null
+      const generation = ++hydrationGeneration
+      void refreshAfterInvalidation(previousWorkoutId, generation)
+    },
+  )
+  onScopeDispose(() => {
+    active = false
+    stopInvalidationWatch()
+  })
 
   async function resumeWorkout(): Promise<void> {
     recoverySession.value = false
@@ -258,7 +311,7 @@ export function useWorkout() {
     if (activeWorkout.value) throw new Error('An active workout already exists')
     try {
       const data = await db.workout('WORKOUT_START', {
-        id: crypto.randomUUID(),
+        id: generateUuidV7(),
         now: new Date().toISOString(),
         templateId: templateId ?? null,
         routineId: routineId ?? null,
@@ -278,7 +331,7 @@ export function useWorkout() {
       writerUnavailable.value = false
       templateGroups.value = new Map(data.groups.map((group) => [group.label, group]))
     } catch (error) {
-      writerUnavailable.value = db.status.value === 'lock_unavailable'
+      writerUnavailable.value = db.status.value !== 'ready'
       throw error
     }
   }
@@ -310,7 +363,7 @@ export function useWorkout() {
   ): Promise<WorkoutExerciseRow> {
     if (!activeWorkout.value) throw new Error('No active workout')
     const row: Omit<WorkoutExerciseRow, 'logging_mode'> = {
-      id: crypto.randomUUID(),
+      id: generateUuidV7(),
       workout_id: activeWorkout.value.id,
       exercise_id: exerciseId,
       order_num: opts.orderNum ?? workoutExercises.value.length + 1,
@@ -351,7 +404,7 @@ export function useWorkout() {
         ? (current[pendingIdx]?.set_num ?? nextSetNumber(current))
         : nextSetNumber(current)
     const set: SetRow = {
-      id: pendingIdx >= 0 ? (current[pendingIdx]?.id ?? crypto.randomUUID()) : crypto.randomUUID(),
+      id: pendingIdx >= 0 ? (current[pendingIdx]?.id ?? generateUuidV7()) : generateUuidV7(),
       workout_exercise_id: workoutExerciseId,
       set_num: setNum,
       is_warmup: partial.is_warmup ?? 0,

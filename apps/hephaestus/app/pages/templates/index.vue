@@ -35,14 +35,22 @@ const importError = ref('')
 const importStatus = ref('')
 
 async function loadData() {
+  const generation = ++loadGeneration
   await load({ includeArchived: showArchived.value })
   if (templates.value.length > 0) {
-    ;[exerciseCounts.value, exercisePreviews.value] = await Promise.all([
-      getExerciseCounts(),
-      getExercisePreviews(),
-    ])
+    const [counts, previews] = await Promise.all([getExerciseCounts(), getExercisePreviews()])
+    if (generation !== loadGeneration) return
+    exerciseCounts.value = counts
+    exercisePreviews.value = previews
   }
 }
+let loadGeneration = 0
+watch(
+  () => db.invalidation.value.revision,
+  () => {
+    if (db.status.value === 'ready') void loadData()
+  },
+)
 
 watch(
   db.status,

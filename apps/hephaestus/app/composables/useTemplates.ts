@@ -1,3 +1,4 @@
+import { generateUuidV7 } from '~/lib/db-identity'
 import { parseSerializablePrescription } from '~/lib/prescription-domain'
 import type {
   CircuitRestMode,
@@ -31,7 +32,7 @@ function parsePlannedReps(value: string): PrescriptionActivity['sets'][number]['
     return {
       kind: 'exact',
       value: {
-        id: crypto.randomUUID(),
+        id: generateUuidV7(),
         rule: { kind: 'fixed', value: reps },
         resolvedValue: reps,
       },
@@ -55,13 +56,13 @@ function legacyTemplateActivity(
       ? Number(JSON.parse(exercise.setRestSeconds)[index] ?? exercise.restSeconds)
       : exercise.restSeconds
     return {
-      id: crypto.randomUUID(),
+      id: generateUuidV7(),
       order: index + 1,
       role: 'working' as const,
       reps,
       weightKg: null,
       restSec: {
-        id: crypto.randomUUID(),
+        id: generateUuidV7(),
         rule: { kind: 'fixed' as const, value: rest },
         resolvedValue: rest,
       },
@@ -72,7 +73,7 @@ function legacyTemplateActivity(
     }
   })
   return {
-    id: crypto.randomUUID(),
+    id: generateUuidV7(),
     exerciseId: exercise.exerciseId,
     order: exercise.orderNum,
     loggingMode: 'strength',
@@ -92,6 +93,7 @@ export interface ExercisePreview {
 
 const templates = ref<TemplateRow[]>([])
 const loadingTemplates = ref(false)
+let templateLoadGeneration = 0
 
 export interface TemplateExerciseWithName extends TemplateExerciseRow {
   exercise_name: string
@@ -121,15 +123,16 @@ export function useTemplates() {
   const db = useDatabase()
 
   async function load(opts: LoadOptions = {}) {
-    if (loadingTemplates.value) return
+    const generation = ++templateLoadGeneration
     loadingTemplates.value = true
     try {
       const whereClause = opts.includeArchived ? '' : 'WHERE archived_at IS NULL'
-      templates.value = await db.query<TemplateRow>(
+      const rows = await db.query<TemplateRow>(
         `SELECT * FROM templates ${whereClause} ORDER BY created_at DESC`,
       )
+      if (generation === templateLoadGeneration) templates.value = rows
     } finally {
-      loadingTemplates.value = false
+      if (generation === templateLoadGeneration) loadingTemplates.value = false
     }
   }
 
@@ -163,7 +166,7 @@ export function useTemplates() {
     exercises: TemplateExerciseInput[],
     groups: TemplateGroupInput[] = [],
   ): Promise<string> {
-    const groupIds = new Map(groups.map((group) => [group.label, crypto.randomUUID()]))
+    const groupIds = new Map(groups.map((group) => [group.label, generateUuidV7()]))
     const activities = exercises.map((exercise) => legacyTemplateActivity(exercise, groupIds))
     const revision = await db.domain('TEMPLATE_CREATE', {
       name,

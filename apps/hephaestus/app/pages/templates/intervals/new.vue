@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { formatDurationSeconds } from '@habitathq/utils'
+import { generateUuidV7 } from '~/lib/db-identity'
 import { trainingLabel } from '~/lib/format'
 import { buildEmom, buildTabata } from '~/lib/interval-templates'
 
@@ -49,7 +50,7 @@ async function handleSave() {
   if (!canSave.value) return
   saving.value = true
   try {
-    const id = crypto.randomUUID()
+    const id = generateUuidV7()
     const now = new Date().toISOString()
     await db.exec(
       'INSERT INTO interval_templates (id, name, intervals, created_at, type, work_sec, rest_sec, rounds) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',

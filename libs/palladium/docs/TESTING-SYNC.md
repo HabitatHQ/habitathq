@@ -94,6 +94,10 @@ CI uses one ordered `just build-palladium-ts lint-palladium-ts typecheck-palladi
 
 Focused behavioral regressions include Kysely rollback/commit isolation and commit errors, atomic IndexedDB replacement/deletion, schema upgrade rollback and old-outbox quarantine, explicit discard/retry after restart, React query error recovery, notification permission fallback, and bounded Atrium backfill offer/ACK progression.
 
+Engine `captureLocal()` regressions use real SQLite to verify async read-your-writes without replaying immutable SQL effects, callback/checkpoint rollback (including durable and in-memory HLC), canonical operation admission, queued transaction isolation, and post-commit immutable observer delivery. Empty net captures do not advance the clock or publish changes.
+
+Hephaestus's local-only backend adds real SQL capture coverage for cascades, upserts on fresh and migrated natural-key tables, savepoint previews, identity/import conversion, full-backup replacement, and administrative reset. Reset must suspend only its own DELETE-capture triggers transactionally; unrelated trigger effects remain rejected, and both successful reset and rollback must leave future deletion capture intact.
+
 ## Rust CI compatibility
 
 Keep the locked `async-trait` resolution at 0.1.92 or newer: 0.1.89 adds a
@@ -145,7 +149,7 @@ pnpm --filter @palladium/example-react exec playwright test
 pnpm --filter @palladium/example-multitab exec playwright test
 ```
 
-The React example runs the real engine and transport in a dedicated SQLite WASM/OPFS worker. Its suite retains create, title, rich-text, bidirectional edit, delete, and reload behavior checks, and adds tab/worker closure with a durable offline write followed by reopen/reconnect recovery. The multi-tab suite checks persisted state through leader loss and continued writes by the successor. CI runs both suites and uploads failure artifacts. Locally, `PLAYWRIGHT_CHANNEL=chrome` selects an already-installed Chrome instead of downloaded Chromium.
+The React example runs the real engine and transport in a dedicated SQLite WASM/OPFS worker. Its suite retains create, title, rich-text, bidirectional edit, delete, and reload behavior checks, and adds tab/worker closure with a durable offline write followed by reopen/reconnect recovery. The multi-tab suite checks persisted state through leader loss and continued writes by the successor. It also exercises the real adapter in two dedicated workers under an exclusive Web Lock: durable data survives same-adapter close/reopen and lock handoff to another worker while the closed worker remains alive; a simulated post-open startup failure followed by close releases the lock and pool; reset still empties only the selected database. CI runs both suites and uploads failure artifacts. Locally, `PLAYWRIGHT_CHANNEL=chrome` selects an already-installed Chrome instead of downloaded Chromium.
 
 The seeded engine simulation controls generated remote changes and their delivery schedules against an independent LWW oracle; it does not simulate local transactions through the complete transport/server stack. Browser quota exhaustion, mobile lifecycle, arbitrary scheduler exploration, storage power loss, and sustained-load qualification remain outside these gates.
 

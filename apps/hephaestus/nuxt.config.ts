@@ -38,12 +38,13 @@ export default defineNuxtConfig({
   icon: {
     clientBundle: {
       scan: true,
-      // These names come from exercise seed data rather than component markup.
+      // Dynamic exercise and UI icons are not all discoverable in component markup.
       icons: [
         'ph:activity',
         'ph:arrow-fat-down',
         'ph:arrow-fat-up',
         'ph:barbell',
+        'ph:circle-notch',
         'ph:minus',
         'ph:person',
         'ph:person-simple-bike',

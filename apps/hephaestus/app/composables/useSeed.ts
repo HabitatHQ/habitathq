@@ -1,4 +1,5 @@
 import exercisesData from '~/assets/seed/exercises.json'
+import { generateUuidV7 } from '~/lib/db-identity'
 import type { Equipment, EquipmentSub, MovementPattern } from '~/types/database'
 
 interface ExerciseSeed {
@@ -41,7 +42,7 @@ export function useSeed() {
       const batch = seeds.slice(i, i + BATCH)
       const placeholders = batch.map(() => '(?,?,?,?,?,?,?,?,?,?,0,?,?)').join(',\n')
       const bind: (string | null)[] = batch.flatMap((ex) => [
-        crypto.randomUUID(),
+        generateUuidV7(),
         ex.name,
         ex.slug,
         ex.equipment,
