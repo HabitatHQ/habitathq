@@ -8,7 +8,7 @@
 The [UX/routines handoff](../../docs/plans/hephaestus-ux-routines-handoff-20261002.md) defines the current domain cutover:
 
 - Templates and reusable Programs own immutable design revisions; saved routines own configured prescription revisions. Personal Training Plans bind Program slots to compatible routines and own independent calendars.
-- Pages call typed composables through `useDatabase()` and the serialized database worker. Schema upgrades and domain writes use Palladium's existing SQLite adapter/transaction boundary; no second connection or direct OPFS writer is introduced.
+- Pages call typed composables through `useDatabase()` and the shared Palladium client/worker connection. One elected owner runs the local-only engine; SQL effects and engine metadata share `captureLocal()` transactions. No second application connection or direct OPFS writer is introduced.
 - Session creation captures source provenance and resolved intent. Valid draft edits persist separately from completion; undo retains drafts, and skipped or extra work never rewrites captured intent.
 - Restricted scalar CEL formulas use explicit stable bindings and bounded dependencies. Serialized rules contain source/version/bindings, not runtime ASTs; formula execution does not require JavaScript `unsafe-eval`.
 - Appointment fulfillment is explicit and limited to one appointment per qualifying finished workout. Activity-filtered Monday–Sunday frequency goals credit independently; rotations advance once on linked completion or explicit skip.
@@ -21,7 +21,7 @@ Acceptance on 2026-10-03: the package gate passed both typechecks and 534 unit/i
 
 ## 1. Overview
 
-**Hephaestus** is a local-first Progressive Web App for tracking strength, manual running/cardio, conditioning, and mobility/recovery sessions. It prioritizes fast logging, durable reload recovery, transparent editable suggestions, and on-device progress estimates. Supported release data lives on-device through Palladium's schema/transaction boundary over SQLite WASM + app-scoped OPFS.
+**Hephaestus** is a local-first Progressive Web App for tracking strength, manual running/cardio, conditioning, and mobility/recovery sessions. It prioritizes fast logging, durable reload recovery, transparent editable suggestions, and on-device progress estimates. Supported release data lives on-device through the Palladium engine over SQLite WASM + app-scoped OPFS; no network transport is configured.
 
 ### Goals
 - Fast, one-tap set logging that doesn't get in your way
@@ -43,9 +43,9 @@ Directly mirrors Habitat's architecture:
 | Styling | Tailwind CSS 4 + Nuxt UI 4 |
 | State | `useState` composables (no Pinia) |
 | Routing | File-based (Nuxt `/pages/`) |
-| Database boundary | Palladium SchemaConfig + DbAdapter transactions |
+| Database module | Palladium engine, `captureLocal()` SQL capture, SchemaConfig migrations |
 | Browser storage | `@palladium/sqlite-browser` + app-scoped OPFS |
-| DB thread | Web Worker (`database.worker.ts`), serialized one-writer dispatch |
+| DB thread | `@palladium/worker` elected owner and typed RPC; one engine/connection |
 | PWA | `@vite-pwa/nuxt` + Workbox app shell |
 | Native | Deferred; no supported native database path in this release |
 | External health | Deferred |
@@ -544,12 +544,12 @@ app/
 
 ### Database Worker Pattern
 
-Mirrors Habitat exactly:
-- All SQL runs in `database.worker.ts` via `postMessage` RPC
-- `useDatabase()` composable wraps the worker with typed request/response
-- Web Locks API prevents multi-tab conflicts
-- OPFS persistence via SQLite WASM OPFS VFS
-- Migrations managed as versioned SQL strings
+- `useDatabase()` uses the shared Palladium client for queries/mutations and a typed worker connection for domain operations.
+- `database.worker.ts` delegates ownership and failover to `@palladium/worker`; only the elected owner opens `/hephaestus/hephaestus.db`.
+- `createHephaestusBackend()` serializes SQL and domain operations through the local-only engine. The capture module follows SQLite effects so cascades, upserts and savepoint rollback remain accurate without replaying writes.
+- App data, canonical UUIDv7 row identities, HLC metadata and durable checkpoints commit atomically. Committed invalidations refresh sibling-tab views without overwriting active form drafts.
+- SchemaConfig startup upgrades and legacy identity/reference conversion are transactional. Natural-key uniqueness and immutable captured intent remain intact.
+- The storage adapter releases SQLite and SAH-pool access handles on close, allowing another elected worker to reopen the same persisted database.
 
 ### Active Workout State
 
