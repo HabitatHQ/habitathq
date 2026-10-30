@@ -104,8 +104,12 @@ export interface WorkoutOperationMap {
   }
   WORKOUT_ACTIVE: { payload: Record<string, never>; result: WorkoutSession | null }
   WORKOUT_INTERVAL_STATE: {
-    payload: { workoutId: string; state: IntervalClockState }
-    result: WorkoutIntervalSession
+    payload: {
+      workoutId: string
+      expected: IntervalClockState & { updated_at: string }
+      state: IntervalClockState
+    }
+    result: { state: WorkoutIntervalSession; accepted: boolean; summary: WorkoutSummary | null }
   }
   WORKOUT_LOG_SET: { payload: { set: SetRow }; result: SetRow }
   WORKOUT_UPDATE_SET: { payload: { set: SetRow }; result: SetRow }
@@ -938,6 +942,13 @@ export async function recomputeWorkoutDerivedState(
     const summary = buildWorkoutSummary(workout, workout.ended_at, strengthSets, newPRs, distanceM)
     if (workout.session_type === 'run' && runDuration != null && runDuration > 0)
       summary.durationSec = runDuration
+    const interval = await readIntervalSession(db, workout.id)
+    if (interval)
+      summary.durationSec = intervalElapsedSeconds(
+        interval,
+        interval.config,
+        Date.parse(workout.ended_at),
+      )
     await db.exec(
       'INSERT INTO workout_finish_summaries(workout_id,summary_json) VALUES(?,?) ON CONFLICT(workout_id) DO UPDATE SET summary_json=excluded.summary_json',
       [workout.id, JSON.stringify(summary)],
@@ -1254,6 +1265,62 @@ async function readIntervalSession(
   return { ...state, config: parseIntervalConfiguration(JSON.parse(config_json)) }
 }
 
+async function saveIntervalState(db: DbAdapter, payload: Payload): Promise<unknown> {
+  const workoutId = String(payload['workoutId'] ?? '')
+  const expected = record(payload['expected'])
+  const receipt = await finishedSummary(db, workoutId)
+  if (receipt) {
+    const completed = await readIntervalSession(db, workoutId)
+    if (!completed) throw new Error('This workout is not an interval session')
+    return { state: completed, accepted: false, summary: receipt }
+  }
+  await requireActiveWorkout(db, workoutId)
+  const current = await readIntervalSession(db, workoutId)
+  if (!current) throw new Error('This workout is not an interval session')
+  const state = record(payload['state'])
+  const phase = state['phase']
+  const round = state['round']
+  const deadline = state['phase_deadline_ms']
+  const paused = state['paused_remaining_sec']
+  const rounds = current.config.type === 'amrap' ? 1 : current.config.rounds
+  if (
+    (phase !== 'work' && phase !== 'rest' && phase !== 'complete') ||
+    typeof round !== 'number' ||
+    !Number.isSafeInteger(round) ||
+    round < 1 ||
+    round > rounds ||
+    (deadline !== null && (typeof deadline !== 'number' || !Number.isFinite(deadline))) ||
+    (paused !== null && (typeof paused !== 'number' || !Number.isFinite(paused) || paused < 0)) ||
+    (phase === 'complete'
+      ? deadline !== null || paused !== null
+      : (deadline === null) === (paused === null))
+  )
+    throw new Error('Invalid interval timing state')
+  const sameState =
+    current.phase === expected['phase'] &&
+    current.round === expected['round'] &&
+    current.phase_deadline_ms === expected['phase_deadline_ms'] &&
+    current.paused_remaining_sec === expected['paused_remaining_sec'] &&
+    current.updated_at === expected['updated_at']
+  if (!sameState) return { state: current, accepted: false, summary: null }
+  const updatedAt = new Date(Math.max(Date.now(), Date.parse(current.updated_at) + 1)).toISOString()
+  await db.exec(
+    'UPDATE workout_interval_sessions SET phase=?,round=?,phase_deadline_ms=?,paused_remaining_sec=?,updated_at=? WHERE workout_id=?',
+    [phase, round, deadline, paused, updatedAt, workoutId],
+  )
+  const saved = await readIntervalSession(db, workoutId)
+  if (!saved) throw new Error('This workout is not an interval session')
+  const summary =
+    phase === 'complete'
+      ? await finish(db, {
+          workoutId,
+          endedAt: new Date().toISOString(),
+          options: {},
+        })
+      : null
+  return { state: saved, accepted: true, summary }
+}
+
 export async function dispatchWorkout(
   db: DbAdapter,
   type: string,
@@ -1265,37 +1332,8 @@ export async function dispatchWorkout(
       return start(db, payload)
     case 'WORKOUT_ACTIVE':
       return activeSession(db)
-    case 'WORKOUT_INTERVAL_STATE': {
-      const workoutId = String(payload['workoutId'] ?? '')
-      await requireActiveWorkout(db, workoutId)
-      const current = await readIntervalSession(db, workoutId)
-      if (!current) throw new Error('This workout is not an interval session')
-      const state = record(payload['state'])
-      const phase = state['phase']
-      const round = state['round']
-      const deadline = state['phase_deadline_ms']
-      const paused = state['paused_remaining_sec']
-      const rounds = current.config.type === 'amrap' ? 1 : current.config.rounds
-      if (
-        (phase !== 'work' && phase !== 'rest' && phase !== 'complete') ||
-        typeof round !== 'number' ||
-        !Number.isSafeInteger(round) ||
-        round < 1 ||
-        round > rounds ||
-        (deadline !== null && (typeof deadline !== 'number' || !Number.isFinite(deadline))) ||
-        (paused !== null &&
-          (typeof paused !== 'number' || !Number.isFinite(paused) || paused < 0)) ||
-        (phase === 'complete'
-          ? deadline !== null || paused !== null
-          : (deadline === null) === (paused === null))
-      )
-        throw new Error('Invalid interval timing state')
-      await db.exec(
-        'UPDATE workout_interval_sessions SET phase=?,round=?,phase_deadline_ms=?,paused_remaining_sec=?,updated_at=? WHERE workout_id=?',
-        [phase, round, deadline, paused, new Date().toISOString(), workoutId],
-      )
-      return readIntervalSession(db, workoutId)
-    }
+    case 'WORKOUT_INTERVAL_STATE':
+      return saveIntervalState(db, payload)
     case 'WORKOUT_LOG_SET':
     case 'WORKOUT_UPDATE_SET':
     case 'WORKOUT_SAVE_DRAFT':

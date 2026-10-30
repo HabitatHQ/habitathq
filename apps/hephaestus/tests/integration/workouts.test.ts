@@ -749,15 +749,42 @@ describe('atomic workout lifecycle operations', () => {
       phase_deadline_ms: Date.parse(NOW) + 20000,
       config: { work_sec: 20, rest_sec: 10, rounds: 8 },
     })
+    const initial = started.interval
+    if (!initial) throw new Error('Expected an interval session')
     const savedState = {
       phase: 'rest',
       round: 3,
       phase_deadline_ms: null,
       paused_remaining_sec: 7.25,
     }
-    await runWorkoutOperation('WORKOUT_INTERVAL_STATE', {
+    const transitioned = await runWorkoutOperation<{
+      state: WorkoutSession['interval']
+      accepted: boolean
+      summary: WorkoutSummary | null
+    }>('WORKOUT_INTERVAL_STATE', {
       workoutId: started.workout.id,
+      expected: initial,
       state: savedState,
+    })
+    expect(transitioned.accepted).toBe(true)
+    const staleAdvance = await runWorkoutOperation<{
+      state: WorkoutSession['interval']
+      accepted: boolean
+      summary: WorkoutSummary | null
+    }>('WORKOUT_INTERVAL_STATE', {
+      workoutId: started.workout.id,
+      expected: initial,
+      state: {
+        phase: 'complete',
+        round: 8,
+        phase_deadline_ms: null,
+        paused_remaining_sec: null,
+      },
+    })
+    expect(staleAdvance).toMatchObject({
+      accepted: false,
+      summary: null,
+      state: { ...savedState },
     })
     db.exec('DELETE FROM interval_templates WHERE id=?', [templateId])
     const recovered = await runWorkoutOperation<WorkoutSession>('WORKOUT_ACTIVE', {})
@@ -772,6 +799,53 @@ describe('atomic workout lifecycle operations', () => {
       options: {},
     })
     expect(summary.durationSec).toBe(83)
+  })
+  it('finishes automatically once and returns the saved receipt to a competing completion', async () => {
+    const templateId = testId('interval-complete-template')
+    db.exec(
+      'INSERT INTO interval_templates(id,name,intervals,type,rounds,work_sec,rest_sec,created_at) VALUES(?,?,?,?,?,?,?,?)',
+      [templateId, 'One-second interval', '[]', 'custom', 1, 1, 0, NOW],
+    )
+    const started = await runWorkoutOperation<WorkoutSession>('WORKOUT_START', {
+      id: testId('interval-complete-workout'),
+      now: NOW,
+      options: { intervalTemplateId: templateId },
+    })
+    const initial = started.interval
+    if (!initial) throw new Error('Expected an interval session')
+    const completion = {
+      workoutId: started.workout.id,
+      expected: initial,
+      state: {
+        phase: 'complete',
+        round: 1,
+        phase_deadline_ms: null,
+        paused_remaining_sec: null,
+      },
+    }
+    const first = await runWorkoutOperation<{
+      state: WorkoutSession['interval']
+      accepted: boolean
+      summary: WorkoutSummary | null
+    }>('WORKOUT_INTERVAL_STATE', completion)
+    expect(first.accepted).toBe(true)
+    expect(first.summary?.durationSec).toBe(1)
+
+    const second = await runWorkoutOperation<{
+      state: WorkoutSession['interval']
+      accepted: boolean
+      summary: WorkoutSummary | null
+    }>('WORKOUT_INTERVAL_STATE', completion)
+    expect(second).toMatchObject({
+      accepted: false,
+      state: { phase: 'complete', round: 1 },
+      summary: first.summary,
+    })
+    expect(
+      db.query<{ ended_at: string | null }>('SELECT ended_at FROM workouts WHERE id=?', [
+        started.workout.id,
+      ])[0]?.ended_at,
+    ).not.toBeNull()
   })
 
   it('does not leave an orphaned unfinished workout if interval capture fails', async () => {

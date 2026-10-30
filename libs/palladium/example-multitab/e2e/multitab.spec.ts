@@ -13,10 +13,14 @@ test("SAH pool close releases handles and preserves data while the old worker st
 
   const results = await page.evaluate(
     async ({ adapterModuleUrl, directory }) => {
+      const siblingFilename = "/sibling.db";
       const workerSource = `
         import { BrowserSqliteAdapter } from ${JSON.stringify(adapterModuleUrl)};
         const adapter = new BrowserSqliteAdapter({
           vfs: { type: "opfs-sah-pool", directory: ${JSON.stringify(directory)}, filename: "/probe.db" }
+        });
+        const sibling = new BrowserSqliteAdapter({
+          vfs: { type: "opfs-sah-pool", directory: ${JSON.stringify(directory)}, filename: ${JSON.stringify(siblingFilename)} }
         });
         const withLock = (callback) => navigator.locks.request("lifecycle-probe", callback);
         self.onmessage = async ({ data: { id, action } }) => {
@@ -28,6 +32,27 @@ test("SAH pool close releases handles and preserves data while the old worker st
                 await adapter.exec("INSERT INTO probe VALUES ('durable')");
                 await adapter.close();
                 self.postMessage({ id, ok: true });
+              } else if (action === "close-reset") {
+                await adapter.open();
+                await adapter.exec("INSERT INTO probe VALUES ('old')");
+                await adapter.close();
+                await sibling.open();
+                await sibling.exec("CREATE TABLE sibling_data (value TEXT NOT NULL)");
+                await sibling.exec("INSERT INTO sibling_data VALUES ('preserved')");
+                await sibling.close();
+                await adapter.resetStorage();
+                const oldTables = await adapter.exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'probe'");
+                await adapter.exec("CREATE TABLE replacement (value TEXT NOT NULL)");
+                await adapter.exec("INSERT INTO replacement VALUES ('writable')");
+                const replacement = await adapter.exec("SELECT value FROM replacement");
+                await adapter.close();
+                await adapter.open();
+                const reopenedReplacement = await adapter.exec("SELECT value FROM replacement");
+                await adapter.close();
+                await sibling.open();
+                const siblingRows = await sibling.exec("SELECT value FROM sibling_data");
+                await sibling.close();
+                self.postMessage({ id, oldTables, replacement, reopenedReplacement, siblingRows });
               } else if (action === "reopen-close") {
                 await adapter.open();
                 const rows = await adapter.exec("SELECT value FROM probe");
@@ -49,7 +74,7 @@ test("SAH pool close releases handles and preserves data while the old worker st
               } else if (action === "reset") {
                 await adapter.open();
                 await adapter.resetStorage();
-                const rows = await adapter.exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'probe'");
+                const rows = await adapter.exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'replacement'");
                 await adapter.close();
                 self.postMessage({ id, rows });
               } else if (action === "ping") {
@@ -88,8 +113,9 @@ test("SAH pool close releases handles and preserves data while the old worker st
         const alive = await request(first, "ping");
         await request(first, "failed-start-close");
         const afterFailedStart = await request(second, "read-close");
+        const closeReset = await request(first, "close-reset");
         const reset = await request(second, "reset");
-        return { reopened, afterClose, alive, afterFailedStart, reset };
+        return { reopened, afterClose, alive, afterFailedStart, closeReset, reset };
       } finally {
         first.terminate();
         second.terminate();
@@ -103,7 +129,14 @@ test("SAH pool close releases handles and preserves data while the old worker st
   expect(results["afterClose"]).toEqual({ id: 3, rows: [{ value: "durable" }] });
   expect(results["alive"]).toEqual({ id: 4, alive: true });
   expect(results["afterFailedStart"]).toEqual({ id: 6, rows: [{ value: "durable" }] });
-  expect(results["reset"]).toEqual({ id: 7, rows: [] });
+  expect(results["closeReset"]).toEqual({
+    id: 7,
+    oldTables: [],
+    replacement: [{ value: "writable" }],
+    reopenedReplacement: [{ value: "writable" }],
+    siblingRows: [{ value: "preserved" }],
+  });
+  expect(results["reset"]).toEqual({ id: 8, rows: [] });
 });
 const roleOf = (page: Page) => page.locator("#role");
 const notes = (page: Page) => page.locator("#list li");

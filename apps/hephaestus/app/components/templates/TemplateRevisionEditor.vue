@@ -540,6 +540,7 @@ await load()
 <template>
   <form class="space-y-5 p-4 pb-24" @submit.prevent="save">
     <header class="flex items-center justify-between gap-2"><NuxtLink to="/templates">Cancel</NuxtLink><h1 class="text-lg font-bold">{{ templateId ? 'Edit template revision' : 'Create template' }}</h1><UButton type="submit" color="primary" :loading="busy">Save</UButton></header>
+    <p v-if="error" role="alert" class="text-sm text-red-400">{{ error }}</p>
     <details class="space-y-2 rounded-xl bg-(--color-surface) p-3"><summary class="cursor-pointer font-semibold">Workout defaults</summary><div class="grid grid-cols-2 gap-2"><label>Load increment ({{ unit }})<input :value="displayTargetValue(draft.defaults.incrementKg, 'weightKg', unit, distanceUnit)" type="number" min="0.1" step="any" class="w-full rounded bg-(--color-bg) p-2" @change="draft.defaults.incrementKg = canonicalTargetValue(Number(($event.target as HTMLInputElement).value), 'weightKg', unit, distanceUnit)" /></label><label>Rest seconds<input v-model.number="draft.defaults.restSec" type="number" min="0" step="any" class="w-full rounded bg-(--color-bg) p-2" /></label></div></details>
     <label class="block">Name<input v-model="name" required maxlength="120" class="mt-1 w-full rounded-lg bg-(--color-surface) p-2" /></label>
     <label class="block">Description<textarea v-model="description" class="mt-1 w-full rounded-lg bg-(--color-surface) p-2" /></label>

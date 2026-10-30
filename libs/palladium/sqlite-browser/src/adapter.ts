@@ -226,13 +226,17 @@ export class BrowserSqliteAdapter
       await directory.removeEntry(filename);
     } else if (vfs.type === "opfs-sah-pool") {
       if (!this.#pool) throw new Error("Open the SAH pool before resetting storage");
-      // Unlink before pausing: pausing releases the pool's access handles and
-      // with them the filename-to-file mapping that unlink relies on.
       await this.#closeDatabase();
-      if (!this.#pool.unlink(vfs.filename)) {
-        throw new Error(`SAH pool could not delete database ${vfs.filename}`);
+      try {
+        // close() pauses the pool and clears its filename map. Resume before
+        // unlinking, then release the handles even if reset fails.
+        if (this.#pool.isPaused()) await this.#pool.unpauseVfs();
+        if (!this.#pool.unlink(vfs.filename)) {
+          throw new Error(`SAH pool could not delete database ${vfs.filename}`);
+        }
+      } finally {
+        this.#pausePool();
       }
-      this.#pausePool();
     } else {
       await this.close();
     }

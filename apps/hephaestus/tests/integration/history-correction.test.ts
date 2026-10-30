@@ -194,6 +194,38 @@ beforeEach(async () => {
 afterEach(() => raw.close())
 
 describe('reviewed factual history corrections', () => {
+  it('preserves pause-excluding interval duration after an unrelated history correction', async () => {
+    raw.exec(
+      'INSERT INTO workout_interval_sessions(workout_id,template_id,config_json,phase,round,phase_deadline_ms,paused_remaining_sec,updated_at) VALUES(?,?,?,?,?,?,?,?)',
+      [
+        'workout',
+        'interval',
+        JSON.stringify({
+          type: 'custom',
+          name: 'Paused work',
+          rounds: 1,
+          work_sec: 60,
+          rest_sec: 0,
+          time_cap_sec: null,
+        }),
+        'work',
+        1,
+        Date.parse('2026-03-15T12:01:00Z'),
+        50,
+        NOW,
+      ],
+    )
+    const preview = await review({ title: 'Corrected title' })
+    await history('HISTORY_CORRECTION_APPLY', {
+      previewId: preview.previewId,
+      fingerprint: preview.fingerprint,
+    })
+    expect(
+      raw.query<{ durationSec: number }>(
+        "SELECT json_extract(summary_json, '$.durationSec') AS durationSec FROM workout_finish_summaries WHERE workout_id='workout'",
+      ),
+    ).toEqual([{ durationSec: 10 }])
+  })
   it('preserves previously logged fractional RIR in a title-only form submission', async () => {
     raw.exec("UPDATE sets SET rir=1.5 WHERE id='working'")
     const preview = await review({

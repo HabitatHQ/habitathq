@@ -221,6 +221,33 @@ export function useWorkout() {
     return Object.keys(setIntents.value).length > 0 || Object.keys(activityIntents.value).length > 0
   }
 
+  async function refreshIntervalAfterInvalidation(
+    workoutId: string,
+    generation: number,
+  ): Promise<void> {
+    try {
+      const data = await db.workout('WORKOUT_ACTIVE', {})
+      if (!active || generation !== hydrationGeneration || activeWorkout.value?.id !== workoutId)
+        return
+      if (!data) {
+        stopElapsedClock()
+        stopRestTimer()
+        activeWorkout.value = null
+        activeInterval.value = null
+        recoverySession.value = false
+        return
+      }
+      if (
+        data.workout.id === workoutId &&
+        data.interval &&
+        (!activeInterval.value || activeInterval.value.updated_at < data.interval.updated_at)
+      )
+        activeInterval.value = data.interval
+    } catch (error) {
+      logError('workout-interval-refresh', error)
+    }
+  }
+
   async function refreshAfterInvalidation(
     previousWorkoutId: string | null,
     generation: number,
@@ -247,15 +274,22 @@ export function useWorkout() {
     (revision, previousRevision) => {
       if (revision === previousRevision || !active) return
       const tables = db.invalidation.value.tables
+      const previousWorkoutId = activeWorkout.value?.id ?? null
       if (
-        !tables.some((table) =>
-          ['workouts', 'workout_exercises', 'sets', 'runs', 'workout_intervals'].includes(table),
-        )
+        tables.some((table) => ['workout_interval_sessions', 'workouts'].includes(table)) &&
+        previousWorkoutId &&
+        activeInterval.value
+      ) {
+        const generation = ++hydrationGeneration
+        void refreshIntervalAfterInvalidation(previousWorkoutId, generation)
+        return
+      }
+      if (
+        !tables.some((table) => ['workouts', 'workout_exercises', 'sets', 'runs'].includes(table))
       )
         return
       if (activeWorkout.value && !recoverySession.value) return
       if (hasUncommittedDraft()) return
-      const previousWorkoutId = activeWorkout.value?.id ?? null
       const generation = ++hydrationGeneration
       void refreshAfterInvalidation(previousWorkoutId, generation)
     },
@@ -680,14 +714,26 @@ export function useWorkout() {
     return summary
   }
   async function saveIntervalState(
+    expected: Pick<
+      NonNullable<WorkoutSession['interval']>,
+      'phase' | 'round' | 'phase_deadline_ms' | 'paused_remaining_sec' | 'updated_at'
+    >,
     state: Pick<
       NonNullable<WorkoutSession['interval']>,
       'phase' | 'round' | 'phase_deadline_ms' | 'paused_remaining_sec'
     >,
   ) {
-    if (!activeWorkout.value) throw new Error('No active interval workout')
-    activeInterval.value = await db.workout('WORKOUT_INTERVAL_STATE', {
-      workoutId: activeWorkout.value.id,
+    const workoutId = activeWorkout.value?.id
+    if (!workoutId) throw new Error('No active interval workout')
+    const result = await db.workout('WORKOUT_INTERVAL_STATE', {
+      workoutId,
+      expected: {
+        phase: expected.phase,
+        round: expected.round,
+        phase_deadline_ms: expected.phase_deadline_ms,
+        paused_remaining_sec: expected.paused_remaining_sec,
+        updated_at: expected.updated_at,
+      },
       state: {
         phase: state.phase,
         round: state.round,
@@ -695,6 +741,29 @@ export function useWorkout() {
         paused_remaining_sec: state.paused_remaining_sec,
       },
     })
+    if (!activeInterval.value || activeInterval.value.updated_at <= result.state.updated_at)
+      activeInterval.value = result.state
+    if (result.summary) {
+      lastFinishedWorkoutId.value = workoutId
+      if (activeWorkout.value?.id === workoutId) {
+        stopElapsedClock()
+        stopRestTimer()
+        activeWorkout.value = null
+        activeInterval.value = null
+        workoutExercises.value = []
+        sets.value = new Map()
+        templateGroups.value = new Map()
+        runData.value = null
+        setIntents.value = {}
+        activityIntents.value = {}
+        skippedSetIds.value = new Set()
+        prescription.value = null
+        routine.value = null
+        sessionIntensityModifier.value = 1
+        sessionVolumeModifier.value = 1
+      }
+    }
+    return result
   }
 
   return {

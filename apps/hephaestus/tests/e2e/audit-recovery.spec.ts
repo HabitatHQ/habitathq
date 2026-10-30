@@ -31,6 +31,41 @@ test('recovers the same paused interval after reload and saves its performed ide
     page.getByRole('heading', { name: 'Reload-safe intervals', exact: true }),
   ).toBeVisible()
 })
+
+test('reconciles interval pause across tabs without allowing a stale timer to advance', async ({
+  page,
+}) => {
+  test.setTimeout(75_000)
+  const follower = await page.context().newPage()
+  await page.goto('/templates/intervals/new')
+  await page.getByLabel('Name', { exact: true }).fill('Cross-tab pause')
+  await page.getByLabel('Rounds', { exact: true }).fill('2')
+  await page.getByLabel('Work (s)', { exact: true }).fill('40')
+  await page.getByLabel('Rest (s)', { exact: true }).fill('10')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  const startLink = page.getByRole('link', { name: 'Start', exact: true })
+  const intervalPath = await startLink.getAttribute('href')
+  await startLink.click()
+  await page.getByRole('button', { name: 'Start session', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: /^Work$/ })).toBeVisible()
+  if (!intervalPath) throw new Error('Expected the saved interval route')
+  await follower.goto(intervalPath)
+  await expect(follower.getByRole('status').filter({ hasText: /^Work$/ })).toBeVisible()
+  await page.getByRole('button', { name: 'Pause timer', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: /^Paused$/ })).toBeVisible()
+  await expect(follower.getByRole('status').filter({ hasText: /^Paused$/ })).toBeVisible()
+  const pausedRemaining = await page.getByRole('timer').textContent()
+  await page.waitForTimeout(51_000)
+  await expect(follower.getByRole('status').filter({ hasText: /^Paused$/ })).toBeVisible()
+  await expect(follower.getByRole('timer')).toHaveText(pausedRemaining ?? '')
+  await page.reload()
+  await expect(page.getByRole('status').filter({ hasText: /^Paused$/ })).toBeVisible()
+  await expect(page.getByRole('timer')).toHaveText(pausedRemaining ?? '')
+  await follower.getByRole('button', { name: 'Resume timer', exact: true }).click()
+  await expect(follower.getByRole('status').filter({ hasText: /^Work$/ })).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: /^Work$/ })).toBeVisible()
+  await follower.close()
+})
 test('shares one Palladium writer, refreshes stale views, and hands ownership over after tab close', async ({
   page,
 }) => {

@@ -92,9 +92,15 @@ async function synchronize() {
   const state = ownSession.value
   const next = progress.value
   if (!state || !next) return
-  if (state.phase !== next.phase || state.round !== next.round)
-    await workout.saveIntervalState(next)
-  if (next.phase === 'complete') await finishSession()
+  if (state.phase !== next.phase || state.round !== next.round) {
+    const result = await workout.saveIntervalState(state, next)
+    if (result.summary) {
+      savedElapsed.value = result.summary.durationSec
+      finishedRound.value = next.round
+      finished.value = true
+      stopTicker()
+    }
+  }
 }
 
 onMounted(async () => {
@@ -135,7 +141,7 @@ async function togglePause() {
     if (!state || finished.value) return
     now.value = Date.now()
     if (state.paused_remaining_sec === null) {
-      await workout.saveIntervalState({
+      await workout.saveIntervalState(state, {
         ...state,
         paused_remaining_sec: Math.max(
           0,
@@ -144,7 +150,7 @@ async function togglePause() {
         phase_deadline_ms: null,
       })
     } else {
-      await workout.saveIntervalState({
+      await workout.saveIntervalState(state, {
         ...state,
         phase_deadline_ms: now.value + state.paused_remaining_sec * 1000,
         paused_remaining_sec: null,

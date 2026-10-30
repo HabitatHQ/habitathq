@@ -1,6 +1,6 @@
 import { generateUuidV7 } from '@palladium/core'
 import { describe, expect, it } from 'vitest'
-import { BACKUP_FORMAT, dispatchTransfer } from '~/lib/data-transfer'
+import { BACKUP_FORMAT, type BackupEnvelope, dispatchTransfer } from '~/lib/data-transfer'
 import { migrateAppIdentities, naturalRowUuidV7 } from '~/lib/db-identity'
 import { dispatchHistory } from '~/lib/history-correction'
 import type { DbAdapter } from '~/types/database'
@@ -75,6 +75,69 @@ function seedLegacyInstall(db: TestDb): void {
 }
 
 describe('app identity migration', () => {
+  it('remaps substitute exercise identities without changing prose or breaking exports', async () => {
+    const db = await createTestDb()
+    try {
+      const primary = '11111111-1111-4111-8111-111111111111'
+      const substitute = '22222222-2222-4222-8222-222222222222'
+      const templateId = '33333333-3333-4333-8333-333333333333'
+      db.exec(
+        `INSERT INTO exercises (id,name,slug,equipment,movement,created_at) VALUES
+         (?, 'Press', 'press', 'barbell', 'push', '2026-01-01'),
+         (?, 'Alternate press', 'alternate-press', 'dumbbell', 'push', '2026-01-01')`,
+        [primary, substitute],
+      )
+      db.exec('INSERT INTO templates (id,name,created_at) VALUES(?,?,?)', [
+        templateId,
+        'Substitute template',
+        '2026-01-01',
+      ])
+      db.exec(
+        'INSERT INTO template_exercises (id,template_id,exercise_id,order_num,substitutes,notes) VALUES(?,?,?,?,?,?)',
+        [
+          '44444444-4444-4444-8444-444444444444',
+          templateId,
+          primary,
+          1,
+          JSON.stringify([substitute]),
+          'Keep this authored prose',
+        ],
+      )
+      const adapter = adapterFor(db)
+      await adapter.transaction((tx) => migrateAppIdentities(tx))
+
+      const exercises = db.query<{ id: string; slug: string }>(
+        'SELECT id,slug FROM exercises ORDER BY slug',
+      )
+      const primaryId = exercises.find((exercise) => exercise.slug === 'press')?.id
+      const substituteId = exercises.find((exercise) => exercise.slug === 'alternate-press')?.id
+      const entry = db.query<{ exercise_id: string; substitutes: string; notes: string }>(
+        'SELECT exercise_id,substitutes,notes FROM template_exercises',
+      )[0]
+      expect(primaryId).toMatch(UUID_V7)
+      expect(substituteId).toMatch(UUID_V7)
+      expect(entry).toEqual({
+        exercise_id: primaryId,
+        substitutes: JSON.stringify([substituteId]),
+        notes: 'Keep this authored prose',
+      })
+
+      const backup = (await dispatchTransfer(adapter, 'TRANSFER_EXPORT_BACKUP', {
+        settings,
+      })) as BackupEnvelope
+      expect(await dispatchTransfer(adapter, 'TRANSFER_PREVIEW_RESTORE', { backup })).toMatchObject(
+        { valid: true },
+      )
+      const portable = (await dispatchTransfer(adapter, 'TRANSFER_EXPORT_PORTABLE', {})) as {
+        tables: Record<string, Array<Record<string, unknown>>>
+      }
+      expect(portable.tables['template_exercises']?.[0]?.['substitutes']).toBe(
+        JSON.stringify([substituteId]),
+      )
+    } finally {
+      db.close()
+    }
+  })
   it('canonicalizes legacy identities, natural-key rows and captured payloads in one pass', async () => {
     const db = await createTestDb()
     try {

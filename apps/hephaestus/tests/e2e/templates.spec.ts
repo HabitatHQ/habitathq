@@ -2,6 +2,32 @@ import { expect, test } from '@playwright/test'
 import { activityEditor, authorStrengthTemplate, setEditor } from './domain-helpers'
 
 test.describe('template prescription authoring and persistence', () => {
+  test('explains a rejected save and allows the authored template to be repaired', async ({
+    page,
+  }) => {
+    await page.goto('/templates/new')
+    await page.getByLabel('Name', { exact: true }).fill('Repairable template')
+    await page.getByRole('combobox', { name: 'Add activity' }).selectOption({
+      label: 'Barbell Squat',
+    })
+    const activity = activityEditor(page, 'Barbell Squat')
+    await activity.getByRole('button', { name: 'Remove set', exact: true }).click()
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(page.getByRole('alert')).toContainText(
+      'Strength activities require at least one authored set.',
+    )
+    await expect(page).toHaveURL(/\/templates\/new$/)
+    await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Repairable template')
+
+    await activity.getByRole('button', { name: 'Add default set', exact: true }).click()
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(page).toHaveURL(/\/templates\/[0-9a-f-]{36}$/)
+    await page.reload()
+    await page.getByRole('link', { name: 'Edit template', exact: true }).click()
+    await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Repairable template')
+    await expect(setEditor(activityEditor(page, 'Barbell Squat'), 1)).toBeVisible()
+  })
+
   test('authors ordered exact and range targets and starts once with captured intent', async ({
     page,
   }) => {

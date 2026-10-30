@@ -349,6 +349,8 @@ function validateRequiredBackupValues(
         throw new Error(`Required backup value is missing for ${name}.${column.name}.`)
 }
 
+// Known compatibility defect: pre-interval version-2 backups lack
+// workout_interval_sessions and are intentionally not migrated by this validator.
 async function validateBackupSchema(db: DbAdapter, backup: BackupEnvelope): Promise<void> {
   const current = new Set(await discoverTables(db))
   const included = new Set(Object.keys(backup.tables))
@@ -772,6 +774,7 @@ const PORTABLE_ENTITY_ID_TABLES = [
   'organization_rotations',
   'organization_rotation_advances',
   'organization_goals',
+  'equipment_profiles',
 ] as const
 
 function normalizePortableTables(
@@ -1334,7 +1337,7 @@ async function portableIdentities(
 ): Promise<{ incomingIds: Map<string, Set<string>>; currentIds: Map<string, Set<string>> }> {
   const incomingIds = new Map<string, Set<string>>()
   const currentIds = new Map<string, Set<string>>()
-  for (const table of [...PORTABLE_ENTITY_ID_TABLES, 'exercises', 'equipment_profiles'] as const) {
+  for (const table of [...PORTABLE_ENTITY_ID_TABLES, 'exercises'] as const) {
     const idColumn = portableIdColumn(table)
     const ids = new Set<string>()
     for (const row of rowsFor(table)) {
@@ -2066,6 +2069,8 @@ function registerPortableIdentities(rowsFor: PortableRows, idMap: Map<string, st
   for (const table of PORTABLE_ENTITY_ID_TABLES) {
     for (const row of rowsFor(table)) {
       const id = row['id']
+      // Older portable bundles may omit this table's optional surrogate ID.
+      if (table === 'equipment_profiles' && id === undefined) continue
       if (typeof id !== 'string' || !id || idMap.has(id))
         throw new Error(`Portable identity is duplicated or invalid: ${String(id)}.`)
       idMap.set(id, generateUuidV7())
@@ -2191,7 +2196,7 @@ async function insertPortableRow(
     typeof row['slug'] === 'string' &&
     (await tx.queryOne('SELECT id FROM exercises WHERE slug = ?', [row['slug']]))
   )
-    next['slug'] = `${row['slug']}-${String(idMap.get(String(row['id']))).slice(0, 8)}`
+    next['slug'] = `${row['slug']}-${idMap.get(String(row['id']))}`
   const columns = Object.keys(next)
   await tx.exec(
     `INSERT INTO ${quoteIdentifier(table)} (${columns.map(quoteIdentifier).join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,

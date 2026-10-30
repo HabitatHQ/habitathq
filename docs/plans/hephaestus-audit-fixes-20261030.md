@@ -79,3 +79,34 @@ Final combined run:
 Additional agent-browser verification used isolated synthetic origins. Full-backup restore through Profile's file picker/confirmation retained all three Program revisions and saved workout history; cross-origin portable import accepted the same graph. A generated-PWA first-run check confirmed `crossOriginIsolated === true` and document width equal to the 390 px viewport. No personal browser storage was reset.
 
 Physical devices, Safari/iOS, native builds, and cross-device synchronization were not qualified. Root-wide `pnpm ci` was not run; affected-app verification, architecture checks, and the root dedupe result are reported separately rather than presented as full-monorepo green.
+
+## PR #100 review follow-up—2026-10-31
+
+Implementation remains in the existing PR worktree, based on `7920c8f`. Publication to PR #100's existing branch was authorized after verification; no merge or deployment is included.
+
+- Leave pre-interval version-2 backup compatibility unchanged and document the missing-table rejection as a known defect in the validator.
+- Preserve substitute-exercise references during UUID conversion and verify that migrated exports remain usable.
+- Remap imported equipment-profile identities and use collision-resistant custom-exercise slug suffixes, including repeated imports within one UUIDv7 timestamp bucket.
+- Reconcile interval-only state across tabs without replacing unsaved set forms. Enforce stale-transition protection at the database boundary, including automatic completion, so remote pause/resume cannot be overwritten.
+- Preserve pause-excluding interval duration when unrelated history corrections rebuild summaries.
+- Restore accessible template save-error feedback.
+- Support SAH-pool `close → resetStorage` while retaining handle release and scoped deletion.
+
+Acceptance requires behavioral regression coverage, affected package checks, generated-PWA browser scenarios, and real SQLite/OPFS smoke evidence. Earlier verification totals above describe the original PR, not this follow-up.
+
+### Follow-up verification
+
+- Root `pnpm test:unit`: 1,825 passed and one skipped across the four apps, including 552 Hephaestus unit/integration cases.
+- Generated-PWA Chromium suite: 113 passed with retries disabled. Coverage includes the two-tab pause held beyond its former phase boundary, reload/resume, template validation feedback and repaired-template persistence.
+- SQLite browser adapter build, typecheck and lint passed. The real-OPFS multitab suite passed all three cases, including closed-pool reset, replacement-database persistence and preservation of a sibling database.
+- Hephaestus TypeScript/Vue checks, app formatter/linter, dependency-cruiser and changed-production-file Semgrep checks passed. Vue route-name informational diagnostics remain; no suppressions were added.
+- Source-executed real-SQLite probes confirmed remapped substitute references with valid exports, distinct equipment-profile identities on same-install import, and distinct exercise slugs for repeated imports under a fixed clock. An unrelated history correction preserved the interval summary at 10 seconds rather than changing it to 600 seconds.
+- Interactive generated-PWA smoke confirmed both tabs paused, retained the pause beyond the original deadline and after reload, resumed from the other tab, and both displayed the same completed 42-second session without browser errors. A 390px viewport check confirmed visible save-error feedback; adding the missing set then saved the authored template.
+- A separate real-OPFS worker smoke exercised `open → write → close → resetStorage → write → close → reopen`: the old table was absent and the replacement row remained readable.
+
+Verification caught and repaired a missing test import, an incorrect test locator, and a Vue reactive proxy crossing the worker message boundary. Expected timer state is now explicitly copied into plain scalar fields before dispatch. The interval operation follows the existing named-operation pattern rather than adding complexity inside the dispatcher.
+
+The interactive harness also encountered a blank navigation while its other managed owner tab was idle; closing that tab and reloading restored the page. Its causal relationship to harness tab freezing was not isolated. The ordinary Chromium owner-handoff and complete browser suites passed; this does not qualify every browser suspension scheduler. Safari/iOS, physical devices, native builds and cross-device sync remain outside this verification.
+
+Pre-interval version-2 full backups remain rejected, as explicitly accepted for this follow-up. Verification was completed before publication.
+

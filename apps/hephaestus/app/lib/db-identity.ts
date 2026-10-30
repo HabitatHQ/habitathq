@@ -135,6 +135,7 @@ const JSON_IDENTITY_ARRAYS = new Set([
   'excluded_exercise_ids',
   'filterExerciseIds',
   'filter_exercise_ids',
+  'substitutes',
 ])
 const JSON_COLUMNS = new Set([
   'muscles',
