@@ -4,6 +4,7 @@ import { applySchema, dbg, toCapacitorDbAdapter } from '@palladium/core'
 import { CapacitorSqliteAdapter } from '@palladium/sqlite-capacitor'
 import { SCHEMA_CONFIG } from '~/lib/db-schema'
 import * as shared from '~/lib/db-shared'
+import { createSerializedDbDispatcher } from '~/lib/worker-helpers'
 import type { WorkerRequestBody } from '~/types/database'
 
 // ─── Adapter singleton ─────────────────────────────────────────────────────
@@ -27,7 +28,7 @@ export async function initNativeDb(): Promise<void> {
 
 // ─── Dispatcher ───────────────────────────────────────────────────────────────
 
-export async function dispatchNative(req: WorkerRequestBody): Promise<unknown> {
+const dispatchSerialized = createSerializedDbDispatcher(async (req) => {
   switch (req.type) {
     case 'RESET_DATABASE':
       await storage.resetStorage()
@@ -42,4 +43,8 @@ export async function dispatchNative(req: WorkerRequestBody): Promise<unknown> {
     default:
       return shared.dispatch(adapter, req)
   }
+})
+
+export function dispatchNative(req: WorkerRequestBody): Promise<unknown> {
+  return dispatchSerialized(req)
 }

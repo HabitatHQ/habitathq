@@ -7,12 +7,18 @@ const today = localCalendarDate()
 
 const chores = ref<ChoreWithStatus[]>([])
 const loading = ref(true)
+const loadError = ref<string | null>(null)
 const filterFreq = ref<'all' | ChoreFrequency>('all')
-
 async function load() {
   loading.value = true
-  chores.value = await db.getChoresWithStatus(today)
-  loading.value = false
+  loadError.value = null
+  try {
+    chores.value = await db.getChoresWithStatus(today)
+  } catch (cause) {
+    loadError.value = cause instanceof Error ? cause.message : 'Could not load chores'
+  } finally {
+    loading.value = false
+  }
 }
 
 onMounted(load)
@@ -29,17 +35,24 @@ const progressPct = computed(() =>
   totalCount.value === 0 ? 0 : Math.round((doneCount.value / totalCount.value) * 100),
 )
 
-async function toggleComplete(chore: ChoreWithStatus) {
-  if (chore.is_done) {
-    await db.uncompleteChore(chore.id, today)
-  } else {
-    const currentUser = await db.getCurrentUser()
-    if (!currentUser) return
-    await db.completeChore(chore.id, currentUser.id, today)
-  }
-  await load()
-}
+const mutationError = ref<string | null>(null)
 
+async function toggleComplete(chore: ChoreWithStatus) {
+  mutationError.value = null
+  try {
+    if (chore.is_done) {
+      await db.uncompleteChore(chore.id, today)
+    } else {
+      const currentUser = await db.getCurrentUser()
+      if (!currentUser) throw new Error('Create a household member before completing chores.')
+      await db.completeChore(chore.id, currentUser.id, today)
+    }
+    await load()
+  } catch (error) {
+    mutationError.value =
+      error instanceof Error ? error.message : 'Could not update chore completion.'
+  }
+}
 // ── Add / Edit modal ──────────────────────────────────────────────────────
 
 const showModal = ref(false)
@@ -68,6 +81,7 @@ onMounted(async () => {
 
 function openAdd() {
   editingId.value = null
+  formError.value = null
   form.name = ''
   form.icon = '✅'
   form.frequency = 'weekly'
@@ -79,6 +93,7 @@ function openAdd() {
 
 function openEdit(chore: ChoreWithStatus) {
   editingId.value = chore.id
+  formError.value = null
   form.name = chore.name
   form.icon = chore.icon
   form.frequency = chore.frequency
@@ -89,18 +104,33 @@ function openEdit(chore: ChoreWithStatus) {
 }
 
 const saving = ref(false)
+const formError = ref<string | null>(null)
 
 async function saveChore() {
-  if (!form.name.trim()) return
+  if (!form.name.trim()) {
+    formError.value = 'Enter a chore name.'
+    return
+  }
   saving.value = true
+  formError.value = null
   try {
+    const payload = {
+      name: form.name,
+      icon: form.icon,
+      frequency: form.frequency,
+      scope: form.scope,
+      color: form.color,
+      assigned_to: form.assigned_to,
+    }
     if (editingId.value) {
-      await db.updateChore({ id: editingId.value, ...form })
+      await db.updateChore({ id: editingId.value, ...payload })
     } else {
-      await db.createChore(form)
+      await db.createChore(payload)
     }
     showModal.value = false
     await load()
+  } catch (error) {
+    formError.value = error instanceof Error ? error.message : 'Could not save chore.'
   } finally {
     saving.value = false
   }
@@ -116,9 +146,14 @@ function requestDeleteChore(id: string) {
 
 async function confirmDeleteChore() {
   if (!pendingDeleteChoreId.value) return
-  await db.deleteChore(pendingDeleteChoreId.value)
-  pendingDeleteChoreId.value = null
-  await load()
+  mutationError.value = null
+  try {
+    await db.deleteChore(pendingDeleteChoreId.value)
+    pendingDeleteChoreId.value = null
+    await load()
+  } catch (error) {
+    mutationError.value = error instanceof Error ? error.message : 'Could not delete chore.'
+  }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -203,7 +238,11 @@ const COLORS = [
     </div>
 
     <!-- Loading -->
+    <p v-if="mutationError" role="alert" class="text-sm text-rose-500">
+      {{ mutationError }}
+    </p>
     <AppSkeleton v-if="loading" variant="row" :count="4" />
+    <UAlert v-else-if="loadError" role="alert" :description="loadError" color="error" />
 
     <!-- Empty state -->
     <AppEmptyState
@@ -280,6 +319,7 @@ const COLORS = [
     <!-- Add/Edit modal -->
     <AppBottomSheet v-model="showModal" :title="editingId ? 'Edit Chore' : 'Add Chore'">
       <!-- Icon + Name -->
+      <p v-if="formError" role="alert" class="text-sm text-rose-500">{{ formError }}</p>
       <div class="flex gap-2">
         <div class="relative">
           <input

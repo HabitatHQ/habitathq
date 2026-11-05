@@ -52,24 +52,25 @@ export function useDatabase() {
       sendToWorker({ type: 'DELETE_ACCOUNT', payload: { id } }),
     // ── Categories ─────────────────────────────────────────────────────────
     getCategories: (): Promise<Category[]> => sendToWorker({ type: 'GET_CATEGORIES' }),
-    getCategoryTree: (): Promise<Array<Category & { children: Category[] }>> =>
-      sendToWorker({ type: 'GET_CATEGORY_TREE' }),
 
     // ── Transactions ───────────────────────────────────────────────────────
     getTransactions: (limit = 50, offset = 0): Promise<TransactionWithDetails[]> =>
       sendToWorker({ type: 'GET_TRANSACTIONS', payload: { limit, offset } }),
     getTransactionsForPeriod: (
       period: string,
+      home_currency: string,
       user_id?: string,
     ): Promise<TransactionWithDetails[]> =>
       sendToWorker({
         type: 'GET_TRANSACTIONS_FOR_PERIOD',
-        payload: { period, ...(user_id !== undefined && { user_id }) },
+        payload: { period, home_currency, ...(user_id !== undefined && { user_id }) },
       }),
     getTransaction: (id: string): Promise<TransactionWithDetails | null> =>
       sendToWorker({ type: 'GET_TRANSACTION', payload: { id } }),
     createTransaction: (
-      p: Omit<Transaction, 'id' | 'created_at' | 'updated_at'>,
+      p: Omit<Transaction, 'id' | 'created_at' | 'updated_at'> & {
+        iou_split?: { to_user_id: string; amount: number }
+      },
     ): Promise<Transaction> => sendToWorker({ type: 'CREATE_TRANSACTION', payload: p }),
     updateTransaction: (p: Partial<Transaction> & { id: string }): Promise<Transaction> =>
       sendToWorker({ type: 'UPDATE_TRANSACTION', payload: p }),
@@ -78,10 +79,17 @@ export function useDatabase() {
 
     // ── Envelopes ──────────────────────────────────────────────────────────
     getEnvelopes: (): Promise<Envelope[]> => sendToWorker({ type: 'GET_ENVELOPES' }),
-    getEnvelopesWithSpending: (period: string): Promise<EnvelopeWithSpending[]> =>
-      sendToWorker({ type: 'GET_ENVELOPES_WITH_SPENDING', payload: { period } }),
-    getEnvelopeWithSpending: (id: string, period: string): Promise<EnvelopeWithSpending | null> =>
-      sendToWorker({ type: 'GET_ENVELOPE_WITH_SPENDING', payload: { id, period } }),
+    getEnvelopesWithSpending: (
+      period: string,
+      home_currency: string,
+    ): Promise<EnvelopeWithSpending[]> =>
+      sendToWorker({ type: 'GET_ENVELOPES_WITH_SPENDING', payload: { period, home_currency } }),
+    getEnvelopeWithSpending: (
+      id: string,
+      period: string,
+      home_currency: string,
+    ): Promise<EnvelopeWithSpending | null> =>
+      sendToWorker({ type: 'GET_ENVELOPE_WITH_SPENDING', payload: { id, period, home_currency } }),
     createEnvelope: (p: Omit<Envelope, 'id' | 'created_at'>): Promise<Envelope> =>
       sendToWorker({ type: 'CREATE_ENVELOPE', payload: p }),
     updateEnvelope: (p: Partial<Envelope> & { id: string }): Promise<Envelope> =>
@@ -100,15 +108,15 @@ export function useDatabase() {
 
     // ── IOU / Splits ───────────────────────────────────────────────────────
     getIouSplits: (): Promise<IouSplit[]> => sendToWorker({ type: 'GET_IOU_SPLITS' }),
+    getUnresolvedIouCount: (): Promise<number> =>
+      sendToWorker({ type: 'GET_UNRESOLVED_IOU_COUNT' }),
     getIouBalances: (): Promise<IouBalance[]> => sendToWorker({ type: 'GET_IOU_BALANCES' }),
-    createIouSplit: (p: Omit<IouSplit, 'id' | 'created_at'>): Promise<IouSplit> =>
-      sendToWorker({ type: 'CREATE_IOU_SPLIT', payload: p }),
-    settleIou: (from_user_id: string, to_user_id: string): Promise<null> =>
-      sendToWorker({ type: 'SETTLE_IOU', payload: { from_user_id, to_user_id } }),
+    settleIou: (from_user_id: string, to_user_id: string, currency: string): Promise<null> =>
+      sendToWorker({ type: 'SETTLE_IOU', payload: { from_user_id, to_user_id, currency } }),
 
     // ── Dashboard ──────────────────────────────────────────────────────────
-    getDashboardSummary: (period: string): Promise<DashboardSummary> =>
-      sendToWorker({ type: 'GET_DASHBOARD_SUMMARY', payload: { period } }),
+    getDashboardSummary: (period: string, home_currency: string): Promise<DashboardSummary> =>
+      sendToWorker({ type: 'GET_DASHBOARD_SUMMARY', payload: { period, home_currency } }),
 
     // ── Utilities ──────────────────────────────────────────────────────────
     getDbInfo: (): Promise<DbInfo> => sendToWorker({ type: 'GET_DB_INFO' }),
@@ -122,9 +130,30 @@ export function useDatabase() {
     getChoresWithStatus: (date: string): Promise<ChoreWithStatus[]> =>
       sendToWorker({ type: 'GET_CHORES_WITH_STATUS', payload: { date } }),
     createChore: (p: Omit<Chore, 'id' | 'created_at'>): Promise<Chore> =>
-      sendToWorker({ type: 'CREATE_CHORE', payload: p }),
+      sendToWorker({
+        type: 'CREATE_CHORE',
+        payload: {
+          name: p.name,
+          icon: p.icon,
+          frequency: p.frequency,
+          scope: p.scope,
+          color: p.color,
+          assigned_to: p.assigned_to,
+        },
+      }),
     updateChore: (p: Partial<Chore> & { id: string }): Promise<Chore> =>
-      sendToWorker({ type: 'UPDATE_CHORE', payload: p }),
+      sendToWorker({
+        type: 'UPDATE_CHORE',
+        payload: {
+          id: p.id,
+          ...(p.name !== undefined && { name: p.name }),
+          ...(p.icon !== undefined && { icon: p.icon }),
+          ...(p.frequency !== undefined && { frequency: p.frequency }),
+          ...(p.scope !== undefined && { scope: p.scope }),
+          ...(p.color !== undefined && { color: p.color }),
+          ...(p.assigned_to !== undefined && { assigned_to: p.assigned_to }),
+        },
+      }),
     deleteChore: (id: string): Promise<null> =>
       sendToWorker({ type: 'DELETE_CHORE', payload: { id } }),
     completeChore: (chore_id: string, user_id: string, date: string): Promise<null> =>
@@ -156,8 +185,8 @@ export function useDatabase() {
       sendToWorker({ type: 'GET_RECENT_ACCOUNT_BY_TYPE', payload: { type } }),
 
     // ── Reports ─────────────────────────────────────────────────────────
-    getMonthlyTotals: (months = 6): Promise<MonthlyTotal[]> =>
-      sendToWorker({ type: 'GET_MONTHLY_TOTALS', payload: { months } }),
+    getMonthlyTotals: (months: number, home_currency: string): Promise<MonthlyTotal[]> =>
+      sendToWorker({ type: 'GET_MONTHLY_TOTALS', payload: { months, home_currency } }),
 
     // ── Recurring ───────────────────────────────────────────────────────
     detectRecurring: (): Promise<RecurringPatternRow[]> =>
@@ -204,8 +233,30 @@ export function useDatabase() {
     importTransactions: (
       transactions: Array<Omit<Transaction, 'id' | 'created_at' | 'updated_at'>>,
     ): Promise<{ imported: number }> =>
-      sendToWorker({ type: 'IMPORT_TRANSACTIONS', payload: { transactions } }),
-
+      sendToWorker({
+        type: 'IMPORT_TRANSACTIONS',
+        payload: {
+          transactions: transactions.map((transaction) => ({
+            date: transaction.date,
+            amount: transaction.amount,
+            currency: transaction.currency,
+            account_id: transaction.account_id,
+            user_id: transaction.user_id,
+            type: transaction.type,
+            category_id: transaction.category_id,
+            description: transaction.description,
+            merchant: transaction.merchant,
+            is_private: transaction.is_private,
+            is_recurring: transaction.is_recurring,
+            transfer_to_account_id: transaction.transfer_to_account_id,
+            split_id: transaction.split_id,
+            source: transaction.source,
+            home_amount: transaction.home_amount,
+            home_currency: transaction.home_currency,
+            exchange_rate: transaction.exchange_rate,
+          })),
+        },
+      }),
     // ── Exchange Rates ──────────────────────────────────────────────────
     getExchangeRate: (base: string, target: string, date: string): Promise<ExchangeRate | null> =>
       sendToWorker({ type: 'GET_EXCHANGE_RATE', payload: { base, target, date } }),

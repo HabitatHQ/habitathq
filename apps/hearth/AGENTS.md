@@ -14,6 +14,7 @@ Family expense tracker + envelope budgeting. Local-first PWA (Nuxt 4 SPA + Capac
 
 ```bash
 pnpm --filter hearth verify
+pnpm --filter hearth test:pwa  # generated PWA, real SQLite worker, desktop + mobile Chromium
 ```
 
 ## Offline parity
@@ -25,13 +26,20 @@ Native (Capacitor) and the PWA (with assets pre-fetched) work fully offline:
 - **OCR**: Tesseract `eng.traineddata.gz` (~10 MB) in `public/tessdata/`.
 - **NLP embeddings**: Xenova `all-MiniLM-L6-v2` (~23 MB) + onnxruntime-web wasm (~13 MB) in `public/models/` + `public/onnx-wasm/`.
 - **Reset DB**: Settings → Reset closes the connection, deletes the Capacitor SQLite db, reloads.
-- **JSON import/export**: round-trips both web and native.
+- **JSON import/export**: version 2 snapshots include all user tables and receipt bytes. Legacy version 1 remains importable. Restore validates the snapshot, asks before replacing current data, and rolls back on failure; it does not merge rows.
 
 `scripts/fetch-offline-assets.mjs` downloads the ~46 MB binary assets (gitignored). Runs automatically before `build:native` (`prebuild:native`). PWA users opt in via `pnpm fetch:assets`.
 
-## Schema (`user_version = 9`)
+## Schema (`user_version = 12`)
 
-users, accounts, categories, transactions, envelopes, envelope_periods, iou_splits, savings_goals, chores, applied_defaults, _palladium_seeds.
+users, accounts, categories, transactions, envelopes, envelope_periods, iou_splits, savings_goals, chores, chore_completions, merchant_mappings, recurring_patterns, receipt_images, exchange_rates, applied_defaults, _palladium_seeds.
+
+- Stored transaction conversions identify `home_currency`; legacy conversion targets remain unknown rather than being inferred from current settings. Reports, budgets, account balances, and CSV preview totals exclude unresolved conversions and show incomplete-total notices. Account reconciliation remains blocked until its currency conversions resolve.
+- IOUs are grouped and settled by user pair and original currency. Recurring detection likewise separates accounts and currencies; historical detection IDs may outlive deleted transactions.
+- Detailed expense entry commits the transaction and optional IOU share atomically. Worker/native dispatch serializes reads, writes, exports, and resets so another request cannot observe a partial operation.
+- Default categories are seeded idempotently without overwriting custom records. Linked parent categories include descendant spending once. Category pickers preserve arbitrary-depth imported hierarchies through the shared flat-category helper.
+- Transaction editing must not expose editable fields before its saved record and reference data finish loading; loading failures remain visible and Save stays disabled.
+- Quick Add displays reactive cards but sends immutable scalar worker payloads. Corrections made during creation update that same transaction without duplicating it or overwriting its saved conversion.
 
 ## Routes
 

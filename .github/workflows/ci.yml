@@ -79,6 +79,24 @@ jobs:
             apps/hephaestus/playwright-report/
           if-no-files-found: ignore
 
+      - name: Install Hearth browser runtime
+        if: matrix.app == 'hearth'
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Hearth local PWA release gate
+        if: matrix.app == 'hearth'
+        run: pnpm --filter hearth test:pwa
+
+      - name: Retain Hearth browser evidence
+        if: failure() && matrix.app == 'hearth'
+        uses: actions/upload-artifact@v4
+        with:
+          name: hearth-browser-results
+          path: |
+            apps/hearth/test-results/
+            apps/hearth/playwright-report/
+          if-no-files-found: ignore
+
   palladium-packages:
     name: Palladium TypeScript packages
     runs-on: ubuntu-latest

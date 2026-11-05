@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { detectRecurringPatterns } from '~/lib/recurring/detect'
-import { projectNextOccurrence } from '~/lib/recurring/project'
+import { projectMonthlyTotals, projectNextOccurrence } from '~/lib/recurring/project'
 import type { DetectableTransaction } from '~/lib/recurring/types'
 
 // Helper to create transactions at regular intervals
@@ -20,6 +20,7 @@ function makeTxns(
       id: `t-${merchant}-${i}`,
       date: date.toISOString().slice(0, 10),
       amount: -amount,
+      currency: 'USD',
       type: 'expense',
       merchant,
       category_id: 'c1',
@@ -69,6 +70,7 @@ describe('detectRecurringPatterns', () => {
       {
         id: 't1',
         date: '2026-01-05',
+        currency: 'USD',
         amount: -30,
         type: 'expense',
         merchant: 'Random Shop',
@@ -78,6 +80,7 @@ describe('detectRecurringPatterns', () => {
       {
         id: 't2',
         date: '2026-02-20',
+        currency: 'USD',
         amount: -45,
         type: 'expense',
         merchant: 'Random Shop',
@@ -88,6 +91,7 @@ describe('detectRecurringPatterns', () => {
         id: 't3',
         date: '2026-03-02',
         amount: -25,
+        currency: 'USD',
         type: 'expense',
         merchant: 'Random Shop',
         category_id: 'c1',
@@ -98,6 +102,7 @@ describe('detectRecurringPatterns', () => {
         date: '2026-04-15',
         amount: -60,
         type: 'expense',
+        currency: 'USD',
         merchant: 'Random Shop',
         category_id: 'c1',
         account_id: 'a1',
@@ -113,6 +118,7 @@ describe('detectRecurringPatterns', () => {
       {
         id: 't1',
         date: '2026-01-01',
+        currency: 'USD',
         amount: -10,
         type: 'expense',
         merchant: 'VaryShop',
@@ -123,6 +129,7 @@ describe('detectRecurringPatterns', () => {
         id: 't2',
         date: '2026-02-01',
         amount: -50,
+        currency: 'USD',
         type: 'expense',
         merchant: 'VaryShop',
         category_id: 'c1',
@@ -132,6 +139,7 @@ describe('detectRecurringPatterns', () => {
         id: 't3',
         date: '2026-03-01',
         amount: -10,
+        currency: 'USD',
         type: 'expense',
         merchant: 'VaryShop',
         category_id: 'c1',
@@ -154,6 +162,42 @@ describe('detectRecurringPatterns', () => {
     expect(patterns[0]!.interval).toBe('monthly')
   })
 
+
+  it('does not average recurring transactions across accounts', () => {
+    const firstAccount = makeTxns('Shared Merchant', 20, 90, 30, 3)
+    const secondAccount = makeTxns('Shared Merchant', 20, 75, 30, 3).map((transaction) => ({
+      ...transaction,
+      id: `${transaction.id}-second`,
+      account_id: 'a2',
+    }))
+    const patterns = detectRecurringPatterns([...firstAccount, ...secondAccount], [])
+
+    expect(patterns).toHaveLength(2)
+    expect(patterns.map((pattern) => [pattern.accountId, pattern.interval])).toEqual(
+      expect.arrayContaining([
+        ['a1', 'monthly'],
+        ['a2', 'monthly'],
+      ]),
+    )
+  })
+
+  it('does not average recurring transactions across currencies', () => {
+    const usd = makeTxns('Shared Merchant', 20, 90, 30, 3)
+    const eur = makeTxns('Shared Merchant', 20, 75, 30, 3).map((transaction) => ({
+      ...transaction,
+      id: `${transaction.id}-eur`,
+      currency: 'EUR',
+    }))
+    const patterns = detectRecurringPatterns([...usd, ...eur], [])
+
+    expect(patterns).toHaveLength(2)
+    expect(patterns.map((pattern) => [pattern.currency, pattern.interval])).toEqual(
+      expect.arrayContaining([
+        ['USD', 'monthly'],
+        ['EUR', 'monthly'],
+      ]),
+    )
+  })
   it('assigns higher confidence to patterns with 5+ occurrences', () => {
     const txns3 = makeTxns('Service3', 20, 90, 30, 3)
     const txns6 = makeTxns('Service6', 20, 180, 30, 6)
@@ -175,9 +219,10 @@ describe('detectRecurringPatterns', () => {
         lastOccurrence: '2026-01-01',
         nextExpected: '2026-02-01',
         confidence: 0.9,
+        currency: 'USD',
         status: 'confirmed' as const,
         categoryId: null,
-        accountId: null,
+        accountId: 'a1',
         transactionIds: [],
       },
     ]
@@ -209,5 +254,24 @@ describe('projectNextOccurrence', () => {
 
   it('projects annual: +1 year', () => {
     expect(projectNextOccurrence('2026-04-01', 'annual')).toBe('2027-04-01')
+  })
+})
+
+describe('projectMonthlyTotals', () => {
+  it('keeps monthly projections separate by currency and excludes unknown denominations', () => {
+    expect(
+      projectMonthlyTotals([
+        { average_amount: 20, interval: 'monthly', currency: 'USD' },
+        { average_amount: 30, interval: 'monthly', currency: 'USD' },
+        { average_amount: 25, interval: 'monthly', currency: 'EUR' },
+        { average_amount: 10, interval: 'monthly', currency: null },
+      ]),
+    ).toEqual({
+      totals: [
+        { currency: 'USD', amount: 50 },
+        { currency: 'EUR', amount: 25 },
+      ],
+      unknownCurrencyCount: 1,
+    })
   })
 })

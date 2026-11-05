@@ -8,8 +8,10 @@ import { BlobHandle, BlobRegistry, SqliteBlobAdapter } from '@palladium/core'
  * Capacitor SQLite (natively async).
  */
 
+import { parseHearthExport } from '~/lib/hearth-export'
 import { detectRecurringPatterns } from '~/lib/recurring/detect'
 import type { DetectableTransaction, RecurringPattern } from '~/lib/recurring/types'
+import { homeCurrencyAmountSql } from '~/lib/reports/amounts'
 import { aggregateIouBalances } from '~/lib/worker-helpers'
 import type { DbAdapter, HearthExport, WorkerRequestBody } from '~/types/database'
 
@@ -76,6 +78,7 @@ async function computeEnvelopeSpending(
   start: string,
   end: string,
   period: string,
+  homeCurrency: string,
   useRollover: boolean,
 ): Promise<{
   spent: number
@@ -83,26 +86,43 @@ async function computeEnvelopeSpending(
   remaining: number
   percent_used: number
   is_overspent: boolean
+  missing_conversion_count: number
 }> {
   const catIds = JSON.parse(env.category_ids) as string[]
-  if (catIds.length === 0) {
-    return {
-      spent: 0,
-      rolled_over: 0,
-      remaining: env.budget_amount,
-      percent_used: 0,
-      is_overspent: false,
-    }
+  let spent = 0
+  let missingConversionCount = 0
+  if (catIds.length > 0) {
+    const placeholders = catIds.map(() => '?').join(',')
+    const amount = homeCurrencyAmountSql('t')
+    const result = await db.queryOne<{ spent: number; missing_conversion_count: number }>(
+      `WITH RECURSIVE envelope_categories(id) AS (
+         SELECT id FROM categories WHERE id IN (${placeholders})
+         UNION
+         SELECT child.id FROM categories child
+         JOIN envelope_categories parent ON child.parent_id = parent.id
+       )
+       SELECT ABS(COALESCE(SUM(${amount}), 0)) AS spent,
+              COALESCE(SUM(CASE WHEN ${amount} IS NULL THEN 1 ELSE 0 END), 0)
+                AS missing_conversion_count
+       FROM transactions t
+       WHERE t.type = 'expense'
+         AND t.category_id IN (SELECT id FROM envelope_categories)
+         AND t.date BETWEEN ? AND ?`,
+      [
+        ...catIds,
+        homeCurrency,
+        homeCurrency,
+        homeCurrency,
+        homeCurrency,
+        homeCurrency,
+        homeCurrency,
+        start,
+        end,
+      ],
+    )
+    spent = result?.spent ?? 0
+    missingConversionCount = result?.missing_conversion_count ?? 0
   }
-  const placeholders = catIds.map(() => '?').join(',')
-  const spent =
-    (await queryValue<number>(
-      db,
-      `SELECT ABS(COALESCE(SUM(COALESCE(home_amount, amount)), 0)) FROM transactions
-       WHERE type = 'expense' AND category_id IN (${placeholders})
-       AND date BETWEEN ? AND ?`,
-      [...catIds.map(toBindVal), start, end],
-    )) ?? 0
 
   let rolledOver = 0
   if (useRollover && env.rollover) {
@@ -123,6 +143,7 @@ async function computeEnvelopeSpending(
     remaining,
     percent_used: percentUsed,
     is_overspent: remaining < 0,
+    missing_conversion_count: missingConversionCount,
   }
 }
 
@@ -191,7 +212,6 @@ export async function createUser(
   ])
   return db.queryOne('SELECT * FROM users WHERE id = ?', [id])
 }
-
 export async function updateUser(db: DbAdapter, payload: { id: string; [key: string]: unknown }) {
   return genericUpdate(db, 'users', payload)
 }
@@ -203,14 +223,19 @@ export async function deleteUser(db: DbAdapter, payload: { id: string }) {
 
 // ─── Accounts ─────────────────────────────────────────────────────────────────
 
+const ACCOUNT_TRANSACTION_AMOUNT = homeCurrencyAmountSql('t', 'a.currency')
 const ACCOUNT_BALANCE_SELECT = `SELECT
   a.id, a.user_id, a.name, a.type,
   a.opening_balance
-    + COALESCE((SELECT SUM(CASE WHEN t.type = 'transfer' THEN -ABS(t.amount) ELSE t.amount END)
+    + COALESCE((SELECT SUM(CASE WHEN t.type = 'transfer' THEN -ABS(${ACCOUNT_TRANSACTION_AMOUNT})
+                                ELSE ${ACCOUNT_TRANSACTION_AMOUNT} END)
                 FROM transactions t WHERE t.account_id = a.id), 0)
-    + COALESCE((SELECT SUM(ABS(t.amount)) FROM transactions t
+    + COALESCE((SELECT SUM(ABS(${ACCOUNT_TRANSACTION_AMOUNT})) FROM transactions t
                 WHERE t.transfer_to_account_id = a.id AND t.type = 'transfer'), 0) AS balance,
-  a.opening_balance, a.currency, a.color, a.icon, a.is_active, a.created_at
+  a.opening_balance, a.currency, a.color, a.icon, a.is_active, a.created_at,
+  (SELECT COUNT(*) FROM transactions t
+   WHERE (t.account_id = a.id OR (t.transfer_to_account_id = a.id AND t.type = 'transfer'))
+     AND ${ACCOUNT_TRANSACTION_AMOUNT} IS NULL) AS missing_conversion_count
   FROM accounts a`
 
 export async function getAccounts(db: DbAdapter) {
@@ -223,9 +248,26 @@ export async function getAccountsForUser(db: DbAdapter, payload: { user_id: stri
     [payload.user_id],
   )
 }
+function encodeBase64(input: Uint8Array | number[]): string {
+  const bytes = Uint8Array.from(input)
+  let binary = ''
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+  }
+  return btoa(binary)
+}
+
 export async function exportJson(db: DbAdapter): Promise<HearthExport> {
+  const receipts = await db.queryAll<{
+    id: string
+    transaction_id: string
+    image_data: Uint8Array | number[]
+    mime_type: string
+    file_size: number
+    created_at: string
+  }>('SELECT * FROM receipt_images')
   return {
-    version: '1.0',
+    version: '2.0',
     exported_at: now(),
     users: await db.queryAll<HearthExport['users'][number]>('SELECT * FROM users'),
     accounts: await db.queryAll<HearthExport['accounts'][number]>(
@@ -239,11 +281,30 @@ export async function exportJson(db: DbAdapter): Promise<HearthExport> {
     envelope_periods: await db.queryAll<HearthExport['envelope_periods'][number]>(
       'SELECT * FROM envelope_periods',
     ),
-    iou_splits: await db.queryAll<HearthExport['iou_splits'][number]>('SELECT * FROM iou_splits'),
+    iou_splits: await db.queryAll<HearthExport['iou_splits'][number]>(
+      `SELECT s.*, t.currency FROM iou_splits s
+       LEFT JOIN transactions t ON t.id = s.transaction_id`,
+    ),
     savings_goals: await db.queryAll<HearthExport['savings_goals'][number]>(
       'SELECT * FROM savings_goals',
     ),
     chores: await db.queryAll<HearthExport['chores'][number]>('SELECT * FROM chores'),
+    chore_completions: await db.queryAll<NonNullable<HearthExport['chore_completions']>[number]>(
+      'SELECT * FROM chore_completions',
+    ),
+    merchant_mappings: await db.queryAll<NonNullable<HearthExport['merchant_mappings']>[number]>(
+      'SELECT * FROM merchant_mappings',
+    ),
+    recurring_patterns: await db.queryAll<NonNullable<HearthExport['recurring_patterns']>[number]>(
+      'SELECT * FROM recurring_patterns',
+    ),
+    exchange_rates: await db.queryAll<NonNullable<HearthExport['exchange_rates']>[number]>(
+      'SELECT * FROM exchange_rates',
+    ),
+    receipt_images: receipts.map(({ image_data, ...metadata }) => ({
+      ...metadata,
+      image_data: encodeBase64(image_data),
+    })),
   }
 }
 
@@ -252,19 +313,17 @@ export async function reconcileAccount(
   payload: { id: string; actual_balance: number },
 ) {
   if (!Number.isFinite(payload.actual_balance)) throw new Error('Actual balance must be finite')
-  const result = await db.queryOne<{ id: string }>('SELECT id FROM accounts WHERE id = ?', [
-    payload.id,
-  ])
+  const result = await db.queryOne<{
+    balance: number
+    opening_balance: number
+    missing_conversion_count: number
+  }>(`${ACCOUNT_BALANCE_SELECT} WHERE a.id = ?`, [payload.id])
   if (!result) throw new Error('Account not found')
-  const impacts = await db.queryOne<{ amount: number }>(
-    `SELECT COALESCE((SELECT SUM(CASE WHEN type = 'transfer' THEN -ABS(amount) ELSE amount END)
-                      FROM transactions WHERE account_id = ?), 0)
-       + COALESCE((SELECT SUM(ABS(amount)) FROM transactions
-                   WHERE transfer_to_account_id = ? AND type = 'transfer'), 0) AS amount`,
-    [payload.id, payload.id],
-  )
+  if (result.missing_conversion_count > 0) {
+    throw new Error('Resolve missing account currency conversions before reconciling')
+  }
   await db.exec('UPDATE accounts SET opening_balance = ? WHERE id = ?', [
-    payload.actual_balance - (impacts?.amount ?? 0),
+    payload.actual_balance - (result.balance - result.opening_balance),
     payload.id,
   ])
   return db.queryOne(`${ACCOUNT_BALANCE_SELECT} WHERE a.id = ?`, [payload.id])
@@ -324,22 +383,6 @@ export async function getCategories(db: DbAdapter) {
   return db.queryAll('SELECT * FROM categories ORDER BY sort_order, name')
 }
 
-export async function getCategoryTree(db: DbAdapter) {
-  const all = await db.queryAll<{
-    id: string
-    parent_id: string | null
-    name: string
-    icon: string
-    color: string
-    sort_order: number
-  }>('SELECT * FROM categories ORDER BY sort_order, name')
-  const parents = all.filter((c) => !c.parent_id)
-  return parents.map((p) => ({
-    ...p,
-    children: all.filter((c) => c.parent_id === p.id),
-  }))
-}
-
 // ─── Transactions ─────────────────────────────────────────────────────────────
 
 export async function getTransactions(db: DbAdapter, payload: { limit?: number; offset?: number }) {
@@ -355,25 +398,26 @@ export async function getTransactions(db: DbAdapter, payload: { limit?: number; 
 
 export async function getTransactionsForPeriod(
   db: DbAdapter,
-  payload: { period: string; user_id?: string },
+  payload: { period: string; user_id?: string; home_currency: string },
 ) {
-  const { period, user_id } = payload
+  const { period, user_id, home_currency } = payload
   const start = `${period}-01`
   const end = `${period}-31`
-  if (user_id) {
-    return db.queryAll(
-      `${TRANSACTION_SELECT}
-       WHERE t.date BETWEEN ? AND ? AND t.user_id = ?
-       ORDER BY t.date DESC, t.created_at DESC`,
-      [start, end, user_id],
-    )
-  }
-  return db.queryAll(
-    `${TRANSACTION_SELECT}
-     WHERE t.date BETWEEN ? AND ?
-     ORDER BY t.date DESC, t.created_at DESC`,
-    [start, end],
-  )
+  const amount = homeCurrencyAmountSql('t')
+  const query = `${TRANSACTION_SELECT.replace(
+    'SELECT t.*',
+    `SELECT t.*, ${amount} AS report_amount`,
+  )}
+       WHERE t.date BETWEEN ? AND ?${user_id ? ' AND t.user_id = ?' : ''}
+       ORDER BY t.date DESC, t.created_at DESC`
+  return db.queryAll(query, [
+    home_currency,
+    home_currency,
+    home_currency,
+    start,
+    end,
+    ...(user_id ? [user_id] : []),
+  ])
 }
 
 export async function getTransaction(db: DbAdapter, payload: { id: string }) {
@@ -398,40 +442,83 @@ export async function createTransaction(
     split_id?: string | null
     source?: string
     home_amount?: number | null
+    home_currency?: string | null
     exchange_rate?: number | null
+    iou_split?: { to_user_id: string; amount: number }
   },
 ) {
+  const currentUser = p.user_id
+    ? null
+    : await db.queryOne<{ id: string }>('SELECT id FROM users WHERE is_current = 1 LIMIT 1')
+  const payerId = p.user_id ?? currentUser?.id
+  if (p.iou_split) {
+    if (p.type !== 'expense') throw new Error('IOU splits are only valid for expenses')
+    if (
+      !Number.isFinite(p.amount) ||
+      !Number.isFinite(p.iou_split.amount) ||
+      p.iou_split.amount <= 0 ||
+      p.iou_split.amount > Math.abs(p.amount)
+    ) {
+      throw new Error('IOU share must be positive and no greater than the expense amount')
+    }
+    if (!payerId || !p.iou_split.to_user_id || p.iou_split.to_user_id === payerId) {
+      throw new Error('IOU split requires a different valid household member')
+    }
+    if (!(await db.queryOne('SELECT id FROM users WHERE id = ?', [payerId]))) {
+      throw new Error('IOU payer does not exist')
+    }
+    if (!(await db.queryOne('SELECT id FROM users WHERE id = ?', [p.iou_split.to_user_id]))) {
+      throw new Error('IOU split member does not exist')
+    }
+  }
+
   const id = uuid()
   const ts = now()
-  await db.exec(
-    `INSERT INTO transactions
-      (id, date, amount, currency, account_id, user_id, type, category_id,
-       description, merchant, is_private, is_recurring, transfer_to_account_id,
-       split_id, created_at, updated_at, source, home_amount, exchange_rate)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    [
-      id,
-      p.date,
-      p.amount,
-      p.currency ?? 'USD',
-      p.account_id || null,
-      p.user_id || null,
-      p.type,
-      p.category_id ?? null,
-      p.description ?? '',
-      p.merchant ?? '',
-      p.is_private ?? 0,
-      p.is_recurring ?? 0,
-      p.transfer_to_account_id ?? null,
-      p.split_id ?? null,
-      ts,
-      ts,
-      p.source ?? 'manual',
-      p.home_amount ?? null,
-      p.exchange_rate ?? null,
-    ],
-  )
-  return db.queryOne('SELECT * FROM transactions WHERE id = ?', [id])
+  await db.exec('BEGIN')
+  try {
+    await db.exec(
+      `INSERT INTO transactions
+        (id, date, amount, currency, account_id, user_id, type, category_id,
+         description, merchant, is_private, is_recurring, transfer_to_account_id,
+         split_id, created_at, updated_at, source, home_amount, home_currency, exchange_rate)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        id,
+        p.date,
+        p.amount,
+        p.currency ?? 'USD',
+        p.account_id || null,
+        payerId ?? null,
+        p.type,
+        p.category_id ?? null,
+        p.description ?? '',
+        p.merchant ?? '',
+        p.is_private ?? 0,
+        p.is_recurring ?? 0,
+        p.transfer_to_account_id ?? null,
+        p.split_id ?? null,
+        ts,
+        ts,
+        p.source ?? 'manual',
+        p.home_amount ?? null,
+        p.home_currency ?? null,
+        p.exchange_rate ?? null,
+      ],
+    )
+    if (p.iou_split) {
+      await createIouSplit(db, {
+        transaction_id: id,
+        from_user_id: payerId!,
+        to_user_id: p.iou_split.to_user_id,
+        amount: p.iou_split.amount,
+      })
+    }
+    await db.exec('COMMIT')
+    return db.queryOne('SELECT * FROM transactions WHERE id = ?', [id])
+  } catch (error) {
+    await db.exec('ROLLBACK')
+    throw error
+  }
 }
 
 export async function updateTransaction(
@@ -452,8 +539,11 @@ export async function getEnvelopes(db: DbAdapter) {
   return db.queryAll('SELECT * FROM envelopes ORDER BY created_at')
 }
 
-export async function getEnvelopesWithSpending(db: DbAdapter, payload: { period: string }) {
-  const period = payload.period
+export async function getEnvelopesWithSpending(
+  db: DbAdapter,
+  payload: { period: string; home_currency: string },
+) {
+  const { period, home_currency } = payload
   const start = `${period}-01`
   const end = `${period}-31`
   const envelopes = await db.queryAll<{
@@ -468,20 +558,27 @@ export async function getEnvelopesWithSpending(db: DbAdapter, payload: { period:
     rollover: number
     created_at: string
   }>('SELECT * FROM envelopes ORDER BY created_at')
-
   const results = []
-  for (const env of envelopes) {
-    const spending = await computeEnvelopeSpending(db, env, start, end, period, true)
-    results.push({ ...env, ...spending })
+  for (const envelope of envelopes) {
+    const spending = await computeEnvelopeSpending(
+      db,
+      envelope,
+      start,
+      end,
+      period,
+      home_currency,
+      true,
+    )
+    results.push({ ...envelope, ...spending })
   }
   return results
 }
 
 export async function getEnvelopeWithSpending(
   db: DbAdapter,
-  payload: { id: string; period: string },
+  payload: { id: string; period: string; home_currency: string },
 ) {
-  const { id, period } = payload
+  const { id, period, home_currency } = payload
   const env = await db.queryOne<{
     id: string
     budget_amount: number
@@ -493,7 +590,7 @@ export async function getEnvelopeWithSpending(
   const end = `${period}-31`
   return {
     ...env,
-    ...(await computeEnvelopeSpending(db, env, start, end, period, true)),
+    ...(await computeEnvelopeSpending(db, env, start, end, period, home_currency, true)),
   }
 }
 
@@ -586,22 +683,39 @@ export async function deleteSavingsGoal(db: DbAdapter, payload: { id: string }) 
 // ─── IOU Splits ───────────────────────────────────────────────────────────────
 
 export async function getIouSplits(db: DbAdapter) {
-  return db.queryAll('SELECT * FROM iou_splits ORDER BY created_at DESC')
+  return db.queryAll(
+    `SELECT s.*, t.currency
+     FROM iou_splits s LEFT JOIN transactions t ON t.id = s.transaction_id
+     ORDER BY s.created_at DESC`,
+  )
 }
 
+export async function getUnresolvedIouCount(db: DbAdapter): Promise<number> {
+  return (
+    (await queryValue<number>(
+      db,
+      `SELECT COUNT(*) FROM iou_splits s
+       LEFT JOIN transactions t ON t.id = s.transaction_id
+       WHERE s.is_settled = 0 AND NULLIF(t.currency, '') IS NULL`,
+    )) ?? 0
+  )
+}
 export async function getIouBalances(db: DbAdapter) {
   const splits = await db.queryAll<{
     from_user_id: string
     to_user_id: string
     amount: number
+    currency: string | null
     from_name: string
     from_avatar: string
     to_name: string
     to_avatar: string
   }>(`
-    SELECT s.*, uf.name as from_name, uf.avatar_emoji as from_avatar,
+    SELECT s.from_user_id, s.to_user_id, s.amount, t.currency,
+           uf.name as from_name, uf.avatar_emoji as from_avatar,
            ut.name as to_name, ut.avatar_emoji as to_avatar
     FROM iou_splits s
+    LEFT JOIN transactions t ON s.transaction_id = t.id
     LEFT JOIN users uf ON s.from_user_id = uf.id
     LEFT JOIN users ut ON s.to_user_id = ut.id
     WHERE s.is_settled = 0
@@ -610,10 +724,10 @@ export async function getIouBalances(db: DbAdapter) {
   return aggregateIouBalances(splits)
 }
 
-export async function createIouSplit(
+async function createIouSplit(
   db: DbAdapter,
   p: {
-    transaction_id?: string | null
+    transaction_id: string
     from_user_id: string
     to_user_id: string
     amount: number
@@ -622,7 +736,7 @@ export async function createIouSplit(
   const id = uuid()
   await db.exec('INSERT INTO iou_splits VALUES (?,?,?,?,?,?,?,?)', [
     id,
-    p.transaction_id ?? null,
+    p.transaction_id,
     p.from_user_id,
     p.to_user_id,
     p.amount,
@@ -635,43 +749,59 @@ export async function createIouSplit(
 
 export async function settleIou(
   db: DbAdapter,
-  payload: { from_user_id: string; to_user_id: string },
+  payload: { from_user_id: string; to_user_id: string; currency: string },
 ) {
-  const { from_user_id, to_user_id } = payload
+  const { from_user_id, to_user_id, currency } = payload
   await db.exec(
     `UPDATE iou_splits SET is_settled = 1, settled_at = ?
-     WHERE is_settled = 0 AND (
+     WHERE is_settled = 0 AND transaction_id IN
+       (SELECT id FROM transactions WHERE currency = ?) AND (
        (from_user_id = ? AND to_user_id = ?) OR
        (from_user_id = ? AND to_user_id = ?)
      )`,
-    [now(), from_user_id, to_user_id, to_user_id, from_user_id],
+    [now(), currency, from_user_id, to_user_id, to_user_id, from_user_id],
   )
   return null
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
-export async function getDashboardSummary(db: DbAdapter, payload: { period: string }) {
+export async function getDashboardSummary(
+  db: DbAdapter,
+  payload: { period: string; home_currency: string },
+) {
   const period = payload.period || currentPeriod()
+  const { home_currency } = payload
   const start = `${period}-01`
   const end = `${period}-31`
-
-  const spent =
-    (await queryValue<number>(
-      db,
-      `SELECT ABS(COALESCE(SUM(COALESCE(home_amount, amount)), 0)) FROM transactions
-     WHERE type = 'expense' AND date BETWEEN ? AND ?`,
-      [start, end],
-    )) ?? 0
-
-  const income =
-    (await queryValue<number>(
-      db,
-      `SELECT COALESCE(SUM(COALESCE(home_amount, amount)), 0) FROM transactions
-     WHERE type = 'income' AND date BETWEEN ? AND ?`,
-      [start, end],
-    )) ?? 0
-
+  const amount = homeCurrencyAmountSql('t')
+  const totals = await db.queryOne<{
+    spent: number
+    income: number
+    missing_conversion_count: number
+  }>(
+    `SELECT ABS(COALESCE(SUM(CASE WHEN t.type = 'expense' THEN ${amount} ELSE 0 END), 0)) AS spent,
+            COALESCE(SUM(CASE WHEN t.type = 'income' THEN ${amount} ELSE 0 END), 0) AS income,
+            COALESCE(SUM(CASE WHEN ${amount} IS NULL THEN 1 ELSE 0 END), 0)
+              AS missing_conversion_count
+     FROM transactions t
+     WHERE t.type IN ('expense', 'income') AND t.date BETWEEN ? AND ?`,
+    [
+      home_currency,
+      home_currency,
+      home_currency,
+      home_currency,
+      home_currency,
+      home_currency,
+      home_currency,
+      home_currency,
+      home_currency,
+      start,
+      end,
+    ],
+  )
+  const spent = totals?.spent ?? 0
+  const income = totals?.income ?? 0
   const envelopes = await db.queryAll<{
     id: string
     name: string
@@ -684,48 +814,55 @@ export async function getDashboardSummary(db: DbAdapter, payload: { period: stri
     rollover: number
     created_at: string
   }>('SELECT * FROM envelopes ORDER BY created_at')
-
-  const budgetTotal = envelopes.reduce((sum, e) => sum + e.budget_amount, 0)
-
+  const budgetTotal = envelopes.reduce((sum, envelope) => sum + envelope.budget_amount, 0)
   const envelopesWithSpending = []
-  for (const env of envelopes) {
-    const spending = await computeEnvelopeSpending(db, env, start, end, period, true)
-    envelopesWithSpending.push({ ...env, ...spending })
+  for (const envelope of envelopes) {
+    const spending = await computeEnvelopeSpending(
+      db,
+      envelope,
+      start,
+      end,
+      period,
+      home_currency,
+      true,
+    )
+    envelopesWithSpending.push({ ...envelope, ...spending })
   }
-
-  const budgetRemaining = budgetTotal - spent
-
+  const recentAmount = homeCurrencyAmountSql('t')
   const recentTxns = await db.queryAll(
-    `${TRANSACTION_SELECT}
-    WHERE t.is_private = 0
-    ORDER BY t.date DESC, t.created_at DESC
-    LIMIT 8`,
+    `${TRANSACTION_SELECT.replace('SELECT t.*', `SELECT t.*, ${recentAmount} AS report_amount`)}
+     WHERE t.is_private = 0
+     ORDER BY t.date DESC, t.created_at DESC
+     LIMIT 8`,
+    [home_currency, home_currency, home_currency],
   )
-
   const goals = await db.queryAll('SELECT * FROM savings_goals ORDER BY created_at')
-
   const splits = await db.queryAll<{
     from_user_id: string
     to_user_id: string
     amount: number
+    currency: string | null
     from_name: string
     from_avatar: string
     to_name: string
     to_avatar: string
   }>(`
-    SELECT s.*, uf.name as from_name, uf.avatar_emoji as from_avatar,
+    SELECT s.from_user_id, s.to_user_id, s.amount, t.currency,
+           uf.name as from_name, uf.avatar_emoji as from_avatar,
            ut.name as to_name, ut.avatar_emoji as to_avatar
     FROM iou_splits s
+    LEFT JOIN transactions t ON s.transaction_id = t.id
     LEFT JOIN users uf ON s.from_user_id = uf.id
     LEFT JOIN users ut ON s.to_user_id = ut.id
     WHERE s.is_settled = 0
   `)
-
   return {
     spent_this_month: spent,
     income_this_month: income,
     budget_total: budgetTotal,
-    budget_remaining: budgetRemaining,
+    budget_remaining: budgetTotal - spent,
+    missing_conversion_count: totals?.missing_conversion_count ?? 0,
+    unresolved_iou_count: splits.filter((split) => !split.currency).length,
     envelopes: envelopesWithSpending,
     recent_transactions: recentTxns,
     savings_goals: goals,
@@ -822,14 +959,14 @@ export async function completeChore(
   const pk = chorePeriodKey(chore.frequency, date)
   const id = uuid()
   const ts = now()
-  await db.exec('INSERT OR IGNORE INTO chore_completions VALUES (?,?,?,?,?,?)', [
-    id,
-    chore_id,
-    user_id,
-    ts,
-    pk,
-    ts,
-  ])
+  await db.exec(
+    `INSERT INTO chore_completions (id,chore_id,user_id,completed_at,period_key,created_at)
+     SELECT ?,?,?,?,?,?
+     WHERE NOT EXISTS (
+       SELECT 1 FROM chore_completions WHERE chore_id = ? AND period_key = ?
+     )`,
+    [id, chore_id, user_id, ts, pk, ts, chore_id, pk],
+  )
   return null
 }
 
@@ -894,28 +1031,44 @@ export async function getRecentAccountByType(db: DbAdapter, payload: { type: str
 
 // ─── Monthly Totals ───────────────────────────────────────────────────────────
 
-export async function getMonthlyTotals(db: DbAdapter, payload: { months: number }) {
-  const { months } = payload
+export async function getMonthlyTotals(
+  db: DbAdapter,
+  payload: { months: number; home_currency: string },
+) {
+  const { months, home_currency } = payload
+  const amount = homeCurrencyAmountSql('t')
   return db.queryAll(
-    `SELECT
-       strftime('%Y-%m', date) AS period,
-       SUM(CASE WHEN type = 'expense' THEN ABS(COALESCE(home_amount, amount)) ELSE 0 END) AS expenses,
-       SUM(CASE WHEN type = 'income' THEN COALESCE(home_amount, amount) ELSE 0 END) AS income
-     FROM transactions
-     WHERE date >= date('now', '-' || ? || ' months', 'start of month')
-       AND type != 'transfer'
+    `SELECT strftime('%Y-%m', t.date) AS period,
+            COALESCE(SUM(CASE WHEN t.type = 'expense' THEN ABS(${amount}) ELSE 0 END), 0) AS expenses,
+            COALESCE(SUM(CASE WHEN t.type = 'income' THEN ${amount} ELSE 0 END), 0) AS income,
+            SUM(CASE WHEN t.type IN ('expense', 'income') AND ${amount} IS NULL
+                     THEN 1 ELSE 0 END) AS missing_conversion_count
+     FROM transactions t
+     WHERE t.date >= date('now', '-' || ? || ' months', 'start of month')
+       AND t.type != 'transfer'
      GROUP BY period
      ORDER BY period`,
-    [months],
+    [
+      home_currency,
+      home_currency,
+      home_currency,
+      home_currency,
+      home_currency,
+      home_currency,
+      home_currency,
+      home_currency,
+      home_currency,
+      months,
+    ],
   )
 }
 
 // ─── Recurring Patterns ───────────────────────────────────────────────────────
 
 export async function detectRecurring(db: DbAdapter) {
-  const allTxns = (await db.queryAll(
-    'SELECT id, date, amount, type, merchant, category_id, account_id FROM transactions ORDER BY date',
-  )) as unknown as DetectableTransaction[]
+  const allTxns = await db.queryAll<DetectableTransaction>(
+    'SELECT id, date, amount, currency, type, merchant, category_id, account_id FROM transactions ORDER BY date',
+  )
 
   const existingRows = await db.queryAll<{
     id: string
@@ -923,6 +1076,7 @@ export async function detectRecurring(db: DbAdapter) {
     type: string
     interval: string
     average_amount: number
+    currency: string | null
     last_occurrence: string
     next_expected: string
     confidence: number
@@ -931,50 +1085,49 @@ export async function detectRecurring(db: DbAdapter) {
     account_id: string | null
     transaction_ids: string
   }>('SELECT * FROM recurring_patterns')
-
-  const existing: RecurringPattern[] = existingRows.map((r) => ({
-    id: r.id,
-    merchant: r.merchant,
-    type: r.type as RecurringPattern['type'],
-    interval: r.interval as RecurringPattern['interval'],
-    averageAmount: r.average_amount,
-    lastOccurrence: r.last_occurrence,
-    nextExpected: r.next_expected,
-    confidence: r.confidence,
-    status: r.status as RecurringPattern['status'],
-    categoryId: r.category_id,
-    accountId: r.account_id,
-    transactionIds: JSON.parse(r.transaction_ids),
+  const existing: RecurringPattern[] = existingRows.map((row) => ({
+    id: row.id,
+    merchant: row.merchant,
+    type: row.type as RecurringPattern['type'],
+    interval: row.interval as RecurringPattern['interval'],
+    averageAmount: row.average_amount,
+    currency: row.currency,
+    lastOccurrence: row.last_occurrence,
+    nextExpected: row.next_expected,
+    confidence: row.confidence,
+    status: row.status as RecurringPattern['status'],
+    categoryId: row.category_id,
+    accountId: row.account_id,
+    transactionIds: JSON.parse(row.transaction_ids),
   }))
 
   const detected = detectRecurringPatterns(allTxns, existing)
   const ts = now()
-
-  for (const p of detected) {
+  for (const pattern of detected) {
     await db.exec(
-      `INSERT INTO recurring_patterns (id, merchant, type, "interval", average_amount,
-        last_occurrence, next_expected, confidence, status, category_id, account_id,
-        transaction_ids, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO recurring_patterns (id, merchant, type, "interval", average_amount,currency,
+        last_occurrence, next_expected, confidence, status, category_id, account_id, transaction_ids,
+        created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
-        p.id,
-        p.merchant,
-        p.type,
-        p.interval,
-        p.averageAmount,
-        p.lastOccurrence,
-        p.nextExpected,
-        p.confidence,
-        p.status,
-        p.categoryId,
-        p.accountId,
-        JSON.stringify(p.transactionIds),
+        pattern.id,
+        pattern.merchant,
+        pattern.type,
+        pattern.interval,
+        pattern.averageAmount,
+        pattern.currency,
+        pattern.lastOccurrence,
+        pattern.nextExpected,
+        pattern.confidence,
+        pattern.status,
+        pattern.categoryId,
+        pattern.accountId,
+        JSON.stringify(pattern.transactionIds),
         ts,
         ts,
       ],
     )
   }
-
   return detected
 }
 
@@ -1102,6 +1255,7 @@ export async function importTransactions(
       split_id?: string | null
       source?: string
       home_amount?: number | null
+      home_currency?: string | null
       exchange_rate?: number | null
     }>
   },
@@ -1117,8 +1271,8 @@ export async function importTransactions(
         `INSERT INTO transactions
           (id, date, amount, currency, account_id, user_id, type, category_id,
            description, merchant, is_private, is_recurring, transfer_to_account_id,
-           split_id, created_at, updated_at, source, home_amount, exchange_rate)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           split_id, created_at, updated_at, source, home_amount, home_currency, exchange_rate)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           id,
           p.date,
@@ -1138,6 +1292,7 @@ export async function importTransactions(
           ts,
           p.source ?? 'import',
           p.home_amount ?? null,
+          p.home_currency ?? null,
           p.exchange_rate ?? null,
         ],
       )
@@ -1181,14 +1336,474 @@ export async function upsertExchangeRate(
   return { base, target, rate, date }
 }
 
+export async function importJson(db: DbAdapter, rawData: HearthExport): Promise<null> {
+  const data = parseHearthExport(rawData)
+  const users = data.users
+  const accounts = data.accounts
+  const categories = data.categories
+  const transactions = data.transactions
+  const envelopes = data.envelopes
+  const periods = data.envelope_periods
+  const splits = data.iou_splits
+  const goals = data.savings_goals
+  const chores = data.chores
+  const completions = data.chore_completions ?? []
+  const mappings = data.merchant_mappings ?? []
+  const recurring = data.recurring_patterns ?? []
+  const rates = data.exchange_rates ?? []
+  const receipts = data.receipt_images ?? []
+
+  const unique = (values: string[], name: string) => {
+    if (new Set(values).size !== values.length) throw new Error(`Duplicate ${name} in backup`)
+  }
+  unique(
+    users.map((row) => row.id),
+    'user id',
+  )
+  unique(
+    accounts.map((row) => row.id),
+    'account id',
+  )
+  unique(
+    categories.map((row) => row.id),
+    'category id',
+  )
+  unique(
+    transactions.map((row) => row.id),
+    'transaction id',
+  )
+  unique(
+    envelopes.map((row) => row.id),
+    'envelope id',
+  )
+  unique(
+    periods.map((row) => row.id),
+    'envelope period id',
+  )
+  unique(
+    splits.map((row) => row.id),
+    'IOU split id',
+  )
+  unique(
+    goals.map((row) => row.id),
+    'savings goal id',
+  )
+  unique(
+    chores.map((row) => row.id),
+    'chore id',
+  )
+  unique(
+    completions.map((row) => row.id),
+    'chore completion id',
+  )
+  unique(
+    mappings.map((row) => row.id),
+    'merchant mapping id',
+  )
+  unique(
+    recurring.map((row) => row.id),
+    'recurring pattern id',
+  )
+  unique(
+    receipts.map((row) => row.id),
+    'receipt id',
+  )
+  if (users.length === 0 || users.filter((row) => row.is_current === 1).length !== 1) {
+    throw new Error('Backup must contain exactly one current user')
+  }
+  const userIds = new Set(users.map((row) => row.id))
+  const accountIds = new Set(accounts.map((row) => row.id))
+  const categoryIds = new Set(categories.map((row) => row.id))
+  const transactionIds = new Set(transactions.map((row) => row.id))
+  const envelopeIds = new Set(envelopes.map((row) => row.id))
+  const choreIds = new Set(chores.map((row) => row.id))
+  const references = (valid: boolean, description: string) => {
+    if (!valid) throw new Error(`Backup has an invalid ${description} reference`)
+  }
+  const categoryDepths = new Map<string, number>()
+  for (const category of categories) {
+    references(
+      category.parent_id === null || categoryIds.has(category.parent_id),
+      'category parent',
+    )
+    const seen = new Set([category.id])
+    let parentId = category.parent_id
+    while (parentId !== null) {
+      references(!seen.has(parentId), 'category parent cycle')
+      seen.add(parentId)
+      parentId = categories.find((candidate) => candidate.id === parentId)?.parent_id ?? null
+    }
+    categoryDepths.set(category.id, seen.size - 1)
+  }
+  for (const transaction of transactions) {
+    references(transaction.user_id === null || userIds.has(transaction.user_id), 'transaction user')
+    references(
+      transaction.account_id === null || accountIds.has(transaction.account_id),
+      'transaction account',
+    )
+    references(
+      transaction.transfer_to_account_id === null ||
+        accountIds.has(transaction.transfer_to_account_id),
+      'transfer account',
+    )
+    references(
+      transaction.category_id === null || categoryIds.has(transaction.category_id),
+      'transaction category',
+    )
+  }
+  const transactionsById = new Map(transactions.map((transaction) => [transaction.id, transaction]))
+  for (const split of splits) {
+    references(
+      split.transaction_id === null || transactionIds.has(split.transaction_id),
+      'IOU transaction',
+    )
+    references(userIds.has(split.from_user_id) && userIds.has(split.to_user_id), 'IOU user')
+    references(split.from_user_id !== split.to_user_id && split.amount > 0, 'IOU split')
+    if (split.transaction_id !== null) {
+      const transaction = transactionsById.get(split.transaction_id)
+      references(
+        transaction?.type === 'expense' && split.amount <= Math.abs(transaction.amount),
+        'IOU expense share',
+      )
+    }
+  }
+  for (const envelope of envelopes) {
+    for (const categoryId of JSON.parse(envelope.category_ids) as string[]) {
+      references(categoryIds.has(categoryId), 'envelope category')
+    }
+  }
+  for (const period of periods) references(envelopeIds.has(period.envelope_id), 'envelope period')
+  for (const chore of chores) {
+    references(chore.assigned_to === null || userIds.has(chore.assigned_to), 'chore assignee')
+  }
+  for (const completion of completions) {
+    references(
+      choreIds.has(completion.chore_id) && userIds.has(completion.user_id),
+      'chore completion',
+    )
+  }
+  for (const mapping of mappings) {
+    references(
+      mapping.category_id === null || categoryIds.has(mapping.category_id),
+      'merchant category',
+    )
+    references(
+      mapping.account_id === null || accountIds.has(mapping.account_id),
+      'merchant account',
+    )
+  }
+  for (const pattern of recurring) {
+    references(
+      pattern.category_id === null || categoryIds.has(pattern.category_id),
+      'recurring category',
+    )
+    references(
+      pattern.account_id === null || accountIds.has(pattern.account_id),
+      'recurring account',
+    )
+    // Detection evidence is historical and may reference transactions deleted since detection.
+  }
+  for (const receipt of receipts)
+    references(transactionIds.has(receipt.transaction_id), 'receipt transaction')
+
+  const receiptBytes = receipts.map((receipt) => {
+    const bytes = Uint8Array.from(atob(receipt.image_data), (character) => character.charCodeAt(0))
+    if (bytes.byteLength !== receipt.file_size)
+      throw new Error(`Receipt ${receipt.id} size does not match`)
+    return { receipt, bytes }
+  })
+  const media = new BlobHandle(
+    new SqliteBlobAdapter(db, {
+      table: 'receipt_images',
+      columns: { id: 'id', data: 'image_data' },
+    }),
+    new BlobRegistry(),
+  )
+  await db.exec('BEGIN')
+  try {
+    await db.exec('DELETE FROM receipt_images')
+    await db.exec('DELETE FROM chore_completions')
+    await db.exec('DELETE FROM iou_splits')
+    await db.exec('DELETE FROM envelope_periods')
+    await db.exec('DELETE FROM recurring_patterns')
+    await db.exec('DELETE FROM merchant_mappings')
+    await db.exec('DELETE FROM transactions')
+    await db.exec('DELETE FROM envelopes')
+    await db.exec('DELETE FROM savings_goals')
+    await db.exec('DELETE FROM chores')
+    await db.exec('DELETE FROM accounts')
+    await db.exec('DELETE FROM categories')
+    await db.exec('DELETE FROM users')
+    await db.exec('DELETE FROM exchange_rates')
+
+    for (const user of users) {
+      await db.exec(
+        `INSERT INTO users (id,name,email,role,avatar_emoji,color,is_current,created_at)
+         VALUES (?,?,?,?,?,?,?,?)`,
+        [
+          user.id,
+          user.name,
+          user.email,
+          user.role,
+          user.avatar_emoji,
+          user.color,
+          user.is_current,
+          user.created_at,
+        ],
+      )
+    }
+    for (const category of [...categories].sort(
+      (left, right) => categoryDepths.get(left.id)! - categoryDepths.get(right.id)!,
+    )) {
+      await db.exec(
+        'INSERT INTO categories (id,parent_id,name,icon,color,sort_order) VALUES (?,?,?,?,?,?)',
+        [
+          category.id,
+          category.parent_id,
+          category.name,
+          category.icon,
+          category.color,
+          category.sort_order,
+        ],
+      )
+    }
+    const legacyAccountIds: string[] = []
+    for (const account of accounts) {
+      await db.exec(
+        `INSERT INTO accounts
+         (id,user_id,name,type,balance,opening_balance,currency,color,icon,is_active,created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        [
+          account.id,
+          account.user_id,
+          account.name,
+          account.type,
+          account.balance,
+          account.opening_balance ?? account.balance,
+          account.currency,
+          account.color,
+          account.icon,
+          account.is_active,
+          account.created_at,
+        ],
+      )
+      if (account.opening_balance === undefined) legacyAccountIds.push(account.id)
+    }
+    for (const transaction of transactions) {
+      await db.exec(
+        `INSERT INTO transactions
+         (id,date,amount,currency,account_id,user_id,type,category_id,description,merchant,
+          is_private,is_recurring,transfer_to_account_id,split_id,created_at,updated_at,source,
+          home_amount,home_currency,exchange_rate)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [
+          transaction.id,
+          transaction.date,
+          transaction.amount,
+          transaction.currency,
+          transaction.account_id,
+          transaction.user_id,
+          transaction.type,
+          transaction.category_id,
+          transaction.description,
+          transaction.merchant,
+          transaction.is_private,
+          transaction.is_recurring,
+          transaction.transfer_to_account_id,
+          transaction.split_id,
+          transaction.created_at,
+          transaction.updated_at,
+          transaction.source ?? 'manual',
+          transaction.home_amount ?? null,
+          transaction.home_currency ?? null,
+          transaction.exchange_rate ?? null,
+        ],
+      )
+    }
+    for (const envelope of envelopes) {
+      await db.exec(
+        `INSERT INTO envelopes (id,name,icon,color,budget_amount,period,scope,category_ids,rollover,created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`,
+        [
+          envelope.id,
+          envelope.name,
+          envelope.icon,
+          envelope.color,
+          envelope.budget_amount,
+          envelope.period,
+          envelope.scope,
+          envelope.category_ids,
+          envelope.rollover,
+          envelope.created_at,
+        ],
+      )
+    }
+    for (const period of periods) {
+      await db.exec(
+        'INSERT INTO envelope_periods (id,envelope_id,period,spent,rolled_over) VALUES (?,?,?,?,?)',
+        [period.id, period.envelope_id, period.period, period.spent, period.rolled_over],
+      )
+    }
+    for (const split of splits) {
+      await db.exec(
+        `INSERT INTO iou_splits (id,transaction_id,from_user_id,to_user_id,amount,is_settled,settled_at,created_at)
+         VALUES (?,?,?,?,?,?,?,?)`,
+        [
+          split.id,
+          split.transaction_id,
+          split.from_user_id,
+          split.to_user_id,
+          split.amount,
+          split.is_settled,
+          split.settled_at,
+          split.created_at,
+        ],
+      )
+    }
+    for (const goal of goals) {
+      await db.exec(
+        `INSERT INTO savings_goals (id,name,icon,color,target_amount,current_amount,target_date,scope,created_at)
+         VALUES (?,?,?,?,?,?,?,?,?)`,
+        [
+          goal.id,
+          goal.name,
+          goal.icon,
+          goal.color,
+          goal.target_amount,
+          goal.current_amount,
+          goal.target_date,
+          goal.scope,
+          goal.created_at,
+        ],
+      )
+    }
+    for (const chore of chores) {
+      await db.exec(
+        'INSERT INTO chores (id,name,icon,color,frequency,scope,assigned_to,created_at) VALUES (?,?,?,?,?,?,?,?)',
+        [
+          chore.id,
+          chore.name,
+          chore.icon,
+          chore.color,
+          chore.frequency,
+          chore.scope,
+          chore.assigned_to,
+          chore.created_at,
+        ],
+      )
+    }
+    for (const completion of completions) {
+      await db.exec(
+        `INSERT INTO chore_completions (id,chore_id,user_id,completed_at,period_key,created_at)
+         VALUES (?,?,?,?,?,?)`,
+        [
+          completion.id,
+          completion.chore_id,
+          completion.user_id,
+          completion.completed_at,
+          completion.period_key,
+          completion.created_at,
+        ],
+      )
+    }
+    for (const mapping of mappings) {
+      await db.exec(
+        `INSERT INTO merchant_mappings (id,merchant,category_id,account_id,use_count,last_used_at,created_at)
+         VALUES (?,?,?,?,?,?,?)`,
+        [
+          mapping.id,
+          mapping.merchant,
+          mapping.category_id,
+          mapping.account_id,
+          mapping.use_count,
+          mapping.last_used_at,
+          mapping.created_at,
+        ],
+      )
+    }
+    for (const pattern of recurring) {
+      await db.exec(
+        `INSERT INTO recurring_patterns
+         (id,merchant,type,"interval",average_amount,currency,last_occurrence,next_expected,confidence,
+          status,category_id,account_id,transaction_ids,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [
+          pattern.id,
+          pattern.merchant,
+          pattern.type,
+          pattern.interval,
+          pattern.average_amount,
+          pattern.currency ?? null,
+          pattern.last_occurrence,
+          pattern.next_expected,
+          pattern.confidence,
+          pattern.status,
+          pattern.category_id,
+          pattern.account_id,
+          pattern.transaction_ids,
+          pattern.created_at,
+          pattern.updated_at,
+        ],
+      )
+    }
+    for (const rate of rates) {
+      await db.exec('INSERT INTO exchange_rates (base,target,rate,date) VALUES (?,?,?,?)', [
+        rate.base,
+        rate.target,
+        rate.rate,
+        rate.date,
+      ])
+    }
+    for (const { receipt, bytes } of receiptBytes) {
+      await db.exec(
+        `INSERT INTO receipt_images (id,transaction_id,image_data,mime_type,file_size,created_at)
+         VALUES (?,?,zeroblob(0),?,?,?)`,
+        [
+          receipt.id,
+          receipt.transaction_id,
+          receipt.mime_type,
+          receipt.file_size,
+          receipt.created_at,
+        ],
+      )
+      await media.put(receipt.id, bytes, { transaction: db })
+    }
+    for (const accountId of legacyAccountIds) {
+      const amount = homeCurrencyAmountSql('t', 'a.currency')
+      const impact = await db.queryOne<{ amount: number }>(
+        `SELECT COALESCE((SELECT SUM(CASE WHEN t.type = 'transfer' THEN -ABS(${amount})
+                                         ELSE ${amount} END)
+                          FROM transactions t WHERE t.account_id = a.id), 0)
+           + COALESCE((SELECT SUM(ABS(${amount})) FROM transactions t
+                       WHERE t.transfer_to_account_id = a.id AND t.type = 'transfer'), 0) AS amount
+         FROM accounts a WHERE a.id = ?`,
+        [accountId],
+      )
+      const account = accounts.find(({ id }) => id === accountId)
+      if (account) {
+        await db.exec('UPDATE accounts SET opening_balance = ? WHERE id = ?', [
+          account.balance - (impact?.amount ?? 0),
+          accountId,
+        ])
+      }
+    }
+    await db.exec('COMMIT')
+    return null
+  } catch (error) {
+    await db.exec('ROLLBACK')
+    throw error
+  } finally {
+    await media.dispose()
+  }
+}
+
 export async function getCurrencyBreakdown(db: DbAdapter, payload: { period: string }) {
-  const period = payload.period
-  const start = `${period}-01`
-  const end = `${period}-31`
+  const start = `${payload.period}-01`
+  const end = `${payload.period}-31`
   return db.queryAll(
     `SELECT currency,
-            SUM(CASE WHEN type = 'expense' THEN ABS(COALESCE(home_amount, amount)) ELSE 0 END) AS expenses,
-            SUM(CASE WHEN type = 'income' THEN COALESCE(home_amount, amount) ELSE 0 END) AS income,
+            SUM(CASE WHEN type = 'expense' THEN ABS(amount) ELSE 0 END) AS expenses,
+            SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) AS income,
             COUNT(*) AS tx_count
      FROM transactions
      WHERE date BETWEEN ? AND ? AND type != 'transfer'
@@ -1197,8 +1812,6 @@ export async function getCurrencyBreakdown(db: DbAdapter, payload: { period: str
     [start, end],
   )
 }
-
-// ─── Utilities ────────────────────────────────────────────────────────────────
 
 export async function getDbInfo(db: DbAdapter) {
   const txCount = (await queryValue<number>(db, 'SELECT COUNT(*) FROM transactions')) ?? 0
@@ -1211,207 +1824,6 @@ export async function getDbInfo(db: DbAdapter) {
     user_count: userCount,
     account_count: accountCount,
     envelope_count: envCount,
-  }
-}
-
-// ─── Import / restore from JSON ──────────────────────────────────────────────
-
-/**
- * Restore a previously exported JSON snapshot into the local database.
- *
- * Tables are populated in FK-safe order (parent rows before children).
- * Every insert is `INSERT OR IGNORE`, so re-importing the same snapshot is a
- * no-op. Wrapped in a transaction; on error everything rolls back.
- */
-export async function importJson(db: DbAdapter, data: HearthExport): Promise<null> {
-  if (data.version !== '1.0')
-    throw new Error(`Unsupported export version: ${String((data as { version: unknown }).version)}`)
-
-  await db.exec('BEGIN')
-  try {
-    for (const u of data.users ?? []) {
-      await db.exec(
-        `INSERT OR IGNORE INTO users
-         (id,name,email,role,avatar_emoji,color,is_current,created_at)
-         VALUES (?,?,?,?,?,?,?,?)`,
-        [
-          u.id,
-          u.name,
-          u.email ?? null,
-          u.role,
-          u.avatar_emoji,
-          u.color,
-          u.is_current,
-          u.created_at,
-        ],
-      )
-    }
-    const legacyAccountIds: string[] = []
-    for (const a of data.accounts ?? []) {
-      const existing = await db.queryOne<{ id: string }>('SELECT id FROM accounts WHERE id = ?', [
-        a.id,
-      ])
-      await db.exec(
-        `INSERT OR IGNORE INTO accounts
-         (id,user_id,name,type,balance,opening_balance,currency,color,icon,is_active,created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-        [
-          a.id,
-          a.user_id,
-          a.name,
-          a.type,
-          a.balance,
-          a.opening_balance ?? a.balance,
-          a.currency,
-          a.color,
-          a.icon,
-          a.is_active,
-          a.created_at,
-        ],
-      )
-      if (!existing && a.opening_balance === undefined) legacyAccountIds.push(a.id)
-    }
-    for (const c of data.categories ?? []) {
-      await db.exec(
-        `INSERT OR IGNORE INTO categories
-         (id,parent_id,name,icon,color,sort_order)
-         VALUES (?,?,?,?,?,?)`,
-        [c.id, c.parent_id ?? null, c.name, c.icon, c.color, c.sort_order],
-      )
-    }
-    for (const t of data.transactions ?? []) {
-      await db.exec(
-        `INSERT OR IGNORE INTO transactions
-         (id,date,amount,currency,account_id,user_id,type,category_id,description,merchant,
-          is_private,is_recurring,transfer_to_account_id,split_id,created_at,updated_at,
-          source,home_amount,exchange_rate)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [
-          t.id,
-          t.date,
-          t.amount,
-          t.currency,
-          t.account_id ?? null,
-          t.user_id ?? null,
-          t.type,
-          t.category_id ?? null,
-          t.description,
-          t.merchant,
-          t.is_private,
-          t.is_recurring,
-          t.transfer_to_account_id ?? null,
-          t.split_id ?? null,
-          t.created_at,
-          t.updated_at,
-          t.source ?? 'manual',
-          t.home_amount ?? null,
-          t.exchange_rate ?? null,
-        ],
-      )
-    }
-    for (const e of data.envelopes ?? []) {
-      await db.exec(
-        `INSERT OR IGNORE INTO envelopes
-         (id,name,icon,color,budget_amount,period,scope,category_ids,rollover,created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?)`,
-        [
-          e.id,
-          e.name,
-          e.icon,
-          e.color,
-          e.budget_amount,
-          e.period,
-          e.scope,
-          e.category_ids,
-          e.rollover,
-          e.created_at,
-        ],
-      )
-    }
-    for (const p of data.envelope_periods ?? []) {
-      await db.exec(
-        `INSERT OR IGNORE INTO envelope_periods
-         (id,envelope_id,period,spent,rolled_over)
-         VALUES (?,?,?,?,?)`,
-        [p.id, p.envelope_id, p.period, p.spent, p.rolled_over],
-      )
-    }
-    for (const s of data.iou_splits ?? []) {
-      await db.exec(
-        `INSERT OR IGNORE INTO iou_splits
-         (id,transaction_id,from_user_id,to_user_id,amount,is_settled,settled_at,created_at)
-         VALUES (?,?,?,?,?,?,?,?)`,
-        [
-          s.id,
-          s.transaction_id,
-          s.from_user_id,
-          s.to_user_id,
-          s.amount,
-          s.is_settled,
-          s.settled_at ?? null,
-          s.created_at,
-        ],
-      )
-    }
-    for (const g of data.savings_goals ?? []) {
-      await db.exec(
-        `INSERT OR IGNORE INTO savings_goals
-         (id,name,icon,color,target_amount,current_amount,target_date,scope,created_at)
-         VALUES (?,?,?,?,?,?,?,?,?)`,
-        [
-          g.id,
-          g.name,
-          g.icon,
-          g.color,
-          g.target_amount,
-          g.current_amount,
-          g.target_date ?? null,
-          g.scope,
-          g.created_at,
-        ],
-      )
-    }
-    for (const ch of data.chores ?? []) {
-      await db.exec(
-        `INSERT OR IGNORE INTO chores
-         (id,name,icon,color,frequency,scope,assigned_to,created_at)
-         VALUES (?,?,?,?,?,?,?,?)`,
-        [
-          ch.id,
-          ch.name,
-          ch.icon,
-          ch.color,
-          ch.frequency,
-          ch.scope,
-          ch.assigned_to ?? null,
-          ch.created_at,
-        ],
-      )
-    }
-    for (const id of legacyAccountIds) {
-      const impact = await db.queryOne<{ amount: number }>(
-        `SELECT COALESCE((SELECT SUM(CASE WHEN type = 'transfer' THEN -ABS(amount) ELSE amount END)
-                          FROM transactions WHERE account_id = ?), 0)
-           + COALESCE((SELECT SUM(ABS(amount)) FROM transactions
-                       WHERE transfer_to_account_id = ? AND type = 'transfer'), 0) AS amount`,
-        [id, id],
-      )
-      const account = await db.queryOne<{ balance: number }>(
-        'SELECT balance FROM accounts WHERE id = ?',
-        [id],
-      )
-      if (account) {
-        await db.exec('UPDATE accounts SET opening_balance = ? WHERE id = ?', [
-          account.balance - (impact?.amount ?? 0),
-          id,
-        ])
-      }
-    }
-    await db.exec('COMMIT')
-    return null
-  } catch (err) {
-    await db.exec('ROLLBACK')
-    throw err
   }
 }
 
@@ -1449,8 +1861,6 @@ export async function dispatch(db: DbAdapter, req: WorkerRequestBody): Promise<u
     // Categories
     case 'GET_CATEGORIES':
       return getCategories(db)
-    case 'GET_CATEGORY_TREE':
-      return getCategoryTree(db)
 
     // Transactions
     case 'GET_TRANSACTIONS':
@@ -1493,10 +1903,10 @@ export async function dispatch(db: DbAdapter, req: WorkerRequestBody): Promise<u
     // IOU Splits
     case 'GET_IOU_SPLITS':
       return getIouSplits(db)
+    case 'GET_UNRESOLVED_IOU_COUNT':
+      return getUnresolvedIouCount(db)
     case 'GET_IOU_BALANCES':
       return getIouBalances(db)
-    case 'CREATE_IOU_SPLIT':
-      return createIouSplit(db, req.payload)
     case 'SETTLE_IOU':
       return settleIou(db, req.payload)
 

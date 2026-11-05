@@ -9,6 +9,7 @@ export interface RecurringPattern {
   type: TransactionType
   interval: RecurringInterval
   averageAmount: number
+  currency: string | null
   lastOccurrence: string // YYYY-MM-DD
   nextExpected: string // YYYY-MM-DD
   confidence: number // 0-1
@@ -23,6 +24,7 @@ export interface DetectableTransaction {
   id: string
   date: string
   amount: number
+  currency: string
   type: TransactionType
   merchant: string
   category_id: string | null

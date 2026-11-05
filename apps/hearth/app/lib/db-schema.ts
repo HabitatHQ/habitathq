@@ -56,6 +56,7 @@ export const SCHEMA_DDL = `
     updated_at               TEXT NOT NULL,
     source                   TEXT NOT NULL DEFAULT 'manual',
     home_amount              REAL,
+    home_currency            TEXT,
     exchange_rate            REAL
   );
 
@@ -148,6 +149,7 @@ export const SCHEMA_DDL = `
   CREATE TABLE IF NOT EXISTS recurring_patterns (
     id              TEXT PRIMARY KEY,
     merchant        TEXT NOT NULL,
+    currency        TEXT,
     type            TEXT NOT NULL CHECK(type IN ('expense', 'income', 'transfer')),
     interval        TEXT NOT NULL CHECK("interval" IN ('weekly', 'biweekly', 'monthly', 'quarterly', 'annual')),
     average_amount  REAL NOT NULL,
@@ -180,9 +182,72 @@ export const SCHEMA_DDL = `
   );
 `
 
+// ─── Default categories: preserve stable IDs used by NLP and income filtering ─
+
+const DEFAULT_CATEGORIES = [
+  { id: 'c1', parent_id: null, name: 'Food', icon: '🍽️', color: '#f97316', sort_order: 1 },
+  { id: 'c1a', parent_id: 'c1', name: 'Groceries', icon: '🛒', color: '#22c55e', sort_order: 1 },
+  { id: 'c1b', parent_id: 'c1', name: 'Dining Out', icon: '🍽️', color: '#f97316', sort_order: 2 },
+  { id: 'c1c', parent_id: 'c1', name: 'Coffee', icon: '☕', color: '#a16207', sort_order: 3 },
+  { id: 'c2', parent_id: null, name: 'Transport', icon: '🚗', color: '#3b82f6', sort_order: 2 },
+  { id: 'c2a', parent_id: 'c2', name: 'Gas', icon: '⛽', color: '#eab308', sort_order: 1 },
+  { id: 'c2b', parent_id: 'c2', name: 'Parking', icon: '🅿️', color: '#64748b', sort_order: 2 },
+  {
+    id: 'c2c',
+    parent_id: 'c2',
+    name: 'Public Transit',
+    icon: '🚆',
+    color: '#06b6d4',
+    sort_order: 3,
+  },
+  { id: 'c3', parent_id: null, name: 'Bills', icon: '🧾', color: '#8b5cf6', sort_order: 3 },
+  { id: 'c3a', parent_id: 'c3', name: 'Internet', icon: '🌐', color: '#3b82f6', sort_order: 1 },
+  { id: 'c3b', parent_id: 'c3', name: 'Phone', icon: '📱', color: '#6366f1', sort_order: 2 },
+  { id: 'c3c', parent_id: 'c3', name: 'Utilities', icon: '💡', color: '#eab308', sort_order: 3 },
+  {
+    id: 'c3d',
+    parent_id: 'c3',
+    name: 'Rent / Mortgage',
+    icon: '🏠',
+    color: '#a855f7',
+    sort_order: 4,
+  },
+  { id: 'c4', parent_id: null, name: 'Shopping', icon: '🛍️', color: '#ec4899', sort_order: 4 },
+  { id: 'c4a', parent_id: 'c4', name: 'Amazon', icon: '📦', color: '#f59e0b', sort_order: 1 },
+  { id: 'c4b', parent_id: 'c4', name: 'Clothing', icon: '👕', color: '#ec4899', sort_order: 2 },
+  { id: 'c5', parent_id: null, name: 'Health', icon: '🩺', color: '#14b8a6', sort_order: 5 },
+  { id: 'c5a', parent_id: 'c5', name: 'Pharmacy', icon: '💊', color: '#22c55e', sort_order: 1 },
+  { id: 'c5b', parent_id: 'c5', name: 'Gym', icon: '🏋️', color: '#06b6d4', sort_order: 2 },
+  { id: 'c6', parent_id: null, name: 'Entertainment', icon: '🎬', color: '#8b5cf6', sort_order: 6 },
+  { id: 'c6a', parent_id: 'c6', name: 'Streaming', icon: '📺', color: '#ef4444', sort_order: 1 },
+  { id: 'c6b', parent_id: 'c6', name: 'Games', icon: '🎮', color: '#6366f1', sort_order: 2 },
+  { id: 'c7', parent_id: null, name: 'Income', icon: '💰', color: '#22c55e', sort_order: 7 },
+  { id: 'c7a', parent_id: 'c7', name: 'Salary', icon: '💵', color: '#16a34a', sort_order: 1 },
+  { id: 'c7b', parent_id: 'c7', name: 'Freelance', icon: '💼', color: '#10b981', sort_order: 2 },
+  { id: 'c8', parent_id: null, name: 'Savings', icon: '🏦', color: '#0ea5e9', sort_order: 8 },
+] as const
+
 // ─── Default seed: create initial user + account ─────────────────────────────
 
 const SEEDS: Seed[] = [
+  {
+    key: 'default-categories-v1',
+    apply: async (exec: MigrationExec) => {
+      for (const category of DEFAULT_CATEGORIES) {
+        await exec(
+          'INSERT OR IGNORE INTO categories (id, parent_id, name, icon, color, sort_order) VALUES (?,?,?,?,?,?)',
+          [
+            category.id,
+            category.parent_id,
+            category.name,
+            category.icon,
+            category.color,
+            category.sort_order,
+          ],
+        )
+      }
+    },
+  },
   {
     key: 'default-user-account',
     apply: async (exec: MigrationExec) => {
@@ -224,7 +289,7 @@ const SEEDS: Seed[] = [
 
 export const SCHEMA_CONFIG: SchemaConfig = {
   schema: SCHEMA_DDL,
-  version: 10,
+  version: 12,
   migrations: {
     7: MIGRATION_V7_SQL,
     8: MIGRATION_V8_SQL,
@@ -256,6 +321,16 @@ export const SCHEMA_CONFIG: SchemaConfig = {
         await exec(
           'CREATE INDEX IF NOT EXISTS idx_transactions_transfer_to ON transactions(transfer_to_account_id)',
         )
+      },
+    ],
+    11: [
+      async (exec: MigrationExec) => {
+        await exec('ALTER TABLE transactions ADD COLUMN home_currency TEXT')
+      },
+    ],
+    12: [
+      async (exec: MigrationExec) => {
+        await exec('ALTER TABLE recurring_patterns ADD COLUMN currency TEXT')
       },
     ],
   },

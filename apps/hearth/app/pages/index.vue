@@ -16,7 +16,7 @@ async function load() {
   loading.value = true
   error.value = null
   try {
-    summary.value = await db.getDashboardSummary(period.value)
+    summary.value = await db.getDashboardSummary(period.value, homeCurrency.value)
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to load dashboard'
   } finally {
@@ -24,7 +24,7 @@ async function load() {
   }
 }
 
-watch(period, load)
+watch([period, homeCurrency], load)
 onMounted(async () => {
   await load()
   // Load recurring after dashboard — non-blocking, best-effort
@@ -94,7 +94,7 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
         <!-- Spent amount — typographic split: dollars big, cents small -->
         <div class="space-y-0.5">
           <p class="text-xs uppercase tracking-widest text-(--ui-text-muted) font-medium">Spent this month</p>
-          <div class="flex items-end gap-0.5 amount-display" aria-label="Amount spent: {{ formatAmount(summary.spent_this_month, homeCurrency) }}">
+          <div class="flex items-end gap-0.5 amount-display" :aria-label="`Amount spent: ${formatAmount(summary.spent_this_month, homeCurrency)}`">
             <span class="text-4xl font-bold font-mono text-(--ui-text) leading-none">
               {{ spentParts.whole }}
             </span>
@@ -122,8 +122,8 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
           </div>
           <div class="flex justify-between text-sm">
             <span class="text-(--ui-text-muted)">
-              <span class="font-mono font-medium text-(--ui-text)">{{ formatAmount(summary.budget_remaining, homeCurrency) }}</span>
-              remaining of {{ formatAmount(summary.budget_total, homeCurrency) }}
+              <span class="font-mono font-medium text-(--ui-text)">{{ summary.budget_remaining < 0 ? '−' : '' }}{{ formatAmount(summary.budget_remaining, homeCurrency) }}</span>
+              {{ summary.budget_remaining < 0 ? 'overspent of' : 'remaining of' }} {{ formatAmount(summary.budget_total, homeCurrency) }}
             </span>
             <span
               class="font-mono text-xs font-medium"
@@ -144,6 +144,26 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
       </template>
     </section>
 
+    <UAlert
+      v-if="summary?.missing_conversion_count"
+      color="warning"
+      variant="subtle"
+      role="status"
+      aria-label="Currency conversion notice"
+      title="Dashboard totals are incomplete"
+      :description="`${summary.missing_conversion_count} transaction(s) with no conversion to ${homeCurrency} were excluded.`"
+    />
+
+    <UAlert
+      v-if="summary?.unresolved_iou_count"
+      color="warning"
+      variant="subtle"
+      role="status"
+      aria-label="Unresolved household balance notice"
+      title="Some household balances need review"
+      :description="`${summary.unresolved_iou_count} split(s) could not be assigned a currency and are not included.`"
+    />
+
     <!-- ── IOU / Household widget (→ /household) ──────────────────────────── -->
     <NuxtLink
       v-if="summary?.iou_balances?.length"
@@ -158,7 +178,7 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
       <div class="space-y-1.5">
         <div
           v-for="bal in summary.iou_balances"
-          :key="`${bal.from_user_id}-${bal.to_user_id}`"
+          :key="`${bal.from_user_id}-${bal.to_user_id}-${bal.currency}`"
           class="flex items-center gap-2 text-sm"
         >
           <span class="text-base">{{ bal.net_amount > 0 ? bal.to_user_avatar : bal.from_user_avatar }}</span>
@@ -167,7 +187,7 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
             owes
             <span class="font-medium text-(--ui-text)">{{ bal.net_amount > 0 ? bal.from_user_name : bal.to_user_name }}</span>
           </span>
-          <span class="ml-auto font-mono font-medium text-amber-400">{{ formatAmount(Math.abs(bal.net_amount), homeCurrency) }}</span>
+          <span class="ml-auto font-mono font-medium text-amber-400">{{ formatAmount(Math.abs(bal.net_amount), bal.currency) }}</span>
         </div>
       </div>
     </NuxtLink>
@@ -193,7 +213,7 @@ const upcomingRecurring = ref<RecurringPatternRow[]>([])
         >
           <span class="text-(--ui-text) truncate flex-1">{{ p.merchant }}</span>
           <span class="text-xs text-(--ui-text-muted) shrink-0">{{ formatHearthDateLabel(p.next_expected) }}</span>
-          <span class="font-mono font-medium text-(--ui-text) shrink-0 ml-1">{{ formatAmount(p.average_amount, homeCurrency) }}</span>
+          <span class="font-mono font-medium text-(--ui-text) shrink-0 ml-1">{{ p.currency ? formatAmount(p.average_amount, p.currency) : 'Unknown currency' }}</span>
         </div>
       </div>
     </NuxtLink>

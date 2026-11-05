@@ -20,7 +20,7 @@ export async function fetchExchangeRate(
 
   const data = (await res.json()) as { base: string; date: string; rates: Record<string, number> }
   const rate = data.rates[target]
-  if (rate == null) {
+  if (typeof rate !== 'number' || !Number.isFinite(rate) || rate <= 0) {
     throw new Error(`No rate found for ${base} -> ${target} on ${date}`)
   }
 

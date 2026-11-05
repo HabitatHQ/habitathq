@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { localCalendarDate } from '@habitathq/utils'
+import { getCategoryOptions } from '~/lib/category-options'
 import type { ParsedTransaction, ParserContext } from '~/lib/nlp/types'
 import type { Account, Category, Transaction, User } from '~/types/database'
 import { formatAmount, transactionAmountPrefix } from '~/utils/format'
@@ -16,23 +17,13 @@ const ocr = useOcr()
 
 // ── Reference data (shallowRef: replaced wholesale, never mutated in-place) ──
 const accounts = shallowRef<Account[]>([])
-const categoryTree = shallowRef<Array<Category & { children: Category[] }>>([])
+const categories = shallowRef<Category[]>([])
 const currentUser = shallowRef<User | null>(null)
 const merchantMappings = shallowRef<
   Map<string, { category_id: string; account_id: string | null }>
 >(new Map())
 
-// Flat category list for dropdowns
-const flatCategories = computed(() => {
-  const list: Array<{ id: string; label: string; icon: string }> = []
-  for (const parent of categoryTree.value) {
-    list.push({ id: parent.id, label: parent.name, icon: parent.icon })
-    for (const child of parent.children ?? []) {
-      list.push({ id: child.id, label: `${parent.name} > ${child.name}`, icon: child.icon })
-    }
-  }
-  return list
-})
+const flatCategories = computed(() => getCategoryOptions(categories.value))
 
 // ── Input state ──────────────────────────────────────────────────────────
 const inputText = ref('')
@@ -59,6 +50,9 @@ interface QuickAddCard extends ParsedTransaction {
   undoTimer: ReturnType<typeof setTimeout> | null
   fading: boolean
   savedTxId: string | null
+  creating: boolean
+  saveRequestId: number
+  editRequestId: number
   source: 'manual' | 'voice' | 'ocr'
 }
 
@@ -68,13 +62,13 @@ const cards = ref<QuickAddCard[]>([])
 onMounted(async () => {
   const [accts, cats, user, mappingsRaw] = await Promise.all([
     db.getAccounts(),
-    db.getCategoryTree(),
+    db.getCategories(),
     db.getCurrentUser(),
     db.getMerchantMappings(),
     nlp.init(settings.value.nlpTier),
   ])
   accounts.value = accts
-  categoryTree.value = cats
+  categories.value = cats
   currentUser.value = user
   for (const m of mappingsRaw) {
     merchantMappings.value.set(m.merchant, {
@@ -86,9 +80,8 @@ onMounted(async () => {
 
 // ── Build parser context ─────────────────────────────────────────────────
 function buildContext(): ParserContext {
-  const allCategories = categoryTree.value.flatMap((p) => [p, ...(p.children ?? [])])
   return {
-    categories: allCategories,
+    categories: categories.value,
     accounts: accounts.value,
     merchantMappings: merchantMappings.value,
     defaultAccountByType: {
@@ -119,14 +112,17 @@ async function handleSubmit() {
   try {
     const result = await nlp.parse(text, buildContext())
     for (const tx of result.transactions) {
-      const card: QuickAddCard = {
+      const card = reactive<QuickAddCard>({
         ...tx,
         saved: false,
         undoTimer: null,
         fading: false,
         savedTxId: null,
+        saveRequestId: 0,
+        editRequestId: 0,
+        creating: false,
         source: wasVoice ? 'voice' : 'manual',
-      }
+      })
       cards.value.unshift(card)
       autoSave(card)
     }
@@ -137,31 +133,56 @@ async function handleSubmit() {
 
 // ── Auto-save + undo ─────────────────────────────────────────────────────
 async function autoSave(card: QuickAddCard) {
-  if (card.amount == null) return // wait for user to fill in amount
+  if (card.amount == null || card.creating || card.savedTxId) return
+  const requestId = ++card.saveRequestId
+  const amount = card.amount
+  const type = card.type
+  const date = card.date
+  const cardCurrency = card.currency || settings.value.currency
+  const homeCurrency = settings.value.currency
+
+  const inputsChanged = () =>
+    card.amount !== amount ||
+    card.type !== type ||
+    card.date !== date ||
+    (card.currency || settings.value.currency) !== cardCurrency ||
+    settings.value.currency !== homeCurrency
 
   try {
-    const cardCurrency = card.currency || settings.value.currency
     let homeAmount: number | null = null
     let cardExchangeRate: number | null = null
-    if (cardCurrency !== settings.value.currency && card.amount != null) {
+    if (cardCurrency !== homeCurrency) {
       try {
         const { getRate, computeHomeAmount } = useExchangeRates()
-        const rate = await getRate(cardCurrency, settings.value.currency, card.date)
+        const rate = await getRate(cardCurrency, homeCurrency, date)
+        if (requestId !== card.saveRequestId) return
+        if (inputsChanged()) {
+          void autoSave(card)
+          return
+        }
         cardExchangeRate = rate
-        const signed = card.type === 'expense' ? -card.amount : card.amount
-        homeAmount = computeHomeAmount(signed, rate)
+        homeAmount = computeHomeAmount(type === 'expense' ? -amount : amount, rate)
       } catch {
-        // Rate unavailable — store without conversion
+        // Rate unavailable — store without conversion.
       }
     }
+    if (requestId !== card.saveRequestId) return
+    if (inputsChanged()) {
+      void autoSave(card)
+      return
+    }
 
-    const tx = await db.createTransaction({
-      date: card.date,
-      amount: card.type === 'expense' ? -card.amount : card.amount,
+    const accountId = card.accountId ?? accounts.value[0]?.id
+    const userId = currentUser.value?.id
+    if (!accountId || !userId)
+      throw new Error('An account and household member must be loaded before saving.')
+    const txPayload: Omit<Transaction, 'id' | 'created_at' | 'updated_at'> = {
+      date,
+      amount: type === 'expense' ? -amount : amount,
       currency: cardCurrency,
-      account_id: card.accountId ?? accounts.value[0]?.id ?? null,
-      user_id: currentUser.value?.id ?? null,
-      type: card.type,
+      account_id: accountId,
+      user_id: userId,
+      type,
       category_id: card.categoryId,
       description: card.description,
       merchant: card.merchant,
@@ -171,10 +192,30 @@ async function autoSave(card: QuickAddCard) {
       split_id: null,
       source: card.source,
       home_amount: homeAmount,
+      home_currency: homeAmount === null ? null : homeCurrency,
       exchange_rate: cardExchangeRate,
-    } as Omit<Transaction, 'id' | 'created_at' | 'updated_at'>)
+    }
+    card.creating = true
+    const tx = await db.createTransaction(txPayload)
+    card.creating = false
 
     card.savedTxId = tx.id
+    const latestAccountId = card.accountId ?? accountId
+
+    if (
+      card.merchant !== txPayload.merchant ||
+      card.categoryId !== txPayload.category_id ||
+      latestAccountId !== txPayload.account_id ||
+      card.transferToAccountId !== txPayload.transfer_to_account_id
+    ) {
+      await db.updateTransaction({
+        id: tx.id,
+        merchant: card.merchant,
+        category_id: card.categoryId,
+        account_id: latestAccountId,
+        transfer_to_account_id: card.transferToAccountId,
+      })
+    }
     card.saved = true
 
     // Learn merchant → category mapping
@@ -208,6 +249,7 @@ async function autoSave(card: QuickAddCard) {
       }, 300)
     }, 5000)
   } catch (e) {
+    card.creating = false
     toast.add({
       title: 'Save failed',
       description: e instanceof Error ? e.message : 'Unknown error',
@@ -247,7 +289,12 @@ function updateCardField(
       update.amount = card.type === 'expense' ? -(value as number) : (value as number)
     }
     if (field === 'date') update.date = value as string
-    db.updateTransaction(update)
+    if (field === 'currency') update.currency = value as string
+    void persistCardUpdate(
+      card,
+      update,
+      field === 'amount' || field === 'date' || field === 'currency',
+    )
 
     // Update learning on category/account corrections
     if ((field === 'categoryId' || field === 'accountId') && card.merchant && card.categoryId) {
@@ -263,6 +310,61 @@ function updateCardField(
   // If amount was null and is now filled, trigger auto-save
   if (field === 'amount' && value != null && !card.saved) {
     autoSave(card)
+  }
+}
+
+async function persistCardUpdate(
+  card: QuickAddCard,
+  update: Partial<Transaction> & { id: string },
+  conversionChanged: boolean,
+) {
+  const requestId = ++card.editRequestId
+  let homeAmount: number | null = null
+  let exchangeRate: number | null = null
+  const amount = card.amount
+  const type = card.type
+  const date = card.date
+  const currency = card.currency || settings.value.currency
+  const homeCurrency = settings.value.currency
+
+  if (conversionChanged && amount != null && currency !== homeCurrency) {
+    try {
+      const { getRate, computeHomeAmount } = useExchangeRates()
+      const rate = await getRate(currency, homeCurrency, date)
+      if (requestId !== card.editRequestId) return
+      if (
+        card.amount === amount &&
+        card.type === type &&
+        card.date === date &&
+        (card.currency || settings.value.currency) === currency &&
+        settings.value.currency === homeCurrency
+      ) {
+        exchangeRate = rate
+        homeAmount = computeHomeAmount(type === 'expense' ? -amount : amount, rate)
+      }
+    } catch {
+      // Changed amount/date is still saved when an offline rate is unavailable.
+    }
+  }
+
+  if (requestId !== card.editRequestId) return
+  try {
+    await db.updateTransaction(
+      conversionChanged
+        ? {
+            ...update,
+            home_amount: homeAmount,
+            home_currency: homeAmount === null ? null : homeCurrency,
+            exchange_rate: exchangeRate,
+          }
+        : update,
+    )
+  } catch (error) {
+    toast.add({
+      title: 'Update failed',
+      description: error instanceof Error ? error.message : 'Unknown error',
+      color: 'error' as const,
+    })
   }
 }
 
@@ -359,7 +461,7 @@ async function scanReceipt() {
       if (mapping) categoryId = mapping.category_id
     }
 
-    const card: QuickAddCard = {
+    const card = reactive<QuickAddCard>({
       clientId: crypto.randomUUID(),
       rawText: `Receipt: ${merchant}`,
       type: 'expense',
@@ -380,8 +482,11 @@ async function scanReceipt() {
       undoTimer: null,
       fading: false,
       savedTxId: null,
+      saveRequestId: 0,
+      editRequestId: 0,
+      creating: false,
       source: 'ocr',
-    }
+    })
     cards.value.unshift(card)
     if (amount != null) autoSave(card)
   } finally {

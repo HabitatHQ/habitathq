@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { differenceInCalendarDays, localCalendarDate } from '@habitathq/utils'
+import { projectMonthlyTotals } from '~/lib/recurring/project'
 import type { RecurringPatternRow, RecurringStatus } from '~/types/database'
 
 const db = useDatabase()
@@ -83,16 +84,7 @@ const upcomingThisMonth = computed(() =>
   }),
 )
 
-const monthlyProjection = computed(() =>
-  confirmedPatterns.value.reduce((sum, p) => {
-    if (p.interval === 'weekly') return sum + p.average_amount * 4.33
-    if (p.interval === 'biweekly') return sum + p.average_amount * 2.17
-    if (p.interval === 'monthly') return sum + p.average_amount
-    if (p.interval === 'quarterly') return sum + p.average_amount / 3
-    if (p.interval === 'annual') return sum + p.average_amount / 12
-    return sum
-  }, 0),
-)
+const monthlyProjection = computed(() => projectMonthlyTotals(confirmedPatterns.value))
 
 function confidenceDots(confidence: number): number {
   return Math.max(1, Math.min(5, Math.ceil(confidence * 5)))
@@ -170,7 +162,7 @@ function intervalLabel(interval: string): string {
               <p class="text-sm font-medium text-(--ui-text)">{{ p.merchant }}</p>
               <p class="text-xs text-(--ui-text-muted)">{{ intervalLabel(p.interval) }}</p>
             </div>
-            <p class="font-mono text-sm font-semibold text-(--ui-text)">~{{ formatAmount(p.average_amount) }}</p>
+            <p class="font-mono text-sm font-semibold text-(--ui-text)">~{{ p.currency ? formatAmount(p.average_amount, p.currency) : 'Unknown currency' }}</p>
           </div>
 
           <div class="flex items-center justify-between text-xs text-(--ui-text-muted)">
@@ -212,7 +204,7 @@ function intervalLabel(interval: string): string {
             <p class="text-sm font-medium text-(--ui-text) truncate">{{ p.merchant }}</p>
             <p class="text-xs text-(--ui-text-muted)">{{ formatHearthDateLabel(p.next_expected) }}</p>
           </div>
-          <p class="font-mono text-sm font-semibold text-(--ui-text) shrink-0">{{ formatAmount(p.average_amount) }}</p>
+          <p class="font-mono text-sm font-semibold text-(--ui-text) shrink-0">{{ p.currency ? formatAmount(p.average_amount, p.currency) : 'Unknown currency' }}</p>
         </li>
       </ul>
     </section>
@@ -230,7 +222,7 @@ function intervalLabel(interval: string): string {
             <p class="text-sm font-medium text-(--ui-text) truncate">{{ p.merchant }}</p>
             <p class="text-xs text-(--ui-text-muted)">{{ formatHearthDateLabel(p.next_expected) }}</p>
           </div>
-          <p class="font-mono text-sm font-semibold text-(--ui-text) shrink-0">{{ formatAmount(p.average_amount) }}</p>
+          <p class="font-mono text-sm font-semibold text-(--ui-text) shrink-0">{{ p.currency ? formatAmount(p.average_amount, p.currency) : 'Unknown currency' }}</p>
         </li>
       </ul>
     </section>
@@ -273,7 +265,7 @@ function intervalLabel(interval: string): string {
               {{ intervalLabel(p.interval) }} · Next: {{ formatHearthDateLabel(p.next_expected) }}
             </p>
           </div>
-          <p class="font-mono text-sm font-semibold text-(--ui-text) shrink-0">{{ formatAmount(p.average_amount) }}</p>
+          <p class="font-mono text-sm font-semibold text-(--ui-text) shrink-0">{{ p.currency ? formatAmount(p.average_amount, p.currency) : 'Unknown currency' }}</p>
           <button
             v-if="p.status === 'confirmed'"
             class="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-(--ui-text-dimmed) hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
@@ -300,7 +292,21 @@ function intervalLabel(interval: string): string {
       class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) p-4 text-center"
     >
       <p class="text-xs uppercase tracking-widest text-(--ui-text-muted) font-medium mb-1">Monthly Recurring Total</p>
-      <p class="text-2xl font-bold font-mono text-primary-400 amount-display">{{ formatAmount(monthlyProjection) }}</p>
+      <p
+        v-for="total in monthlyProjection.totals"
+        :key="total.currency"
+        class="text-2xl font-bold font-mono text-primary-400 amount-display"
+      >
+        {{ formatAmount(total.amount, total.currency) }} / month
+      </p>
+      <p
+        v-if="monthlyProjection.unknownCurrencyCount"
+        role="status"
+        aria-label="Recurring currency notice"
+        class="text-sm text-amber-400 mt-2"
+      >
+        {{ monthlyProjection.unknownCurrencyCount }} pattern(s) have unknown currency and are excluded.
+      </p>
     </div>
   </div>
 </template>

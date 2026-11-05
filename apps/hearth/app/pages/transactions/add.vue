@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { localCalendarDate } from '@habitathq/utils'
+import { getCategoryOptions } from '~/lib/category-options'
 import { getCreditCardPaymentSuggestion } from '~/lib/credit-card-payments'
 import { SUPPORTED_CURRENCIES } from '~/lib/currency/convert'
 import { getTransferDestinationError } from '~/lib/transaction-edit-rules'
@@ -38,13 +39,13 @@ const error = ref<string | null>(null)
 // ── Load reference data ────────────────────────────────────────────────────
 
 const accounts = ref<Account[]>([])
-const categories = ref<Array<Category & { children: Category[] }>>([])
+const categories = ref<Category[]>([])
 const users = ref<User[]>([])
 
 onMounted(async () => {
   const [accts, cats, usrs] = await Promise.all([
     db.getAccounts(),
-    db.getCategoryTree(),
+    db.getCategories(),
     db.getUsers(),
   ])
   accounts.value = accts
@@ -59,19 +60,7 @@ onMounted(async () => {
 
 // ── Category options flat list for current type ────────────────────────────
 
-const categoryOptions = computed(() => {
-  const result: { id: string; label: string; icon: string }[] = []
-  for (const parent of categories.value) {
-    if (form.type === 'income' && parent.id !== 'c7') continue
-    if (form.type === 'expense' && parent.id === 'c7') continue
-    result.push({ id: parent.id, label: parent.name, icon: parent.icon })
-    for (const child of parent.children ?? []) {
-      if (form.type === 'income' && parent.id !== 'c7') continue
-      result.push({ id: child.id, label: `${parent.icon} ${child.name}`, icon: child.icon })
-    }
-  }
-  return result
-})
+const categoryOptions = computed(() => getCategoryOptions(categories.value, form.type))
 const selectedTransferTarget = computed(() =>
   form.type === 'transfer'
     ? accounts.value.find((account) => account.id === form.toAccountId)
@@ -113,10 +102,21 @@ watch(
   },
 )
 
+let conversionRequestId = 0
 watch(
   () => form.type,
   (type) => {
-    if (type !== 'transfer') return
+    if (type !== 'transfer') {
+      if (type !== 'expense') {
+        form.isSplit = false
+        form.splitUserId = ''
+        form.splitAmount = ''
+      }
+      return
+    }
+    form.isSplit = false
+    form.splitUserId = ''
+    form.splitAmount = ''
     if (!form.toAccountId || form.toAccountId === form.accountId) {
       form.toAccountId = accounts.value.find((entry) => entry.id !== form.accountId)?.id ?? ''
     }
@@ -141,19 +141,20 @@ const homeEquiv = ref<number | null>(null)
 const isForeignCurrency = computed(() => form.currency !== homeCurrency.value)
 
 watch(
-  [() => form.currency, amountNum, () => form.date],
-  async ([curr, amt, date]) => {
-    if (curr === homeCurrency.value || !amt) {
-      exchangeRate.value = null
-      homeEquiv.value = null
-      return
-    }
+  [() => form.currency, amountNum, () => form.date, () => form.type, homeCurrency],
+  async ([curr, amt, date, type, target]) => {
+    const requestId = ++conversionRequestId
+    exchangeRate.value = null
+    homeEquiv.value = null
+    if (curr === target || !amt) return
     try {
-      const rate = await getRate(curr, homeCurrency.value, date)
+      const rate = await getRate(curr, target, date)
+      if (requestId !== conversionRequestId) return
       exchangeRate.value = rate
-      const signed = form.type === 'expense' ? -amt : amt
+      const signed = type === 'expense' ? -amt : amt
       homeEquiv.value = computeHomeAmount(signed, rate)
     } catch {
+      if (requestId !== conversionRequestId) return
       exchangeRate.value = null
       homeEquiv.value = null
     }
@@ -161,11 +162,22 @@ watch(
   { immediate: true },
 )
 
+function toggleSplit() {
+  form.isSplit = !form.isSplit
+  if (form.isSplit) {
+    form.splitUserId = otherUsers.value[0]?.id ?? ''
+    form.splitAmount = amountNum.value > 0 ? (amountNum.value / 2).toFixed(2) : ''
+  } else {
+    form.splitUserId = ''
+    form.splitAmount = ''
+  }
+}
 // ── Submit ────────────────────────────────────────────────────────────────
 
 async function submit() {
-  if (!amountNum.value) {
-    error.value = 'Please enter an amount'
+  if (saving.value) return
+  if (!Number.isFinite(amountNum.value) || amountNum.value <= 0) {
+    error.value = 'Please enter a positive, finite amount'
     return
   }
   if (!form.accountId) {
@@ -177,11 +189,24 @@ async function submit() {
     error.value = transferError
     return
   }
+  let split: { to_user_id: string; amount: number } | undefined
+  if (form.type === 'expense' && form.isSplit) {
+    const splitAmount = Number(form.splitAmount)
+    if (!otherUsers.value.some((user) => user.id === form.splitUserId)) {
+      error.value = 'Choose a household member to split this expense with'
+      return
+    }
+    if (!Number.isFinite(splitAmount) || splitAmount <= 0 || splitAmount > amountNum.value) {
+      error.value = 'Enter a split amount greater than zero and no more than the expense'
+      return
+    }
+    split = { to_user_id: form.splitUserId, amount: splitAmount }
+  }
   saving.value = true
   error.value = null
   try {
     const currentUser = await db.getCurrentUser()
-    const tx = await db.createTransaction({
+    await db.createTransaction({
       date: form.date,
       amount: form.type === 'expense' ? -amountNum.value : amountNum.value,
       currency: form.currency,
@@ -197,24 +222,11 @@ async function submit() {
       split_id: null,
       source: 'manual',
       home_amount: isForeignCurrency.value ? homeEquiv.value : null,
+      home_currency:
+        isForeignCurrency.value && homeEquiv.value !== null ? homeCurrency.value : null,
       exchange_rate: isForeignCurrency.value ? exchangeRate.value : null,
+      ...(split && { iou_split: split }),
     })
-
-    // Create IOU split if requested
-    if (form.isSplit && form.splitUserId && form.splitAmount) {
-      const splitAmt = Number.parseFloat(form.splitAmount)
-      if (!Number.isNaN(splitAmt) && splitAmt > 0) {
-        await db.createIouSplit({
-          transaction_id: tx.id,
-          from_user_id: currentUser?.id ?? '',
-          to_user_id: form.splitUserId,
-          amount: splitAmt,
-          is_settled: 0,
-          settled_at: null,
-        })
-      }
-    }
-
     router.back()
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to save transaction'
@@ -435,7 +447,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
           <select
             id="tx-category"
             v-model="form.categoryId"
-            class="flex-1 bg-transparent text-sm text-(--ui-text) focus:outline-none"
+            class="flex-1 min-w-0 bg-transparent text-sm text-(--ui-text) focus:outline-none"
           >
             <option value="">Uncategorized</option>
             <option v-for="cat in categoryOptions" :key="cat.id" :value="cat.id">
@@ -508,7 +520,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
               role="switch"
               :aria-checked="form.isSplit"
               aria-label="Split with household member"
-              @click="form.isSplit = !form.isSplit"
+              @click="toggleSplit"
             >
               <span
                 class="inline-block h-4 w-4 rounded-full bg-white transition-transform"
@@ -539,7 +551,6 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
                 v-model="form.splitAmount"
                 type="number"
                 step="0.01"
-                :placeholder="`${(amountNum / 2).toFixed(2)}`"
                 class="flex-1 bg-transparent text-sm text-(--ui-text) placeholder:text-(--ui-text-dimmed) focus:outline-none font-mono"
               />
             </div>
@@ -549,6 +560,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
         <!-- Error -->
         <UAlert
           v-if="error"
+          role="alert"
           :description="error"
           color="error"
           variant="soft"

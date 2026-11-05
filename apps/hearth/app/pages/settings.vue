@@ -3,7 +3,7 @@ import { formatInstant, localCalendarDate } from '@habitathq/utils'
 import type { AppTheme, ColorMode, NlpTier } from '~/composables/useAppSettings'
 import { SUPPORTED_CURRENCIES } from '~/lib/currency/convert'
 import { parseHearthExport } from '~/lib/hearth-export'
-import type { Account } from '~/types/database'
+import type { Account, HearthExport } from '~/types/database'
 import { formatCurrency } from '~/utils/format'
 
 const currencies = SUPPORTED_CURRENCIES
@@ -19,6 +19,8 @@ const dbInfo = ref<{
   account_count: number
   envelope_count: number
 } | null>(null)
+const pendingImport = shallowRef<HearthExport | null>(null)
+const importValidationError = ref<string | null>(null)
 const importFileRef = ref<HTMLInputElement | null>(null)
 const accounts = ref<Account[]>([])
 const reconcileAccount = ref<Account | null>(null)
@@ -75,7 +77,7 @@ const nlp = useNlpParser()
 
 onMounted(async () => {
   try {
-    const [info, accts] = await Promise.all([db.getDbInfo(), db.getAccounts()])
+    const [info, accts] = await Promise.all([db.getDbInfo(), db.getAccountsWithBalances()])
     dbInfo.value = info
     accounts.value = accts
   } catch {
@@ -92,12 +94,11 @@ const exportOperation = useAsyncOperation({
   },
 })
 const importOperation = useAsyncOperation({
-  action: async (file: File) => {
-    const parsed: unknown = JSON.parse(await file.text())
-    const data = parseHearthExport(parsed)
+  action: async (data: HearthExport) => {
     await db.importJson(data)
   },
   onSuccess: () => {
+    pendingImport.value = null
     setTimeout(() => window.location.reload(), 1000)
   },
 })
@@ -129,15 +130,19 @@ const exportBusy = exportOperation.busy
 const exportError = exportOperation.error
 const exportSuccess = exportOperation.success
 const importBusy = importOperation.busy
-const importError = importOperation.error
 const importSuccess = importOperation.success
 const resetSuccess = resetOperation.success
 const resetBusy = resetOperation.busy
 const resetError = resetOperation.error
 const refreshBusy = refreshOperation.busy
 const refreshError = refreshOperation.error
+const importConfirmation = useDestructiveConfirmation<[]>()
+const importConfirmPending = importConfirmation.pending
 const resetConfirmation = useDestructiveConfirmation<[]>()
 const resetConfirmPending = resetConfirmation.pending
+const importDisplayError = computed(
+  () => importValidationError.value ?? importOperation.error.value,
+)
 const dataOperationBusy = computed(
   () =>
     sqliteExportOperation.busy.value ||
@@ -167,12 +172,31 @@ async function onImportFile(event: Event) {
   if (!(input instanceof HTMLInputElement)) return
   const file = input.files?.[0]
   input.value = ''
+  importValidationError.value = null
   if (!file) return
   try {
-    await importOperation.run(file)
+    const parsed: unknown = JSON.parse(await file.text())
+    pendingImport.value = parseHearthExport(parsed)
+    importConfirmation.request()
+  } catch (error) {
+    pendingImport.value = null
+    importValidationError.value =
+      error instanceof Error ? error.message : 'This file is not a valid Hearth backup.'
+  }
+}
+
+async function confirmImport() {
+  if (!importConfirmation.confirm() || !pendingImport.value) return
+  try {
+    await importOperation.run(pendingImport.value)
   } catch {
     // Failure remains available through the shared feedback component.
   }
+}
+
+function cancelImport() {
+  importConfirmation.cancel()
+  pendingImport.value = null
 }
 
 function resetSettings() {
@@ -420,6 +444,9 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
           <div class="min-w-0 flex-1">
             <p class="text-sm font-medium text-(--ui-text)">{{ account.name }}</p>
             <p class="text-xs text-(--ui-text-muted)">{{ account.type }} · {{ account.currency }}</p>
+            <p v-if="(account.missing_conversion_count ?? 0) > 0" role="status" class="text-xs text-amber-500">
+              {{ account.missing_conversion_count }} transaction conversion(s) unavailable; balance may be incomplete.
+            </p>
           </div>
           <span class="font-mono text-sm text-(--ui-text)">{{ formatCurrency(account.balance, account.currency) }}</span>
           <button
@@ -450,6 +477,14 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
           <h2 id="reconcile-title" class="text-lg font-semibold">Reconcile {{ reconciledAccount?.name }}</h2>
           <p class="text-sm text-(--ui-text-muted) mt-1">
             Computed balance: {{ formatCurrency(reconciledAccount?.balance ?? 0, reconciledAccount?.currency ?? 'USD') }}
+          </p>
+          <p
+            v-if="(reconciledAccount?.missing_conversion_count ?? 0) > 0"
+            role="status"
+            class="text-sm text-amber-500"
+          >
+            {{ reconciledAccount?.missing_conversion_count }} transaction conversion(s) are unavailable, so this computed balance may be incomplete.
+            Resolve these conversions before reconciling the account.
           </p>
         </div>
         <label class="block space-y-1 text-sm" for="reconcile-balance">
@@ -483,7 +518,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
           <button
             type="button"
             class="min-h-[44px] px-4 rounded-lg bg-primary-500 text-white text-sm font-semibold disabled:opacity-50"
-            :disabled="reconciling || reconcileDifference === null"
+            :disabled="reconciling || reconcileDifference === null || (reconciledAccount?.missing_conversion_count ?? 0) > 0"
             @click="saveReconciliation"
           >
             {{ reconciling ? 'Saving…' : 'Reconcile' }}
@@ -594,7 +629,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
       />
       <AppOperationFeedback
         :busy="importBusy"
-        :error="importError"
+        :error="importDisplayError"
         :success="importSuccess"
         busy-label="Restoring JSON backup…"
         success-label="Import complete. Reloading Hearth…"
@@ -680,6 +715,16 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
       </div>
     </section>
 
+    <AppDestructiveConfirm
+      :model-value="importConfirmPending"
+      title="Replace all existing data?"
+      message="Restoring this backup replaces Hearth's current database data. This cannot be undone."
+      confirm-label="Replace Data"
+      cancel-label="Keep current data"
+      :busy="importBusy"
+      @confirm="confirmImport"
+      @cancel="cancelImport"
+    />
     <AppDestructiveConfirm
       :model-value="resetConfirmPending"
       title="Reset all data?"

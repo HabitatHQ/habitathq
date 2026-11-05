@@ -14,3 +14,38 @@ export function projectNextOccurrence(lastDate: string, interval: RecurringInter
   if (d.getUTCDate() < day) d.setUTCDate(0)
   return `${String(d.getUTCFullYear()).padStart(4, '0')}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
 }
+
+export function projectMonthlyTotals(
+  patterns: Array<{
+    average_amount: number
+    interval: RecurringInterval
+    currency: string | null
+  }>,
+): { totals: Array<{ currency: string; amount: number }>; unknownCurrencyCount: number } {
+  const totals = new Map<string, number>()
+  let unknownCurrencyCount = 0
+  for (const pattern of patterns) {
+    if (!pattern.currency) {
+      unknownCurrencyCount++
+      continue
+    }
+    const monthlyFactor =
+      pattern.interval === 'weekly'
+        ? 4.33
+        : pattern.interval === 'biweekly'
+          ? 2.17
+          : pattern.interval === 'quarterly'
+            ? 1 / 3
+            : pattern.interval === 'annual'
+              ? 1 / 12
+              : 1
+    totals.set(
+      pattern.currency,
+      (totals.get(pattern.currency) ?? 0) + pattern.average_amount * monthlyFactor,
+    )
+  }
+  return {
+    totals: Array.from(totals, ([currency, amount]) => ({ currency, amount })),
+    unknownCurrencyCount,
+  }
+}

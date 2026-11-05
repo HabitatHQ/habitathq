@@ -42,17 +42,23 @@ export function detectRecurringPatterns(
   transactions: DetectableTransaction[],
   existingPatterns: RecurringPattern[],
 ): RecurringPattern[] {
-  // Group by (merchant, type)
+  // Keep recurrence statistics within the same merchant, account, and denomination.
+  const groupKey = (
+    merchant: string,
+    type: string,
+    accountId: string | null,
+    currency: string | null,
+  ) => JSON.stringify([merchant.toLowerCase().trim(), type, accountId, currency])
   const groups = new Map<string, DetectableTransaction[]>()
   for (const t of transactions) {
-    const key = `${t.merchant.toLowerCase().trim()}|${t.type}`
-    if (!groups.has(key)) groups.set(key, [])
-    groups.get(key)?.push(t)
+    const key = groupKey(t.merchant, t.type, t.account_id, t.currency)
+    const group = groups.get(key)
+    if (group) group.push(t)
+    else groups.set(key, [t])
   }
 
-  // Track existing patterns to skip
   const existingKeys = new Set(
-    existingPatterns.map((p) => `${p.merchant.toLowerCase().trim()}|${p.type}`),
+    existingPatterns.map((p) => groupKey(p.merchant, p.type, p.accountId, p.currency)),
   )
 
   const patterns: RecurringPattern[] = []
@@ -124,6 +130,7 @@ export function detectRecurringPatterns(
       type: representative.type,
       interval: matchedInterval.name,
       averageAmount: Math.round(meanAmount * 100) / 100,
+      currency: representative.currency,
       lastOccurrence,
       nextExpected,
       confidence: Math.round(confidence * 100) / 100,
