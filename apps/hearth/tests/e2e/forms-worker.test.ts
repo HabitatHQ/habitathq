@@ -294,6 +294,47 @@ test('editing after a delayed load offline preserves the saved signed home conve
   })
 })
 
+test('editing an unconverted transaction saves its newly available conversion', async ({ page }) => {
+  await installDatabaseProbe(page)
+  await page.goto('/settings')
+  await page.getByLabel('Home currency', { exact: true }).selectOption('USD')
+  const backup = await exportBackup(page)
+  const account = backup.accounts[0]
+  const user = backup.users.find((candidate) => candidate.is_current === 1)
+  if (!account || !user) throw new Error('Conversion recovery fixture needs an account and user')
+  await databaseRequest(page, {
+    type: 'CREATE_TRANSACTION',
+    payload: {
+      date: localCalendarDate(), amount: -10, currency: 'EUR',
+      account_id: account.id, user_id: user.id, type: 'expense', category_id: null,
+      description: '', merchant: 'Conversion recovery', is_private: 0, is_recurring: 0,
+      transfer_to_account_id: null, split_id: null, source: 'manual',
+      home_amount: null, home_currency: null, exchange_rate: null,
+    },
+  })
+  const seeded = (await exportBackup(page)).transactions.find(
+    (transaction) => transaction.merchant === 'Conversion recovery',
+  )
+  if (!seeded) throw new Error('Unconverted transaction was not persisted')
+  await page.route('https://api.frankfurter.app/**', (route) => route.fulfill({
+    json: { base: 'EUR', date: localCalendarDate(), rates: { USD: 1.25 } },
+  }))
+  await page.goto(`/transactions/${seeded.id}`)
+  await expect(page.getByLabel('Merchant')).toHaveValue('Conversion recovery')
+  await expect.poll(async () => (await exportBackup(page)).exchange_rates?.some(
+    (rate) => rate.base === 'EUR' && rate.target === 'USD' && rate.rate === 1.25,
+  )).toBe(true)
+  await page.getByLabel('Merchant').fill('Conversion recovered')
+  await page.getByRole('button', { name: 'Save transaction' }).click()
+  await expect(page).not.toHaveURL(/transactions\/[^/]+$/)
+  expect((await exportBackup(page)).transactions.find(
+    (transaction) => transaction.id === seeded.id,
+  )).toMatchObject({
+    amount: -10, currency: 'EUR', merchant: 'Conversion recovered',
+    home_amount: -12.5, home_currency: 'USD', exchange_rate: 1.25,
+  })
+})
+
 test('Settings marks unconverted balances incomplete and blocks unsafe reconciliation', async ({ page }) => {
   await installDatabaseProbe(page)
   await page.goto('/')

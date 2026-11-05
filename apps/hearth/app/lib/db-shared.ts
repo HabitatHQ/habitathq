@@ -862,7 +862,7 @@ export async function getDashboardSummary(
     budget_total: budgetTotal,
     budget_remaining: budgetTotal - spent,
     missing_conversion_count: totals?.missing_conversion_count ?? 0,
-    unresolved_iou_count: splits.filter((split) => split.currency === null).length,
+    unresolved_iou_count: splits.filter((split) => !split.currency).length,
     envelopes: envelopesWithSpending,
     recent_transactions: recentTxns,
     savings_goals: goals,

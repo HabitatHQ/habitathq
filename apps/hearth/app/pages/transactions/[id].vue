@@ -189,6 +189,7 @@ async function submit() {
     const saved = savedConversion.value
     const preserveConversion =
       saved &&
+      saved.home_amount !== null &&
       saved.amount === signedAmount &&
       saved.currency === form.currency &&
       saved.date === form.date &&

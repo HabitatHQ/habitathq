@@ -146,6 +146,8 @@ describe('real SQLite database operations', () => {
     insertSplit.run('settled-empty', 'empty-count', 'u1', 'u2', 5, 1, 'x', 'x')
 
     expect(await dispatch(db, { type: 'GET_UNRESOLVED_IOU_COUNT' })).toBe(2)
+    const summary = await getDashboardSummary(db, { period: '2026-11', home_currency: 'USD' })
+    expect(summary.unresolved_iou_count).toBe(2)
   })
 
   it('restores categories from backups whose child entries precede parents', async () => {
