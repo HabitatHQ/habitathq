@@ -294,7 +294,7 @@ test('editing after a delayed load offline preserves the saved signed home conve
   })
 })
 
-test('Settings marks account balances incomplete when a transaction currency cannot be converted', async ({ page }) => {
+test('Settings marks unconverted balances incomplete and blocks unsafe reconciliation', async ({ page }) => {
   await installDatabaseProbe(page)
   await page.goto('/')
   const backup = await exportBackup(page)
@@ -325,9 +325,11 @@ test('Settings marks account balances incomplete when a transaction currency can
   })
   await page.goto('/settings')
   const accountRegion = page.getByRole('region', { name: 'Account balances' })
-  await expect(accountRegion).toContainText('transaction conversion(s) unavailable')
+  await expect(accountRegion.getByRole('status')).toBeVisible()
   await page.getByRole('button', { name: `Reconcile ${account.name}` }).click()
-  await expect(page.getByRole('dialog')).toContainText('computed balance may be incomplete')
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('status')).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Reconcile', exact: true })).toBeDisabled()
 })
 
 test('saving while a new rate is pending never relabels the previously resolved conversion', async ({ page }) => {

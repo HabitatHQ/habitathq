@@ -34,11 +34,12 @@ Native (Capacitor) and the PWA (with assets pre-fetched) work fully offline:
 
 users, accounts, categories, transactions, envelopes, envelope_periods, iou_splits, savings_goals, chores, chore_completions, merchant_mappings, recurring_patterns, receipt_images, exchange_rates, applied_defaults, _palladium_seeds.
 
-- Stored transaction conversions identify `home_currency`; legacy conversion targets remain unknown rather than being inferred from current settings. Reports, budgets, and account balances exclude unresolved conversions and show incomplete-total notices.
+- Stored transaction conversions identify `home_currency`; legacy conversion targets remain unknown rather than being inferred from current settings. Reports, budgets, account balances, and CSV preview totals exclude unresolved conversions and show incomplete-total notices. Account reconciliation remains blocked until its currency conversions resolve.
 - IOUs are grouped and settled by user pair and original currency. Recurring detection likewise separates accounts and currencies; historical detection IDs may outlive deleted transactions.
 - Detailed expense entry commits the transaction and optional IOU share atomically. Worker/native dispatch serializes reads, writes, exports, and resets so another request cannot observe a partial operation.
-- Default categories are seeded idempotently without overwriting custom records. Linked parent categories include descendant spending once.
+- Default categories are seeded idempotently without overwriting custom records. Linked parent categories include descendant spending once. Category pickers preserve arbitrary-depth imported hierarchies through the shared flat-category helper.
 - Transaction editing must not expose editable fields before its saved record and reference data finish loading; loading failures remain visible and Save stays disabled.
+- Quick Add displays reactive cards but sends immutable scalar worker payloads. Corrections made during creation update that same transaction without duplicating it or overwriting its saved conversion.
 
 ## Routes
 

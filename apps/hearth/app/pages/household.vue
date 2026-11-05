@@ -16,14 +16,14 @@ async function load() {
   loading.value = true
   error.value = null
   try {
-    const [u, b, splits] = await Promise.all([
+    const [u, b, unresolvedIouCountResult] = await Promise.all([
       db.getUsers(),
       db.getIouBalances(),
-      db.getIouSplits(),
+      db.getUnresolvedIouCount(),
     ])
     users.value = u
     balances.value = b
-    unresolvedIouCount.value = splits.filter((split) => !split.is_settled && !split.currency).length
+    unresolvedIouCount.value = unresolvedIouCountResult
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Could not load household balances.'
   } finally {

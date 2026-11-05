@@ -284,19 +284,23 @@ export function isHearthExport(value: unknown): value is HearthExport {
     isArrayOf(value['savings_goals'], isSavingsGoal) &&
     isArrayOf(value['chores'], isChore)
   if (!baseIsValid) return false
+  const extensions = [
+    ['chore_completions', isChoreCompletion],
+    ['merchant_mappings', isMerchantMapping],
+    ['recurring_patterns', isRecurringPattern],
+    ['exchange_rates', isExchangeRate],
+    ['receipt_images', isReceiptImage],
+  ] as const
+  if (
+    extensions.some(
+      ([key, isExtensionRecord]) =>
+        value[key] !== undefined && !isArrayOf(value[key], isExtensionRecord),
+    )
+  ) {
+    return false
+  }
   if (version === '1.0') return true
-  return (
-    Array.isArray(value['chore_completions']) &&
-    value['chore_completions'].every(isChoreCompletion) &&
-    Array.isArray(value['merchant_mappings']) &&
-    value['merchant_mappings'].every(isMerchantMapping) &&
-    Array.isArray(value['recurring_patterns']) &&
-    value['recurring_patterns'].every(isRecurringPattern) &&
-    Array.isArray(value['exchange_rates']) &&
-    value['exchange_rates'].every(isExchangeRate) &&
-    Array.isArray(value['receipt_images']) &&
-    value['receipt_images'].every(isReceiptImage)
-  )
+  return extensions.every(([key]) => Array.isArray(value[key]))
 }
 
 export function parseHearthExport(value: unknown): HearthExport {

@@ -44,7 +44,16 @@ createServer(async (req, res) => {
     res.setHeader('Content-Type', types[extname(path)] ?? 'application/octet-stream')
     res.setHeader('Cache-Control', 'no-cache')
     if (req.method === 'HEAD') res.end()
-    else createReadStream(path).pipe(res)
+    else {
+      const stream = createReadStream(path)
+      stream.once('error', () => {
+        if (res.destroyed) return
+        if (res.headersSent) res.destroy()
+        else res.writeHead(500).end()
+      })
+      res.once('close', () => stream.destroy())
+      stream.pipe(res)
+    }
   } catch {
     res.writeHead(400).end()
   }

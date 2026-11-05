@@ -10,4 +10,11 @@ describe('exchange rate response boundary', () => {
     })))
     await expect(fetchExchangeRate('EUR', 'USD', '2026-11-05')).rejects.toThrow()
   })
+
+  it.each(['1e999', '-1e999'])('rejects a non-finite JSON rate %s', async (rate) => {
+    vi.stubGlobal('fetch', async () => new Response(
+      `{"base":"EUR","date":"2026-11-05","rates":{"USD":${rate}}}`,
+    ))
+    await expect(fetchExchangeRate('EUR', 'USD', '2026-11-05')).rejects.toThrow()
+  })
 })

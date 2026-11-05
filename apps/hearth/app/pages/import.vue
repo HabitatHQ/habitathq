@@ -6,6 +6,7 @@ import { parseCSV } from '~/lib/import/csv-parser'
 import { findDuplicates } from '~/lib/import/dedup'
 import { type ImportPreset, MINT_PRESET, YNAB_PRESET } from '~/lib/import/presets'
 import { buildImportRecord } from '~/lib/import/record-builder'
+import { homeCurrencyAmount } from '~/lib/reports/amounts'
 import type { Transaction } from '~/types/database'
 
 const db = useDatabase()
@@ -54,6 +55,7 @@ const accounts = ref<Array<{ id: string; name: string; currency: string }>>([])
 const currentUserId = ref('')
 const { settings } = useAppSettings()
 const { getRate, computeHomeAmount } = useExchangeRates()
+const previewCurrency = ref(settings.value.currency)
 let previewRequestId = 0
 
 onMounted(async () => {
@@ -65,6 +67,22 @@ onMounted(async () => {
   accounts.value = accts.map((a) => ({ id: a.id, name: a.name, currency: a.currency }))
   hearthCategories.value = cats.map((c) => ({ id: c.id, name: c.name }))
   currentUserId.value = user?.id ?? ''
+})
+
+watch(
+  () => settings.value.currency,
+  (currency) => {
+    if (step.value === 'preview') {
+      if (!importing.value) void preparePreview()
+    } else {
+      previewCurrency.value = currency
+    }
+  },
+  { flush: 'sync' },
+)
+
+onUnmounted(() => {
+  previewRequestId++
 })
 
 // ── Step 1: File upload ──────────────────────────────────────────────────
@@ -143,6 +161,7 @@ async function preparePreview() {
   duplicateIndices.value = new Set()
   errorRows.value = []
   const homeCurrency = settings.value.currency
+  previewCurrency.value = homeCurrency
   step.value = 'preview'
   const indexFor = (field: HearthField) => {
     const header = [...columnMap.value.entries()].find(([, mapped]) => mapped === field)?.[0]
@@ -179,7 +198,7 @@ async function preparePreview() {
       },
       accounts.value,
       accounts.value[0]?.id ?? null,
-      settings.value.currency,
+      homeCurrency,
       currentUserId.value,
       categoryId,
     )
@@ -205,10 +224,11 @@ async function preparePreview() {
         // Preserve imported amounts if no conversion rate is available.
       }
     }
+    if (requestId !== previewRequestId || homeCurrency !== settings.value.currency) return
     txns.push(result.record)
   }
 
-  if (requestId !== previewRequestId) return
+  if (requestId !== previewRequestId || homeCurrency !== settings.value.currency) return
 
   const existingTxns = await db.getTransactions(10000)
   const incoming = txns.map((t) => ({ date: t.date, amount: t.amount, merchant: t.merchant }))
@@ -270,16 +290,24 @@ const incomeCount = computed(
     importReady.value.filter((t, i) => t.type === 'income' && !duplicateIndices.value.has(i))
       .length,
 )
-const totalExpenses = computed(() =>
-  importReady.value
-    .filter((t, i) => t.type === 'expense' && !duplicateIndices.value.has(i))
-    .reduce((s, t) => s + Math.abs(t.amount), 0),
-)
-const totalIncome = computed(() =>
-  importReady.value
-    .filter((t, i) => t.type === 'income' && !duplicateIndices.value.has(i))
-    .reduce((s, t) => s + t.amount, 0),
-)
+const previewTotals = computed(() => {
+  let expenses = 0
+  let income = 0
+  let missingConversionCount = 0
+  for (const [index, transaction] of importReady.value.entries()) {
+    if (duplicateIndices.value.has(index)) continue
+    if (transaction.type !== 'expense' && transaction.type !== 'income') continue
+    const amount = homeCurrencyAmount(transaction, previewCurrency.value)
+    if (amount === null) {
+      missingConversionCount++
+    } else if (transaction.type === 'expense') {
+      expenses += Math.abs(amount)
+    } else {
+      income += amount
+    }
+  }
+  return { expenses, income, missingConversionCount }
+})
 </script>
 
 <template>
@@ -417,12 +445,22 @@ const totalIncome = computed(() =>
             Ready to import {{ importableCount }} transactions
           </p>
           <ul class="text-xs text-(--ui-text-muted) space-y-1">
-            <li>{{ expenseCount }} expenses ({{ formatAmount(totalExpenses) }} total)</li>
-            <li>{{ incomeCount }} income ({{ formatAmount(totalIncome) }} total)</li>
+            <li>{{ expenseCount }} expenses ({{ formatAmount(previewTotals.expenses, previewCurrency) }} total)</li>
+            <li>{{ incomeCount }} income ({{ formatAmount(previewTotals.income, previewCurrency) }} total)</li>
             <li v-if="duplicateIndices.size">{{ duplicateIndices.size }} duplicates detected (will skip)</li>
             <li v-if="errorRows.length">{{ errorRows.length }} rows with errors (will skip)</li>
           </ul>
         </div>
+
+        <UAlert
+          v-if="previewTotals.missingConversionCount"
+          role="status"
+          aria-label="Currency conversion notice"
+          title="Import totals are incomplete"
+          :description="`${previewTotals.missingConversionCount} transaction(s) could not be converted to ${previewCurrency}; their totals are excluded. Original amounts and currencies will still be imported.`"
+          color="warning"
+          variant="soft"
+        />
 
         <UAlert
           v-if="errorRows.length"

@@ -52,8 +52,6 @@ export function useDatabase() {
       sendToWorker({ type: 'DELETE_ACCOUNT', payload: { id } }),
     // ── Categories ─────────────────────────────────────────────────────────
     getCategories: (): Promise<Category[]> => sendToWorker({ type: 'GET_CATEGORIES' }),
-    getCategoryTree: (): Promise<Array<Category & { children: Category[] }>> =>
-      sendToWorker({ type: 'GET_CATEGORY_TREE' }),
 
     // ── Transactions ───────────────────────────────────────────────────────
     getTransactions: (limit = 50, offset = 0): Promise<TransactionWithDetails[]> =>
@@ -110,6 +108,8 @@ export function useDatabase() {
 
     // ── IOU / Splits ───────────────────────────────────────────────────────
     getIouSplits: (): Promise<IouSplit[]> => sendToWorker({ type: 'GET_IOU_SPLITS' }),
+    getUnresolvedIouCount: (): Promise<number> =>
+      sendToWorker({ type: 'GET_UNRESOLVED_IOU_COUNT' }),
     getIouBalances: (): Promise<IouBalance[]> => sendToWorker({ type: 'GET_IOU_BALANCES' }),
     settleIou: (from_user_id: string, to_user_id: string, currency: string): Promise<null> =>
       sendToWorker({ type: 'SETTLE_IOU', payload: { from_user_id, to_user_id, currency } }),

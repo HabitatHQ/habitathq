@@ -1,3 +1,4 @@
+import { localCalendarDate } from '@habitathq/utils'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { databaseRequest, exportBackup, installDatabaseProbe } from './helpers/database'
@@ -9,7 +10,7 @@ async function createEnvelope(page: Page, name: string) {
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill(name)
   await dialog.getByRole('spinbutton', { name: 'Budget', exact: true }).fill('100')
-  await dialog.getByRole('checkbox', { name: /Groceries/ }).check()
+  await dialog.getByRole('checkbox', { name: /Food › Groceries$/ }).check()
   await dialog.getByRole('button', { name: 'Create Envelope', exact: true }).click()
   await expect(page.getByRole('listitem').filter({ hasText: name })).toBeVisible()
 }
@@ -77,7 +78,7 @@ test.describe('Envelopes — edit envelope', () => {
     const budgetInput = dialog.getByRole('spinbutton', { name: 'Budget', exact: true })
     await expect(nameInput).toHaveValue('Edit fixture envelope')
     await expect(budgetInput).toHaveValue('100')
-    await expect(dialog.getByRole('checkbox', { name: /Groceries/ })).toBeChecked()
+    await expect(dialog.getByRole('checkbox', { name: /Food › Groceries$/ })).toBeChecked()
 
     await nameInput.fill('Updated fixture envelope')
     await budgetInput.fill('150')
@@ -91,7 +92,7 @@ test.describe('Envelopes — edit envelope', () => {
     await updatedCard.getByRole('button', { name: 'Edit Updated fixture envelope envelope', exact: true }).click()
     await expect(nameInput).toHaveValue('Updated fixture envelope')
     await expect(budgetInput).toHaveValue('150')
-    await expect(dialog.getByRole('checkbox', { name: /Groceries/ })).toBeChecked()
+    await expect(dialog.getByRole('checkbox', { name: /Food › Groceries$/ })).toBeChecked()
   })
 })
 
@@ -115,32 +116,65 @@ test('envelope category links drive real expense spending and can be edited with
   await installDatabaseProbe(page)
   await page.goto('/envelopes')
   await page.waitForLoadState('networkidle')
-
   const backup = await exportBackup(page)
   const account = backup.accounts[0]
   const user = backup.users.find((entry) => entry.is_current === 1) ?? backup.users[0]
   const grocery = backup.categories.find((entry) => entry.id === 'c1a')
   const dining = backup.categories.find((entry) => entry.id === 'c1b')
-  if (!account || !user || !grocery || !dining) throw new Error('Default expense fixture data is unavailable')
+  const income = backup.categories.find((entry) => entry.id === 'c7')
+  if (!account || !user || !grocery || !dining || !income) {
+    throw new Error('Default expense fixture data is unavailable')
+  }
+  backup.categories.push(
+    {
+      id: 'deep-produce',
+      parent_id: grocery.id,
+      name: 'Produce',
+      icon: '🥬',
+      color: '#22c55e',
+      sort_order: 100,
+    },
+    {
+      id: 'deep-income',
+      parent_id: income.id,
+      name: 'Investments',
+      icon: '📈',
+      color: '#16a34a',
+      sort_order: 100,
+    },
+    {
+      id: 'deeper-income',
+      parent_id: 'deep-income',
+      name: 'Dividends',
+      icon: '💸',
+      color: '#10b981',
+      sort_order: 100,
+    },
+  )
+  await databaseRequest(page, { type: 'IMPORT_JSON', payload: backup })
+  await page.reload()
 
   await page.getByRole('button', { name: 'Add envelope' }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill('Linked spending fixture')
   await dialog.getByRole('spinbutton', { name: 'Budget', exact: true }).fill('200')
-  await dialog.getByRole('checkbox', { name: /Groceries/ }).check()
+  await expect(dialog.getByRole('checkbox', { name: /Food › Groceries › Produce/ })).toBeVisible()
+  await expect(dialog.getByRole('checkbox', { name: /Investments/ })).toHaveCount(0)
+  await expect(dialog.getByRole('checkbox', { name: /Dividends/ })).toHaveCount(0)
+  await dialog.getByRole('checkbox', { name: /Food › Groceries › Produce/ }).check()
   await dialog.getByRole('button', { name: 'Create Envelope', exact: true }).click()
   const card = page.getByRole('listitem').filter({ hasText: 'Linked spending fixture' })
   await expect(card).toBeVisible()
   await databaseRequest(page, {
     type: 'CREATE_TRANSACTION',
     payload: {
-      date: new Date().toISOString().slice(0, 10),
+      date: localCalendarDate(),
       amount: -32,
       currency: 'USD',
       account_id: account.id,
       user_id: user.id,
       type: 'expense',
-      category_id: grocery.id,
+      category_id: 'deep-produce',
       description: 'Envelope linked spending',
       merchant: 'Envelope test grocery',
       is_private: 0,
@@ -156,13 +190,13 @@ test('envelope category links drive real expense spending and can be edited with
   await databaseRequest(page, {
     type: 'CREATE_TRANSACTION',
     payload: {
-      date: new Date().toISOString().slice(0, 10),
+      date: localCalendarDate(),
       amount: -5,
       currency: 'EUR',
       account_id: account.id,
       user_id: user.id,
       type: 'expense',
-      category_id: grocery.id,
+      category_id: 'deep-produce',
       description: 'Unconverted foreign expense',
       merchant: 'Envelope test foreign',
       is_private: 0,
@@ -180,7 +214,7 @@ test('envelope category links drive real expense spending and can be edited with
   await expect(page.getByRole('status', { name: 'Currency conversion notice', exact: true })).toBeVisible()
 
   await card.getByRole('button', { name: 'Edit Linked spending fixture envelope' }).click()
-  await expect(dialog.getByRole('checkbox', { name: /Groceries/ })).toBeChecked()
+  await expect(dialog.getByRole('checkbox', { name: /Food › Groceries › Produce/ })).toBeChecked()
   await dialog.getByRole('checkbox', { name: /Dining Out/ }).check()
   await dialog.getByRole('button', { name: 'Save Changes', exact: true }).click()
   await expect(dialog).toBeHidden()
@@ -190,7 +224,7 @@ test('envelope category links drive real expense spending and can be edited with
   await databaseRequest(page, {
     type: 'CREATE_TRANSACTION',
     payload: {
-      date: new Date().toISOString().slice(0, 10),
+      date: localCalendarDate(),
       amount: -18,
       currency: 'USD',
       account_id: account.id,

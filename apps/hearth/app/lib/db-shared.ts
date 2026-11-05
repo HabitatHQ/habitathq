@@ -313,11 +313,15 @@ export async function reconcileAccount(
   payload: { id: string; actual_balance: number },
 ) {
   if (!Number.isFinite(payload.actual_balance)) throw new Error('Actual balance must be finite')
-  const result = await db.queryOne<{ balance: number; opening_balance: number }>(
-    `${ACCOUNT_BALANCE_SELECT} WHERE a.id = ?`,
-    [payload.id],
-  )
+  const result = await db.queryOne<{
+    balance: number
+    opening_balance: number
+    missing_conversion_count: number
+  }>(`${ACCOUNT_BALANCE_SELECT} WHERE a.id = ?`, [payload.id])
   if (!result) throw new Error('Account not found')
+  if (result.missing_conversion_count > 0) {
+    throw new Error('Resolve missing account currency conversions before reconciling')
+  }
   await db.exec('UPDATE accounts SET opening_balance = ? WHERE id = ?', [
     payload.actual_balance - (result.balance - result.opening_balance),
     payload.id,
@@ -377,22 +381,6 @@ export async function deleteAccount(db: DbAdapter, payload: { id: string }) {
 
 export async function getCategories(db: DbAdapter) {
   return db.queryAll('SELECT * FROM categories ORDER BY sort_order, name')
-}
-
-export async function getCategoryTree(db: DbAdapter) {
-  const all = await db.queryAll<{
-    id: string
-    parent_id: string | null
-    name: string
-    icon: string
-    color: string
-    sort_order: number
-  }>('SELECT * FROM categories ORDER BY sort_order, name')
-  const parents = all.filter((c) => !c.parent_id)
-  return parents.map((p) => ({
-    ...p,
-    children: all.filter((c) => c.parent_id === p.id),
-  }))
 }
 
 // ─── Transactions ─────────────────────────────────────────────────────────────
@@ -702,6 +690,16 @@ export async function getIouSplits(db: DbAdapter) {
   )
 }
 
+export async function getUnresolvedIouCount(db: DbAdapter): Promise<number> {
+  return (
+    (await queryValue<number>(
+      db,
+      `SELECT COUNT(*) FROM iou_splits s
+       LEFT JOIN transactions t ON t.id = s.transaction_id
+       WHERE s.is_settled = 0 AND NULLIF(t.currency, '') IS NULL`,
+    )) ?? 0
+  )
+}
 export async function getIouBalances(db: DbAdapter) {
   const splits = await db.queryAll<{
     from_user_id: string
@@ -1041,8 +1039,8 @@ export async function getMonthlyTotals(
   const amount = homeCurrencyAmountSql('t')
   return db.queryAll(
     `SELECT strftime('%Y-%m', t.date) AS period,
-            SUM(CASE WHEN t.type = 'expense' THEN ABS(${amount}) ELSE 0 END) AS expenses,
-            SUM(CASE WHEN t.type = 'income' THEN ${amount} ELSE 0 END) AS income,
+            COALESCE(SUM(CASE WHEN t.type = 'expense' THEN ABS(${amount}) ELSE 0 END), 0) AS expenses,
+            COALESCE(SUM(CASE WHEN t.type = 'income' THEN ${amount} ELSE 0 END), 0) AS income,
             SUM(CASE WHEN t.type IN ('expense', 'income') AND ${amount} IS NULL
                      THEN 1 ELSE 0 END) AS missing_conversion_count
      FROM transactions t
@@ -1422,6 +1420,7 @@ export async function importJson(db: DbAdapter, rawData: HearthExport): Promise<
   const references = (valid: boolean, description: string) => {
     if (!valid) throw new Error(`Backup has an invalid ${description} reference`)
   }
+  const categoryDepths = new Map<string, number>()
   for (const category of categories) {
     references(
       category.parent_id === null || categoryIds.has(category.parent_id),
@@ -1434,6 +1433,7 @@ export async function importJson(db: DbAdapter, rawData: HearthExport): Promise<
       seen.add(parentId)
       parentId = categories.find((candidate) => candidate.id === parentId)?.parent_id ?? null
     }
+    categoryDepths.set(category.id, seen.size - 1)
   }
   for (const transaction of transactions) {
     references(transaction.user_id === null || userIds.has(transaction.user_id), 'transaction user')
@@ -1552,7 +1552,9 @@ export async function importJson(db: DbAdapter, rawData: HearthExport): Promise<
         ],
       )
     }
-    for (const category of categories) {
+    for (const category of [...categories].sort(
+      (left, right) => categoryDepths.get(left.id)! - categoryDepths.get(right.id)!,
+    )) {
       await db.exec(
         'INSERT INTO categories (id,parent_id,name,icon,color,sort_order) VALUES (?,?,?,?,?,?)',
         [
@@ -1859,8 +1861,6 @@ export async function dispatch(db: DbAdapter, req: WorkerRequestBody): Promise<u
     // Categories
     case 'GET_CATEGORIES':
       return getCategories(db)
-    case 'GET_CATEGORY_TREE':
-      return getCategoryTree(db)
 
     // Transactions
     case 'GET_TRANSACTIONS':
@@ -1903,6 +1903,8 @@ export async function dispatch(db: DbAdapter, req: WorkerRequestBody): Promise<u
     // IOU Splits
     case 'GET_IOU_SPLITS':
       return getIouSplits(db)
+    case 'GET_UNRESOLVED_IOU_COUNT':
+      return getUnresolvedIouCount(db)
     case 'GET_IOU_BALANCES':
       return getIouBalances(db)
     case 'SETTLE_IOU':

@@ -7,11 +7,15 @@ const today = localCalendarDate()
 
 const chores = ref<ChoreWithStatus[]>([])
 const loading = ref(true)
+const loadError = ref<string | null>(null)
 const filterFreq = ref<'all' | ChoreFrequency>('all')
 async function load() {
   loading.value = true
+  loadError.value = null
   try {
     chores.value = await db.getChoresWithStatus(today)
+  } catch (cause) {
+    loadError.value = cause instanceof Error ? cause.message : 'Could not load chores'
   } finally {
     loading.value = false
   }
@@ -238,6 +242,7 @@ const COLORS = [
       {{ mutationError }}
     </p>
     <AppSkeleton v-if="loading" variant="row" :count="4" />
+    <UAlert v-else-if="loadError" role="alert" :description="loadError" color="error" />
 
     <!-- Empty state -->
     <AppEmptyState

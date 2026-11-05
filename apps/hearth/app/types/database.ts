@@ -42,10 +42,6 @@ export interface Category {
   sort_order: number
 }
 
-export interface CategoryWithChildren extends Category {
-  children: Category[]
-}
-
 export interface Transaction {
   id: string
   date: string
@@ -291,7 +287,6 @@ export type WorkerRequestBody =
   | { type: 'RECONCILE_ACCOUNT'; payload: { id: string; actual_balance: number } }
   | { type: 'DELETE_ACCOUNT'; payload: { id: string } }
   | { type: 'GET_CATEGORIES' }
-  | { type: 'GET_CATEGORY_TREE' }
   | { type: 'GET_TRANSACTIONS'; payload: { limit?: number; offset?: number } }
   | {
       type: 'GET_TRANSACTIONS_FOR_PERIOD'
@@ -320,6 +315,7 @@ export type WorkerRequestBody =
   | { type: 'UPDATE_SAVINGS_GOAL'; payload: Partial<SavingsGoal> & { id: string } }
   | { type: 'DELETE_SAVINGS_GOAL'; payload: { id: string } }
   | { type: 'GET_IOU_SPLITS' }
+  | { type: 'GET_UNRESOLVED_IOU_COUNT' }
   | { type: 'GET_IOU_BALANCES' }
   | { type: 'SETTLE_IOU'; payload: { from_user_id: string; to_user_id: string; currency: string } }
   | { type: 'GET_DASHBOARD_SUMMARY'; payload: { period: string; home_currency: string } }

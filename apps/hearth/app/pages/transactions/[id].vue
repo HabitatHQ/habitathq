@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { localCalendarDate } from '@habitathq/utils'
+import { getCategoryOptions } from '~/lib/category-options'
 import { SUPPORTED_CURRENCIES } from '~/lib/currency/convert'
 import { getIouSplitEditError, getTransferDestinationError } from '~/lib/transaction-edit-rules'
 import type { Account, Category, IouSplit, User } from '~/types/database'
@@ -48,7 +49,7 @@ const savedConversion = ref<{
 } | null>(null)
 
 const accounts = ref<Account[]>([])
-const categories = ref<Array<Category & { children: Category[] }>>([])
+const categories = ref<Category[]>([])
 const users = ref<User[]>([])
 
 onMounted(async () => {
@@ -56,7 +57,7 @@ onMounted(async () => {
     const [tx, accts, cats, usrs, splits] = await Promise.all([
       db.getTransaction(id),
       db.getAccounts(),
-      db.getCategoryTree(),
+      db.getCategories(),
       db.getUsers(),
       db.getIouSplits(),
     ])
@@ -102,19 +103,7 @@ onMounted(async () => {
   }
 })
 
-const categoryOptions = computed(() => {
-  const result: { id: string; label: string; icon: string }[] = []
-  for (const parent of categories.value) {
-    if (form.type === 'income' && parent.id !== 'c7') continue
-    if (form.type === 'expense' && parent.id === 'c7') continue
-    result.push({ id: parent.id, label: parent.name, icon: parent.icon })
-    for (const child of parent.children ?? []) {
-      if (form.type === 'income' && parent.id !== 'c7') continue
-      result.push({ id: child.id, label: `${parent.icon} ${child.name}`, icon: child.icon })
-    }
-  }
-  return result
-})
+const categoryOptions = computed(() => getCategoryOptions(categories.value, form.type))
 
 const amountNum = computed(() => {
   const n = Number.parseFloat(form.amountStr)
@@ -417,7 +406,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
           <select
             id="tx-category"
             v-model="form.categoryId"
-            class="flex-1 bg-transparent text-sm text-(--ui-text) focus:outline-none"
+            class="flex-1 min-w-0 bg-transparent text-sm text-(--ui-text) focus:outline-none"
           >
             <option value="">Uncategorized</option>
             <option v-for="cat in categoryOptions" :key="cat.id" :value="cat.id">

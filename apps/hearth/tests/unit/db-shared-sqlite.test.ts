@@ -5,15 +5,18 @@ import {
   completeChore,
   createTransaction,
   deleteTransaction,
+  dispatch,
   getAccounts,
   getDashboardSummary,
   exportJson,
   getEnvelopesWithSpending,
   getIouBalances,
+  getMonthlyTotals,
   importJson,
   reconcileAccount,
 } from '~/lib/db-shared'
 import type { DbAdapter } from '~/types/database'
+import type { HearthExport } from '~/types/database'
 
 let sqlite: DatabaseSync
 let db: DbAdapter
@@ -119,6 +122,44 @@ describe('real SQLite database operations', () => {
     ])
   })
 
+  it('counts unresolved IOUs without loading settled or currency-resolved history', async () => {
+    expect(await dispatch(db, { type: 'GET_UNRESOLVED_IOU_COUNT' })).toBe(0)
+    sqlite.prepare(
+      `INSERT INTO transactions (id,date,amount,currency,user_id,type,description,merchant,
+       is_private,is_recurring,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run('usd-count', '2026-11-01', -10, 'USD', 'u2', 'expense', '', '', 0, 0, 'x', 'x')
+    sqlite.prepare(
+      `INSERT INTO transactions (id,date,amount,currency,user_id,type,description,merchant,
+       is_private,is_recurring,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run('eur-count', '2026-11-01', -10, 'EUR', 'u2', 'expense', '', '', 0, 0, 'x', 'x')
+    sqlite.prepare(
+      `INSERT INTO transactions (id,date,amount,currency,user_id,type,description,merchant,
+       is_private,is_recurring,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run('empty-count', '2026-11-01', -10, '', 'u2', 'expense', '', '', 0, 0, 'x', 'x')
+    const insertSplit = sqlite.prepare('INSERT INTO iou_splits VALUES (?,?,?,?,?,?,?,?)')
+    insertSplit.run('attached-usd', 'usd-count', 'u1', 'u2', 5, 0, null, 'x')
+    insertSplit.run('attached-eur', 'eur-count', 'u1', 'u2', 5, 0, null, 'x')
+    insertSplit.run('detached', null, 'u1', 'u2', 5, 0, null, 'x')
+    insertSplit.run('settled-detached', null, 'u1', 'u2', 5, 1, 'x', 'x')
+    insertSplit.run('settled-attached', 'usd-count', 'u1', 'u2', 5, 1, 'x', 'x')
+    insertSplit.run('attached-empty', 'empty-count', 'u1', 'u2', 5, 0, null, 'x')
+    insertSplit.run('settled-empty', 'empty-count', 'u1', 'u2', 5, 1, 'x', 'x')
+
+    expect(await dispatch(db, { type: 'GET_UNRESOLVED_IOU_COUNT' })).toBe(2)
+  })
+
+  it('restores categories from backups whose child entries precede parents', async () => {
+    const categoryRows = [
+      { id: 'deep-child', parent_id: 'child', name: 'Deep Child', icon: 'leaf', color: '#333', sort_order: 3 },
+      { id: 'custom', parent_id: null, name: 'Custom', icon: 'star', color: '#111', sort_order: 4 },
+      { id: 'child', parent_id: 'parent', name: 'Child', icon: 'basket', color: '#222', sort_order: 2 },
+      { id: 'parent', parent_id: null, name: 'Parent', icon: 'folder', color: '#000', sort_order: 1 },
+    ]
+    const backup = await exportJson(db)
+    await importJson(db, { ...backup, categories: categoryRows })
+    expect((await exportJson(db)).categories).toEqual(expect.arrayContaining(categoryRows))
+  })
+
   it('inserts the same chore completion only once for its frequency period', async () => {
     sqlite.prepare('INSERT INTO chores (id,name,frequency,created_at) VALUES (?,?,?,?)').run(
       'chore',
@@ -169,6 +210,26 @@ describe('real SQLite database operations', () => {
     expect(withUnresolvedIou.unresolved_iou_count).toBe(1)
   })
 
+  it.each(['expense', 'income'] as const)(
+    'returns zero monthly totals with missing counts when every %s is unresolved',
+    async (type) => {
+      const insertTransaction = sqlite.prepare(
+        `INSERT INTO transactions
+         (id,date,amount,currency,user_id,type,description,merchant,is_private,is_recurring,
+          created_at,updated_at)
+         VALUES (?,date('now', 'start of month'),?,?,?,?,?,?,?,?,?,?)`,
+      )
+      const amount = type === 'expense' ? -12 : 12
+      insertTransaction.run('missing-cad', amount, 'CAD', 'u1', type, '', '', 0, 0, 'x', 'x')
+      insertTransaction.run('missing-eur', amount, 'EUR', 'u1', type, '', '', 0, 0, 'x', 'x')
+      const month = sqlite.prepare("SELECT strftime('%Y-%m', 'now') AS period").get()
+
+      expect(await getMonthlyTotals(db, { months: 1, home_currency: 'USD' })).toEqual([
+        { period: month?.['period'], expenses: 0, income: 0, missing_conversion_count: 2 },
+      ])
+    },
+  )
+
   it('keeps account balances in account currency and flags unresolved legs', async () => {
     const insertAccount = sqlite.prepare(
       `INSERT INTO accounts
@@ -193,9 +254,10 @@ describe('real SQLite database operations', () => {
     ).run('transfer', '2026-11-05', -10, 'GBP', 'eur-account', 'u1', 'transfer', '', '', 0, 0, 'usd-account', 'x', 'x')
     sqlite.prepare(
       `INSERT INTO transactions
-       (id,date,amount,currency,account_id,user_id,type,description,merchant,is_private,is_recurring,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ).run('unresolved', '2026-11-05', -3, 'CAD', 'eur-account', 'u1', 'expense', '', '', 0, 0, 'x', 'x')
+       (id,date,amount,currency,account_id,user_id,type,description,merchant,is_private,is_recurring,
+        transfer_to_account_id,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run('unresolved', '2026-11-05', -3, 'CAD', 'eur-account', 'u1', 'transfer', '', '', 0, 0, 'usd-account', 'x', 'x')
 
     const accounts = await getAccounts(db) as Array<{ id: string; balance: number; missing_conversion_count: number }>
     expect(accounts.find(({ id }) => id === 'eur-account')).toMatchObject({
@@ -204,14 +266,29 @@ describe('real SQLite database operations', () => {
     })
     expect(accounts.find(({ id }) => id === 'usd-account')).toMatchObject({
       balance: 70,
-      missing_conversion_count: 0,
+      missing_conversion_count: 1,
     })
+    for (const id of ['eur-account', 'usd-account']) {
+      await expect(reconcileAccount(db, { id, actual_balance: 95 })).rejects.toThrow()
+    }
+    expect(await getAccounts(db)).toEqual(accounts)
+    expect(sqlite.prepare('SELECT id, opening_balance FROM accounts ORDER BY id').all()).toEqual([
+      expect.objectContaining({ id: 'eur-account', opening_balance: 100 }),
+      expect.objectContaining({ id: 'usd-account', opening_balance: 50 }),
+    ])
+
+    sqlite.prepare('INSERT INTO exchange_rates VALUES (?,?,?,?)').run('CAD', 'EUR', 2, '2026-11-05')
+    sqlite.prepare('INSERT INTO exchange_rates VALUES (?,?,?,?)').run('CAD', 'USD', 3, '2026-11-05')
+    expect(await getAccounts(db)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'eur-account', balance: 74, missing_conversion_count: 0 }),
+      expect.objectContaining({ id: 'usd-account', balance: 79, missing_conversion_count: 0 }),
+    ]))
     await reconcileAccount(db, { id: 'eur-account', actual_balance: 95 })
     await reconcileAccount(db, { id: 'usd-account', actual_balance: 80 })
     const reconciled = await getAccounts(db)
     expect(reconciled).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'eur-account', balance: 95, missing_conversion_count: 1 }),
-      expect.objectContaining({ id: 'usd-account', balance: 80, missing_conversion_count: 0 }),
+      expect.objectContaining({ id: 'eur-account', balance: 95, opening_balance: 121, missing_conversion_count: 0 }),
+      expect.objectContaining({ id: 'usd-account', balance: 80, opening_balance: 51, missing_conversion_count: 0 }),
     ]))
   })
 
@@ -256,6 +333,10 @@ describe('real SQLite database operations', () => {
     expect(second.prepare('SELECT key FROM applied_defaults').get()).toMatchObject({ key: 'sentinel' })
 
     const priorTransactions = restored.transactions
+    await expect(
+      importJson(other, { ...backup, version: '1.0', receipt_images: [{}] } as HearthExport),
+    ).rejects.toThrow()
+    expect((await exportJson(other)).transactions).toEqual(priorTransactions)
     second.exec(`CREATE TRIGGER reject_restore BEFORE INSERT ON transactions
       BEGIN SELECT RAISE(ABORT, 'restore failed'); END`)
     await expect(importJson(other, backup)).rejects.toThrow(/restore failed/)

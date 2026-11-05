@@ -17,6 +17,7 @@ export default defineConfig({
   ],
   webServer: {
     command: 'node scripts/preview-pwa.mjs',
+    env: { PORT: '3157' },
     url: 'http://127.0.0.1:3157',
     reuseExistingServer: false,
     timeout: 30_000,

@@ -484,6 +484,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
             class="text-sm text-amber-500"
           >
             {{ reconciledAccount?.missing_conversion_count }} transaction conversion(s) are unavailable, so this computed balance may be incomplete.
+            Resolve these conversions before reconciling the account.
           </p>
         </div>
         <label class="block space-y-1 text-sm" for="reconcile-balance">
@@ -517,7 +518,7 @@ const COLOR_MODES: { id: ColorMode; label: string }[] = [
           <button
             type="button"
             class="min-h-[44px] px-4 rounded-lg bg-primary-500 text-white text-sm font-semibold disabled:opacity-50"
-            :disabled="reconciling || reconcileDifference === null"
+            :disabled="reconciling || reconcileDifference === null || (reconciledAccount?.missing_conversion_count ?? 0) > 0"
             @click="saveReconciliation"
           >
             {{ reconciling ? 'Saving…' : 'Reconcile' }}

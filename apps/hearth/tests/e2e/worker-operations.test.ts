@@ -107,3 +107,34 @@ test('reset cancellation preserves persisted data and confirmed reset removes it
   await page.reload()
   expect((await exportBackup(page)).transactions).toEqual([])
 })
+
+test('a chore load failure is not presented as an empty household and can recover', async ({ page }) => {
+  await installDatabaseProbe(page)
+  await page.addInitScript(() => {
+    const NativeWorker = window.Worker
+    let failChoreRead = true
+    window.Worker = class extends NativeWorker {
+      postMessage(message: unknown, options?: StructuredSerializeOptions | Transferable[]) {
+        let request = message
+        if (
+          failChoreRead && typeof message === 'object' && message !== null &&
+          'type' in message && message.type === 'GET_CHORES_WITH_STATUS'
+        ) {
+          failChoreRead = false
+          request = { ...message, type: 'INJECTED_CHORE_READ_FAILURE' }
+        }
+        if (Array.isArray(options)) super.postMessage(request, options)
+        else super.postMessage(request, options)
+      }
+    }
+  })
+  await page.goto('/chores')
+  await expect(page.getByRole('alert')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Add your first chore' })).toBeHidden()
+  const navigation = page.getByRole('navigation', { name: 'Main navigation' })
+  await navigation.getByRole('link', { name: 'Dashboard', exact: true }).click()
+  await expect(page.getByRole('region', { name: 'Monthly spending summary' })).toBeVisible()
+  await navigation.getByRole('link', { name: 'Chores', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Add your first chore' })).toBeVisible()
+  await expect(page.getByRole('alert')).toBeHidden()
+})

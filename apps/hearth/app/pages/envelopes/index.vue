@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import type { CategoryWithChildren, EnvelopeWithSpending } from '~/types/database'
+import { getCategoryOptions } from '~/lib/category-options'
+import type { Category, EnvelopeWithSpending } from '~/types/database'
 
 const db = useDatabase()
 const { settings } = useAppSettings()
 const homeCurrency = computed(() => settings.value.currency)
 const loading = ref(true)
-const categories = ref<CategoryWithChildren[]>([])
+const categories = ref<Category[]>([])
+const expenseCategoryOptions = computed(() => getCategoryOptions(categories.value, 'expense'))
 const { period, isCurrentPeriod, prevPeriod, nextPeriod } = usePeriod()
 
 const envelopes = ref<EnvelopeWithSpending[]>([])
@@ -19,7 +21,7 @@ async function load() {
   try {
     const result = await Promise.all([
       db.getEnvelopesWithSpending(period.value, homeCurrency.value),
-      db.getCategoryTree(),
+      db.getCategories(),
     ])
     envelopes.value = result[0]
     categories.value = result[1]
@@ -394,16 +396,15 @@ async function confirmDeleteEnvelope() {
         <fieldset class="space-y-2">
           <legend class="text-sm font-medium text-(--ui-text)">Spending categories</legend>
           <p class="text-xs text-(--ui-text-muted)">Select one or more expense categories used by this envelope.</p>
-          <div v-for="category in categories.filter((item) => item.id !== 'c7' && item.parent_id !== 'c7')" :key="category.id" class="space-y-1">
-            <label class="flex items-center gap-2 min-h-[44px] text-sm">
-              <input v-model="modalEnvelope.category_ids" type="checkbox" :value="category.id" />
-              <span>{{ category.icon }} {{ category.name }}</span>
-            </label>
-            <label v-for="child in category.children ?? []" :key="child.id" class="ml-6 flex items-center gap-2 min-h-[44px] text-sm text-(--ui-text-muted)">
-              <input v-model="modalEnvelope.category_ids" type="checkbox" :value="child.id" />
-              <span>{{ child.icon }} {{ child.name }}</span>
-            </label>
-          </div>
+          <label
+            v-for="category in expenseCategoryOptions"
+            :key="category.id"
+            class="flex items-center gap-2 min-h-[44px] text-sm"
+            :class="{ 'ml-6 text-(--ui-text-muted)': category.depth > 0 }"
+          >
+            <input v-model="modalEnvelope.category_ids" type="checkbox" :value="category.id" />
+            <span>{{ category.icon }} {{ category.label }}</span>
+          </label>
         </fieldset>
         <p v-if="modalError" class="text-sm text-rose-400" role="alert">{{ modalError }}</p>
       </div>
