@@ -136,6 +136,27 @@ describe("NodeSqliteAdapter", () => {
     expect(rows[0]?.val).toBe("new");
   });
 
+  it("preserves the active database on repeated opens and opens fresh after close", async () => {
+    const adapter = await makeAdapter();
+    try {
+      await adapter.put("items", "i1", { id: "i1", val: "retained", flag: 1 });
+      await Promise.all([adapter.open(), adapter.open()]);
+      expect(await adapter.exec("SELECT * FROM items")).toEqual([
+        { id: "i1", val: "retained", flag: 1 },
+      ]);
+
+      await adapter.close();
+      await adapter.open();
+      expect(
+        await adapter.exec(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'items'",
+        ),
+      ).toEqual([]);
+    } finally {
+      await adapter.close();
+    }
+  });
+
   it("close() resolves without error", async () => {
     const adapter = await makeAdapter();
     await expect(adapter.close()).resolves.toBeUndefined();
