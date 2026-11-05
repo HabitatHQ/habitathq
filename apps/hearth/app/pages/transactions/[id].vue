@@ -2,7 +2,7 @@
 import { localCalendarDate } from '@habitathq/utils'
 import { SUPPORTED_CURRENCIES } from '~/lib/currency/convert'
 import { getIouSplitEditError, getTransferDestinationError } from '~/lib/transaction-edit-rules'
-import type { Account, Category, User } from '~/types/database'
+import type { Account, Category, IouSplit, User } from '~/types/database'
 
 const currencies = SUPPORTED_CURRENCIES
 
@@ -33,8 +33,17 @@ const form = reactive({
 const saving = ref(false)
 const error = ref<string | null>(null)
 const notFound = ref(false)
-const iouSplit = ref<Awaited<ReturnType<typeof db.getIouSplits>>[number] | null>(null)
+const iouSplit = ref<IouSplit | null>(null)
 const iouTransaction = ref<{ type: TxType; amount: number; currency: string } | null>(null)
+const savedConversion = ref<{
+  amount: number
+  currency: string
+  date: string
+  type: TxType
+  home_amount: number | null
+  home_currency: string | null
+  exchange_rate: number | null
+} | null>(null)
 
 const accounts = ref<Account[]>([])
 const categories = ref<Array<Category & { children: Category[] }>>([])
@@ -61,6 +70,15 @@ onMounted(async () => {
   iouSplit.value = splits.find((split) => split.transaction_id === id) ?? null
   if (iouSplit.value) {
     iouTransaction.value = { type: tx.type, amount: tx.amount, currency: tx.currency || 'USD' }
+  }
+  savedConversion.value = {
+    amount: tx.amount,
+    currency: tx.currency,
+    date: tx.date,
+    type: tx.type,
+    home_amount: tx.home_amount,
+    home_currency: tx.home_currency,
+    exchange_rate: tx.exchange_rate,
   }
   form.type = tx.type
   form.amountStr = String(Math.abs(tx.amount))
@@ -100,20 +118,36 @@ const exchangeRate = ref<number | null>(null)
 const homeEquiv = ref<number | null>(null)
 const isForeignCurrency = computed(() => form.currency !== homeCurrency.value)
 
+let conversionRequestId = 0
 watch(
-  [() => form.currency, amountNum, () => form.date],
-  async ([curr, amt, date]) => {
-    if (curr === homeCurrency.value || !amt) {
-      exchangeRate.value = null
-      homeEquiv.value = null
+  [() => form.currency, amountNum, () => form.date, () => form.type, homeCurrency],
+  async ([curr, amt, date, type, target]) => {
+    const requestId = ++conversionRequestId
+    exchangeRate.value = null
+    homeEquiv.value = null
+    if (curr === target || !amt) return
+    const signed = type === 'expense' ? -amt : amt
+    const saved = savedConversion.value
+    if (
+      saved &&
+      saved.currency === curr &&
+      saved.date === date &&
+      saved.type === type &&
+      saved.amount === signed &&
+      saved.home_currency === target &&
+      saved.home_amount !== null
+    ) {
+      exchangeRate.value = saved.exchange_rate
+      homeEquiv.value = saved.home_amount
       return
     }
     try {
-      const rate = await getRate(curr, homeCurrency.value, date)
+      const rate = await getRate(curr, target, date)
+      if (requestId !== conversionRequestId) return
       exchangeRate.value = rate
-      const signed = form.type === 'expense' ? -amt : amt
       homeEquiv.value = computeHomeAmount(signed, rate)
     } catch {
+      if (requestId !== conversionRequestId) return
       exchangeRate.value = null
       homeEquiv.value = null
     }
@@ -122,8 +156,9 @@ watch(
 )
 
 async function submit() {
-  if (!amountNum.value) {
-    error.value = 'Please enter an amount'
+  if (saving.value) return
+  if (!Number.isFinite(amountNum.value) || amountNum.value <= 0) {
+    error.value = 'Please enter a positive, finite amount'
     return
   }
   if (!form.accountId) {
@@ -153,10 +188,18 @@ async function submit() {
   saving.value = true
   error.value = null
   try {
+    const signedAmount = form.type === 'expense' ? -amountNum.value : amountNum.value
+    const saved = savedConversion.value
+    const preserveConversion =
+      saved &&
+      saved.amount === signedAmount &&
+      saved.currency === form.currency &&
+      saved.date === form.date &&
+      saved.type === form.type
     await db.updateTransaction({
       id,
       date: form.date,
-      amount: form.type === 'expense' ? -amountNum.value : amountNum.value,
+      amount: signedAmount,
       currency: form.currency,
       account_id: form.accountId,
       type: form.type,
@@ -165,8 +208,21 @@ async function submit() {
       merchant: form.merchant,
       is_private: form.isPrivate ? 1 : 0,
       transfer_to_account_id: form.type === 'transfer' ? form.toAccountId : null,
-      home_amount: isForeignCurrency.value ? homeEquiv.value : null,
-      exchange_rate: isForeignCurrency.value ? exchangeRate.value : null,
+      home_amount: preserveConversion
+        ? saved.home_amount
+        : isForeignCurrency.value
+          ? homeEquiv.value
+          : null,
+      home_currency: preserveConversion
+        ? saved.home_currency
+        : isForeignCurrency.value && homeEquiv.value !== null
+          ? homeCurrency.value
+          : null,
+      exchange_rate: preserveConversion
+        ? saved.exchange_rate
+        : isForeignCurrency.value
+          ? exchangeRate.value
+          : null,
     })
     router.back()
   } catch (e) {
@@ -406,6 +462,7 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
         <!-- Error -->
         <UAlert
           v-if="error"
+          role="alert"
           :description="error"
           color="error"
           variant="soft"

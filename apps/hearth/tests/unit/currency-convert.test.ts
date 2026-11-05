@@ -21,6 +21,10 @@ describe('convertCurrency', () => {
   it('handles zero', () => {
     expect(convertCurrency(0, 1.5)).toBe(0)
   })
+  it('rounds fractional cents symmetrically for negative and positive amounts', () => {
+    expect(convertCurrency(-10.01, 1.005)).toBe(-10.06)
+    expect(convertCurrency(10.01, 1.005)).toBe(10.06)
+  })
 })
 
 describe('SUPPORTED_CURRENCIES', () => {

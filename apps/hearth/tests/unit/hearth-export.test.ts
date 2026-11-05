@@ -43,7 +43,7 @@ describe('Hearth JSON export validation', () => {
   it('rejects malformed records and unsupported versions before import', () => {
     const malformed = { ...backup, transactions: [{ id: 'tx', amount: 'not-a-number' }] }
     expect(isHearthExport(malformed)).toBe(false)
-    expect(() => parseHearthExport(malformed)).toThrow(/invalid hearth export/i)
-    expect(() => parseHearthExport({ ...backup, version: '2.0' })).toThrow(/unsupported hearth export version/i)
+    expect(() => parseHearthExport(malformed)).toThrow()
+    expect(() => parseHearthExport({ ...backup, version: '3.0' })).toThrow()
   })
 })

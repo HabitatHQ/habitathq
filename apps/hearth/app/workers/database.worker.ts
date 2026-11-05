@@ -2,6 +2,7 @@ import { applySchema, dbg, toDbAdapter } from '@palladium/core'
 import { BrowserSqliteAdapter } from '@palladium/sqlite-browser'
 import { SCHEMA_CONFIG } from '~/lib/db-schema'
 import * as shared from '~/lib/db-shared'
+import { createSerializedDbDispatcher } from '~/lib/worker-helpers'
 import type { WorkerRequest, WorkerResponse } from '~/types/database'
 
 const OPFS_DIR = 'hearth'
@@ -55,27 +56,27 @@ await (async () => {
     const adapter = toDbAdapter(storage)
     dbg('hearth-worker', 'init complete')
 
+    const executeRequest = createSerializedDbDispatcher(async (req) => {
+      switch (req.type) {
+        case 'EXPORT_DB':
+          return storage.serialize()
+        case 'EXPORT_JSON':
+          return shared.exportJson(adapter)
+        case 'RESET_DATABASE':
+          await storage.resetStorage()
+          await storage.open()
+          await storage.exec('PRAGMA journal_mode = WAL')
+          await applySchema(storage, SCHEMA_CONFIG)
+          return null
+        default:
+          return shared.dispatch(adapter, req)
+      }
+    })
+
     self.addEventListener('message', async (e: MessageEvent) => {
       const req = e.data as WorkerRequest
-      let result: unknown
       try {
-        switch (req.type) {
-          case 'EXPORT_DB':
-            result = storage.serialize()
-            break
-          case 'EXPORT_JSON':
-            result = await shared.exportJson(adapter)
-            break
-          case 'RESET_DATABASE':
-            await storage.resetStorage()
-            await storage.open()
-            await storage.exec('PRAGMA journal_mode = WAL')
-            await applySchema(storage, SCHEMA_CONFIG)
-            result = null
-            break
-          default:
-            result = await shared.dispatch(adapter, req)
-        }
+        const result = await executeRequest(req)
         self.postMessage({ id: req.id, ok: true, data: result } satisfies WorkerResponse)
       } catch (err) {
         self.postMessage({

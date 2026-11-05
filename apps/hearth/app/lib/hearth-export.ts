@@ -29,6 +29,81 @@ function isFiniteNumber(record: UnknownRecord, key: string): boolean {
 function isOptionalFiniteNumber(record: UnknownRecord, key: string): boolean {
   return record[key] === undefined || record[key] === null || isFiniteNumber(record, key)
 }
+function isOptionalNullableString(record: UnknownRecord, key: string): boolean {
+  return record[key] === undefined || isNullableString(record, key)
+}
+
+function isChoreCompletion(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isString(value, 'id') &&
+    isString(value, 'chore_id') &&
+    isString(value, 'user_id') &&
+    isString(value, 'completed_at') &&
+    isString(value, 'period_key') &&
+    isString(value, 'created_at')
+  )
+}
+
+function isMerchantMapping(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isString(value, 'id') &&
+    isString(value, 'merchant') &&
+    isNullableString(value, 'category_id') &&
+    isNullableString(value, 'account_id') &&
+    isFiniteNumber(value, 'use_count') &&
+    isString(value, 'last_used_at') &&
+    isString(value, 'created_at')
+  )
+}
+
+function isRecurringPattern(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  return (
+    isString(value, 'id') &&
+    isString(value, 'merchant') &&
+    isOneOf(value['type'], TRANSACTION_TYPES) &&
+    isOneOf(value['interval'], ['weekly', 'biweekly', 'monthly', 'quarterly', 'annual']) &&
+    isFiniteNumber(value, 'average_amount') &&
+    isOptionalNullableString(value, 'currency') &&
+    isString(value, 'last_occurrence') &&
+    isString(value, 'next_expected') &&
+    isFiniteNumber(value, 'confidence') &&
+    isOneOf(value['status'], ['detected', 'confirmed', 'dismissed']) &&
+    isNullableString(value, 'category_id') &&
+    isNullableString(value, 'account_id') &&
+    isStringArrayJson(value['transaction_ids']) &&
+    isString(value, 'created_at') &&
+    isString(value, 'updated_at')
+  )
+}
+
+function isExchangeRate(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isString(value, 'base') &&
+    isString(value, 'target') &&
+    typeof value['rate'] === 'number' &&
+    isFiniteNumber(value, 'rate') &&
+    value['rate'] > 0 &&
+    isString(value, 'date')
+  )
+}
+
+function isReceiptImage(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isString(value, 'id') &&
+    isString(value, 'transaction_id') &&
+    isString(value, 'image_data') &&
+    isString(value, 'mime_type') &&
+    typeof value['file_size'] === 'number' &&
+    isFiniteNumber(value, 'file_size') &&
+    value['file_size'] >= 0 &&
+    isString(value, 'created_at')
+  )
+}
 
 function isFlag(record: UnknownRecord, key: string): boolean {
   return record[key] === 0 || record[key] === 1
@@ -113,7 +188,8 @@ function isTransaction(value: unknown): boolean {
     isString(value, 'updated_at') &&
     (source === undefined || isOneOf(source, TRANSACTION_SOURCES)) &&
     isOptionalFiniteNumber(value, 'home_amount') &&
-    isOptionalFiniteNumber(value, 'exchange_rate')
+    isOptionalFiniteNumber(value, 'exchange_rate') &&
+    isOptionalNullableString(value, 'home_currency')
   )
 }
 
@@ -191,11 +267,12 @@ function isArrayOf(value: unknown, predicate: (item: unknown) => boolean): boole
   return Array.isArray(value) && value.every(predicate)
 }
 
-/** Validate the persisted Hearth v1 JSON boundary before any database mutation. */
+/** Validate the persisted v1/v2 JSON boundary before any database mutation. */
 export function isHearthExport(value: unknown): value is HearthExport {
   if (!isRecord(value)) return false
-  return (
-    value['version'] === '1.0' &&
+  const version = value['version']
+  if (version !== '1.0' && version !== '2.0') return false
+  const baseIsValid =
     isString(value, 'exported_at') &&
     isArrayOf(value['users'], isUser) &&
     isArrayOf(value['accounts'], isAccount) &&
@@ -206,11 +283,24 @@ export function isHearthExport(value: unknown): value is HearthExport {
     isArrayOf(value['iou_splits'], isIouSplit) &&
     isArrayOf(value['savings_goals'], isSavingsGoal) &&
     isArrayOf(value['chores'], isChore)
+  if (!baseIsValid) return false
+  if (version === '1.0') return true
+  return (
+    Array.isArray(value['chore_completions']) &&
+    value['chore_completions'].every(isChoreCompletion) &&
+    Array.isArray(value['merchant_mappings']) &&
+    value['merchant_mappings'].every(isMerchantMapping) &&
+    Array.isArray(value['recurring_patterns']) &&
+    value['recurring_patterns'].every(isRecurringPattern) &&
+    Array.isArray(value['exchange_rates']) &&
+    value['exchange_rates'].every(isExchangeRate) &&
+    Array.isArray(value['receipt_images']) &&
+    value['receipt_images'].every(isReceiptImage)
   )
 }
 
 export function parseHearthExport(value: unknown): HearthExport {
-  if (isRecord(value) && value['version'] !== '1.0') {
+  if (isRecord(value) && value['version'] !== '1.0' && value['version'] !== '2.0') {
     throw new Error(`Unsupported Hearth export version: ${String(value['version'])}`)
   }
   if (!isHearthExport(value)) {

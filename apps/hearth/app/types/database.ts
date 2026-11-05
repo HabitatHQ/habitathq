@@ -30,6 +30,7 @@ export interface Account {
   icon: string
   is_active: number
   created_at: string
+  missing_conversion_count?: number
 }
 
 export interface Category {
@@ -62,6 +63,7 @@ export interface Transaction {
   split_id: string | null
   source: TransactionSource
   home_amount: number | null
+  home_currency: string | null
   exchange_rate: number | null
   created_at: string
   updated_at: string
@@ -74,6 +76,7 @@ export interface TransactionWithDetails extends Transaction {
   user_name: string
   user_avatar: string
   account_name: string
+  report_amount?: number | null
 }
 
 export interface Envelope {
@@ -95,6 +98,7 @@ export interface EnvelopeWithSpending extends Envelope {
   remaining: number
   percent_used: number
   is_overspent: boolean
+  missing_conversion_count: number
 }
 
 export interface EnvelopePeriod {
@@ -107,10 +111,11 @@ export interface EnvelopePeriod {
 
 export interface IouSplit {
   id: string
-  transaction_id: string
+  transaction_id: string | null
   from_user_id: string
   to_user_id: string
   amount: number
+  currency?: string | null
   is_settled: number
   settled_at: string | null
   created_at: string
@@ -124,6 +129,7 @@ export interface IouBalance {
   from_user_avatar: string
   to_user_avatar: string
   net_amount: number // positive = to_user owes from_user
+  currency: string
 }
 
 export interface SavingsGoal {
@@ -143,6 +149,8 @@ export interface DashboardSummary {
   income_this_month: number
   budget_total: number
   budget_remaining: number
+  missing_conversion_count: number
+  unresolved_iou_count: number
   envelopes: EnvelopeWithSpending[]
   recent_transactions: TransactionWithDetails[]
   savings_goals: SavingsGoal[]
@@ -161,6 +169,7 @@ export interface MonthlyTotal {
   period: string // YYYY-MM
   expenses: number
   income: number
+  missing_conversion_count: number
 }
 
 export interface ExchangeRate {
@@ -186,6 +195,7 @@ export interface RecurringPatternRow {
   type: TransactionType
   interval: RecurringInterval
   average_amount: number
+  currency: string | null
   last_occurrence: string
   next_expected: string
   confidence: number
@@ -240,7 +250,7 @@ export interface MerchantMapping {
 }
 
 export interface HearthExport {
-  version: string
+  version: '1.0' | '2.0'
   exported_at: string
   users: User[]
   accounts: Account[]
@@ -251,6 +261,18 @@ export interface HearthExport {
   iou_splits: IouSplit[]
   savings_goals: SavingsGoal[]
   chores: Chore[]
+  chore_completions?: ChoreCompletion[]
+  merchant_mappings?: MerchantMapping[]
+  recurring_patterns?: RecurringPatternRow[]
+  exchange_rates?: ExchangeRate[]
+  receipt_images?: Array<{
+    id: string
+    transaction_id: string
+    image_data: string
+    mime_type: string
+    file_size: number
+    created_at: string
+  }>
 }
 
 // ── Worker message protocol ────────────────────────────────────────────────
@@ -271,14 +293,25 @@ export type WorkerRequestBody =
   | { type: 'GET_CATEGORIES' }
   | { type: 'GET_CATEGORY_TREE' }
   | { type: 'GET_TRANSACTIONS'; payload: { limit?: number; offset?: number } }
-  | { type: 'GET_TRANSACTIONS_FOR_PERIOD'; payload: { period: string; user_id?: string } }
+  | {
+      type: 'GET_TRANSACTIONS_FOR_PERIOD'
+      payload: { period: string; user_id?: string; home_currency: string }
+    }
   | { type: 'GET_TRANSACTION'; payload: { id: string } }
-  | { type: 'CREATE_TRANSACTION'; payload: Omit<Transaction, 'id' | 'created_at' | 'updated_at'> }
+  | {
+      type: 'CREATE_TRANSACTION'
+      payload: Omit<Transaction, 'id' | 'created_at' | 'updated_at'> & {
+        iou_split?: { to_user_id: string; amount: number }
+      }
+    }
   | { type: 'UPDATE_TRANSACTION'; payload: Partial<Transaction> & { id: string } }
   | { type: 'DELETE_TRANSACTION'; payload: { id: string } }
   | { type: 'GET_ENVELOPES' }
-  | { type: 'GET_ENVELOPE_WITH_SPENDING'; payload: { id: string; period: string } }
-  | { type: 'GET_ENVELOPES_WITH_SPENDING'; payload: { period: string } }
+  | {
+      type: 'GET_ENVELOPE_WITH_SPENDING'
+      payload: { id: string; period: string; home_currency: string }
+    }
+  | { type: 'GET_ENVELOPES_WITH_SPENDING'; payload: { period: string; home_currency: string } }
   | { type: 'CREATE_ENVELOPE'; payload: Omit<Envelope, 'id' | 'created_at'> }
   | { type: 'UPDATE_ENVELOPE'; payload: Partial<Envelope> & { id: string } }
   | { type: 'DELETE_ENVELOPE'; payload: { id: string } }
@@ -288,9 +321,8 @@ export type WorkerRequestBody =
   | { type: 'DELETE_SAVINGS_GOAL'; payload: { id: string } }
   | { type: 'GET_IOU_SPLITS' }
   | { type: 'GET_IOU_BALANCES' }
-  | { type: 'CREATE_IOU_SPLIT'; payload: Omit<IouSplit, 'id' | 'created_at'> }
-  | { type: 'SETTLE_IOU'; payload: { from_user_id: string; to_user_id: string } }
-  | { type: 'GET_DASHBOARD_SUMMARY'; payload: { period: string } }
+  | { type: 'SETTLE_IOU'; payload: { from_user_id: string; to_user_id: string; currency: string } }
+  | { type: 'GET_DASHBOARD_SUMMARY'; payload: { period: string; home_currency: string } }
   | { type: 'GET_DB_INFO' }
   | { type: 'EXPORT_DB' }
   | { type: 'EXPORT_JSON' }
@@ -309,7 +341,7 @@ export type WorkerRequestBody =
       payload: { merchant: string; category_id: string; account_id?: string | null }
     }
   | { type: 'GET_RECENT_ACCOUNT_BY_TYPE'; payload: { type: TransactionType } }
-  | { type: 'GET_MONTHLY_TOTALS'; payload: { months: number } }
+  | { type: 'GET_MONTHLY_TOTALS'; payload: { months: number; home_currency: string } }
   | { type: 'DETECT_RECURRING' }
   | {
       type: 'GET_RECURRING_PATTERNS'

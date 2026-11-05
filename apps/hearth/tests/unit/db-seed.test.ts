@@ -125,22 +125,92 @@ describe('SCHEMA_CONFIG seeds — fresh install', () => {
   })
 })
 
-// ─── Schema config structure ─────────────────────────────────────────────────
 
-describe('SCHEMA_CONFIG structure', () => {
-  it('has version 10', () => {
-    expect(SCHEMA_CONFIG.version).toBe(10)
+describe('category seeds', () => {
+  it('seeds defaults into an initialized but empty catalog', async () => {
+    const adapter = await freshDb()
+    await ensureSeedsTable(adapter)
+    await adapter.exec(
+      "INSERT INTO _palladium_seeds (key, applied_at) VALUES ('default-user-account', 'legacy')",
+    )
+    await runSeedDefaults(adapter)
+    const rows = await adapter.queryAll<{ id: string }>('SELECT id FROM categories')
+    expect(rows.map((row) => row.id)).toContain('c1a')
+    expect(rows.map((row) => row.id)).toContain('c7')
+    expect(rows.length).toBe(26)
   })
-
-  it('defines migrations for versions 7 through 10', () => {
-    const keys = Object.keys(SCHEMA_CONFIG.migrations ?? {}).map(Number).sort((a, b) => a - b)
-    expect(keys).toEqual([7, 8, 9, 10])
+  it('preserves partial default rows and custom categories while filling missing IDs', async () => {
+    const adapter = await freshDb()
+    await ensureSeedsTable(adapter)
+    await adapter.exec(
+      "INSERT INTO _palladium_seeds (key, applied_at) VALUES ('default-user-account', 'legacy')",
+    )
+    await adapter.exec(
+      "INSERT INTO categories (id, name, icon, color, sort_order) VALUES ('c1a','My Groceries','star','#123456',77)",
+    )
+    await adapter.exec(
+      "INSERT INTO categories (id, name, icon, color, sort_order) VALUES ('custom','Custom','tag','#abcdef',90)",
+    )
+    await runSeedDefaults(adapter)
+    await runSeedDefaults(adapter)
+    const rows = await adapter.queryAll<{ id: string; name: string; color: string; sort_order: number }>(
+      'SELECT id, name, color, sort_order FROM categories ORDER BY id',
+    )
+    expect(rows.find((row) => row.id === 'c1a')).toEqual({
+      id: 'c1a',
+      name: 'My Groceries',
+      color: '#123456',
+      sort_order: 77,
+    })
+    expect(rows.find((row) => row.id === 'custom')).toEqual({
+      id: 'custom',
+      name: 'Custom',
+      color: '#abcdef',
+      sort_order: 90,
+    })
+    expect(rows.some((row) => row.id === 'c7')).toBe(true)
+    expect(rows.some((row) => row.id === 'c7a')).toBe(true)
+    expect(rows.length).toBeGreaterThan(2)
   })
+})
 
-  it('migration 9 (palladium seeds backfill) is a callback', () => {
-    const m9 = SCHEMA_CONFIG.migrations?.[9]
-    expect(Array.isArray(m9)).toBe(true)
-    expect(typeof (m9 as unknown[])[0]).toBe('function')
+describe('transactions home-currency migration', () => {
+  it('adds nullable home_currency without rewriting persisted conversions', async () => {
+    const db = new DatabaseSync(':memory:')
+    const adapter = nodeAdapter(db)
+    await adapter.exec(SCHEMA_DDL.replace('    home_currency            TEXT,\n', ''))
+    await adapter.exec(`INSERT INTO transactions
+      (id,date,amount,currency,description,created_at,updated_at,source,home_amount,exchange_rate)
+      VALUES ('legacy','2024-02-03',12.5,'EUR','old conversion','2024-02-03','2024-02-03','import',13.75,1.1)`)
+    const migration = SCHEMA_CONFIG.migrations?.[11]
+    expect(migration).toBeDefined()
+    for (const step of migration as Array<(exec: typeof adapter.exec) => Promise<void>>) {
+      await step(adapter.exec.bind(adapter))
+    }
+    const tx = await adapter.queryOne<{ amount: number; home_amount: number; home_currency: string | null }>(
+      "SELECT amount, home_amount, home_currency FROM transactions WHERE id = 'legacy'",
+    )
+    expect(tx).toEqual({ amount: 12.5, home_amount: 13.75, home_currency: null })
+  })
+})
+
+describe('recurring currency migration', () => {
+  it('preserves legacy patterns with an unknown denomination as null', async () => {
+    const db = new DatabaseSync(':memory:')
+    const adapter = nodeAdapter(db)
+    await adapter.exec(SCHEMA_DDL.replace('    currency        TEXT,\n    type', '    type'))
+    await adapter.exec(`INSERT INTO recurring_patterns
+      (id,merchant,type,"interval",average_amount,last_occurrence,next_expected,confidence,status,transaction_ids)
+      VALUES ('legacy-pattern','Cafe','expense','monthly',20,'2024-01-01','2024-02-01',0.8,'confirmed','[]')`)
+    const migration = SCHEMA_CONFIG.migrations?.[12]
+    expect(migration).toBeDefined()
+    for (const step of migration as Array<(exec: typeof adapter.exec) => Promise<void>>) {
+      await step(adapter.exec.bind(adapter))
+    }
+    const row = await adapter.queryOne<{ merchant: string; average_amount: number; currency: string | null }>(
+      "SELECT merchant, average_amount, currency FROM recurring_patterns WHERE id = 'legacy-pattern'",
+    )
+    expect(row).toEqual({ merchant: 'Cafe', average_amount: 20, currency: null })
   })
 })
 

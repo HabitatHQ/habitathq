@@ -59,6 +59,8 @@ interface QuickAddCard extends ParsedTransaction {
   undoTimer: ReturnType<typeof setTimeout> | null
   fading: boolean
   savedTxId: string | null
+  saveRequestId: number
+  editRequestId: number
   source: 'manual' | 'voice' | 'ocr'
 }
 
@@ -125,6 +127,8 @@ async function handleSubmit() {
         undoTimer: null,
         fading: false,
         savedTxId: null,
+        saveRequestId: 0,
+        editRequestId: 0,
         source: wasVoice ? 'voice' : 'manual',
       }
       cards.value.unshift(card)
@@ -138,30 +142,51 @@ async function handleSubmit() {
 // ── Auto-save + undo ─────────────────────────────────────────────────────
 async function autoSave(card: QuickAddCard) {
   if (card.amount == null) return // wait for user to fill in amount
+  const requestId = ++card.saveRequestId
+  const amount = card.amount
+  const type = card.type
+  const date = card.date
+  const cardCurrency = card.currency || settings.value.currency
+  const homeCurrency = settings.value.currency
+
+  const inputsChanged = () =>
+    card.amount !== amount ||
+    card.type !== type ||
+    card.date !== date ||
+    (card.currency || settings.value.currency) !== cardCurrency ||
+    settings.value.currency !== homeCurrency
 
   try {
-    const cardCurrency = card.currency || settings.value.currency
     let homeAmount: number | null = null
     let cardExchangeRate: number | null = null
-    if (cardCurrency !== settings.value.currency && card.amount != null) {
+    if (cardCurrency !== homeCurrency) {
       try {
         const { getRate, computeHomeAmount } = useExchangeRates()
-        const rate = await getRate(cardCurrency, settings.value.currency, card.date)
+        const rate = await getRate(cardCurrency, homeCurrency, date)
+        if (requestId !== card.saveRequestId) return
+        if (inputsChanged()) {
+          void autoSave(card)
+          return
+        }
         cardExchangeRate = rate
-        const signed = card.type === 'expense' ? -card.amount : card.amount
-        homeAmount = computeHomeAmount(signed, rate)
+        homeAmount = computeHomeAmount(type === 'expense' ? -amount : amount, rate)
       } catch {
-        // Rate unavailable — store without conversion
+        // Rate unavailable — store without conversion.
       }
+    }
+    if (requestId !== card.saveRequestId) return
+    if (inputsChanged()) {
+      void autoSave(card)
+      return
     }
 
     const tx = await db.createTransaction({
-      date: card.date,
-      amount: card.type === 'expense' ? -card.amount : card.amount,
+      date,
+      amount: type === 'expense' ? -amount : amount,
       currency: cardCurrency,
       account_id: card.accountId ?? accounts.value[0]?.id ?? null,
       user_id: currentUser.value?.id ?? null,
-      type: card.type,
+      type,
       category_id: card.categoryId,
       description: card.description,
       merchant: card.merchant,
@@ -171,6 +196,7 @@ async function autoSave(card: QuickAddCard) {
       split_id: null,
       source: card.source,
       home_amount: homeAmount,
+      home_currency: homeAmount === null ? null : homeCurrency,
       exchange_rate: cardExchangeRate,
     } as Omit<Transaction, 'id' | 'created_at' | 'updated_at'>)
 
@@ -247,7 +273,12 @@ function updateCardField(
       update.amount = card.type === 'expense' ? -(value as number) : (value as number)
     }
     if (field === 'date') update.date = value as string
-    db.updateTransaction(update)
+    if (field === 'currency') update.currency = value as string
+    void persistCardUpdate(
+      card,
+      update,
+      field === 'amount' || field === 'date' || field === 'currency',
+    )
 
     // Update learning on category/account corrections
     if ((field === 'categoryId' || field === 'accountId') && card.merchant && card.categoryId) {
@@ -263,6 +294,61 @@ function updateCardField(
   // If amount was null and is now filled, trigger auto-save
   if (field === 'amount' && value != null && !card.saved) {
     autoSave(card)
+  }
+}
+
+async function persistCardUpdate(
+  card: QuickAddCard,
+  update: Partial<Transaction> & { id: string },
+  conversionChanged: boolean,
+) {
+  const requestId = ++card.editRequestId
+  let homeAmount: number | null = null
+  let exchangeRate: number | null = null
+  const amount = card.amount
+  const type = card.type
+  const date = card.date
+  const currency = card.currency || settings.value.currency
+  const homeCurrency = settings.value.currency
+
+  if (conversionChanged && amount != null && currency !== homeCurrency) {
+    try {
+      const { getRate, computeHomeAmount } = useExchangeRates()
+      const rate = await getRate(currency, homeCurrency, date)
+      if (requestId !== card.editRequestId) return
+      if (
+        card.amount === amount &&
+        card.type === type &&
+        card.date === date &&
+        (card.currency || settings.value.currency) === currency &&
+        settings.value.currency === homeCurrency
+      ) {
+        exchangeRate = rate
+        homeAmount = computeHomeAmount(type === 'expense' ? -amount : amount, rate)
+      }
+    } catch {
+      // Changed amount/date is still saved when an offline rate is unavailable.
+    }
+  }
+
+  if (requestId !== card.editRequestId) return
+  try {
+    await db.updateTransaction(
+      conversionChanged
+        ? {
+            ...update,
+            home_amount: homeAmount,
+            home_currency: homeAmount === null ? null : homeCurrency,
+            exchange_rate: exchangeRate,
+          }
+        : update,
+    )
+  } catch (error) {
+    toast.add({
+      title: 'Update failed',
+      description: error instanceof Error ? error.message : 'Unknown error',
+      color: 'error' as const,
+    })
   }
 }
 
@@ -380,6 +466,8 @@ async function scanReceipt() {
       undoTimer: null,
       fading: false,
       savedTxId: null,
+      saveRequestId: 0,
+      editRequestId: 0,
       source: 'ocr',
     }
     cards.value.unshift(card)

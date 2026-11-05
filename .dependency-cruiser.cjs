@@ -102,6 +102,7 @@ module.exports = {
         'dist',
         'build',
         'coverage',
+        '(^|/)(playwright-report|test-results)(/|$)',
         'libs/palladium/example-',
         'libs/palladium/e2e',
         'libs/palladium/crates',

@@ -32,6 +32,7 @@
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:pwa": "pnpm run build:pwa && playwright test --config playwright.pwa.config.ts",
     "test:a11y": "playwright test --config playwright.a11y.config.ts",
     "test": "vitest run && playwright test",
     "ci": "pnpm run check && pnpm run typecheck:all && pnpm run test:unit",

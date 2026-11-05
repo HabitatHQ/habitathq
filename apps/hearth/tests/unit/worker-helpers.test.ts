@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { aggregateIouBalances } from '~/lib/worker-helpers'
+import { createSerializedDbDispatcher, aggregateIouBalances } from '~/lib/worker-helpers'
 
 // ── aggregateIouBalances ────────────────────────────────────────────────────
 
@@ -8,6 +8,7 @@ describe('aggregateIouBalances', () => {
     from_user_id: from,
     to_user_id: to,
     amount,
+    currency: 'USD',
     from_name: fromName,
     from_avatar: `${fromName[0]}`,
     to_name: toName,
@@ -52,60 +53,54 @@ describe('aggregateIouBalances', () => {
     expect(result).toHaveLength(0)
   })
 
-  it('filters out sub-penny balances (< $0.01)', () => {
-    const result = aggregateIouBalances([
-      split('a', 'b', 50, 'Alice', 'Bob'),
-      split('b', 'a', 49.998, 'Bob', 'Alice'),
+  it('retains an exact cent debt and nets amounts in integer cents', () => {
+    const oneCent = aggregateIouBalances([split('a', 'b', 0.01, 'Alice', 'Bob')])
+    expect(oneCent).toHaveLength(1)
+    expect(oneCent[0]!.net_amount).toBe(0.01)
+    const cancelled = aggregateIouBalances([
+      split('a', 'b', 0.1),
+      split('a', 'b', 0.2),
+      split('b', 'a', 0.3),
     ])
-    // Net is $0.002 which is < $0.01 threshold
-    expect(result).toHaveLength(0)
+    expect(cancelled).toHaveLength(0)
   })
 
-  it('keeps balance at exactly the threshold', () => {
-    const result = aggregateIouBalances([
-      split('a', 'b', 50, 'Alice', 'Bob'),
-      split('b', 'a', 49.98, 'Bob', 'Alice'),
-    ])
-    // Net is $0.02 which is > $0.01
-    expect(result).toHaveLength(1)
-    expect(result[0]!.net_amount).toBeCloseTo(0.02, 2)
-  })
-
-  it('handles three-way splits independently', () => {
+  it('handles three-way splits independently with matching debt metadata', () => {
     const result = aggregateIouBalances([
       split('a', 'b', 30, 'Alice', 'Bob'),
       split('b', 'c', 20, 'Bob', 'Carol'),
       split('c', 'a', 10, 'Carol', 'Alice'),
     ])
     expect(result).toHaveLength(3)
-    const ab = result.find((r) => r.from_user_id === 'a' && r.to_user_id === 'b')
-    const bc = result.find((r) => r.from_user_id === 'b' && r.to_user_id === 'c')
-    const ac = result.find((r) => r.from_user_id === 'a' && r.to_user_id === 'c')
-    expect(ab!.net_amount).toBe(30)
-    expect(bc!.net_amount).toBe(20)
-    expect(ac!.net_amount).toBe(-10)
+    expect(result.find((r) => r.from_user_id === 'a' && r.to_user_id === 'b')?.net_amount).toBe(30)
+    expect(result.find((r) => r.from_user_id === 'b' && r.to_user_id === 'c')?.net_amount).toBe(20)
+    expect(result.find((r) => r.from_user_id === 'c' && r.to_user_id === 'a')?.net_amount).toBe(10)
   })
 
-  it('user ID ordering is deterministic regardless of split order', () => {
-    const forward = aggregateIouBalances([split('bob', 'alice', 50, 'Bob', 'Alice')])
-    const reverse = aggregateIouBalances([split('alice', 'bob', 50, 'Alice', 'Bob')])
-
-    // Both should have alice|bob as the key (sorted)
-    expect(forward[0]!.from_user_id).toBe('alice')
-    expect(forward[0]!.to_user_id).toBe('bob')
-    expect(reverse[0]!.from_user_id).toBe('alice')
-    expect(reverse[0]!.to_user_id).toBe('bob')
+  it('keeps names and avatars aligned when lexical order reverses debt direction', () => {
+    const result = aggregateIouBalances([split('z-user', 'a-user', 50, 'Zed', 'Amy')])
+    expect(result[0]).toMatchObject({
+      from_user_id: 'z-user',
+      to_user_id: 'a-user',
+      from_user_name: 'Zed',
+      to_user_name: 'Amy',
+      net_amount: 50,
+    })
   })
 
-  it('net_amount sign indicates direction correctly', () => {
-    // alice < bob lexicographically, so alice is "from" in the key
-    // If alice lent to bob (split from alice → bob), net should be positive
-    const result = aggregateIouBalances([split('alice', 'bob', 50, 'Alice', 'Bob')])
-    expect(result[0]!.net_amount).toBe(50) // positive = bob owes alice
-
-    // If bob lent to alice, net should be negative
-    const result2 = aggregateIouBalances([split('bob', 'alice', 50, 'Bob', 'Alice')])
-    expect(result2[0]!.net_amount).toBe(-50) // negative = alice owes bob
+  it('returns a positive amount with canonical debt orientation for either order', () => {
+    const aliceLends = aggregateIouBalances([split('alice', 'bob', 50, 'Alice', 'Bob')])
+    expect(aliceLends[0]).toMatchObject({
+      from_user_id: 'alice',
+      to_user_id: 'bob',
+      net_amount: 50,
+    })
+    const bobLends = aggregateIouBalances([split('bob', 'alice', 50, 'Bob', 'Alice')])
+    expect(bobLends[0]).toMatchObject({
+      from_user_id: 'bob',
+      to_user_id: 'alice',
+      net_amount: 50,
+    })
   })
 
   it('preserves name/avatar metadata from splits', () => {
@@ -123,10 +118,14 @@ describe('aggregateIouBalances', () => {
     expect(result[0]!.net_amount).toBeCloseTo(10, 1)
   })
 
-  it('handles negative amounts in splits', () => {
-    const result = aggregateIouBalances([split('a', 'b', -20, 'A', 'B')])
-    expect(result).toHaveLength(1)
-    expect(result[0]!.net_amount).toBe(-20)
+  it('does not net debts across currencies or classify unknown currency', () => {
+    const usd = split('a', 'b', 10)
+    const eur = { ...split('b', 'a', 10), currency: 'EUR' }
+    const unknown = { ...split('a', 'b', 40), currency: null }
+    expect(aggregateIouBalances([usd, eur, unknown])).toMatchObject([
+      { from_user_id: 'a', to_user_id: 'b', net_amount: 10, currency: 'USD' },
+      { from_user_id: 'b', to_user_id: 'a', net_amount: 10, currency: 'EUR' },
+    ])
   })
 
   it('seed data scenario: two opposing IOUs net correctly', () => {
@@ -139,5 +138,42 @@ describe('aggregateIouBalances', () => {
     expect(result[0]!.net_amount).toBeCloseTo(12.12, 2)
     expect(result[0]!.from_user_id).toBe('u1')
     expect(result[0]!.to_user_id).toBe('u2')
+  })
+})
+describe('serialized database dispatcher', () => {
+  it('does not start a later request while a multi-step request is still pending', async () => {
+    let releaseFirst!: () => void
+    const firstHeld = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    const events: string[] = []
+    const dispatch = createSerializedDbDispatcher(async (request) => {
+      events.push(`start:${request.type}`)
+      if (request.type === 'GET_USERS') await firstHeld
+      events.push(`end:${request.type}`)
+      return null
+    })
+
+    const first = dispatch({ type: 'GET_USERS' })
+    const second = dispatch({ type: 'GET_CURRENT_USER' })
+    await Promise.resolve()
+    expect(events).toEqual(['start:GET_USERS'])
+    releaseFirst()
+    await Promise.all([first, second])
+    expect(events).toEqual([
+      'start:GET_USERS',
+      'end:GET_USERS',
+      'start:GET_CURRENT_USER',
+      'end:GET_CURRENT_USER',
+    ])
+  })
+
+  it('continues serving queued requests after a rejected operation', async () => {
+    const dispatch = createSerializedDbDispatcher(async (request) => {
+      if (request.type === 'GET_USERS') throw new Error('expected')
+      return request.type
+    })
+    await expect(dispatch({ type: 'GET_USERS' })).rejects.toThrow('expected')
+    await expect(dispatch({ type: 'GET_CURRENT_USER' })).resolves.toBe('GET_CURRENT_USER')
   })
 })

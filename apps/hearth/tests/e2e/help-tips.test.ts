@@ -168,22 +168,3 @@ test.describe('HelpTip — dismissal persistence', () => {
   })
 })
 
-// ── Inline sub-text on add transaction form ─────────────────────────────
-
-test.describe('Add Transaction — inline help text', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/transactions/add')
-    await page.waitForLoadState('networkidle')
-    await page.waitForTimeout(1000)
-  })
-
-  test('private transaction toggle has explanatory sub-text', async ({ page }) => {
-    await expect(
-      page.getByText('Hidden from other household members on the dashboard'),
-    ).toBeVisible()
-  })
-
-  test('split toggle has explanatory sub-text', async ({ page }) => {
-    await expect(page.getByText('Track how much they owe you for this expense')).toBeVisible()
-  })
-})

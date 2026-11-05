@@ -3,7 +3,7 @@ import VChart from 'vue-echarts'
 import { getHearthTheme, type HearthChartTheme } from '~/lib/echarts-theme'
 import { homeCurrencyAmount } from '~/lib/reports/amounts'
 import type { EnvelopeWithSpending, MonthlyTotal, TransactionWithDetails } from '~/types/database'
-import { formatCompact } from '~/utils/format'
+import { formatCompact, formatCurrency } from '~/utils/format'
 
 const db = useDatabase()
 const router = useRouter()
@@ -30,9 +30,9 @@ async function load() {
   loading.value = true
   try {
     const [txns, totals, envs] = await Promise.all([
-      db.getTransactionsForPeriod(period.value),
-      db.getMonthlyTotals(6),
-      db.getEnvelopesWithSpending(period.value),
+      db.getTransactionsForPeriod(period.value, homeCurrency.value),
+      db.getMonthlyTotals(6, homeCurrency.value),
+      db.getEnvelopesWithSpending(period.value, homeCurrency.value),
     ])
     transactions.value = txns
     monthlyTotals.value = totals
@@ -42,7 +42,7 @@ async function load() {
   }
 }
 
-watch(period, load)
+watch([period, homeCurrency], load)
 onMounted(async () => {
   await Promise.all([load(), ensureLoaded()])
   refreshTheme()
@@ -58,18 +58,31 @@ watch(
 
 // ── Aggregations ──────────────────────────────────────────────────────────
 const expenseTxns = computed(() => transactions.value.filter((t) => t.type === 'expense'))
+
+function resolvedHomeAmount(transaction: TransactionWithDetails): number | null {
+  return homeCurrencyAmount(transaction, homeCurrency.value) ?? transaction.report_amount ?? null
+}
 const incomeTxns = computed(() => transactions.value.filter((t) => t.type === 'income'))
 
 const totalExpenses = computed(() =>
-  expenseTxns.value.reduce(
-    (sum, transaction) => sum + Math.abs(homeCurrencyAmount(transaction)),
-    0,
-  ),
+  expenseTxns.value.reduce((sum, transaction) => {
+    const amount = resolvedHomeAmount(transaction)
+    return sum + (amount === null ? 0 : Math.abs(amount))
+  }, 0),
 )
 const totalIncome = computed(() =>
-  incomeTxns.value.reduce((sum, transaction) => sum + homeCurrencyAmount(transaction), 0),
+  incomeTxns.value.reduce((sum, transaction) => sum + (resolvedHomeAmount(transaction) ?? 0), 0),
 )
 const netSavings = computed(() => totalIncome.value - totalExpenses.value)
+const missingConversionCount = computed(
+  () =>
+    transactions.value.filter(
+      (transaction) => transaction.type !== 'transfer' && resolvedHomeAmount(transaction) === null,
+    ).length,
+)
+const monthlyMissingConversionCount = computed(() =>
+  monthlyTotals.value.reduce((count, month) => count + month.missing_conversion_count, 0),
+)
 
 // ── By category ──────────────────────────────────────────────────────────
 const byCategory = computed(() => {
@@ -78,6 +91,8 @@ const byCategory = computed(() => {
     { id: string; name: string; icon: string; color: string; total: number; count: number }
   >()
   for (const t of expenseTxns.value) {
+    const amount = resolvedHomeAmount(t)
+    if (amount === null) continue
     const key = t.category_id ?? 'uncategorized'
     if (!map.has(key))
       map.set(key, {
@@ -89,7 +104,7 @@ const byCategory = computed(() => {
         count: 0,
       })
     const entry = map.get(key)!
-    entry.total += Math.abs(homeCurrencyAmount(t))
+    entry.total += Math.abs(amount)
     entry.count++
   }
   return Array.from(map.values()).sort((a, b) => b.total - a.total)
@@ -102,6 +117,8 @@ const byPerson = computed(() => {
     { id: string; name: string; avatar: string; total: number; count: number }
   >()
   for (const t of expenseTxns.value) {
+    const amount = resolvedHomeAmount(t)
+    if (amount === null) continue
     if (!map.has(t.user_id))
       map.set(t.user_id, {
         id: t.user_id,
@@ -111,7 +128,7 @@ const byPerson = computed(() => {
         count: 0,
       })
     const entry = map.get(t.user_id)!
-    entry.total += Math.abs(homeCurrencyAmount(t))
+    entry.total += Math.abs(amount)
     entry.count++
   }
   return Array.from(map.values()).sort((a, b) => b.total - a.total)
@@ -154,7 +171,13 @@ const categoryDonutOptions = computed(() => {
   }
   return {
     ...chartTheme.value,
-    tooltip: { trigger: 'item', formatter: '{b}: ${c} ({d}%)' },
+    tooltip: {
+      // Stored category and household names must never become tooltip HTML.
+      renderMode: 'richText',
+      trigger: 'item',
+      formatter: (point: { name: string; value: number; percent: number }) =>
+        `${point.name}: ${formatAmount(point.value, homeCurrency.value)} (${point.percent}%)`,
+    },
     series: [
       {
         type: 'pie',
@@ -199,7 +222,12 @@ const personDonutOptions = computed(() => {
   }))
   return {
     ...chartTheme.value,
-    tooltip: { trigger: 'item', formatter: '{b}: ${c} ({d}%)' },
+    tooltip: {
+      renderMode: 'richText',
+      trigger: 'item',
+      formatter: (point: { name: string; value: number; percent: number }) =>
+        `${point.name}: ${formatAmount(point.value, homeCurrency.value)} (${point.percent}%)`,
+    },
     series: [
       {
         type: 'pie',
@@ -258,7 +286,14 @@ const monthLabels = computed(() =>
 
 const trendOptions = computed(() => ({
   ...chartTheme.value,
-  tooltip: { trigger: 'axis' },
+  tooltip: {
+    renderMode: 'richText',
+    trigger: 'axis',
+    formatter: (points: Array<{ seriesName: string; value: number }>) =>
+      points
+        .map((point) => `${point.seriesName}: ${formatAmount(point.value, homeCurrency.value)}`)
+        .join('\n'),
+  },
   grid: { left: 50, right: 16, top: 16, bottom: 32 },
   xAxis: { type: 'category', data: monthLabels.value, boundaryGap: false },
   yAxis: {
@@ -297,7 +332,15 @@ const sortedEnvelopes = computed(() =>
 
 const budgetOptions = computed(() => ({
   ...chartTheme.value,
-  tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+  tooltip: {
+    renderMode: 'richText',
+    trigger: 'axis',
+    axisPointer: { type: 'shadow' },
+    formatter: (points: Array<{ seriesName: string; value: number }>) =>
+      points
+        .map((point) => `${point.seriesName}: ${formatAmount(point.value, homeCurrency.value)}`)
+        .join('\n'),
+  },
   grid: { left: 120, right: 30, top: 8, bottom: 24 },
   xAxis: {
     type: 'value',
@@ -343,7 +386,18 @@ const budgetOptions = computed(() => ({
 // ── Chart 4: Income vs Expenses (Stacked Bar) ───────────────────────────
 const incomeVsExpenseOptions = computed(() => ({
   ...chartTheme.value,
-  tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+  tooltip: {
+    renderMode: 'richText',
+    trigger: 'axis',
+    axisPointer: { type: 'shadow' },
+    formatter: (points: Array<{ seriesName: string; value: number }>) =>
+      points
+        .map(
+          (point) =>
+            `${point.seriesName}: ${formatAmount(Math.abs(point.value), homeCurrency.value)}`,
+        )
+        .join('\n'),
+  },
   grid: { left: 50, right: 16, top: 16, bottom: 32 },
   xAxis: { type: 'category', data: monthLabels.value },
   yAxis: {
@@ -380,7 +434,17 @@ const avgSavings = computed(() => {
 
 const savingsOptions = computed(() => ({
   ...chartTheme.value,
-  tooltip: { trigger: 'axis' },
+  tooltip: {
+    renderMode: 'richText',
+    trigger: 'axis',
+    formatter: (points: Array<{ seriesName: string; value: number }>) =>
+      points
+        .map(
+          (point) =>
+            `${point.seriesName}: ${point.value < 0 ? '−' : ''}${formatAmount(point.value, homeCurrency.value)}`,
+        )
+        .join('\n'),
+  },
   grid: { left: 50, right: 16, top: 16, bottom: 32 },
   xAxis: { type: 'category', data: monthLabels.value, boundaryGap: false },
   yAxis: {
@@ -467,6 +531,16 @@ function onTrendClick(params?: { dataIndex?: number }) {
       @next="nextPeriod"
     />
 
+    <UAlert
+      v-if="missingConversionCount || monthlyMissingConversionCount"
+      color="warning"
+      variant="subtle"
+      role="status"
+      aria-label="Currency conversion notice"
+      title="Report totals are incomplete"
+      :description="`${missingConversionCount} transaction(s) in this period and ${monthlyMissingConversionCount} transaction(s) across the chart history could not be converted to ${homeCurrency}; their totals are excluded.`"
+    />
+
     <HelpTip id="reports-overview">
       <template #label>About these reports</template>
       <dl class="space-y-1">
@@ -498,7 +572,7 @@ function onTrendClick(params?: { dataIndex?: number }) {
           class="text-xl font-bold font-mono amount-display"
           :class="netSavings >= 0 ? 'text-primary-400' : 'text-rose-400'"
         >
-          {{ formatAmount(Math.abs(netSavings), homeCurrency) }}
+          {{ formatCurrency(netSavings, homeCurrency) }}
         </p>
       </div>
     </div>

@@ -53,6 +53,8 @@ const importProgress = ref(0)
 const accounts = ref<Array<{ id: string; name: string; currency: string }>>([])
 const currentUserId = ref('')
 const { settings } = useAppSettings()
+const { getRate, computeHomeAmount } = useExchangeRates()
+let previewRequestId = 0
 
 onMounted(async () => {
   const [accts, cats, user] = await Promise.all([
@@ -101,7 +103,6 @@ function setColumnMapping(header: string, field: HearthField) {
 
 function goToCategories() {
   prepareCategories()
-  step.value = 'categories'
 }
 
 // ── Step 3: Category mapping ─────────────────────────────────────────────
@@ -137,6 +138,11 @@ function setCategoryMapping(imported: string, hearthId: string | null) {
 
 // ── Step 4: Preview ──────────────────────────────────────────────────────
 async function preparePreview() {
+  const requestId = ++previewRequestId
+  importReady.value = []
+  duplicateIndices.value = new Set()
+  errorRows.value = []
+  const homeCurrency = settings.value.currency
   step.value = 'preview'
   const indexFor = (field: HearthField) => {
     const header = [...columnMap.value.entries()].find(([, mapped]) => mapped === field)?.[0]
@@ -184,11 +190,25 @@ async function preparePreview() {
       })
       continue
     }
+    if (result.record.currency !== homeCurrency) {
+      try {
+        const rate = await getRate(result.record.currency, homeCurrency, result.record.date)
+        if (requestId !== previewRequestId || homeCurrency !== settings.value.currency) return
+        txns.push({
+          ...result.record,
+          home_amount: computeHomeAmount(result.record.amount, rate),
+          home_currency: homeCurrency,
+          exchange_rate: rate,
+        })
+        continue
+      } catch {
+        // Preserve imported amounts if no conversion rate is available.
+      }
+    }
     txns.push(result.record)
   }
 
-  importReady.value = txns
-  errorRows.value = errors
+  if (requestId !== previewRequestId) return
 
   const existingTxns = await db.getTransactions(10000)
   const incoming = txns.map((t) => ({ date: t.date, amount: t.amount, merchant: t.merchant }))
@@ -197,7 +217,10 @@ async function preparePreview() {
     amount: t.amount,
     merchant: t.merchant,
   }))
+  if (requestId !== previewRequestId || homeCurrency !== settings.value.currency) return
   duplicateIndices.value = findDuplicates(incoming, existing)
+  errorRows.value = errors
+  importReady.value = txns
 }
 
 // ── Import execution ─────────────────────────────────────────────────────

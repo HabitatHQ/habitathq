@@ -4,7 +4,8 @@
  * Result rounded to 2 decimal places.
  */
 export function convertCurrency(amount: number, rate: number): number {
-  return Math.round(amount * rate * 100) / 100
+  const converted = amount * rate
+  return Math.sign(converted) * (Math.round(Math.abs(converted) * 100) / 100)
 }
 
 export interface CurrencyInfo {

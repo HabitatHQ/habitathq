@@ -13,8 +13,15 @@ const { sendToWorker: _send, initialize } = createDatabasePlugin({
   },
 })
 
+let requestTail: Promise<void> = Promise.resolve()
+
 export function sendToWorker<T>(req: WorkerRequestBody): Promise<T> {
-  return _send<T>(req as Record<string, unknown>)
+  const result = requestTail.then(() => _send<T>(req as Record<string, unknown>))
+  requestTail = result.then(
+    () => undefined,
+    () => undefined,
+  )
+  return result
 }
 
 export default defineNuxtPlugin(async () => {

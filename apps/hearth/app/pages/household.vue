@@ -9,13 +9,23 @@ const users = ref<User[]>([])
 const balances = ref<IouBalance[]>([])
 const loading = ref(true)
 const settling = ref<string | null>(null)
+const error = ref<string | null>(null)
+const unresolvedIouCount = ref(0)
 
 async function load() {
   loading.value = true
+  error.value = null
   try {
-    const [u, b] = await Promise.all([db.getUsers(), db.getIouBalances()])
+    const [u, b, splits] = await Promise.all([
+      db.getUsers(),
+      db.getIouBalances(),
+      db.getIouSplits(),
+    ])
     users.value = u
     balances.value = b
+    unresolvedIouCount.value = splits.filter((split) => !split.is_settled && !split.currency).length
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not load household balances.'
   } finally {
     loading.value = false
   }
@@ -30,7 +40,7 @@ const settleMessage = ref('')
 function requestSettle(balance: IouBalance) {
   const debtor = balance.net_amount > 0 ? balance.to_user_name : balance.from_user_name
   const creditor = balance.net_amount > 0 ? balance.from_user_name : balance.to_user_name
-  settleMessage.value = `Settle up between ${debtor} and ${creditor}? This clears the ${formatAmount(Math.abs(balance.net_amount))} balance.`
+  settleMessage.value = `Settle up between ${debtor} and ${creditor}? This clears the ${formatAmount(Math.abs(balance.net_amount), balance.currency)} balance.`
   pendingSettleBalance.value = balance
   showSettleConfirm.value = true
 }
@@ -38,12 +48,14 @@ function requestSettle(balance: IouBalance) {
 async function confirmSettle() {
   const balance = pendingSettleBalance.value
   if (!balance) return
-  const key = `${balance.from_user_id}-${balance.to_user_id}`
+  const key = `${balance.from_user_id}-${balance.to_user_id}-${balance.currency}`
   settling.value = key
   pendingSettleBalance.value = null
   try {
-    await db.settleIou(balance.from_user_id, balance.to_user_id)
+    await db.settleIou(balance.from_user_id, balance.to_user_id, balance.currency)
     await load()
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not settle this balance.'
   } finally {
     settling.value = null
   }
@@ -55,7 +67,7 @@ function balanceLabel(b: IouBalance): string {
   // net_amount > 0 means to_user owes from_user
   const debtor = b.net_amount > 0 ? b.to_user_name : b.from_user_name
   const creditor = b.net_amount > 0 ? b.from_user_name : b.to_user_name
-  return `${debtor} owes ${creditor} ${formatAmount(Math.abs(b.net_amount))}`
+  return `${debtor} owes ${creditor} ${formatAmount(Math.abs(b.net_amount), b.currency)}`
 }
 
 function iOwe(b: IouBalance): boolean {
@@ -112,12 +124,17 @@ function iOwe(b: IouBalance): boolean {
         <p>When you split an expense with a household member, Hearth tracks who owes whom. These balances add up across all splits.</p>
         <p><strong class="text-(--ui-text)">Settle Up</strong> clears the balance between two people. Use this after someone pays the other back (in cash, Venmo, etc.).</p>
       </HelpTip>
+      <p v-if="error" role="alert" class="mt-3 text-sm text-rose-400">{{ error }}</p>
+      <p v-if="unresolvedIouCount" role="status" class="mt-3 text-sm text-amber-400">
+        {{ unresolvedIouCount }} legacy {{ unresolvedIouCount === 1 ? 'IOU has' : 'IOUs have' }} no recorded currency.
+        These records are preserved in backups but excluded from currency balances and settlement.
+      </p>
 
       <div v-if="loading" class="space-y-3">
         <div v-for="n in 2" :key="n" class="h-24 bg-(--ui-bg-muted) rounded-2xl animate-pulse" />
       </div>
 
-      <div v-else-if="!balances.length" class="text-center py-12">
+      <div v-else-if="!balances.length && !unresolvedIouCount && !error" class="text-center py-12">
         <AppIcon name="check-circle" class="w-12 h-12 text-green-400 mx-auto mb-3" aria-hidden="true" />
         <p class="font-semibold text-(--ui-text)">All settled up!</p>
         <p class="text-sm text-(--ui-text-muted) mt-1">No outstanding balances in the household</p>
@@ -126,7 +143,7 @@ function iOwe(b: IouBalance): boolean {
       <ul v-else class="space-y-3">
         <li
           v-for="balance in balances"
-          :key="`${balance.from_user_id}-${balance.to_user_id}`"
+          :key="`${balance.from_user_id}-${balance.to_user_id}-${balance.currency}`"
           class="rounded-2xl bg-(--ui-bg-muted) border border-(--ui-border) p-4 space-y-3"
           :class="iOwe(balance) ? 'border-amber-500/30 bg-amber-500/5' : ''"
         >
@@ -141,7 +158,7 @@ function iOwe(b: IouBalance): boolean {
               <p v-if="iOwe(balance)" class="text-xs text-amber-400 font-medium mt-0.5">You owe this</p>
             </div>
             <p class="font-mono font-bold text-lg shrink-0" :class="iOwe(balance) ? 'text-amber-400' : 'text-(--ui-text)'">
-              {{ formatAmount(Math.abs(balance.net_amount)) }}
+              {{ formatAmount(Math.abs(balance.net_amount), balance.currency) }}
             </p>
           </div>
 
@@ -151,11 +168,11 @@ function iOwe(b: IouBalance): boolean {
             :class="iOwe(balance)
               ? 'bg-primary-500 hover:bg-primary-400 text-white border-transparent shadow-sm shadow-primary-500/20'
               : 'bg-(--ui-bg-elevated) hover:bg-(--ui-bg-accented) text-(--ui-text) border-(--ui-border)'"
-            :disabled="settling === `${balance.from_user_id}-${balance.to_user_id}`"
-            :aria-label="`Settle up with ${balance.net_amount > 0 ? balance.from_user_name : balance.to_user_name}`"
+            :disabled="settling === `${balance.from_user_id}-${balance.to_user_id}-${balance.currency}`"
+            :aria-label="`Settle up with ${balance.net_amount > 0 ? balance.from_user_name : balance.to_user_name} in ${balance.currency}`"
             @click="requestSettle(balance)"
           >
-            {{ settling === `${balance.from_user_id}-${balance.to_user_id}` ? 'Settling…' : '✓ Settle Up' }}
+            {{ settling === `${balance.from_user_id}-${balance.to_user_id}-${balance.currency}` ? 'Settling…' : '✓ Settle Up' }}
           </button>
         </li>
       </ul>

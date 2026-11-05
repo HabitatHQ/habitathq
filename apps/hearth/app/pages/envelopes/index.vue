@@ -1,24 +1,36 @@
 <script setup lang="ts">
-import type { EnvelopeWithSpending } from '~/types/database'
+import type { CategoryWithChildren, EnvelopeWithSpending } from '~/types/database'
 
 const db = useDatabase()
 const { settings } = useAppSettings()
 const homeCurrency = computed(() => settings.value.currency)
+const loading = ref(true)
+const categories = ref<CategoryWithChildren[]>([])
 const { period, isCurrentPeriod, prevPeriod, nextPeriod } = usePeriod()
 
 const envelopes = ref<EnvelopeWithSpending[]>([])
-const loading = ref(true)
+const modalError = ref('')
+const saving = ref(false)
+const pageError = ref('')
 
 async function load() {
   loading.value = true
+  pageError.value = ''
   try {
-    envelopes.value = await db.getEnvelopesWithSpending(period.value)
+    const result = await Promise.all([
+      db.getEnvelopesWithSpending(period.value, homeCurrency.value),
+      db.getCategoryTree(),
+    ])
+    envelopes.value = result[0]
+    categories.value = result[1]
+  } catch (cause) {
+    pageError.value = cause instanceof Error ? cause.message : 'Could not load envelopes.'
   } finally {
     loading.value = false
   }
 }
 
-watch(period, load)
+watch([period, homeCurrency], load)
 onMounted(load)
 
 const totalBudget = computed(() => envelopes.value.reduce((s, e) => s + e.budget_amount, 0))
@@ -40,7 +52,13 @@ const sortedEnvelopes = computed(() =>
 
 const showAddModal = ref(false)
 const editingEnvelope = ref<EnvelopeWithSpending | null>(null)
-const modalEnvelope = reactive({ name: '', icon: '📦', color: '#f59e0b', budget_amount: '' })
+const modalEnvelope = reactive({
+  name: '',
+  icon: '📦',
+  color: '#f59e0b',
+  budget_amount: '',
+  category_ids: [] as string[],
+})
 
 const isEditing = computed(() => editingEnvelope.value !== null)
 
@@ -50,6 +68,8 @@ function openAddModal() {
   modalEnvelope.icon = '📦'
   modalEnvelope.color = '#f59e0b'
   modalEnvelope.budget_amount = ''
+  modalEnvelope.category_ids = []
+  modalError.value = ''
   showAddModal.value = true
 }
 
@@ -59,35 +79,63 @@ function openEditModal(env: EnvelopeWithSpending) {
   modalEnvelope.icon = env.icon
   modalEnvelope.color = env.color
   modalEnvelope.budget_amount = String(env.budget_amount)
+  try {
+    const parsedCategoryIds: unknown = JSON.parse(env.category_ids)
+    modalEnvelope.category_ids = Array.isArray(parsedCategoryIds)
+      ? parsedCategoryIds.filter((id): id is string => typeof id === 'string')
+      : []
+  } catch {
+    modalEnvelope.category_ids = []
+  }
+  modalError.value = ''
   showAddModal.value = true
 }
 
 async function saveEnvelope() {
+  if (saving.value) return
   const budget = Number.parseFloat(modalEnvelope.budget_amount)
-  if (!modalEnvelope.name || Number.isNaN(budget)) return
-  if (isEditing.value && editingEnvelope.value) {
-    await db.updateEnvelope({
-      id: editingEnvelope.value.id,
-      name: modalEnvelope.name,
-      icon: modalEnvelope.icon,
-      color: modalEnvelope.color,
-      budget_amount: budget,
-    })
-  } else {
-    await db.createEnvelope({
-      name: modalEnvelope.name,
-      icon: modalEnvelope.icon,
-      color: modalEnvelope.color,
-      budget_amount: budget,
-      period: 'monthly',
-      scope: 'household',
-      category_ids: '[]',
-      rollover: 1,
-    })
+  if (!modalEnvelope.name.trim() || !Number.isFinite(budget) || budget < 0) {
+    modalError.value = 'Enter an envelope name and a valid non-negative budget.'
+    return
   }
-  showAddModal.value = false
-  editingEnvelope.value = null
-  await load()
+  if (modalEnvelope.category_ids.length === 0) {
+    modalError.value =
+      'Select at least one expense category so spending can draw from this envelope.'
+    return
+  }
+  saving.value = true
+  modalError.value = ''
+  try {
+    const category_ids = JSON.stringify(modalEnvelope.category_ids)
+    if (isEditing.value && editingEnvelope.value) {
+      await db.updateEnvelope({
+        id: editingEnvelope.value.id,
+        name: modalEnvelope.name.trim(),
+        icon: modalEnvelope.icon,
+        color: modalEnvelope.color,
+        budget_amount: budget,
+        category_ids,
+      })
+    } else {
+      await db.createEnvelope({
+        name: modalEnvelope.name.trim(),
+        icon: modalEnvelope.icon,
+        color: modalEnvelope.color,
+        budget_amount: budget,
+        period: 'monthly',
+        scope: 'household',
+        category_ids,
+        rollover: 1,
+      })
+    }
+    showAddModal.value = false
+    editingEnvelope.value = null
+    await load()
+  } catch (error) {
+    modalError.value = error instanceof Error ? error.message : 'Could not save this envelope.'
+  } finally {
+    saving.value = false
+  }
 }
 
 const showDeleteConfirm = ref(false)
@@ -100,9 +148,14 @@ function requestDeleteEnvelope(id: string) {
 
 async function confirmDeleteEnvelope() {
   if (!pendingDeleteId.value) return
-  await db.deleteEnvelope(pendingDeleteId.value)
-  pendingDeleteId.value = null
-  await load()
+  pageError.value = ''
+  try {
+    await db.deleteEnvelope(pendingDeleteId.value)
+    pendingDeleteId.value = null
+    await load()
+  } catch (cause) {
+    pageError.value = cause instanceof Error ? cause.message : 'Could not delete this envelope.'
+  }
 }
 </script>
 
@@ -116,6 +169,7 @@ async function confirmDeleteEnvelope() {
       @prev="prevPeriod"
       @next="nextPeriod"
     />
+    <p v-if="pageError" role="alert" class="text-sm text-rose-400">{{ pageError }}</p>
 
     <!-- ── Envelope help ─────────────────────────────────────────────────── -->
     <HelpTip id="envelope-budgeting">
@@ -142,7 +196,7 @@ async function confirmDeleteEnvelope() {
             class="text-xl font-bold font-mono amount-display"
             :class="totalRemaining < 0 ? 'text-rose-400' : 'text-green-400'"
           >
-            {{ formatAmount(Math.abs(totalRemaining), homeCurrency) }}
+            {{ totalRemaining < 0 ? '−' : '' }}{{ formatAmount(Math.abs(totalRemaining), homeCurrency) }}
           </p>
         </div>
       </div>
@@ -170,6 +224,14 @@ async function confirmDeleteEnvelope() {
         </span>
         <span v-else class="font-mono">{{ Math.round(overallPercent) }}%</span>
       </div>
+      <p
+        v-if="envelopes.some((env) => env.missing_conversion_count > 0)"
+        class="text-xs text-amber-400"
+        role="status"
+        aria-label="Currency conversion notice"
+      >
+        Some foreign-currency spending is excluded because no conversion rate is available.
+      </p>
     </section>
 
     <!-- ── Envelope list ───────────────────────────────────────────────────── -->
@@ -273,15 +335,20 @@ async function confirmDeleteEnvelope() {
           </div>
 
           <!-- Amount row -->
-          <div class="flex justify-between text-sm">
-            <span class="font-mono" :class="envelopeColorClass(env.percent_used, env.is_overspent).text">
-              {{ formatAmount(env.spent, homeCurrency) }} spent
-            </span>
-            <span class="font-mono text-(--ui-text-muted)">
-              {{ env.is_overspent ? '−' : '' }}{{ formatAmount(Math.abs(env.remaining), homeCurrency) }}
-              {{ env.is_overspent ? 'over' : 'left' }}
-              of {{ formatAmount(env.budget_amount, homeCurrency) }}
-            </span>
+          <div class="space-y-1">
+            <div class="flex justify-between text-sm">
+              <span class="font-mono" :class="envelopeColorClass(env.percent_used, env.is_overspent).text">
+                {{ formatAmount(env.spent, homeCurrency) }} spent
+              </span>
+              <span class="font-mono text-(--ui-text-muted)">
+                {{ env.remaining < 0 ? '−' : '' }}{{ formatAmount(Math.abs(env.remaining), homeCurrency) }}
+                {{ env.remaining < 0 ? 'overspent' : 'left' }}
+                of {{ formatAmount(env.budget_amount, homeCurrency) }}
+              </span>
+            </div>
+            <p v-if="env.missing_conversion_count > 0" class="text-xs text-amber-400" role="status">
+              {{ env.missing_conversion_count }} transaction{{ env.missing_conversion_count === 1 ? '' : 's' }} excluded: missing exchange rate
+            </p>
           </div>
         </li>
       </ul>
@@ -312,7 +379,7 @@ async function confirmDeleteEnvelope() {
         </div>
         <div class="flex items-center gap-3 px-3 py-2 bg-(--ui-bg-muted) rounded-xl min-h-[52px]">
           <label class="text-sm text-(--ui-text-muted) w-16 shrink-0" for="env-budget">Budget</label>
-          <span class="text-sm text-(--ui-text-muted)">$</span>
+          <span class="text-sm text-(--ui-text-muted)">{{ getCurrencySymbol(homeCurrency) }}</span>
           <input
             id="env-budget"
             v-model="modalEnvelope.budget_amount"
@@ -324,14 +391,30 @@ async function confirmDeleteEnvelope() {
           />
           <span class="text-sm text-(--ui-text-muted)">/mo</span>
         </div>
+        <fieldset class="space-y-2">
+          <legend class="text-sm font-medium text-(--ui-text)">Spending categories</legend>
+          <p class="text-xs text-(--ui-text-muted)">Select one or more expense categories used by this envelope.</p>
+          <div v-for="category in categories.filter((item) => item.id !== 'c7' && item.parent_id !== 'c7')" :key="category.id" class="space-y-1">
+            <label class="flex items-center gap-2 min-h-[44px] text-sm">
+              <input v-model="modalEnvelope.category_ids" type="checkbox" :value="category.id" />
+              <span>{{ category.icon }} {{ category.name }}</span>
+            </label>
+            <label v-for="child in category.children ?? []" :key="child.id" class="ml-6 flex items-center gap-2 min-h-[44px] text-sm text-(--ui-text-muted)">
+              <input v-model="modalEnvelope.category_ids" type="checkbox" :value="child.id" />
+              <span>{{ child.icon }} {{ child.name }}</span>
+            </label>
+          </div>
+        </fieldset>
+        <p v-if="modalError" class="text-sm text-rose-400" role="alert">{{ modalError }}</p>
       </div>
       <template #footer>
         <button
           class="w-full py-3.5 bg-primary-500 hover:bg-primary-400 text-white font-semibold rounded-2xl transition-colors min-h-[48px] disabled:opacity-40 btn-press"
-          :disabled="!modalEnvelope.name || !modalEnvelope.budget_amount"
+          :disabled="saving || !modalEnvelope.name || !modalEnvelope.budget_amount"
+          :aria-busy="saving"
           @click="saveEnvelope"
         >
-          {{ isEditing ? 'Save Changes' : 'Create Envelope' }}
+          {{ saving ? 'Saving…' : isEditing ? 'Save Changes' : 'Create Envelope' }}
         </button>
       </template>
     </AppBottomSheet>
