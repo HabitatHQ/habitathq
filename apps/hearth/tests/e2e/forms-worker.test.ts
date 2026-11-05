@@ -3,6 +3,12 @@ import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { databaseRequest, exportBackup, installDatabaseProbe } from './helpers/database'
 
+
+declare global {
+  interface Window {
+    __releaseHearthEditorLoad: (() => void) | undefined
+  }
+}
 async function addSplitPartner(page: Page) {
   await installDatabaseProbe(page)
   await page.goto('/')
@@ -209,7 +215,7 @@ test('late foreign-exchange response cannot overwrite the latest transaction typ
   })
 })
 
-test('editing an unrelated field offline preserves the saved signed home conversion', async ({ page }) => {
+test('editing after a delayed load offline preserves the saved signed home conversion', async ({ page }) => {
   await installDatabaseProbe(page)
   await page.goto('/settings')
   await page.getByLabel('Home currency', { exact: true }).selectOption('USD')
@@ -249,7 +255,32 @@ test('editing an unrelated field offline preserves the saved signed home convers
     attemptedRates += 1
     await route.abort()
   })
+  await page.addInitScript(() => {
+    const NativeWorker = window.Worker
+    window.Worker = class extends NativeWorker {
+      postMessage(message: unknown, options?: StructuredSerializeOptions | Transferable[]) {
+        const send = () => {
+          if (Array.isArray(options)) super.postMessage(message, options)
+          else super.postMessage(message, options)
+        }
+        if (
+          typeof message === 'object' && message !== null &&
+          'type' in message && message.type === 'GET_TRANSACTION'
+        ) {
+          window.__releaseHearthEditorLoad = send
+          return
+        }
+        send()
+      }
+    }
+  })
   await page.goto(`/transactions/${seeded.id}`)
+  await page.waitForFunction(() => typeof window.__releaseHearthEditorLoad === 'function')
+  await expect(page.getByRole('status', { name: 'Loading transaction' })).toBeVisible()
+  await expect(page.getByLabel('Merchant')).toBeHidden()
+  await expect(page.getByRole('button', { name: 'Save transaction' })).toBeDisabled()
+  await page.evaluate(() => window.__releaseHearthEditorLoad?.())
+  await expect(page.getByLabel('Merchant')).toHaveValue('Offline conversion fixture')
   await page.getByLabel('Merchant').fill('Offline conversion edited')
   await page.getByRole('button', { name: 'Save transaction' }).click()
   await expect(page).not.toHaveURL(/transactions\/[^/]+$/)

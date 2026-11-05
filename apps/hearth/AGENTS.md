@@ -38,6 +38,7 @@ users, accounts, categories, transactions, envelopes, envelope_periods, iou_spli
 - IOUs are grouped and settled by user pair and original currency. Recurring detection likewise separates accounts and currencies; historical detection IDs may outlive deleted transactions.
 - Detailed expense entry commits the transaction and optional IOU share atomically. Worker/native dispatch serializes reads, writes, exports, and resets so another request cannot observe a partial operation.
 - Default categories are seeded idempotently without overwriting custom records. Linked parent categories include descendant spending once.
+- Transaction editing must not expose editable fields before its saved record and reference data finish loading; loading failures remain visible and Save stays disabled.
 
 ## Routes
 

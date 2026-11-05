@@ -33,6 +33,8 @@ const form = reactive({
 const saving = ref(false)
 const error = ref<string | null>(null)
 const notFound = ref(false)
+const loading = ref(true)
+const loadError = ref<string | null>(null)
 const iouSplit = ref<IouSplit | null>(null)
 const iouTransaction = ref<{ type: TxType; amount: number; currency: string } | null>(null)
 const savedConversion = ref<{
@@ -50,48 +52,54 @@ const categories = ref<Array<Category & { children: Category[] }>>([])
 const users = ref<User[]>([])
 
 onMounted(async () => {
-  const [tx, accts, cats, usrs, splits] = await Promise.all([
-    db.getTransaction(id),
-    db.getAccounts(),
-    db.getCategoryTree(),
-    db.getUsers(),
-    db.getIouSplits(),
-  ])
+  try {
+    const [tx, accts, cats, usrs, splits] = await Promise.all([
+      db.getTransaction(id),
+      db.getAccounts(),
+      db.getCategoryTree(),
+      db.getUsers(),
+      db.getIouSplits(),
+    ])
 
-  accounts.value = accts
-  categories.value = cats
-  users.value = usrs
+    accounts.value = accts
+    categories.value = cats
+    users.value = usrs
 
-  if (!tx) {
-    notFound.value = true
-    return
-  }
+    if (!tx) {
+      notFound.value = true
+      return
+    }
 
-  iouSplit.value = splits.find((split) => split.transaction_id === id) ?? null
-  if (iouSplit.value) {
-    iouTransaction.value = { type: tx.type, amount: tx.amount, currency: tx.currency || 'USD' }
+    iouSplit.value = splits.find((split) => split.transaction_id === id) ?? null
+    if (iouSplit.value) {
+      iouTransaction.value = { type: tx.type, amount: tx.amount, currency: tx.currency || 'USD' }
+    }
+    savedConversion.value = {
+      amount: tx.amount,
+      currency: tx.currency,
+      date: tx.date,
+      type: tx.type,
+      home_amount: tx.home_amount,
+      home_currency: tx.home_currency,
+      exchange_rate: tx.exchange_rate,
+    }
+    form.type = tx.type
+    form.amountStr = String(Math.abs(tx.amount))
+    form.currency = tx.currency || 'USD'
+    form.date = tx.date
+    form.accountId = tx.account_id
+    form.toAccountId =
+      tx.transfer_to_account_id ??
+      (accts.length > 1 ? (accts.find((a) => a.id !== tx.account_id)?.id ?? '') : '')
+    form.categoryId = tx.category_id ?? ''
+    form.merchant = tx.merchant
+    form.description = tx.description
+    form.isPrivate = tx.is_private === 1
+  } catch (cause) {
+    loadError.value = cause instanceof Error ? cause.message : 'Could not load transaction'
+  } finally {
+    loading.value = false
   }
-  savedConversion.value = {
-    amount: tx.amount,
-    currency: tx.currency,
-    date: tx.date,
-    type: tx.type,
-    home_amount: tx.home_amount,
-    home_currency: tx.home_currency,
-    exchange_rate: tx.exchange_rate,
-  }
-  form.type = tx.type
-  form.amountStr = String(Math.abs(tx.amount))
-  form.currency = tx.currency || 'USD'
-  form.date = tx.date
-  form.accountId = tx.account_id
-  form.toAccountId =
-    tx.transfer_to_account_id ??
-    (accts.length > 1 ? (accts.find((a) => a.id !== tx.account_id)?.id ?? '') : '')
-  form.categoryId = tx.category_id ?? ''
-  form.merchant = tx.merchant
-  form.description = tx.description
-  form.isPrivate = tx.is_private === 1
 })
 
 const categoryOptions = computed(() => {
@@ -156,7 +164,7 @@ watch(
 )
 
 async function submit() {
-  if (saving.value) return
+  if (loading.value || loadError.value || notFound.value || saving.value) return
   if (!Number.isFinite(amountNum.value) || amountNum.value <= 0) {
     error.value = 'Please enter a positive, finite amount'
     return
@@ -256,15 +264,20 @@ const TYPE_OPTIONS: { value: TxType; label: string; icon: string }[] = [
       <button
         type="submit"
         class="min-h-[44px] px-4 font-semibold text-primary-400 hover:text-primary-300 transition-colors disabled:opacity-40"
-        :disabled="saving || !amountNum"
+        :disabled="loading || loadError !== null || notFound || saving || !amountNum"
         aria-label="Save transaction"
       >
         {{ saving ? 'Saving…' : 'Save' }}
       </button>
     </div>
 
+    <div v-if="loading" class="p-4" role="status" aria-label="Loading transaction">
+      <AppSkeleton variant="row" :count="4" />
+    </div>
+    <UAlert v-else-if="loadError" role="alert" :description="loadError" color="error" />
+
     <!-- Not found state -->
-    <div v-if="notFound" class="flex-1 flex items-center justify-center text-(--ui-text-muted)">
+    <div v-else-if="notFound" class="flex-1 flex items-center justify-center text-(--ui-text-muted)">
       Transaction not found.
     </div>
 
