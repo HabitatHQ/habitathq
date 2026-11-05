@@ -68,7 +68,9 @@ export class NodeSqliteAdapter implements TransactableStorageAdapter, Constraint
     return this.#db;
   }
 
+  /** Reuse the active connection until close(); opening after close creates a new connection. */
   async open(): Promise<void> {
+    if (this.#db !== null) return;
     // Stryker disable next-line StringLiteral -- ":memory:" is the SQLite in-memory URI; any mutation breaks the adapter
     const path = this.#config.vfs.type === "memory" ? ":memory:" : this.#config.vfs.filename;
     this.#db = new DatabaseSync(path);
