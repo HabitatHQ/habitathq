@@ -1,6 +1,7 @@
 import type {
   ChannelStatus,
   Notification,
+  NotificationInteractionHandler,
   NotificationsChannel,
   PermissionState,
 } from "@palladium/notifications-core";
@@ -14,10 +15,14 @@ function mapPermission(p: NotificationPermission): PermissionState {
 
 export class BrowserNotificationChannel implements NotificationsChannel {
   readonly name = "browser" as const;
+  private _interactionHandler: NotificationInteractionHandler | undefined;
   private readonly _opts: BrowserNotificationChannelOpts;
 
   constructor(opts?: BrowserNotificationChannelOpts) {
     this._opts = opts ?? {};
+  }
+  setInteractionHandler(handler: NotificationInteractionHandler | undefined): void {
+    this._interactionHandler = handler;
   }
 
   isAvailable(): boolean {
@@ -62,6 +67,7 @@ export class BrowserNotificationChannel implements NotificationsChannel {
         ...(notification.data === undefined ? {} : { data: notification.data }),
       };
       const n = new Notification(notification.title, options);
+      let clicked = false;
 
       if (this._opts.autoDismissMs !== undefined) {
         const ms = this._opts.autoDismissMs;
@@ -76,12 +82,17 @@ export class BrowserNotificationChannel implements NotificationsChannel {
             window.location.href = notification.deepLink;
           }
         }
+        clicked = true;
+        this._interactionHandler?.clicked(notification);
         this._opts.onNotificationClick?.(notification);
         n.close();
       };
 
       n.onclose = () => {
-        this._opts.onNotificationDismiss?.(notification);
+        if (!clicked) {
+          this._interactionHandler?.dismissed(notification);
+          this._opts.onNotificationDismiss?.(notification);
+        }
       };
 
       return { status: "delivered" };

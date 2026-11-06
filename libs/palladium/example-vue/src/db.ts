@@ -1,5 +1,5 @@
 import type { SchemaConfig } from "@palladium/core";
-import { createEngine, generateUlid } from "@palladium/core";
+import { createEngine } from "@palladium/core";
 import { BrowserSqliteAdapter } from "@palladium/sqlite-browser";
 
 export type TodoRow = { id: string; text: string; done: number };
@@ -13,4 +13,4 @@ export const SCHEMA: SchemaConfig = {
 
 export const db = createEngine<TodoSchema>(new BrowserSqliteAdapter({ vfs: { type: "memory" } }));
 
-export { generateUlid };
+export { generateUuidV7 } from "@palladium/core";

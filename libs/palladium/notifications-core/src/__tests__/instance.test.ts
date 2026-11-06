@@ -22,23 +22,6 @@ function withNoWindow<T>(fn: () => T): T {
 }
 
 describe("createNotifications", () => {
-  it("returns an instance with expected shape", () => {
-    const inst = createNotifications();
-    expect(typeof inst.notify).toBe("function");
-    expect(typeof inst.use).toBe("function");
-    expect(typeof inst.on).toBe("function");
-    expect(typeof inst.getChannel).toBe("function");
-    expect(typeof inst.toast).toBe("object");
-    expect(typeof inst.browser).toBe("object");
-  });
-
-  it("notify() returns a NotificationBuilder with send()", () => {
-    const inst = createNotifications();
-    const builder = inst.notify("Hello");
-    expect(typeof builder.send).toBe("function");
-    expect(typeof builder.via).toBe("function");
-  });
-
   it("getChannel() returns configured channel", () => {
     const toast = new MockChannel("toast");
     const inst = createNotifications({ channels: { toast } });

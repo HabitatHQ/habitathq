@@ -2,7 +2,7 @@
 
 export type { BuilderSendFn } from "./builder.js";
 export { NotificationBuilder } from "./builder.js";
-export type { NotificationsChannel } from "./channel.js";
+export type { NotificationInteractionHandler, NotificationsChannel } from "./channel.js";
 export { InMemoryDedupStore } from "./dedup.js";
 export type {
   NotificationEvent,

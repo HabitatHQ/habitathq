@@ -141,9 +141,12 @@ export class AtriumApi {
   }
 
   /** Fetch a blob's bytes if the caller may read its note; `null` if denied. */
-  async getBlob(blobId: string): Promise<Blob | null> {
+  async getBlob(workspaceId: string, blobId: string): Promise<Blob | null> {
     const res = await fetch(`${this.#serverUrl}/v1/blobs/${blobId}`, {
-      headers: { Authorization: `Bearer ${this.#user}` },
+      headers: {
+        Authorization: `Bearer ${this.#user}`,
+        "X-Workspace": workspaceId,
+      },
     });
     return res.ok ? await res.blob() : null;
   }

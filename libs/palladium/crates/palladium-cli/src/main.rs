@@ -239,6 +239,13 @@ struct InstanceListEntry {
     error: Option<String>,
 }
 
+fn display_instance_path(inst: &palladium_core::InstanceConfig) -> String {
+    match inst.backend {
+        palladium_core::BackendKind::Sqlite => inst.path.clone(),
+        palladium_core::BackendKind::Postgres => "[PostgreSQL connection]".to_owned(),
+    }
+}
+
 async fn run_instances_list(config_path: Option<&std::path::Path>, json: bool) -> Result<()> {
     let cfg = load_config(config_path)?;
 
@@ -249,18 +256,22 @@ async fn run_instances_list(config_path: Option<&std::path::Path>, json: bool) -
 
     let mut entries: Vec<InstanceListEntry> = Vec::new();
     for inst in &cfg.instances {
-        let entry = match SqliteStore::open(&inst.path).await {
-            Ok(_store) => InstanceListEntry {
+        let result = match inst.backend {
+            palladium_core::BackendKind::Sqlite => inspect_sqlite_read_only(&inst.path).await,
+            palladium_core::BackendKind::Postgres => inspect_postgres_read_only(inst).await,
+        };
+        let entry = match result {
+            Ok(()) => InstanceListEntry {
                 name: inst.name.clone(),
-                path: inst.path.clone(),
+                path: display_instance_path(inst),
                 status: "ok".to_owned(),
                 error: None,
             },
-            Err(e) => InstanceListEntry {
+            Err(_) => InstanceListEntry {
                 name: inst.name.clone(),
-                path: inst.path.clone(),
+                path: display_instance_path(inst),
                 status: "error".to_owned(),
-                error: Some(e.to_string()),
+                error: Some("backend unavailable or not initialized".to_owned()),
             },
         };
         entries.push(entry);
@@ -269,7 +280,6 @@ async fn run_instances_list(config_path: Option<&std::path::Path>, json: bool) -
     if json {
         println!("{}", serde_json::to_string_pretty(&entries)?);
     } else {
-        // Simple tabular output
         println!("{:<20} {:<40} STATUS", "NAME", "PATH");
         for e in &entries {
             let status = e
@@ -279,7 +289,49 @@ async fn run_instances_list(config_path: Option<&std::path::Path>, json: bool) -
             println!("{:<20} {:<40} {status}", e.name, e.path);
         }
     }
+    Ok(())
+}
 
+async fn inspect_sqlite_read_only(url: &str) -> Result<()> {
+    use std::str::FromStr;
+    let options = sqlx::sqlite::SqliteConnectOptions::from_str(url)?
+        .create_if_missing(false)
+        .read_only(true);
+    let pool = sqlx::SqlitePool::connect_with(options).await?;
+    let table: Option<String> = sqlx::query_scalar(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'palladium_changes'",
+    )
+    .fetch_optional(&pool)
+    .await?;
+    pool.close().await;
+    anyhow::ensure!(table.is_some(), "database is not initialized");
+    Ok(())
+}
+
+async fn inspect_postgres_read_only(inst: &palladium_core::InstanceConfig) -> Result<()> {
+    let pool = sqlx::PgPool::connect(&inst.path).await?;
+    let schema = inst
+        .postgres
+        .as_ref()
+        .map(|options| &options.isolation)
+        .filter(|isolation| matches!(isolation, palladium_core::PostgresIsolation::Db))
+        .map_or_else(
+            || {
+                inst.postgres
+                    .as_ref()
+                    .and_then(|options| options.schema.as_deref())
+                    .unwrap_or(&inst.name)
+            },
+            |_| "public",
+        );
+    let found: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'palladium_changes')",
+    )
+    .bind(schema)
+    .fetch_one(&pool)
+    .await?;
+    pool.close().await;
+    anyhow::ensure!(found, "database is not initialized");
     Ok(())
 }
 
@@ -415,6 +467,46 @@ mod tests {
                 command: InstancesCommand::List { json: true, .. }
             }
         ));
+    }
+    #[allow(clippy::unwrap_used)]
+    #[tokio::test]
+    async fn sqlite_status_probe_does_not_create_missing_database() {
+        let path = std::env::temp_dir().join(format!(
+            "palladium-cli-read-only-{}-{}.db",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let url = format!("sqlite:{}", path.display());
+        assert!(super::inspect_sqlite_read_only(&url).await.is_err());
+        assert!(!path.exists());
+    }
+    #[allow(clippy::unwrap_used)]
+    #[tokio::test]
+    async fn postgres_status_probe_does_not_treat_connection_string_as_sqlite_path() {
+        let path = std::env::temp_dir().join(format!(
+            "palladium-cli-backend-selection-{}-{}.db",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let config = palladium_core::InstanceConfig {
+            name: "postgres".to_owned(),
+            path: format!("sqlite:{}", path.display()),
+            backend: palladium_core::BackendKind::Postgres,
+            limits: palladium_core::InstanceLimits::default(),
+            postgres: None,
+        };
+        assert!(super::inspect_postgres_read_only(&config).await.is_err());
+        assert!(!path.exists());
+        assert_eq!(
+            super::display_instance_path(&config),
+            "[PostgreSQL connection]"
+        );
     }
 }
 

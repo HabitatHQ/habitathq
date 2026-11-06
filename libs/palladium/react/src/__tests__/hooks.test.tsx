@@ -82,6 +82,57 @@ describe("useLiveQuery", () => {
     await waitFor(() => expect(screen.getByTestId("out").textContent).toBe("0"));
   });
 
+  it("supports bigint query parameters and reruns when their value changes", async () => {
+    const db = makeDb();
+    await db.init(SCHEMA);
+    function App({ value }: { value: bigint }): ReactNode {
+      const { rows, loading, error } = useLiveQuery<{ value: bigint }>(
+        sql`SELECT ${value} AS value`,
+      );
+      return (
+        <div data-testid="bigint">
+          {error?.message ?? (loading ? "loading" : String(rows[0]?.value))}
+        </div>
+      );
+    }
+    const view = render(<App value={1n} />, { wrapper: wrapper(db) });
+    await waitFor(() => expect(screen.getByTestId("bigint").textContent).toBe("1"));
+    view.rerender(<App value={2n} />);
+    await waitFor(() => expect(screen.getByTestId("bigint").textContent).toBe("2"));
+  });
+
+  it("updates actual SQLite results when parameter type or bytes change", async () => {
+    const db = makeDb();
+    await db.init(SCHEMA);
+    function App({ value }: { value: unknown }): ReactNode {
+      const { rows, loading, error } = useLiveQuery<{
+        kind: string;
+        content: string;
+        empty: number;
+      }>(sql`SELECT typeof(${value}) AS kind, hex(${value}) AS content, ${value} IS NULL AS empty`);
+      const row = rows[0];
+      return (
+        <div data-testid="identity">
+          {error?.message ?? (loading ? "loading" : `${row?.kind}:${row?.content}:${row?.empty}`)}
+        </div>
+      );
+    }
+    const cases: ReadonlyArray<readonly [unknown, string]> = [
+      [1n, "integer:31:0"],
+      ["1", "text:31:0"],
+      [undefined, "null::1"],
+      [new Uint8Array([1]), "blob:01:0"],
+      [new Uint8Array([2]), "blob:02:0"],
+    ];
+    const view = render(<App value={cases[0]?.[0]} />, { wrapper: wrapper(db) });
+    for (const [value, expected] of cases) {
+      view.rerender(<App value={value} />);
+      await waitFor(() => expect(screen.getByTestId("identity").textContent).toBe(expected));
+    }
+    view.unmount();
+    await db.adapter.close();
+  });
+
   it("re-renders when a row is inserted", async () => {
     const db = makeDb();
     await db.init(SCHEMA);

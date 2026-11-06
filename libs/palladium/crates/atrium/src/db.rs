@@ -109,13 +109,14 @@ CREATE TABLE IF NOT EXISTS atrium_append_sequence (
     next_seq INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS blobs (
-    blob_id TEXT NOT NULL PRIMARY KEY,
+    blob_id TEXT NOT NULL,
     workspace_id TEXT NOT NULL,
     note_id TEXT NOT NULL,
     owner_user_id TEXT NOT NULL,
     content_type TEXT NOT NULL,
     bytes BLOB NOT NULL,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (workspace_id, blob_id)
 );
 ";
 
@@ -206,6 +207,7 @@ impl AtriumDb {
             .await
             .map_err(AtriumError::internal)?;
         sqlx::query(MIGRATE).execute(&pool).await?;
+        Self::upgrade_blob_workspace_identity(&pool).await?;
         Self::upgrade_workspace_qualified_schema(&pool).await?;
         Self::upgrade_grant_backfill_schema(&pool).await?;
         Self::upgrade_device_event_schema(&pool).await?;
@@ -375,6 +377,42 @@ impl AtriumDb {
         .fetch_optional(pool)
         .await?
         .is_some())
+    }
+
+    /// Rebuild legacy globally-keyed blob metadata without changing stored payloads.
+    async fn upgrade_blob_workspace_identity(pool: &SqlitePool) -> Result<(), AtriumError> {
+        if Self::table_has_primary_key(pool, "blobs", &["workspace_id", "blob_id"]).await? {
+            return Ok(());
+        }
+        let mut tx = pool.begin().await?;
+        sqlx::query(
+            "CREATE TABLE blobs_replacement (
+                blob_id TEXT NOT NULL,
+                workspace_id TEXT NOT NULL,
+                note_id TEXT NOT NULL,
+                owner_user_id TEXT NOT NULL,
+                content_type TEXT NOT NULL,
+                bytes BLOB NOT NULL,
+                created_at INTEGER NOT NULL,
+                PRIMARY KEY (workspace_id, blob_id)
+            )",
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO blobs_replacement
+             (blob_id, workspace_id, note_id, owner_user_id, content_type, bytes, created_at)
+             SELECT blob_id, workspace_id, note_id, owner_user_id, content_type, bytes, created_at
+             FROM blobs",
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("DROP TABLE blobs").execute(&mut *tx).await?;
+        sqlx::query("ALTER TABLE blobs_replacement RENAME TO blobs")
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
     }
     /// Rebuild legacy global-id ACL tables once, preserving resolvable rows.
     async fn upgrade_workspace_qualified_schema(pool: &SqlitePool) -> Result<(), AtriumError> {
@@ -817,9 +855,23 @@ impl AtriumDb {
         kind: &str,
     ) -> Result<(), AtriumError> {
         let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let prior: Option<String> = sqlx::query_scalar(
+            "SELECT sharing FROM records
+             WHERE workspace_id = ? AND row_id = ? AND root_id IS NULL",
+        )
+        .bind(workspace)
+        .bind(root_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if prior.is_none() {
+            return Err(AtriumError::NotFound("root record not found".to_owned()));
+        }
+        if prior.as_deref() == Some(sharing) {
+            tx.commit().await?;
+            return Ok(());
+        }
         sqlx::query(
-            "UPDATE records
-             SET sharing = ?
+            "UPDATE records SET sharing = ?
              WHERE workspace_id = ? AND row_id = ? AND root_id IS NULL",
         )
         .bind(sharing)
@@ -827,19 +879,26 @@ impl AtriumDb {
         .bind(root_id)
         .execute(&mut *tx)
         .await?;
-        sqlx::query(
-            "INSERT INTO grant_events (workspace_id, user_id, root_id, kind)
-             SELECT ?, user_id, ?, ?
-             FROM memberships
-             WHERE workspace_id = ? AND user_id != ?",
-        )
-        .bind(workspace)
-        .bind(root_id)
-        .bind(kind)
-        .bind(workspace)
-        .bind(owner)
-        .execute(&mut *tx)
-        .await?;
+        let became_visible =
+            prior.as_deref() == Some(SHARING_PRIVATE) && sharing != SHARING_PRIVATE;
+        let became_invisible =
+            prior.as_deref() != Some(SHARING_PRIVATE) && sharing == SHARING_PRIVATE;
+        if became_visible || became_invisible {
+            let event_kind = if became_visible { EVENT_GRANT } else { kind };
+            sqlx::query(
+                "INSERT INTO grant_events (workspace_id, user_id, root_id, kind)
+                 SELECT ?, user_id, ?, ?
+                 FROM memberships
+                 WHERE workspace_id = ? AND user_id != ?",
+            )
+            .bind(workspace)
+            .bind(root_id)
+            .bind(event_kind)
+            .bind(workspace)
+            .bind(owner)
+            .execute(&mut *tx)
+            .await?;
+        }
         tx.commit().await?;
         Ok(())
     }
@@ -853,6 +912,28 @@ impl AtriumDb {
         perm: &str,
     ) -> Result<(), AtriumError> {
         let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let sharing: Option<String> = sqlx::query_scalar(
+            "SELECT sharing FROM records
+             WHERE workspace_id = ? AND row_id = ? AND root_id IS NULL",
+        )
+        .bind(workspace)
+        .bind(root_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if sharing.is_none() {
+            return Err(AtriumError::NotFound("root record not found".to_owned()));
+        }
+        let was_visible = sharing.as_deref() != Some(SHARING_PRIVATE)
+            || sqlx::query_scalar::<_, i64>(
+                "SELECT 1 FROM shares
+                 WHERE workspace_id = ? AND root_id = ? AND grantee_user_id = ?",
+            )
+            .bind(workspace)
+            .bind(root_id)
+            .bind(grantee)
+            .fetch_optional(&mut *tx)
+            .await?
+            .is_some();
         sqlx::query(
             "INSERT OR REPLACE INTO shares (workspace_id, root_id, grantee_user_id, perm)
              VALUES (?, ?, ?, ?)",
@@ -863,7 +944,9 @@ impl AtriumDb {
         .bind(perm)
         .execute(&mut *tx)
         .await?;
-        Self::enqueue_event_in_tx(&mut tx, workspace, grantee, root_id, EVENT_GRANT).await?;
+        if !was_visible {
+            Self::enqueue_event_in_tx(&mut tx, workspace, grantee, root_id, EVENT_GRANT).await?;
+        }
         tx.commit().await?;
         Ok(())
     }
@@ -876,7 +959,15 @@ impl AtriumDb {
         grantee: &str,
     ) -> Result<(), AtriumError> {
         let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
-        sqlx::query(
+        let sharing: Option<String> = sqlx::query_scalar(
+            "SELECT sharing FROM records
+             WHERE workspace_id = ? AND row_id = ? AND root_id IS NULL",
+        )
+        .bind(workspace)
+        .bind(root_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let deleted = sqlx::query(
             "DELETE FROM shares
              WHERE workspace_id = ? AND root_id = ? AND grantee_user_id = ?",
         )
@@ -884,8 +975,11 @@ impl AtriumDb {
         .bind(root_id)
         .bind(grantee)
         .execute(&mut *tx)
-        .await?;
-        Self::enqueue_event_in_tx(&mut tx, workspace, grantee, root_id, EVENT_REVOKE).await?;
+        .await?
+        .rows_affected();
+        if deleted > 0 && sharing.as_deref() == Some(SHARING_PRIVATE) {
+            Self::enqueue_event_in_tx(&mut tx, workspace, grantee, root_id, EVENT_REVOKE).await?;
+        }
         tx.commit().await?;
         Ok(())
     }
@@ -1419,6 +1513,18 @@ impl AtriumDb {
             let role = registry::role_of(table)
                 .ok_or_else(|| AtriumError::BadRequest(format!("unknown table {table}")))?;
             let row_id = op.row_id().to_string();
+            if let (TableRole::Child, Op::Update { col, value, .. }) = (role, op) {
+                if col.eq_ignore_ascii_case("root_id") {
+                    let existing = Self::get_record_in_tx(&mut tx, workspace, &row_id)
+                        .await?
+                        .and_then(|record| record.root_id);
+                    if value.as_str() != existing.as_deref() {
+                        return Err(AtriumError::BadRequest(
+                            "child root_id is immutable".to_owned(),
+                        ));
+                    }
+                }
+            }
             let op_root = match role {
                 TableRole::Root(_) if matches!(op, Op::Insert { .. }) => row_id.clone(),
                 TableRole::Child if matches!(op, Op::Insert { .. }) => {
@@ -1617,21 +1723,8 @@ impl AtriumDb {
                 "blob exceeds maximum size of {MAX_BLOB_BYTES} bytes"
             )));
         }
-        if let Some(existing) = self.get_blob(blob_id).await? {
-            if existing.workspace_id != workspace
-                || existing.note_id != note_id
-                || existing.owner_user_id != owner
-                || existing.content_type != content_type
-                || existing.bytes != bytes
-            {
-                return Err(AtriumError::Conflict(
-                    "blob id is already bound to different content".to_owned(),
-                ));
-            }
-            return Ok(());
-        }
         sqlx::query(
-            "INSERT INTO blobs
+            "INSERT OR IGNORE INTO blobs
              (blob_id, workspace_id, note_id, owner_user_id, content_type, bytes, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
@@ -1644,13 +1737,31 @@ impl AtriumDb {
         .bind(now_millis())
         .execute(&self.pool)
         .await?;
+        let existing = self
+            .get_blob(workspace, blob_id)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound)?;
+        if existing.note_id != note_id
+            || existing.owner_user_id != owner
+            || existing.content_type != content_type
+            || existing.bytes != bytes
+        {
+            return Err(AtriumError::Conflict(
+                "blob id is already bound to different content".to_owned(),
+            ));
+        }
         Ok(())
     }
-    pub async fn get_blob(&self, blob_id: &str) -> Result<Option<BlobRecord>, AtriumError> {
+    pub async fn get_blob(
+        &self,
+        workspace: &str,
+        blob_id: &str,
+    ) -> Result<Option<BlobRecord>, AtriumError> {
         let row = sqlx::query_as::<_, (String, String, String, String, String, Vec<u8>)>(
             "SELECT blob_id, workspace_id, note_id, owner_user_id, content_type, bytes
-             FROM blobs WHERE blob_id = ?",
+             FROM blobs WHERE workspace_id = ? AND blob_id = ?",
         )
+        .bind(workspace)
         .bind(blob_id)
         .fetch_optional(&self.pool)
         .await?;
@@ -1916,17 +2027,54 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn blob_retries_are_idempotent_and_conflicts_rejected() {
+    async fn concurrent_identical_blob_retries_are_idempotent_and_conflicts_rejected() {
         let db = AtriumDb::in_memory().await.unwrap();
-        db.put_blob("blob", "workspace", "note", "owner", "image/png", b"bytes")
-            .await
-            .unwrap();
-        db.put_blob("blob", "workspace", "note", "owner", "image/png", b"bytes")
-            .await
-            .unwrap();
+        let (left, right) = tokio::join!(
+            db.put_blob("blob", "workspace", "note", "owner", "image/png", b"bytes"),
+            db.put_blob("blob", "workspace", "note", "owner", "image/png", b"bytes")
+        );
+        left.unwrap();
+        right.unwrap();
         assert!(db
             .put_blob("blob", "workspace", "note", "owner", "image/jpeg", b"bytes")
             .await
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn legacy_blob_table_migrates_without_losing_bytes() {
+        let path = std::env::temp_dir().join(format!("atrium-blobs-{}.sqlite", Uuid::new_v4()));
+        std::fs::File::create(&path).unwrap();
+        let url = format!("sqlite:{}", path.display());
+        let pool = sqlx::SqlitePool::connect(&url).await.unwrap();
+        sqlx::query(
+            "CREATE TABLE blobs (
+                blob_id TEXT NOT NULL PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                note_id TEXT NOT NULL,
+                owner_user_id TEXT NOT NULL,
+                content_type TEXT NOT NULL,
+                bytes BLOB NOT NULL,
+                created_at INTEGER NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO blobs VALUES ('same', 'workspace-a', 'note', 'alice',
+                'image/png', X'010203', 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool.close().await;
+
+        let db = AtriumDb::open(&url).await.unwrap();
+        let blob = db.get_blob("workspace-a", "same").await.unwrap().unwrap();
+        assert_eq!(blob.bytes, [1, 2, 3]);
+        assert!(db.get_blob("workspace-b", "same").await.unwrap().is_none());
+        db.pool.close().await;
+        std::fs::remove_file(path).unwrap();
     }
 }

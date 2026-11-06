@@ -1,18 +1,38 @@
 import type {
   ChannelStatus,
   Notification,
+  NotificationInteractionHandler,
   NotificationsChannel,
   PermissionState,
 } from "@palladium/notifications-core";
-import type { ExpoNotificationChannelOpts } from "./types.js";
+import type { ExpoNotificationChannelOpts, ExpoNotificationSubscription } from "./types.js";
 
 export class ExpoNotificationChannel implements NotificationsChannel {
   readonly name = "expo" as const;
   private readonly _opts: ExpoNotificationChannelOpts;
   private _permissionState: PermissionState = "default";
+  private _interactionHandler: NotificationInteractionHandler | undefined;
+  private readonly _notifications = new Map<string, Notification>();
+  private readonly _responseListener: ExpoNotificationSubscription;
 
   constructor(opts: ExpoNotificationChannelOpts) {
     this._opts = opts;
+    this._responseListener = opts.adapter.addNotificationResponseReceivedListener((response) => {
+      const notification = this._notifications.get(response.notification.request.identifier ?? "");
+      if (notification !== undefined) {
+        this._interactionHandler?.clicked(notification, response.actionIdentifier);
+      }
+    });
+  }
+
+  setInteractionHandler(handler: NotificationInteractionHandler | undefined): void {
+    this._interactionHandler = handler;
+  }
+
+  dispose(): void {
+    this._responseListener.remove();
+    this._interactionHandler = undefined;
+    this._notifications.clear();
   }
 
   isAvailable(): boolean {
@@ -41,7 +61,7 @@ export class ExpoNotificationChannel implements NotificationsChannel {
         data["deepLink"] = notification.deepLink;
       }
 
-      await this._opts.adapter.scheduleNotificationAsync({
+      const identifier = await this._opts.adapter.scheduleNotificationAsync({
         content: {
           title: notification.title,
           ...(notification.body !== undefined && { body: notification.body }),
@@ -52,6 +72,7 @@ export class ExpoNotificationChannel implements NotificationsChannel {
         },
         trigger: null,
       });
+      this._notifications.set(identifier, notification);
       return { status: "delivered" };
     } catch (err) {
       return {

@@ -1,6 +1,7 @@
 import type {
   ChannelStatus,
   Notification,
+  NotificationInteractionHandler,
   NotificationsChannel,
   PermissionState,
 } from "@palladium/notifications-core";
@@ -27,10 +28,30 @@ function toNumericId(id: string | undefined): number {
 export class CapacitorNotificationChannel implements NotificationsChannel {
   readonly name = "capacitor" as const;
   private readonly _opts: CapacitorNotificationChannelOpts;
+  private _interactionHandler: NotificationInteractionHandler | undefined;
+  private readonly _notifications = new Map<number, Notification>();
+  private readonly _actionListener: Promise<{ remove: () => Promise<void> }> | undefined;
   private _permissionState: PermissionState = "default";
 
   constructor(opts: CapacitorNotificationChannelOpts) {
     this._opts = opts;
+    this._actionListener = opts.localNotifications?.addListener(
+      "localNotificationActionPerformed",
+      ({ actionId, notification: { id } }) => {
+        const notification = this._notifications.get(id);
+        if (notification !== undefined) this._interactionHandler?.clicked(notification, actionId);
+      },
+    );
+  }
+  setInteractionHandler(handler: NotificationInteractionHandler | undefined): void {
+    this._interactionHandler = handler;
+  }
+
+  async dispose(): Promise<void> {
+    const listener = await this._actionListener;
+    await listener?.remove();
+    this._notifications.clear();
+    this._interactionHandler = undefined;
   }
 
   isAvailable(): boolean {
@@ -84,16 +105,18 @@ export class CapacitorNotificationChannel implements NotificationsChannel {
       if (notification.data !== undefined) {
         extra["data"] = notification.data;
       }
+      const id = toNumericId(notification.id);
       await local.schedule({
         notifications: [
           {
-            id: toNumericId(notification.id),
+            id,
             title: notification.title,
             ...(notification.body !== undefined && { body: notification.body }),
             ...(Object.keys(extra).length > 0 && { extra }),
           },
         ],
       });
+      this._notifications.set(id, notification);
       return { status: "delivered" };
     } catch (err) {
       return {

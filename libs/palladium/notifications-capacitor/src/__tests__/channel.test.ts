@@ -99,6 +99,25 @@ describe("CapacitorNotificationChannel", () => {
     expect(result.status).toBe("skipped");
   });
 
+  it("forwards Capacitor local notification actions and removes its listener on dispose", async () => {
+    const local = createMockLocal();
+    const remove = vi.fn();
+    vi.mocked(local.addListener).mockResolvedValue({ remove });
+    const channel = new CapacitorNotificationChannel({ localNotifications: local });
+    const clicked = vi.fn();
+    channel.setInteractionHandler({ clicked, dismissed: vi.fn() });
+    const notification = { title: "Tap", id: "tap-1" };
+    await channel.send(notification);
+    const listener = vi.mocked(local.addListener).mock.calls[0]?.[1];
+    listener?.({
+      actionId: "open",
+      notification: { id: local.scheduledNotifications[0]?.id ?? 0 },
+    });
+    expect(clicked).toHaveBeenCalledWith(notification, "open");
+    await channel.dispose();
+    expect(remove).toHaveBeenCalledOnce();
+  });
+
   it("schedules Android-compatible deterministic IDs and replaces pending logical notifications", async () => {
     const pending = new Map<number, { id: number; title: string }>();
     const local = createMockLocal();

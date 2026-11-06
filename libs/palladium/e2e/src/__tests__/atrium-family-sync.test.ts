@@ -145,6 +145,7 @@ async function errorCode(response: Response): Promise<string | undefined> {
 
 async function createWorkspace(user: string): Promise<string> {
   const res = await rest("POST", "/v1/workspaces", user);
+  expect(res.status, await res.clone().text()).toBe(200);
   return ((await res.json()) as { id: string }).id;
 }
 
@@ -204,9 +205,13 @@ async function putBlob(
   return res.status;
 }
 
-async function getBlob(user: string, blobId: string): Promise<{ status: number; text: string }> {
+async function getBlob(
+  user: string,
+  workspace: string,
+  blobId: string,
+): Promise<{ status: number; text: string }> {
   const res = await fetch(`${BASE_URL}/v1/blobs/${blobId}`, {
-    headers: { Authorization: `Bearer ${user}` },
+    headers: { Authorization: `Bearer ${user}`, "X-Workspace": workspace },
   });
   return { status: res.status, text: res.ok ? await res.text() : "" };
 }
@@ -218,6 +223,7 @@ async function waitServerHas(
   nodeId: string,
   rowId: string,
 ): Promise<void> {
+  let lastResponse = "no response";
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
     const res = await fetch(`${BASE_URL}/v1/changes?limit=100`, {
@@ -227,13 +233,28 @@ async function waitServerHas(
         "X-Palladium-Node": nodeId,
       },
     });
+    const text = await res.text();
+    lastResponse = `HTTP ${res.status}: ${text}`;
     if (res.ok) {
-      const env = (await res.json()) as { changes: WireChange[] };
+      const env = JSON.parse(text) as { changes: WireChange[] };
       if (env.changes.some((c) => c.ops.some((o) => o.row_id === rowId))) return;
     }
     await sleep(POLL_MS);
   }
-  throw new Error(`server never stored ${rowId}`);
+  const client = clients.find((candidate) => candidate.nodeId === nodeId);
+  const diagnostic =
+    client === undefined
+      ? undefined
+      : {
+          status: client.engine.status,
+          lastError: client.transport.lastError,
+          outbox: await client.engine.adapter.exec(
+            "SELECT change_id, terminal, terminal_error FROM _sync_outbox",
+          ),
+        };
+  throw new Error(
+    `server never stored ${rowId}; ${JSON.stringify(diagnostic)}; last response: ${lastResponse}`,
+  );
 }
 
 // ── Atrium-aware client (mirrors example-burrow/src/atrium.ts) ────────────────
@@ -244,6 +265,7 @@ interface Client {
   transport: SyncTransport<BurrowSchema>;
   dispose(): Promise<void>;
 }
+const clients: Client[] = [];
 interface ClientOptions {
   fetch?: typeof globalThis.fetch;
 }
@@ -317,7 +339,6 @@ async function waitUntil(fn: () => Promise<boolean>, timeoutMs = 8_000): Promise
 // ── the matrix ───────────────────────────────────────────────────────────────
 
 describe("Atrium family sync — acceptance matrix (client stack)", () => {
-  const clients: Client[] = [];
   const track = (c: Client): Client => {
     clients.push(c);
     return c;
@@ -848,11 +869,11 @@ describe("Atrium family sync — acceptance matrix (client stack)", () => {
 
     const blob = newId();
     expect(await putBlob("alice", ws, note, blob, "PNGDATA")).toBe(201);
-    expect((await getBlob("alice", blob)).text).toBe("PNGDATA"); // owner reads
-    expect((await getBlob("bob", blob)).status).toBe(403); // member, no grant
+    expect((await getBlob("alice", ws, blob)).text).toBe("PNGDATA"); // owner reads
+    expect((await getBlob("bob", ws, blob)).status).toBe(403); // member, no grant
 
     await share("alice", ws, note, "bob", "read");
-    expect((await getBlob("bob", blob)).text).toBe("PNGDATA"); // read grant → blob
-    expect((await getBlob("carol", blob)).status).toBe(403); // never granted
+    expect((await getBlob("bob", ws, blob)).text).toBe("PNGDATA"); // read grant → blob
+    expect((await getBlob("carol", ws, blob)).status).toBe(403); // never granted
   });
 });

@@ -74,6 +74,35 @@ describe("ExpoNotificationChannel", () => {
     expect(result.status).toBe("delivered");
   });
 
+  it("forwards Expo notification responses as clicked events and releases its listener", async () => {
+    const adapter = createMockAdapter();
+    const ch = new ExpoNotificationChannel({ adapter });
+    const handler = vi.fn();
+    ch.setInteractionHandler({
+      clicked: handler,
+      dismissed: vi.fn(),
+    });
+    const notification = { title: "Open" };
+    await ch.send(notification);
+    const responseHandler = vi.mocked(adapter.addNotificationResponseReceivedListener).mock
+      .calls[0]?.[0];
+    responseHandler?.({
+      notification: {
+        request: {
+          identifier: "notification-id-123",
+          content: { title: "Open" },
+          trigger: null,
+        },
+      },
+      actionIdentifier: "open",
+    });
+    expect(handler).toHaveBeenCalledWith(notification, "open");
+    ch.dispose();
+    expect(
+      vi.mocked(adapter.addNotificationResponseReceivedListener).mock.results[0]?.value.remove,
+    ).toHaveBeenCalledOnce();
+  });
+
   it("send() includes deepLink in data when present", async () => {
     const adapter = createMockAdapter();
     const ch = new ExpoNotificationChannel({ adapter });

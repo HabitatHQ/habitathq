@@ -1,5 +1,5 @@
 import { NotificationBuilder } from "./builder.js";
-import type { NotificationsChannel } from "./channel.js";
+import type { NotificationInteractionHandler, NotificationsChannel } from "./channel.js";
 import {
   type NotificationEvent,
   type NotificationEventHandler,
@@ -32,10 +32,13 @@ export interface NotificationsInstance {
     requestPermission(): Promise<PermissionState>;
     permissionStatus(): PermissionState;
   }>;
-  use(middleware: Middleware): void;
   requestPermission(name: ChannelName): Promise<PermissionState>;
-  on<E extends NotificationEvent>(event: E, handler: NotificationEventHandler<E>): Unsubscribe;
+  use(middleware: Middleware): void;
   getChannel(name: ChannelName): NotificationsChannel | undefined;
+  /** User activation; closing the notification after this does not emit `dismissed`. */
+  on<E extends NotificationEvent>(event: E, handler: NotificationEventHandler<E>): Unsubscribe;
+  /** Unregister channel interaction callbacks and release channel listeners. */
+  dispose(): Promise<void>;
   /** @internal — called by NotificationBuilder */
   _send(
     notification: Notification,
@@ -188,6 +191,10 @@ function applyForegroundBehavior(
   return { channels, attempted: attemptedChannels, skipped };
 }
 
+// Channel objects may be shared by instances; native listeners belong to their
+// last owner rather than whichever instance happens to dispose first.
+const interactionOwners = new WeakMap<NotificationsChannel, Set<NotificationInteractionHandler>>();
+
 export function createNotifications(config: NotificationsConfig = {}): NotificationsInstance {
   const channelMap = new Map<ChannelName, NotificationsChannel>();
   if (config.channels !== undefined) {
@@ -202,6 +209,35 @@ export function createNotifications(config: NotificationsConfig = {}): Notificat
   }
 
   const emitter = new NotificationsEventEmitter();
+  const ownedInteractions = new Map<NotificationsChannel, NotificationInteractionHandler>();
+  let disposed = false;
+  for (const [name, channel] of channelMap) {
+    let handlers = interactionOwners.get(channel);
+    if (handlers === undefined) {
+      handlers = new Set();
+      interactionOwners.set(channel, handlers);
+      const listeners = handlers;
+      channel.setInteractionHandler?.({
+        clicked: (notification, actionId) => {
+          for (const handler of listeners) handler.clicked(notification, actionId);
+        },
+        dismissed: (notification) => {
+          for (const handler of listeners) handler.dismissed(notification);
+        },
+      });
+    }
+    const handler: NotificationInteractionHandler = {
+      clicked: (notification, actionId) =>
+        emitter.emit("clicked", {
+          channel: name,
+          notification,
+          ...(actionId === undefined ? {} : { actionId }),
+        }),
+      dismissed: (notification) => emitter.emit("dismissed", { channel: name, notification }),
+    };
+    handlers.add(handler);
+    ownedInteractions.set(channel, handler);
+  }
   const middlewares: Middleware[] = [];
   const requestPermission = async (name: ChannelName): Promise<PermissionState> => {
     const channel = channelMap.get(name);
@@ -346,6 +382,20 @@ export function createNotifications(config: NotificationsConfig = {}): Notificat
 
     getChannel(name: ChannelName): NotificationsChannel | undefined {
       return channelMap.get(name);
+    },
+
+    async dispose(): Promise<void> {
+      if (disposed) return;
+      disposed = true;
+      for (const [channel, handler] of ownedInteractions) {
+        const handlers = interactionOwners.get(channel);
+        handlers?.delete(handler);
+        if (handlers?.size !== 0) continue;
+        interactionOwners.delete(channel);
+        channel.setInteractionHandler?.(undefined);
+        await channel.dispose?.();
+      }
+      ownedInteractions.clear();
     },
 
     _send,

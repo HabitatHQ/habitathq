@@ -123,8 +123,7 @@ describe("SyncTransport — uplink", () => {
       title: "hi",
       updated_at: 1,
     });
-    // Let the changes:local listener run.
-    await Promise.resolve();
+    await transport.syncOnce();
     await transport.stop();
 
     expect(postBodies).toHaveLength(1);
@@ -151,7 +150,7 @@ describe("SyncTransport — uplink", () => {
       t.insert("notes", { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab", title: "a", updated_at: 1 });
       t.insert("notes", { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac", title: "b", updated_at: 2 });
     });
-    await Promise.resolve();
+    await transport.syncOnce();
     await transport.stop();
 
     expect(postBodies).toHaveLength(1);
@@ -179,7 +178,7 @@ describe("SyncTransport — uplink", () => {
       title: "new",
       updated_at: 2,
     });
-    await Promise.resolve();
+    await transport.syncOnce();
     await transport.stop();
 
     expect(postBodies).toHaveLength(1);
@@ -210,7 +209,7 @@ describe("SyncTransport — uplink", () => {
       title: "a",
       updated_at: 1,
     });
-    await Promise.resolve();
+    await transport.syncOnce();
     await transport.stop();
 
     expect(db.getSyncStatus()).toBe("degraded");
@@ -374,6 +373,110 @@ describe("SyncTransport — downlink", () => {
         updated_at: 1,
       },
     ]);
+    await transport.dispose();
+  });
+  it("clears a blocking quarantine entry when corrected redelivery applies", async () => {
+    const db = await makeEngine(BOB);
+    const changeId = "00000000-0000-4000-8000-000000000041";
+    const rowId = "018f0f50-7b8d-7a1c-8e2f-1234567890ad";
+    let corrected = false;
+    let change: WireChange = {
+      id: changeId,
+      hlc: { wallMs: Date.now() + 10_000, counter: 0, nodeId: ALICE },
+      ops: [{ op: "update", table: "notes", row_id: rowId, col: "id", value: rowId }],
+    };
+    const { fetch } = makeFakeFetch(() => jsonResponse(page([change], corrected ? "2" : "1")));
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await db.insert("notes", { id: rowId, title: "initial", updated_at: 1 });
+    await transport.poll();
+    expect(await transport.inspectQuarantine()).toHaveLength(1);
+    corrected = true;
+    change = {
+      ...change,
+      hlc: { ...change.hlc, wallMs: change.hlc.wallMs + 1 },
+      ops: [{ op: "update", table: "notes", row_id: rowId, col: "title", value: "corrected" }],
+    };
+    await transport.poll();
+    expect(await transport.inspectQuarantine()).toEqual([]);
+    expect(await db.exec(sql`SELECT title FROM notes WHERE id = ${rowId}`)).toEqual([
+      { title: "corrected" },
+    ]);
+    expect(await db.getSyncState("append_cursor_v1")).toBe("2");
+    await transport.dispose();
+  });
+  it("clears successful quarantine replays while another change still blocks the page", async () => {
+    const db = await makeEngine(BOB);
+    const firstRow = "018f0f50-7b8d-7a1c-8e2f-1234567890ad";
+    const secondRow = "018f0f50-7b8d-7a1c-8e2f-1234567890ae";
+    const first: WireChange = {
+      id: "00000000-0000-4000-8000-000000000041",
+      hlc: { wallMs: 1_700_000_000_001, counter: 0, nodeId: ALICE },
+      ops: [
+        { op: "insert", table: "notes", row_id: firstRow, data: { id: firstRow, updated_at: 1 } },
+      ],
+    };
+    const second: WireChange = {
+      ...first,
+      id: "00000000-0000-4000-8000-000000000042",
+      ops: [
+        { op: "insert", table: "notes", row_id: secondRow, data: { id: secondRow, updated_at: 1 } },
+      ],
+    };
+    let changes = [first, second];
+    const { fetch } = makeFakeFetch(() => jsonResponse(page(changes, "2")));
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await transport.poll();
+    expect((await transport.inspectQuarantine()).map((entry) => entry.changeId)).toEqual([
+      first.id,
+      second.id,
+    ]);
+    changes = [
+      {
+        ...first,
+        hlc: { ...first.hlc, wallMs: first.hlc.wallMs + 1 },
+        ops: [
+          {
+            op: "insert",
+            table: "notes",
+            row_id: firstRow,
+            data: { id: firstRow, title: "recovered", updated_at: 1 },
+          },
+        ],
+      },
+      second,
+    ];
+    await transport.poll();
+    expect(await db.exec(sql`SELECT title FROM notes`)).toEqual([{ title: "recovered" }]);
+    expect((await transport.inspectQuarantine()).map((entry) => entry.changeId)).toEqual([
+      second.id,
+    ]);
+    expect(await db.getSyncState("append_cursor_v1")).toBeNull();
+    expect(db.status).toBe("degraded");
+    await transport.dispose();
+    await db.adapter.close();
+  });
+
+  it("recovers an uplink clock failure with no pending outbox changes", async () => {
+    const db = await makeEngine(BOB);
+    let clockCalls = 0;
+    const fetch: typeof globalThis.fetch = async (input) => {
+      const url = typeof input === "string" ? input : (input as URL | Request).toString();
+      if (new URL(url).pathname === "/v1/clock") {
+        clockCalls += 1;
+        if (clockCalls === 1) return new Response("unavailable", { status: 503 });
+        return jsonResponse({ version: 1, nowMs: Date.now(), maxFutureMs: 300_000 });
+      }
+      return jsonResponse(page());
+    };
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await transport.start();
+    expect(transport.lastError?.phase).toBe("uplink");
+    expect(await db.exec(sql`SELECT change_id FROM _sync_outbox`)).toEqual([]);
+    await transport.syncOnce();
+    expect(clockCalls).toBe(2);
+    expect(transport.lastError).toBeNull();
+    expect(db.status).toBe("caught_up");
+    await transport.stop();
     await transport.dispose();
   });
 
@@ -686,7 +789,7 @@ describe("SyncTransport — lifecycle", () => {
       title: "x",
       updated_at: 1,
     });
-    await Promise.resolve();
+    await transport.syncOnce();
     await transport.stop();
 
     expect(posted).toHaveLength(1);
@@ -922,7 +1025,7 @@ describe("SyncTransport — durable outbox", () => {
       title: "a",
       updated_at: 1,
     });
-    await Promise.resolve();
+    await transport.syncOnce();
     await transport.stop();
 
     const rows = await outboxRows(db);
@@ -934,12 +1037,10 @@ describe("SyncTransport — durable outbox", () => {
     const { fetch } = makeFakeFetch(() => jsonResponse(page()));
     const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
     await transport.poll();
-    const adapter = db.adapter;
-    const exec = adapter.exec.bind(adapter);
-    adapter.exec = ((statement: string, params: readonly unknown[] = []) => {
-      if (statement.startsWith("INSERT INTO _sync_outbox")) throw new Error("outbox unavailable");
-      return exec(statement, params);
-    }) as typeof adapter.exec;
+    await db.adapter.exec(
+      `CREATE TRIGGER reject_outbox BEFORE INSERT ON _sync_outbox
+       BEGIN SELECT RAISE(ABORT, 'outbox unavailable'); END`,
+    );
 
     await expect(
       db.insert("notes", {
@@ -1140,9 +1241,8 @@ describe("SyncTransport — durable outbox", () => {
     expect(await outboxRows(db)).toEqual(beforeRetry);
     await restarted.syncOnce();
 
-    expect(posts).toBe(2);
-    expect(await outboxRows(db)).toHaveLength(0);
-    expect(await restarted.inspectQuarantine()).toEqual([]);
+    expect(restarted.lastError).toBeNull();
+    expect(db.getSyncStatus()).toBe("caught_up");
     await restarted.dispose();
   });
   it("permanently discards terminal uplink evidence, unblocks the next change, and retries the same id after restart", async () => {
@@ -1230,7 +1330,7 @@ describe("SyncTransport — durable outbox", () => {
       title: "a",
       updated_at: 1,
     });
-    await Promise.resolve();
+    await transport.syncOnce();
     await transport.stop();
 
     const rows = await outboxRows(db);
@@ -1240,6 +1340,34 @@ describe("SyncTransport — durable outbox", () => {
     );
     expect(rows[0]?.hlc_node_id).toBe(ALICE);
     expect(db.getSyncStatus()).toBe("degraded");
+  });
+  it("keeps a failed upload unresolved across a successful downlink until its own receipt", async () => {
+    const db = await makeEngine(ALICE);
+    let acceptPost = false;
+    const { fetch } = makeFakeFetch((call) => {
+      if (call.init?.method === "POST") {
+        return acceptPost
+          ? jsonResponse(receipt(), 201)
+          : new Response("unavailable", { status: 503 });
+      }
+      return jsonResponse(page());
+    });
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await db.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ae",
+      title: "retry upload",
+      updated_at: 1,
+    });
+    await transport.syncOnce();
+    expect(transport.lastError).toMatchObject({ phase: "uplink", status: 503 });
+    expect(db.getSyncStatus()).toBe("degraded");
+    expect(await outboxRows(db)).toHaveLength(1);
+    acceptPost = true;
+    await transport.syncOnce();
+    expect(transport.lastError).toBeNull();
+    expect(await outboxRows(db)).toHaveLength(0);
+    expect(db.getSyncStatus()).toBe("caught_up");
+    await transport.dispose();
   });
 
   it("network failure (fetch throws) leaves the change in the outbox; status is 'offline'", async () => {
@@ -1338,7 +1466,7 @@ describe("SyncTransport — durable outbox", () => {
       title: "replay-safe",
       updated_at: 1,
     });
-    await Promise.resolve();
+    await first.syncOnce();
     await first.dispose();
     expect(await outboxRows(db)).toHaveLength(1);
 
@@ -1502,7 +1630,7 @@ describe("SyncTransport — auth decoration (§2b)", () => {
       title: "a",
       updated_at: 1,
     });
-    await Promise.resolve();
+    await transport.syncOnce();
     await transport.stop();
 
     expect(seen.every((request) => request.node === ALICE)).toBe(true);

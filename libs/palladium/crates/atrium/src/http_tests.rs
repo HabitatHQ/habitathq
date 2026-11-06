@@ -285,18 +285,105 @@ async fn put_blob(
     .0
 }
 
-async fn get_blob(app: &Router, user: &str, blob_id: &str) -> (StatusCode, Vec<u8>) {
+async fn get_blob(app: &Router, user: &str, ws: &str, blob_id: &str) -> (StatusCode, Vec<u8>) {
     call_bytes(
         app,
         "GET",
         &format!("/v1/blobs/{blob_id}"),
         Some(user),
-        &[],
+        &[("x-workspace", ws)],
         None,
     )
     .await
 }
 
+#[tokio::test]
+async fn blob_downloads_are_attachments_with_nosniff() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let (note, change) = root_insert("notes");
+    assert_eq!(
+        post_change(&app, "alice", &ws, change).await,
+        StatusCode::CREATED
+    );
+    let blob = Uuid::new_v4().to_string();
+    let html = b"<script>alert(1)</script>";
+    let note_id = note.to_string();
+    assert_eq!(
+        call_bytes(
+            &app,
+            "PUT",
+            &format!("/v1/blobs/{blob}"),
+            Some("alice"),
+            &[
+                ("x-workspace", &ws),
+                ("x-note", &note_id),
+                (CONTENT_TYPE.as_str(), "text/html")
+            ],
+            Some(html.to_vec()),
+        )
+        .await
+        .0,
+        StatusCode::CREATED
+    );
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/blobs/{blob}"))
+                .header(AUTHORIZATION, "Bearer alice")
+                .header("x-workspace", &ws)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get("content-disposition").unwrap(),
+        "attachment"
+    );
+    assert_eq!(
+        response.headers().get("x-content-type-options").unwrap(),
+        "nosniff"
+    );
+    assert_eq!(response.headers().get(CONTENT_TYPE).unwrap(), "text/html");
+    assert_eq!(
+        to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .as_ref(),
+        html
+    );
+}
+
+#[tokio::test]
+async fn blob_ids_are_independent_between_workspaces() {
+    let app = app().await;
+    let first = create_workspace(&app, "alice").await;
+    let second = create_workspace(&app, "bob").await;
+    let (first_note, first_change) = root_insert("notes");
+    let (second_note, second_change) = root_insert("notes");
+    assert_eq!(
+        post_change(&app, "alice", &first, first_change).await,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        post_change(&app, "bob", &second, second_change).await,
+        StatusCode::CREATED
+    );
+    let id = Uuid::new_v4().to_string();
+    assert_eq!(
+        put_blob(&app, "alice", &first, first_note, &id, b"alice").await,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        put_blob(&app, "bob", &second, second_note, &id, b"bob").await,
+        StatusCode::CREATED
+    );
+    assert_eq!(get_blob(&app, "alice", &first, &id).await.1, b"alice");
+    assert_eq!(get_blob(&app, "bob", &second, &id).await.1, b"bob");
+}
 /// Whether the envelope's `changes` contain any op targeting `row`.
 fn sees(env: &Value, row: Uuid) -> bool {
     let target = row.to_string();
@@ -396,6 +483,31 @@ async fn a1_private_floor_and_child_cascade() {
         "a private habit never reaches another member"
     );
     assert!(!sees(&bob, comp), "nor its private child completion");
+}
+
+#[tokio::test]
+async fn redundant_unshare_does_not_disclose_never_visible_private_ids() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let (note, change) = root_insert("notes");
+    assert_eq!(
+        post_change(&app, "alice", &ws, change).await,
+        StatusCode::CREATED
+    );
+    let (child, change) = child_insert("note_images", note);
+    assert_eq!(
+        post_change(&app, "alice", &ws, change).await,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        unshare(&app, "alice", &ws, note, "bob").await,
+        StatusCode::OK
+    );
+    let envelope = get_env(&app, "bob", &ws).await;
+    assert_eq!(envelope["events"], json!([]));
+    assert_eq!(envelope["purges"], json!([]));
+    assert!(!sees(&envelope, note));
+    assert!(!sees(&envelope, child));
 }
 
 #[tokio::test]
@@ -528,19 +640,22 @@ async fn a7_blob_inherits_note_acl() {
         put_blob(&app, "alice", &ws, note, &blob, png).await,
         StatusCode::CREATED
     );
-    let (status, got) = get_blob(&app, "alice", &blob).await;
+    let (status, got) = get_blob(&app, "alice", &ws, &blob).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(got.as_slice(), png, "owner reads her own blob bytes");
 
     // a member without a grant cannot read it
-    assert_eq!(get_blob(&app, "bob", &blob).await.0, StatusCode::FORBIDDEN);
+    assert_eq!(
+        get_blob(&app, "bob", &ws, &blob).await.0,
+        StatusCode::FORBIDDEN
+    );
 
     // a read grant on the note surfaces its blob to bob …
     assert_eq!(
         share(&app, "alice", &ws, note, "bob", "read").await,
         StatusCode::OK
     );
-    let (status, got) = get_blob(&app, "bob", &blob).await;
+    let (status, got) = get_blob(&app, "bob", &ws, &blob).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         got.as_slice(),
@@ -556,7 +671,7 @@ async fn a7_blob_inherits_note_acl() {
     );
     // … and a non-grantee still cannot read.
     assert_eq!(
-        get_blob(&app, "carol", &blob).await.0,
+        get_blob(&app, "carol", &ws, &blob).await.0,
         StatusCode::FORBIDDEN
     );
 
@@ -613,7 +728,7 @@ async fn a7_blob_router_enforces_max_body_limit() {
         StatusCode::CREATED,
         "16 MiB must be accepted by the router-level body limit",
     );
-    let (get_status, get_body) = get_blob(&app, "alice", &stable_blob).await;
+    let (get_status, get_body) = get_blob(&app, "alice", &ws, &stable_blob).await;
     assert_eq!(get_status, StatusCode::OK);
     assert_eq!(
         get_body.len(),
@@ -647,7 +762,7 @@ async fn a7_blob_router_enforces_max_body_limit() {
         );
 
         if status == StatusCode::CREATED {
-            let (read_status, read_body) = get_blob(&app, "alice", &blob).await;
+            let (read_status, read_body) = get_blob(&app, "alice", &ws, &blob).await;
             assert_eq!(
                 read_status,
                 StatusCode::OK,
@@ -665,7 +780,7 @@ async fn a7_blob_router_enforces_max_body_limit() {
         } else {
             // Rejection at the extractor must not leave any state behind: the
             // blob id must still be unknown to the server.
-            let (read_status, _) = get_blob(&app, "alice", &blob).await;
+            let (read_status, _) = get_blob(&app, "alice", &ws, &blob).await;
             assert_eq!(
                 read_status,
                 StatusCode::NOT_FOUND,
@@ -688,7 +803,7 @@ async fn a7_blob_router_enforces_max_body_limit() {
         .await,
         StatusCode::PAYLOAD_TOO_LARGE,
     );
-    let (read_status, read_body) = get_blob(&app, "alice", &stable_blob).await;
+    let (read_status, read_body) = get_blob(&app, "alice", &ws, &stable_blob).await;
     assert_eq!(
         read_status,
         StatusCode::OK,
@@ -1379,6 +1494,38 @@ async fn conflicting_retry_cannot_mutate_an_accepted_change() {
     );
     let page = get_env(&app, "alice", &ws).await;
     assert_eq!(page["changes"].as_array().map(Vec::len), Some(1));
+}
+
+#[tokio::test]
+async fn replicated_child_root_id_cannot_be_reparented() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let (root, root_change) = root_insert("notes");
+    let (other_root, other_change) = root_insert("notes");
+    assert_eq!(
+        post_change(&app, "alice", &ws, root_change).await,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        post_change(&app, "alice", &ws, other_change).await,
+        StatusCode::CREATED
+    );
+    let (child, child_change) = child_insert("note_images", root);
+    assert_eq!(
+        post_change(&app, "alice", &ws, child_change).await,
+        StatusCode::CREATED
+    );
+    let mutation = wrap(&json!([{
+        "op": "update",
+        "table": "note_images",
+        "row_id": child,
+        "col": "root_id",
+        "value": other_root
+    }]));
+    assert_eq!(
+        post_change(&app, "alice", &ws, mutation).await,
+        StatusCode::BAD_REQUEST
+    );
 }
 
 #[tokio::test]

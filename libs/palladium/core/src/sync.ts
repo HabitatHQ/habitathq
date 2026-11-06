@@ -611,6 +611,7 @@ export class SyncTransport<S extends SchemaMap> {
   #stopping = false;
   #clockCalibrated = false;
   #lastError: SyncError | null = null;
+  #clockFailure: SyncError | null = null;
   #attempts = new Map<string, number>();
   #quarantineCache = new Map<string, QuarantineState>();
   #lifecycle: Promise<void> = Promise.resolve();
@@ -622,6 +623,10 @@ export class SyncTransport<S extends SchemaMap> {
   }
   #recordError(error: SyncError): void {
     this.#lastError = error;
+  }
+  #recordClockError(error: SyncError): void {
+    this.#clockFailure = error;
+    this.#recordError(error);
   }
   #serializeLifecycle<T>(operation: () => Promise<T>): Promise<T> {
     const run = this.#lifecycle.then(operation, operation);
@@ -726,7 +731,7 @@ export class SyncTransport<S extends SchemaMap> {
       if (!response.ok) {
         const body = await this.#readBody(() => response.text());
         const code = serverErrorCode(body);
-        this.#recordError({
+        this.#recordClockError({
           phase: "uplink",
           code: response.status === 401 ? "unauthorized" : code,
           retryable: isRetryableServerError(code, response.status),
@@ -740,7 +745,7 @@ export class SyncTransport<S extends SchemaMap> {
         body = await this.#readBody(() => response.json());
       } catch (error) {
         if (error instanceof SyncRequestAbortedError) throw error;
-        this.#recordError({ phase: "protocol", code: "invalid_clock", retryable: false });
+        this.#recordClockError({ phase: "protocol", code: "invalid_clock", retryable: false });
         return null;
       }
       if (
@@ -755,12 +760,14 @@ export class SyncTransport<S extends SchemaMap> {
           Number.MAX_SAFE_INTEGER - 300_000 ||
         (body as Record<string, unknown>)["maxFutureMs"] !== 300_000
       ) {
-        this.#recordError({ phase: "protocol", code: "invalid_clock", retryable: false });
+        this.#recordClockError({ phase: "protocol", code: "invalid_clock", retryable: false });
         return null;
       }
       const clock = body as SyncClock;
       await this.#engine.calibrateClock(clock.nowMs);
       this.#clockCalibrated = true;
+      if (this.#lastError === this.#clockFailure) this.#lastError = null;
+      this.#clockFailure = null;
       return clock;
     } catch (error) {
       const authFailure = error instanceof SyncAuthHeadersError;
@@ -769,7 +776,7 @@ export class SyncTransport<S extends SchemaMap> {
         : error instanceof SyncRequestAbortedError
           ? error.code
           : "offline";
-      this.#recordError({
+      this.#recordClockError({
         phase: "uplink",
         code,
         retryable: !authFailure && (code === "request_timeout" || code === "offline"),
@@ -1233,6 +1240,8 @@ export class SyncTransport<S extends SchemaMap> {
 
   async #tick(): Promise<void> {
     if (this.#disposed || this.#stopping) return;
+    await this.#fetchClock();
+    if (this.#disposed || this.#stopping) return;
     await this.#drainOutbox();
     if (this.#disposed || this.#stopping) return;
     await this.#poll();
@@ -1580,7 +1589,12 @@ export class SyncTransport<S extends SchemaMap> {
       return this.#recordInvalidReceipt(change, res);
     }
     this.#attempts.delete(change.id);
-    this.#lastError = null;
+    if (
+      this.#lastError?.changeId === change.id &&
+      (this.#lastError.phase === "uplink" || this.#lastError.code === "invalid_receipt")
+    ) {
+      this.#lastError = null;
+    }
     return "ok";
   }
 
@@ -1820,9 +1834,12 @@ export class SyncTransport<S extends SchemaMap> {
         return;
       }
       const pendingChanges: Array<WireChange> = [];
+      const replayedQuarantineIds = new Set<string>();
+      const rejectedChangeIds = new Set<string>();
       for (const change of page.changes) {
         const state = await this.#quarantineState(change.id);
         if (state?.permanent) continue;
+        if (state !== null) replayedQuarantineIds.add(change.id);
         pendingChanges.push(change);
       }
       const nonCanonical = page.changes.find((change) => !hasCanonicalWireOps(change.ops));
@@ -1843,6 +1860,9 @@ export class SyncTransport<S extends SchemaMap> {
           id: purge.row_id,
         })),
         async (adpt) => {
+          for (const change of pendingChanges) {
+            await adpt.exec(`DELETE FROM ${QUARANTINE_TABLE} WHERE change_id = ?`, [change.id]);
+          }
           await this.#persistEvents(page.events, adpt);
           if (page.cursor !== null)
             await this.#engine.setSyncState(STATE_APPEND_CURSOR, page.cursor, adpt);
@@ -1850,6 +1870,7 @@ export class SyncTransport<S extends SchemaMap> {
         async (change, error, adpt) => {
           const wire = page.changes.find((candidate) => candidate.id === change.id);
           if (wire === undefined) return;
+          rejectedChangeIds.add(wire.id);
           await this.#recordFailure(wire, error, adpt);
           if (this.#terminalPolicy === "degraded_skip") {
             await adpt.exec(
@@ -1878,10 +1899,23 @@ export class SyncTransport<S extends SchemaMap> {
         },
       );
       if (applied) {
+        for (const change of pendingChanges) this.#quarantineCache.delete(change.id);
+        const recoveredQuarantine = pendingChanges.some(
+          (change) => change.id === this.#lastError?.changeId,
+        );
+        if (recoveredQuarantine && this.#lastError?.code.startsWith("quarantine_") === true) {
+          this.#lastError = null;
+        }
         this.#initialHydrationDone = true;
         if (page.cursor !== null) this.#cursor = page.cursor;
       }
       if (!applied) {
+        // Changes commit independently, even when another change blocks the page.
+        // Reconcile only successful replays; the page checkpoint stays withheld.
+        for (const changeId of replayedQuarantineIds) {
+          if (rejectedChangeIds.has(changeId)) continue;
+          await this.#clearQuarantine(changeId);
+        }
         this.#engine.setStatus("degraded");
         return;
       }
@@ -1910,13 +1944,21 @@ export class SyncTransport<S extends SchemaMap> {
 
   async #hasUnresolvedFailure(): Promise<boolean> {
     if (
-      this.#lastError?.phase === "uplink" ||
+      (this.#clockFailure !== null && this.#lastError === this.#clockFailure) ||
       this.#lastError?.code === "invalid_clock" ||
       this.#lastError?.code === "invalid_receipt" ||
       this.#lastError?.code.startsWith("quarantine_") === true
     ) {
       return true;
     }
+    const retryableRows = await this.#engine.withStorage((adapter) =>
+      adapter.exec<{ change_id: string }>(
+        `SELECT change_id FROM ${OUTBOX_TABLE}
+          WHERE terminal = 0 AND retry_attempts > 0 LIMIT 1`,
+        [],
+      ),
+    );
+    if (retryableRows.length > 0) return true;
     const terminalRows = await this.#engine.withStorage((adapter) =>
       adapter.exec<{ change_id: string }>(
         `SELECT change_id FROM ${OUTBOX_TABLE} WHERE terminal != 0 LIMIT 1`,
@@ -1956,7 +1998,15 @@ export class SyncTransport<S extends SchemaMap> {
         throw new Error("remote change references an unknown table");
       }
       await this.#engine.applyRemote(remoteChange);
-      if (quarantine !== null) await this.#clearQuarantine(change.id);
+      if (quarantine !== null) {
+        await this.#clearQuarantine(change.id);
+        if (
+          this.#lastError?.changeId === change.id &&
+          this.#lastError.code.startsWith("quarantine_")
+        ) {
+          this.#lastError = null;
+        }
+      }
       return true;
     } catch (err) {
       await this.#recordFailure(change, err);

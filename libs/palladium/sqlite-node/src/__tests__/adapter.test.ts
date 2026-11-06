@@ -4,6 +4,8 @@
  * Tests the coerce() behaviour (via adapter methods), the early-return in
  * patch for empty patches, transactions, and general CRUD round-trips.
  */
+
+import type { StorageAdapter } from "@palladium/core";
 import { describe, expect, it } from "vitest";
 import { NodeSqliteAdapter } from "../adapter.js";
 
@@ -14,6 +16,14 @@ async function makeAdapter(): Promise<NodeSqliteAdapter> {
   await adapter.open();
   await adapter.runMigrations([MIGRATION]);
   return adapter;
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
 }
 
 describe("NodeSqliteAdapter", () => {
@@ -203,6 +213,53 @@ describe("NodeSqliteAdapter", () => {
     ).rejects.toThrow("oops");
     const rows = await adapter.exec("SELECT * FROM items");
     expect(rows).toHaveLength(0);
+  });
+
+  it("keeps concurrent direct writes out of a rolled-back transaction", async () => {
+    const adapter = await makeAdapter();
+    const entered = deferred();
+    const release = deferred();
+    const transaction = adapter.transaction(async (tx) => {
+      await tx.put("items", "inside", { id: "inside", val: "rollback", flag: 0 });
+      entered.resolve();
+      await release.promise;
+      throw new Error("rollback");
+    });
+    const rejected = expect(transaction).rejects.toThrow("rollback");
+    await entered.promise;
+    const outside = adapter.put("items", "outside", { id: "outside", val: "keep", flag: 1 });
+    release.resolve();
+    await rejected;
+    await outside;
+    expect(await adapter.exec("SELECT * FROM items")).toEqual([
+      { id: "outside", val: "keep", flag: 1 },
+    ]);
+    await adapter.close();
+  });
+
+  it("serializes overlapping transactions and expires their scoped handles", async () => {
+    const adapter = await makeAdapter();
+    const entered = deferred();
+    const release = deferred();
+    let escaped: StorageAdapter | undefined;
+    const first = adapter.transaction(async (tx) => {
+      escaped = tx;
+      await tx.put("items", "i1", { id: "i1", val: "first", flag: 0 });
+      entered.resolve();
+      await release.promise;
+    });
+    await entered.promise;
+    const second = adapter.transaction(async (tx) => {
+      expect(await tx.exec("SELECT val FROM items WHERE id = 'i1'")).toEqual([{ val: "first" }]);
+      await tx.patch("items", "i1", { val: "second" });
+    });
+    release.resolve();
+    await Promise.all([first, second]);
+    expect(await adapter.exec("SELECT val FROM items")).toEqual([{ val: "second" }]);
+    if (escaped === undefined) throw new Error("transaction callback did not run");
+    await expect(escaped.remove("items", "i1")).rejects.toThrow("already settled");
+    expect(await adapter.exec("SELECT val FROM items")).toEqual([{ val: "second" }]);
+    await adapter.close();
   });
 
   it("throws on open() before exec()", async () => {

@@ -143,11 +143,11 @@ describe("Hlc", () => {
     expect(hlcToString(earlier) < hlcToString(later)).toBe(true);
   });
 
-  it("hlcToString zero-pads wallMs to 15 digits and counter to 10 digits", () => {
+  it("hlcToString zero-pads wallMs to 16 digits and counter to 10 digits", () => {
     const hlc = { wallMs: 1, counter: 1, nodeId: "n" };
     const str = hlcToString(hlc);
     const [wall, ctr] = str.split("-");
-    expect(wall).toHaveLength(15);
+    expect(wall).toHaveLength(16);
     expect(ctr).toHaveLength(10);
   });
 
@@ -364,5 +364,15 @@ describe("Hlc", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+  it("keeps sortable strings aligned with HLC order across the safe-integer boundary", () => {
+    const nodeId = "00000000-0000-4000-8000-000000000001";
+    const before = { wallMs: 999_999_999_999_999, counter: 0xffff_ffff, nodeId };
+    const after = { wallMs: 1_000_000_000_000_000, counter: 0, nodeId };
+    const maximum = { wallMs: Number.MAX_SAFE_INTEGER, counter: 0xffff_ffff, nodeId };
+    expect(hlcToString(before) < hlcToString(after)).toBe(true);
+    expect(hlcToString(after) < hlcToString(maximum)).toBe(true);
+    expect(hlcFromString(hlcToString(maximum))).toEqual(maximum);
+    expect(() => hlcFromString(`9007199254740992-0000000000-${nodeId}`)).toThrow();
   });
 });

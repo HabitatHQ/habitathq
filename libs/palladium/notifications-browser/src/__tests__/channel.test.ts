@@ -176,6 +176,16 @@ describe("BrowserNotificationChannel", () => {
     expect(onClickMock).toHaveBeenCalledOnce();
   });
 
+  it("does not report click-triggered close as a dismissal", async () => {
+    const onNotificationDismiss = vi.fn();
+    const ch = new BrowserNotificationChannel({ onNotificationDismiss });
+    await ch.send({ title: "Click me" });
+    const notification = mockInstances[0];
+    notification?.onclick?.({ preventDefault: vi.fn() } as unknown as Event);
+    notification?.onclose?.();
+    expect(onNotificationDismiss).not.toHaveBeenCalled();
+  });
+
   it("send() calls onNotificationDismiss when onclose fires", async () => {
     const onDismissMock = vi.fn();
     const ch = new BrowserNotificationChannel({ onNotificationDismiss: onDismissMock });

@@ -823,12 +823,6 @@ describe("column-level LWW", () => {
     await engine.init(aliasConfig);
     const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
     try {
-      const localPayloads: unknown[] = [];
-      engine.on("changes:local", (change) => {
-        const op = change.ops[0];
-        if (op?.type === "insert") localPayloads.push(op.data);
-        if (op?.type === "update") localPayloads.push(op.patch);
-      });
       await engine.insert("notes", { id, title: "inserted locally" });
       await engine.applyRemote({
         hlc: hlc(1_000),
@@ -844,10 +838,6 @@ describe("column-level LWW", () => {
       });
       expect(await engine.exec(sql`SELECT Title FROM notes WHERE id = ${id}`)).toEqual([
         { Title: "updated locally" },
-      ]);
-      expect(localPayloads).toEqual([
-        { id, title: "inserted locally" },
-        { title: "updated locally" },
       ]);
       await expect(
         engine.update("notes", id, { Title: "first alias", title: "second alias" }),

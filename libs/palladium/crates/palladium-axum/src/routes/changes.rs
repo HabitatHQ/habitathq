@@ -119,6 +119,14 @@ where
         .map(AppendCursor::parse)
         .transpose()
         .map_err(AppError::BadRequest)?;
+    if after
+        .as_ref()
+        .is_some_and(|cursor| cursor.position() > i64::MAX as u64)
+    {
+        return Err(AppError::BadRequest(
+            "cursor exceeds signed database range".into(),
+        ));
+    }
     let grant = state
         .authorizer
         .authorize(AuthorizationRequest {

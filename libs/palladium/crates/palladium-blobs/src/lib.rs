@@ -81,6 +81,7 @@ pub trait BlobStore: Send + Sync {
     /// Returns an error if the write fails.
     fn put(
         &self,
+        scope: &str,
         id: BlobId,
         data: &[u8],
     ) -> impl std::future::Future<Output = Result<(), BlobError>> + Send;
@@ -93,6 +94,7 @@ pub trait BlobStore: Send + Sync {
     /// soft-deleted). Returns other errors on I/O failure.
     fn get(
         &self,
+        scope: &str,
         id: BlobId,
     ) -> impl std::future::Future<Output = Result<Vec<u8>, BlobError>> + Send;
 
@@ -104,8 +106,11 @@ pub trait BlobStore: Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the operation fails.
-    fn delete(&self, id: BlobId)
-        -> impl std::future::Future<Output = Result<(), BlobError>> + Send;
+    fn delete(
+        &self,
+        scope: &str,
+        id: BlobId,
+    ) -> impl std::future::Future<Output = Result<(), BlobError>> + Send;
 
     /// Returns `true` if a blob with `id` exists and has not been soft-deleted.
     ///
@@ -114,12 +119,13 @@ pub trait BlobStore: Send + Sync {
     /// Returns an error on I/O failure.
     fn exists(
         &self,
+        scope: &str,
         id: BlobId,
     ) -> impl std::future::Future<Output = Result<bool, BlobError>> + Send;
 
     /// Return a pre-signed URL for direct client download, if the backend
     /// supports it. Returns `None` by default.
-    fn presigned_get_url(&self, _id: BlobId, _expires_secs: u64) -> Option<String> {
+    fn presigned_get_url(&self, _scope: &str, _id: BlobId, _expires_secs: u64) -> Option<String> {
         None
     }
 }
@@ -140,6 +146,7 @@ pub trait DynBlobStore: Send + Sync {
     /// Returns an error if the write fails.
     fn put<'a>(
         &'a self,
+        scope: &'a str,
         id: BlobId,
         data: &'a [u8],
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), BlobError>> + Send + 'a>>;
@@ -147,73 +154,78 @@ pub trait DynBlobStore: Send + Sync {
     /// Retrieve the bytes stored under `id`. See [`BlobStore::get`].
     ///
     /// # Errors
-    ///
-    /// Returns [`BlobError::NotFound`] if the blob does not exist.
-    fn get(
-        &self,
+    fn get<'a>(
+        &'a self,
+        scope: &'a str,
         id: BlobId,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<u8>, BlobError>> + Send + '_>>;
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<u8>, BlobError>> + Send + 'a>>;
 
     /// Soft-delete the blob with `id`. See [`BlobStore::delete`].
     ///
     /// # Errors
     ///
     /// Returns an error if the operation fails.
-    fn delete(
-        &self,
+    fn delete<'a>(
+        &'a self,
+        scope: &'a str,
         id: BlobId,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), BlobError>> + Send + '_>>;
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), BlobError>> + Send + 'a>>;
 
     /// Returns `true` if a blob with `id` exists. See [`BlobStore::exists`].
     ///
     /// # Errors
     ///
     /// Returns an error on I/O failure.
-    fn exists(
-        &self,
+    fn exists<'a>(
+        &'a self,
+        scope: &'a str,
         id: BlobId,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, BlobError>> + Send + '_>>;
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, BlobError>> + Send + 'a>>;
 
     /// Return a pre-signed URL if supported. See [`BlobStore::presigned_get_url`].
-    fn presigned_get_url(&self, id: BlobId, expires_secs: u64) -> Option<String>;
+    fn presigned_get_url(&self, scope: &str, id: BlobId, expires_secs: u64) -> Option<String>;
 }
 
 impl<T: BlobStore + 'static> DynBlobStore for T {
     fn put<'a>(
         &'a self,
+        scope: &'a str,
         id: BlobId,
         data: &'a [u8],
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), BlobError>> + Send + 'a>>
     {
-        Box::pin(BlobStore::put(self, id, data))
+        Box::pin(BlobStore::put(self, scope, id, data))
     }
 
-    fn get(
-        &self,
+    fn get<'a>(
+        &'a self,
+        scope: &'a str,
         id: BlobId,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<u8>, BlobError>> + Send + '_>>
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<u8>, BlobError>> + Send + 'a>>
     {
-        Box::pin(BlobStore::get(self, id))
+        Box::pin(BlobStore::get(self, scope, id))
     }
 
-    fn delete(
-        &self,
+    fn delete<'a>(
+        &'a self,
+        scope: &'a str,
         id: BlobId,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), BlobError>> + Send + '_>>
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), BlobError>> + Send + 'a>>
     {
-        Box::pin(BlobStore::delete(self, id))
+        Box::pin(BlobStore::delete(self, scope, id))
     }
 
-    fn exists(
-        &self,
+    fn exists<'a>(
+        &'a self,
+        scope: &'a str,
         id: BlobId,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, BlobError>> + Send + '_>>
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, BlobError>> + Send + 'a>>
     {
-        Box::pin(BlobStore::exists(self, id))
+        Box::pin(BlobStore::exists(self, scope, id))
     }
 
-    fn presigned_get_url(&self, id: BlobId, expires_secs: u64) -> Option<String> {
-        BlobStore::presigned_get_url(self, id, expires_secs)
+    fn presigned_get_url(&self, scope: &str, id: BlobId, expires_secs: u64) -> Option<String> {
+        BlobStore::presigned_get_url(self, scope, id, expires_secs)
     }
 }
 

@@ -129,6 +129,22 @@ describe("CapacitorSqliteAdapter SQL results", () => {
     expect(await adapter.exec(sql, params)).toEqual(expected);
   });
 
+  it.each([";", "(", ")", ",", "RETURNING", "AS"])(
+    "preserves quoted SQL punctuation %s in reads, CTEs, and returning writes",
+    async (value) => {
+      expect(await adapter.exec(`SELECT '${value}' AS value`)).toEqual([{ value }]);
+      expect(
+        await adapter.exec(`WITH ";"("(") AS (SELECT '${value}') SELECT "(" AS value FROM ";"`),
+      ).toEqual([{ value }]);
+      expect(
+        await adapter.exec(
+          `INSERT INTO items(id, value) VALUES (1, '${value}') RETURNING id, value`,
+        ),
+      ).toEqual([{ id: 1, value }]);
+      expect(await adapter.exec("SELECT id, value FROM items")).toEqual([{ id: 1, value }]);
+    },
+  );
+
   it("returns rows for lowercase WITH", async () => {
     expect(await adapter.exec("with c as (select ? as n) select n from c", [7])).toEqual([
       { n: 7 },
