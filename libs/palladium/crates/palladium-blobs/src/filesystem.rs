@@ -49,7 +49,22 @@ impl FilesystemBlobStore {
             Err(error) => return Err(BlobError::Io(error)),
         };
         while let Some(scope_entry) = scopes.next_entry().await? {
-            if !scope_entry.file_type().await?.is_dir() {
+            let entry_type = scope_entry.file_type().await?;
+            if !entry_type.is_dir() {
+                if entry_type.is_file()
+                    && scope_entry
+                        .file_name()
+                        .to_str()
+                        .and_then(|name| name.strip_suffix(".tombstone"))
+                        .is_some_and(|id| id.parse::<uuid::Uuid>().is_ok())
+                {
+                    let marker = scope_entry.path();
+                    let blob = marker.with_extension("");
+                    if fs::try_exists(&blob).await? {
+                        fs::remove_file(blob).await?;
+                    }
+                    fs::remove_file(marker).await?;
+                }
                 continue;
             }
             let mut files = fs::read_dir(scope_entry.path()).await?;
@@ -149,5 +164,25 @@ mod tests {
         store.purge_deleted().await.unwrap();
         assert!(!store.blob_path("alice", id).exists());
         assert_eq!(store.get("bob", id).await.unwrap(), b"bob");
+    }
+
+    #[tokio::test]
+    async fn purge_removes_legacy_uuid_tombstones_but_preserves_unmarked_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = FilesystemBlobStore::new(dir.path());
+        let deleted = uuid::Uuid::new_v4();
+        let retained = uuid::Uuid::new_v4();
+        let marker = dir.path().join(format!("{deleted}.tombstone"));
+        let deleted_path = dir.path().join(deleted.to_string());
+        let retained_path = dir.path().join(retained.to_string());
+        fs::write(&deleted_path, b"deleted bytes").await.unwrap();
+        fs::write(&marker, b"").await.unwrap();
+        fs::write(&retained_path, b"legacy bytes").await.unwrap();
+
+        store.purge_deleted().await.unwrap();
+
+        assert!(!fs::try_exists(deleted_path).await.unwrap());
+        assert!(!fs::try_exists(marker).await.unwrap());
+        assert_eq!(fs::read(retained_path).await.unwrap(), b"legacy bytes");
     }
 }

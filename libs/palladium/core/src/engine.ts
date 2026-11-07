@@ -42,6 +42,9 @@ export type SyncStatus =
   | "blocked_auth"
   | "degraded";
 
+// A transaction describes its final row writes: a later insert replaces an
+// earlier delete before either is applied. Only a normalized, applied delete
+// retires the UUID; table aliases must follow the same rule as exact spellings.
 function normalizeOps<S extends SchemaMap>(
   ops: ReadonlyArray<Op<S>>,
   canonicalizeTables = true,

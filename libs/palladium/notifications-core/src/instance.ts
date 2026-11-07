@@ -75,17 +75,26 @@ async function sendToChannel(
   channel: NotificationsChannel,
   notification: Notification,
   requestPermission: (name: ChannelName) => Promise<PermissionState>,
+  isDisposed: () => boolean,
 ): Promise<ChannelStatus> {
   try {
     const permission = channel.permissionStatus();
-    if (permission === "default" && (await requestPermission(name)) !== "granted") {
-      return { status: "skipped", reason: `Permission not granted for channel "${name}"` };
+    if (permission === "default") {
+      const requested = await requestPermission(name);
+      if (isDisposed()) return { status: "skipped", reason: "Notifications instance is disposed" };
+      if (requested !== "granted") {
+        return { status: "skipped", reason: `Permission not granted for channel "${name}"` };
+      }
     }
     if (permission === "denied") {
       return { status: "skipped", reason: `Permission denied for channel "${name}"` };
     }
-    return await channel.send(notification);
+    if (isDisposed()) return { status: "skipped", reason: "Notifications instance is disposed" };
+    const status = await channel.send(notification);
+    if (isDisposed()) return { status: "skipped", reason: "Notifications instance is disposed" };
+    return status;
   } catch (error) {
+    if (isDisposed()) return { status: "skipped", reason: "Notifications instance is disposed" };
     return {
       status: "failed",
       error: error instanceof Error ? error : new Error(String(error)),
@@ -99,6 +108,7 @@ async function sendToChannels(
   channelMap: Map<ChannelName, NotificationsChannel>,
   emitter: NotificationsEventEmitter,
   requestPermission: (name: ChannelName) => Promise<PermissionState>,
+  isDisposed: () => boolean,
 ): Promise<{
   delivered: ChannelName[];
   failed: Array<Readonly<{ channel: ChannelName; error: Error }>>;
@@ -119,7 +129,7 @@ async function sendToChannels(
       continue;
     }
 
-    const result = await sendToChannel(name, channel, notification, requestPermission);
+    const result = await sendToChannel(name, channel, notification, requestPermission, isDisposed);
 
     if (result.status === "delivered") {
       delivered.push(name);
@@ -209,20 +219,32 @@ export function createNotifications(config: NotificationsConfig = {}): Notificat
   }
 
   const emitter = new NotificationsEventEmitter();
-  const ownedInteractions = new Map<NotificationsChannel, NotificationInteractionHandler>();
+  const ownedInteractions = new Map<NotificationsChannel, NotificationInteractionHandler[]>();
   let disposed = false;
   for (const [name, channel] of channelMap) {
     let handlers = interactionOwners.get(channel);
-    if (handlers === undefined) {
+    if (handlers === undefined || handlers.size === 0) {
       handlers = new Set();
       interactionOwners.set(channel, handlers);
       const listeners = handlers;
       channel.setInteractionHandler?.({
         clicked: (notification, actionId) => {
-          for (const handler of listeners) handler.clicked(notification, actionId);
+          for (const handler of listeners) {
+            try {
+              handler.clicked(notification, actionId);
+            } catch {
+              // An observer cannot prevent another owner receiving this interaction.
+            }
+          }
         },
         dismissed: (notification) => {
-          for (const handler of listeners) handler.dismissed(notification);
+          for (const handler of listeners) {
+            try {
+              handler.dismissed(notification);
+            } catch {
+              // An observer cannot prevent another owner receiving this interaction.
+            }
+          }
         },
       });
     }
@@ -236,13 +258,17 @@ export function createNotifications(config: NotificationsConfig = {}): Notificat
       dismissed: (notification) => emitter.emit("dismissed", { channel: name, notification }),
     };
     handlers.add(handler);
-    ownedInteractions.set(channel, handler);
+    const owned = ownedInteractions.get(channel) ?? [];
+    owned.push(handler);
+    ownedInteractions.set(channel, owned);
   }
   const middlewares: Middleware[] = [];
   const requestPermission = async (name: ChannelName): Promise<PermissionState> => {
+    if (disposed) return "not-applicable";
     const channel = channelMap.get(name);
     if (channel === undefined) return "not-applicable";
     const permission = await channel.requestPermission();
+    if (disposed) return "not-applicable";
     emitter.emit("permissionchange", { channel: name, permission });
     return permission;
   };
@@ -268,12 +294,32 @@ export function createNotifications(config: NotificationsConfig = {}): Notificat
 
     const channelsToUse = requestedChannels.length > 0 ? requestedChannels : [...channelMap.keys()];
 
+    if (disposed) {
+      return {
+        delivered: [],
+        failed: [],
+        skipped: channelsToUse.map((channel) => ({
+          channel,
+          reason: "Notifications instance is disposed",
+        })),
+      };
+    }
     emitter.emit("beforesend", { notification, channels: channelsToUse });
 
     let resolvedCtx: MiddlewareContext | undefined;
     await runMiddleware(middlewares, { notification, channels: channelsToUse }, async (ctx) => {
       resolvedCtx = ctx;
     });
+    if (disposed) {
+      return {
+        delivered: [],
+        failed: [],
+        skipped: channelsToUse.map((channel) => ({
+          channel,
+          reason: "Notifications instance is disposed",
+        })),
+      };
+    }
 
     if (resolvedCtx === undefined) {
       // Suppressed by middleware
@@ -302,6 +348,7 @@ export function createNotifications(config: NotificationsConfig = {}): Notificat
       channelMap,
       emitter,
       requestPermission,
+      () => disposed,
     );
     result.skipped.unshift(...initial.skipped);
     const attemptedChannels = initial.attempted;
@@ -325,6 +372,7 @@ export function createNotifications(config: NotificationsConfig = {}): Notificat
             channelMap,
             emitter,
             requestPermission,
+            () => disposed,
           );
           result.delivered.push(...fb.delivered);
           for (const channel of fallback.attempted) attemptedChannels.add(channel);
@@ -385,17 +433,26 @@ export function createNotifications(config: NotificationsConfig = {}): Notificat
     },
 
     async dispose(): Promise<void> {
-      if (disposed) return;
+      let cleanupError: unknown;
       disposed = true;
-      for (const [channel, handler] of ownedInteractions) {
-        const handlers = interactionOwners.get(channel);
-        handlers?.delete(handler);
-        if (handlers?.size !== 0) continue;
-        interactionOwners.delete(channel);
-        channel.setInteractionHandler?.(undefined);
-        await channel.dispose?.();
+      for (const [channel, handlers] of ownedInteractions) {
+        const owners = interactionOwners.get(channel);
+        for (const handler of handlers) owners?.delete(handler);
+        if (owners === undefined || owners.size > 0) {
+          ownedInteractions.delete(channel);
+          continue;
+        }
+        try {
+          channel.setInteractionHandler?.(undefined);
+          await channel.dispose?.();
+          interactionOwners.delete(channel);
+          ownedInteractions.delete(channel);
+        } catch (error) {
+          cleanupError ??= error;
+        }
       }
-      ownedInteractions.clear();
+      if (ownedInteractions.size === 0) return;
+      if (cleanupError !== undefined) throw cleanupError;
     },
 
     _send,

@@ -194,6 +194,47 @@ describe("BrowserNotificationChannel", () => {
     expect(onDismissMock).toHaveBeenCalledOnce();
   });
 
+  it("does not report timeout closes as user dismissals and releases callbacks on disposal", async () => {
+    vi.useFakeTimers();
+    const dismiss = vi.fn();
+    const clicked = vi.fn();
+    const channel = new BrowserNotificationChannel({
+      autoDismissMs: 50,
+      onNotificationDismiss: dismiss,
+    });
+    channel.setInteractionHandler({ clicked, dismissed: vi.fn() });
+    await channel.send({ title: "Timed" });
+    const timed = mockInstances[0];
+    vi.advanceTimersByTime(50);
+    timed?.onclose?.();
+    expect(dismiss).not.toHaveBeenCalled();
+    await channel.send({ title: "Active" });
+    const active = mockInstances[1];
+    channel.dispose();
+    expect(active?.onclick).toBeNull();
+    expect(active?.onclose).toBeNull();
+    expect(clicked).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("continues browser click callbacks and closes after an interaction observer throws", async () => {
+    const optionClick = vi.fn();
+    const channel = new BrowserNotificationChannel({ onNotificationClick: optionClick });
+    channel.setInteractionHandler({
+      clicked: () => {
+        throw new Error("observer failed");
+      },
+      dismissed: vi.fn(),
+    });
+    await channel.send({ title: "Click" });
+    const notification = mockInstances[0];
+    expect(() => notification?.onclick?.({ preventDefault: vi.fn() } as unknown as Event)).toThrow(
+      "observer failed",
+    );
+    expect(optionClick).toHaveBeenCalledOnce();
+    expect(notification?.close).toHaveBeenCalledOnce();
+  });
+
   it("send() catches constructor errors and returns failed status", async () => {
     const FailingNotification = class {
       static permission: NotificationPermission = "granted";

@@ -14,7 +14,7 @@ export interface LiveQueryResult<T> {
  *
  * Re-renders whenever any of the query's watched tables are written to.
  * A change notification supersedes the initial execution if the two overlap.
- * Parameter identity supports SQLite scalar values, bigint, and Uint8Array blobs.
+ * Parameter identity supports SQLite scalar values, bigint, blobs, and text-coerced objects.
  * ```tsx
  * const { rows, loading } = useLiveQuery<Task>(sql`SELECT * FROM tasks`);
  * ```
@@ -38,7 +38,7 @@ function parameterIdentity(value: unknown): string {
     case "number":
       return `number:${Object.is(value, -0) ? "-0" : value}`;
     default:
-      throw new TypeError(`Unsupported live query parameter type: ${typeof value}`);
+      return `coerced:${String(value)}`;
   }
 }
 

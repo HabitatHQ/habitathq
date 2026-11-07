@@ -480,6 +480,86 @@ describe("SyncTransport — downlink", () => {
     await transport.dispose();
   });
 
+  it("keeps a clock failure unresolved after a successful downlink until calibration succeeds", async () => {
+    const db = await makeEngine(BOB);
+    let clockCalls = 0;
+    let downlinkCalls = 0;
+    const fetch: typeof globalThis.fetch = async (input) => {
+      const url = typeof input === "string" ? input : (input as URL | Request).toString();
+      if (new URL(url).pathname === "/v1/clock") {
+        clockCalls += 1;
+        return clockCalls === 1
+          ? new Response("unavailable", { status: 503 })
+          : jsonResponse({ version: 1, nowMs: Date.now(), maxFutureMs: 300_000 });
+      }
+      downlinkCalls += 1;
+      if (downlinkCalls === 1) return new Response("downlink unavailable", { status: 502 });
+      return jsonResponse(page());
+    };
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await transport.start();
+
+    expect(transport.lastError).toMatchObject({ phase: "downlink", status: 502 });
+    expect(db.getSyncStatus()).not.toBe("caught_up");
+
+    await transport.poll();
+    expect(transport.lastError).toMatchObject({ phase: "uplink", status: 503 });
+    expect(db.status).toBe("degraded");
+
+    await transport.syncOnce();
+    expect(transport.lastError).toBeNull();
+    expect(db.status).toBe("caught_up");
+    await transport.dispose();
+  });
+
+  it("bounds a stalled recurring clock request and recovers on a later sync cycle", async () => {
+    const db = await makeEngine(BOB);
+    let clockCalls = 0;
+    let clockEntered!: () => void;
+    const stalledClock = new Promise<void>((resolve) => {
+      clockEntered = resolve;
+    });
+    const fetch: typeof globalThis.fetch = async (input) => {
+      const url = typeof input === "string" ? input : (input as URL | Request).toString();
+      if (new URL(url).pathname === "/v1/clock") {
+        clockCalls += 1;
+        if (clockCalls === 2) {
+          clockEntered();
+          return new Promise<Response>(() => {});
+        }
+        return jsonResponse({ version: 1, nowMs: Date.now(), maxFutureMs: 300_000 });
+      }
+      return jsonResponse(page());
+    };
+    const transport = new SyncTransport(db, {
+      serverUrl: SERVER_URL,
+      fetch,
+      pollIntervalMs: 60_000,
+    });
+    vi.useFakeTimers();
+    try {
+      await transport.start();
+      const stalledCycle = transport.syncOnce();
+      await stalledClock;
+      await vi.advanceTimersByTimeAsync(30_000);
+      await stalledCycle;
+      expect(transport.lastError).toMatchObject({
+        phase: "uplink",
+        code: "request_timeout",
+        retryable: true,
+      });
+      expect(db.getSyncStatus()).toBe("offline");
+      await transport.syncOnce();
+      expect(clockCalls).toBe(3);
+      expect(transport.lastError).toBeNull();
+      expect(db.getSyncStatus()).toBe("caught_up");
+    } finally {
+      await transport.dispose();
+      vi.useRealTimers();
+      await db.adapter.close();
+    }
+  });
+
   it("does not suppress a remote change when an unknown ID is discarded", async () => {
     const db = await makeEngine(BOB);
     const change: WireChange = {
@@ -1792,7 +1872,7 @@ describe("SyncTransport — schema fingerprint ownership", () => {
 });
 
 describe("SyncTransport — outbox schema compatibility", () => {
-  it("posts a fingerprint-mismatched change when its columns still exist", async () => {
+  it("quarantines a fingerprint-mismatched change even when its columns still exist", async () => {
     const db = await makeEngine(ALICE);
     const posted: WireChange[] = [];
     const { fetch } = makeFakeFetch((call) => {
@@ -1831,10 +1911,11 @@ describe("SyncTransport — outbox schema compatibility", () => {
     );
     await transport.start();
     expect(posted).toHaveLength(0);
-    expect(await db.adapter.exec("SELECT change_id FROM _sync_outbox_quarantine", [])).toHaveLength(
-      1,
-    );
+    expect(await db.adapter.exec("SELECT change_id FROM _sync_outbox_quarantine")).toEqual([
+      { change_id: "00000000-0000-4000-8000-000000000008" },
+    ]);
     await transport.stop();
+    await transport.dispose();
   });
 
   it("quarantines a fingerprint-mismatched change with an unknown column", async () => {
@@ -1876,7 +1957,12 @@ describe("SyncTransport — outbox schema compatibility", () => {
       ],
     );
     await transport.start();
-    expect(posted).toHaveLength(0);
+    expect(posted).toEqual([]);
+    expect(db.getSyncStatus()).toBe("degraded");
+    expect(transport.lastError).toMatchObject({
+      phase: "uplink",
+      code: "schema_identity_mismatch",
+    });
     const quarantined = await db.adapter.exec<{ change_id: string }>(
       "SELECT change_id FROM _sync_outbox_quarantine",
       [],
@@ -1884,6 +1970,7 @@ describe("SyncTransport — outbox schema compatibility", () => {
     expect(quarantined.map((row) => row.change_id)).toContain(
       "00000000-0000-4000-8000-000000000009",
     );
+    await transport.dispose();
   });
 });
 

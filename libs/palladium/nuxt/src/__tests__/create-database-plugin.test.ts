@@ -222,18 +222,22 @@ it("settles native requests queued before and during initialization independentl
       },
     },
   });
-  const before = sendToWorker({ type: "SAVE", id: "before", value: 1 });
+  const request = { type: "SAVE", id: "before", value: { amount: 1 } };
+  const before = sendToWorker(request);
+  request.value.amount = 99;
   const initialized = initialize(true, () => {
     throw new Error("startup failed");
   });
   const during = sendToWorker({ type: "SAVE", id: "during", value: 2 });
   const failure = expect(sendToWorker({ type: "FAIL" })).rejects.toThrow("request failed");
   opening.resolve();
+  const readAfterOpening = opening.promise.then(() => sendToWorker({ type: "READ", id: "before" }));
   await initialized;
-  await expect(before).resolves.toBe(1);
+  await expect(before).resolves.toEqual({ amount: 1 });
+  await expect(readAfterOpening).resolves.toEqual({ amount: 1 });
   await expect(during).resolves.toBe(2);
   await failure;
-  await expect(sendToWorker({ type: "READ", id: "before" })).resolves.toBe(1);
+  await expect(sendToWorker({ type: "READ", id: "before" })).resolves.toEqual({ amount: 1 });
   await expect(sendToWorker({ type: "READ", id: "during" })).resolves.toBe(2);
 });
 

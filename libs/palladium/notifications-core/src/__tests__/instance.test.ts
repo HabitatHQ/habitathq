@@ -362,4 +362,62 @@ describe("createNotifications", () => {
     expect(result.delivered).toContain("toast");
     expect(result.delivered).toContain("browser");
   });
+  it("does not send when middleware resumes after disposal", async () => {
+    let resume!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const channel = new MockChannel("toast");
+    const instance = createNotifications({ channels: { toast: channel } });
+    instance.use(async (context, next) => {
+      await gate;
+      await next(context);
+    });
+    const send = instance.notify("Late").via("toast").send();
+    await instance.dispose();
+    resume();
+    await send;
+    expect(channel.sentNotifications).toEqual([]);
+  });
+
+  it("removes every interaction owner for aliased channels and retries failed cleanup", async () => {
+    let interactionHandler:
+      | {
+          clicked: (notification: { title: string }) => void;
+          dismissed: (notification: { title: string }) => void;
+        }
+      | undefined;
+    const removeHandler = vi.fn((handler: typeof interactionHandler) => {
+      interactionHandler = handler;
+    });
+    const dispose = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("cleanup failed"))
+      .mockResolvedValue(undefined);
+    const channel = {
+      name: "toast" as const,
+      send: vi.fn().mockResolvedValue({ status: "delivered" as const }),
+      requestPermission: vi.fn().mockResolvedValue("granted" as const),
+      permissionStatus: () => "granted" as const,
+      isAvailable: () => true,
+      setInteractionHandler: removeHandler,
+      dispose,
+    };
+    const instance = createNotifications({
+      channels: { toast: channel, browser: channel },
+    });
+    const clicked = vi.fn();
+    instance.on("clicked", clicked);
+    instance.on("clicked", () => {
+      throw new Error("observer failed");
+    });
+    interactionHandler?.clicked({ title: "Before" });
+    expect(clicked).toHaveBeenCalledTimes(2);
+    await expect(instance.dispose()).rejects.toThrow("cleanup failed");
+    expect(removeHandler).toHaveBeenLastCalledWith(undefined);
+    interactionHandler?.clicked({ title: "After first cleanup" });
+    expect(clicked).toHaveBeenCalledTimes(2);
+    await instance.dispose();
+    expect(dispose).toHaveBeenCalledTimes(2);
+  });
 });

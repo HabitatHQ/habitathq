@@ -2074,6 +2074,32 @@ mod tests {
         let blob = db.get_blob("workspace-a", "same").await.unwrap().unwrap();
         assert_eq!(blob.bytes, [1, 2, 3]);
         assert!(db.get_blob("workspace-b", "same").await.unwrap().is_none());
+        db.put_blob(
+            "same",
+            "workspace-b",
+            "other",
+            "bob",
+            "image/jpeg",
+            b"other",
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            db.get_blob("workspace-a", "same")
+                .await
+                .unwrap()
+                .unwrap()
+                .bytes,
+            [1, 2, 3]
+        );
+        assert_eq!(
+            db.get_blob("workspace-b", "same")
+                .await
+                .unwrap()
+                .unwrap()
+                .bytes,
+            b"other"
+        );
         db.pool.close().await;
         std::fs::remove_file(path).unwrap();
     }

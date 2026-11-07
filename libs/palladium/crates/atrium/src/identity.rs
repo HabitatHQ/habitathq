@@ -88,6 +88,7 @@ struct Jwk {
     alg: Option<String>,
     #[serde(rename = "use")]
     key_use: Option<String>,
+    key_ops: Option<Vec<String>>,
 }
 #[derive(Debug, Deserialize)]
 struct Claims {
@@ -189,6 +190,10 @@ fn eligible_rsa_key(jwk: Jwk) -> Option<(String, DecodingKey)> {
     if jwk.kty.as_deref() != Some("RSA")
         || jwk.alg.as_deref().is_some_and(|alg| alg != "RS256")
         || jwk.key_use.as_deref().is_some_and(|usage| usage != "sig")
+        || jwk
+            .key_ops
+            .as_ref()
+            .is_some_and(|operations| !operations.iter().any(|operation| operation == "verify"))
     {
         return None;
     }
@@ -295,14 +300,18 @@ mod tests {
                 {"kid":"ec","kty":"EC","crv":"P-256","x":"x","y":"y"},
                 {"kid":"enc","kty":"RSA","n":"AQAB","e":"AQAB","use":"enc"},
                 {"kid":"wrong-alg","kty":"RSA","n":"AQAB","e":"AQAB","alg":"RS512"},
+                {"kid":"sign-only","kty":"RSA","n":"AQAB","e":"AQAB","key_ops":["sign"]},
+                {"kid":"no-ops","kty":"RSA","n":"AQAB","e":"AQAB","key_ops":[]},
+                {"kid":"verify","kty":"RSA","n":"AQAB","e":"AQAB","key_ops":["verify"]},
                 {"kid":"sign","kty":"RSA","n":"AQAB","e":"AQAB","alg":"RS256","use":"sig"}
             ]
         }))
         .unwrap();
-        assert_eq!(set.keys.len(), 4);
+        assert_eq!(set.keys.len(), 7);
         let keys: HashMap<_, _> = set.keys.into_iter().filter_map(eligible_rsa_key).collect();
-        assert_eq!(keys.len(), 1);
+        assert_eq!(keys.len(), 2);
         assert!(keys.contains_key("sign"));
+        assert!(keys.contains_key("verify"));
     }
     #[tokio::test]
     async fn dev() {

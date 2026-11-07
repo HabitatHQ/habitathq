@@ -79,8 +79,17 @@ export function generateUuidV7(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-/** Freeze a newly-created HLC without allocating a defensive copy. */
+/** Keep generated clocks inside the persisted parser's numeric domain. */
 function freezeHlc(hlc: Hlc): Hlc {
+  if (
+    !Number.isSafeInteger(hlc.wallMs) ||
+    hlc.wallMs < 0 ||
+    !Number.isSafeInteger(hlc.counter) ||
+    hlc.counter < 0 ||
+    hlc.counter > 0xffff_ffff
+  ) {
+    throw new RangeError("HLC numeric fields are outside the supported range");
+  }
   return Object.freeze(hlc);
 }
 
@@ -108,6 +117,7 @@ function nextCounter(wallMs: number, counter: number): { wallMs: number; counter
  * Advance an HLC before *sending* a message.
  * Guarantees the returned timestamp is strictly greater than `prev`.
  * If the counter would overflow `COUNTER_MAX`, wallMs is advanced by 1 ms.
+ * Throws if advancement exhausts the safe-integer wall-time domain.
  */
 export function sendHlc(prev: Hlc, nowMs = Date.now()): Hlc {
   if (nowMs > prev.wallMs) {
@@ -122,6 +132,7 @@ export function sendHlc(prev: Hlc, nowMs = Date.now()): Hlc {
  * Advance an HLC after *receiving* a remote message with timestamp `remote`.
  * The result is greater than both `local` and `remote`.
  * If the counter would overflow `COUNTER_MAX`, wallMs is advanced by 1 ms.
+ * Throws if advancement exhausts the safe-integer wall-time domain.
  */
 export function recvHlc(local: Hlc, remote: Hlc, nowMs = Date.now()): Hlc {
   const maxWall = Math.max(local.wallMs, remote.wallMs, nowMs);

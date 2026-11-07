@@ -119,6 +119,8 @@ used when reopening.
 HLC strings now use 16 timestamp digits so lexical order covers the supported
 safe-integer domain. Readers also accept previous 15-digit strings. Do not
 lexically compare mixed old/new encodings: parse them or rewrite them first.
+Clock advancement rejects safe-integer exhaustion before persisting an HLC
+that cannot be read back.
 
 Quoted and schema-qualified SQL table names participate in live-query
 invalidation. LWW metadata and logical-reset table identities use SQLite's
@@ -139,6 +141,9 @@ change withholds the page checkpoint without rolling back other committed
 changes. Successfully replayed changes clear their quarantine evidence even
 when another change still blocks the page. Clock, upload, and receipt errors
 clear only when their own operation recovers.
+Clock requests have a finite 30-second maximum, respecting shorter configured
+request deadlines. A successful downlink does not hide an unresolved clock
+failure or a blocking quarantined upload.
 
 Blocked IndexedDB deletion remains pending until the browser's deletion request
 settles. IndexedDB disposal closes its database handle and waits for active
@@ -168,9 +173,9 @@ A timed-out worker mutation is not automatically replayed: its commit outcome
 is unknown to the caller. Terminal database startup failure rejects both queued
 and future RPCs rather than leaving them pending, even if the error-reporting
 callback throws.
-Successful native startup dispatches requests queued before or during
-initialization; an individual request failure does not prevent the remaining
-requests from settling.
+Successful native startup snapshots nested request values and dispatches queued
+requests before admitting later requests. An individual dispatch failure does
+not prevent the remaining requests from settling.
 
 Worker invalidation, role, error, and diagnostic subscriptions are independent.
 Every subscription returns an idempotent unsubscribe function; diagnostics replay
@@ -218,8 +223,9 @@ Live-query bindings discard initial results and errors after their subscription
 or component scope ends. Once a change notification publishes newer rows, a late
 initial result or error cannot replace them; that notification also settles loading.
 
-React query identity preserves bigint, undefined/null parameters, and binary
-content without render-time JSON serialization.
+React query identity preserves bigint, undefined/null parameters, binary content,
+and object values accepted through the adapter's text coercion, without
+render-time JSON serialization.
 
 Notification permissions are instance-level state changes, independent of
 delivery. Use `instance.requestPermission(channel)` or
@@ -240,6 +246,12 @@ dismissal; headless eviction/clear only removes display state and interaction
 metadata. Shared channels retain their listeners until the last instance calls
 `dispose()`. Capacitor and Expo forward their available tap/action events, not
 unsupported native dismissal events.
+Interaction observers are isolated. Browser auto-dismiss timeouts are not user
+dismissals; final-owner disposal detaches active callbacks and timers. A later
+instance attaching the same channel restores its listeners. Pending instance
+sends stop after disposal, and cleanup attempts every channel even if one fails;
+failed cleanup can be retried. Native tap metadata carries the original
+notification across channel recreation; absent or malformed metadata is ignored.
 
 Capacitor local-notification IDs use deterministic positive signed-32-bit
 hashes (`1..2147483647`); zero is reserved and generated IDs wrap at the upper
@@ -260,6 +272,10 @@ unsubscribe. Only successful completion clears the retry payload.
 Concurrent enrollment calls share one flight. Enrollment waits for the returned
 registration's worker to activate, with a 30-second deadline; unsubscribe cancels
 that wait. A delayed backend unsubscribe cannot clear a newer subscription.
+Removal waits for an already-admitted enrollment POST before its backend DELETE,
+so a late POST cannot recreate the enrollment after removal. Browser removal
+tracks replacements before their backend enrollment settles. Retry payloads stay
+blocked after browser removal while a replacement is being enrolled.
 
 Configure `WebPushChannel` with `sendEndpoint` to submit notifications to your
 application backend. `send()` POSTs JSON `{ subscription, notification }`, where

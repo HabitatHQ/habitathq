@@ -108,10 +108,12 @@ describe("CapacitorNotificationChannel", () => {
     channel.setInteractionHandler({ clicked, dismissed: vi.fn() });
     const notification = { title: "Tap", id: "tap-1" };
     await channel.send(notification);
+    const scheduled = local.scheduledNotifications[0];
+    if (scheduled === undefined) throw new Error("Expected scheduled notification");
     const listener = vi.mocked(local.addListener).mock.calls[0]?.[1];
     listener?.({
       actionId: "open",
-      notification: { id: local.scheduledNotifications[0]?.id ?? 0 },
+      notification: { id: scheduled.id, extra: scheduled.extra },
     });
     expect(clicked).toHaveBeenCalledWith(notification, "open");
     await channel.dispose();
@@ -233,5 +235,46 @@ describe("CapacitorNotificationChannel", () => {
   it("name is 'capacitor'", () => {
     const ch = new CapacitorNotificationChannel({});
     expect(ch.name).toBe("capacitor");
+  });
+  it("fails closed when listener registration rejects and does not produce an unhandled rejection", async () => {
+    const local = createMockLocal();
+    const registrationError = new Error("listener registration failed");
+    vi.mocked(local.addListener).mockRejectedValue(registrationError);
+    const channel = new CapacitorNotificationChannel({ localNotifications: local });
+    const result = await channel.send({ title: "No interactions" });
+    expect(channel.isAvailable()).toBe(false);
+    expect(result).toEqual({ status: "failed", error: registrationError });
+    await channel.dispose();
+  });
+
+  it("recovers native interaction payload from scheduled metadata after channel recreation", async () => {
+    const local = createMockLocal();
+    const first = new CapacitorNotificationChannel({ localNotifications: local });
+    const notification = { title: "Persisted", id: "persisted", data: { task: 4 } };
+    await first.send(notification);
+    await first.dispose();
+    const reopened = new CapacitorNotificationChannel({ localNotifications: local });
+    const clicked = vi.fn();
+    reopened.setInteractionHandler({ clicked, dismissed: vi.fn() });
+    const listener = vi.mocked(local.addListener).mock.calls.at(-1)?.[1];
+    const scheduled = local.scheduledNotifications[0];
+    if (listener === undefined || scheduled === undefined)
+      throw new Error("Expected native metadata");
+    listener({
+      actionId: "open",
+      notification: { id: scheduled.id, extra: scheduled.extra },
+    });
+    expect(clicked).toHaveBeenCalledWith(notification, "open");
+    await reopened.dispose();
+  });
+  it("reattaches its action listener when reused after final-owner disposal", async () => {
+    const local = createMockLocal();
+    const channel = new CapacitorNotificationChannel({ localNotifications: local });
+    channel.setInteractionHandler({ clicked: vi.fn(), dismissed: vi.fn() });
+    await channel.dispose();
+    channel.setInteractionHandler({ clicked: vi.fn(), dismissed: vi.fn() });
+    expect(local.addListener).toHaveBeenCalledTimes(2);
+    expect(channel.isAvailable()).toBe(true);
+    await channel.dispose();
   });
 });

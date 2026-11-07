@@ -133,6 +133,27 @@ describe("useLiveQuery", () => {
     await db.adapter.close();
   });
 
+  it("tracks Date values using the adapter's text coercion", async () => {
+    const db = makeDb();
+    await db.init(SCHEMA);
+    function App({ value }: { value: Date }): ReactNode {
+      const { rows, loading, error } = useLiveQuery<{ value: string }>(
+        sql`SELECT ${value} AS value`,
+      );
+      return (
+        <div data-testid="date">{error?.message ?? (loading ? "loading" : rows[0]?.value)}</div>
+      );
+    }
+    const date = new Date("2026-01-01T00:00:00Z");
+    const view = render(<App value={date} />, { wrapper: wrapper(db) });
+    await waitFor(() => expect(screen.getByTestId("date").textContent).toBe(String(date)));
+    date.setUTCFullYear(2027);
+    view.rerender(<App value={date} />);
+    await waitFor(() => expect(screen.getByTestId("date").textContent).toBe(String(date)));
+    view.unmount();
+    await db.adapter.close();
+  });
+
   it("re-renders when a row is inserted", async () => {
     const db = makeDb();
     await db.init(SCHEMA);

@@ -61,6 +61,7 @@ export class WebPushChannel implements NotificationsChannel {
   private readonly _opts: WebPushChannelOpts;
   private _subscription: PushSubscriptionJSON | null = null;
   private _browserSubscriptionRemoved = false;
+  private _removedBrowserEndpoint: string | null = null;
   private _subscribeFlight: Promise<PushSubscriptionJSON | null> | null = null;
   private _subscribeAbort: AbortController | null = null;
   private _generation = 0;
@@ -167,10 +168,13 @@ export class WebPushChannel implements NotificationsChannel {
         const registration = await navigator.serviceWorker.register(swUrl, { scope });
         await waitForActivation(registration, signal);
         if (generation !== this._generation || signal.aborted) return null;
-        return registration.pushManager.subscribe({
+        const subscription = await registration.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: urlBase64ToUint8Array(this._opts.vapidPublicKey),
         });
+        // A replacement browser subscription exists before its backend enrollment settles.
+        this._removedBrowserEndpoint = null;
+        return subscription;
       });
       if (sub === null || generation !== this._generation || signal.aborted) return null;
 
@@ -204,43 +208,43 @@ export class WebPushChannel implements NotificationsChannel {
   async unsubscribe(): Promise<void> {
     if (!this.isAvailable()) return;
 
+    const enrollment = this._subscribeFlight;
     this._subscribeAbort?.abort();
     this._subscribeAbort = null;
     this._subscribeFlight = null;
     const generation = ++this._generation;
     const subscription = await this._withBrowser(async () => {
       const scope = new URL(this._opts.serviceWorkerScope ?? "/", window.location.href).href;
-      if (!this._browserSubscriptionRemoved) {
-        const registration = await navigator.serviceWorker.getRegistration(
-          this._opts.serviceWorkerScope ?? "/",
-        );
-        if (registration !== undefined && registration.scope === scope) {
-          const sub = await registration.pushManager.getSubscription();
-          if (sub === null) {
-            this._browserSubscriptionRemoved = true;
-          } else {
-            const rawKey = sub.getKey("p256dh");
-            const rawAuth = sub.getKey("auth");
-            this._subscription = {
-              endpoint: sub.endpoint,
-              keys: {
-                p256dh: rawKey ? btoa(String.fromCharCode(...new Uint8Array(rawKey))) : "",
-                auth: rawAuth ? btoa(String.fromCharCode(...new Uint8Array(rawAuth))) : "",
-              },
-            };
-            if (!(await sub.unsubscribe())) {
-              throw new Error("Browser Push subscription removal was rejected");
-            }
-            this._browserSubscriptionRemoved = true;
-          }
-        } else if (this._subscription === null) {
-          return null;
-        } else {
-          this._browserSubscriptionRemoved = true;
-        }
+      const registration = await navigator.serviceWorker.getRegistration(
+        this._opts.serviceWorkerScope ?? "/",
+      );
+      if (registration === undefined || registration.scope !== scope) {
+        if (this._subscription === null) return null;
+        this._browserSubscriptionRemoved = true;
+        return this._subscription;
       }
+      const sub = await registration.pushManager.getSubscription();
+      if (sub !== null && sub.endpoint !== this._removedBrowserEndpoint) {
+        const rawKey = sub.getKey("p256dh");
+        const rawAuth = sub.getKey("auth");
+        this._subscription = {
+          endpoint: sub.endpoint,
+          keys: {
+            p256dh: rawKey ? btoa(String.fromCharCode(...new Uint8Array(rawKey))) : "",
+            auth: rawAuth ? btoa(String.fromCharCode(...new Uint8Array(rawAuth))) : "",
+          },
+        };
+        if (!(await sub.unsubscribe())) {
+          throw new Error("Browser Push subscription removal was rejected");
+        }
+        this._removedBrowserEndpoint = sub.endpoint;
+      }
+      this._browserSubscriptionRemoved = true;
       return this._subscription;
     });
+
+    // A DELETE must cover a POST that was already admitted, even after cancellation.
+    await enrollment;
 
     if (subscription === null) return;
     if (this._opts.unsubscribeEndpoint !== undefined) {

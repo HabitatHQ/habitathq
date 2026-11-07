@@ -31,7 +31,7 @@ export interface ExpoNotificationsAdapter {
   ): ExpoNotificationSubscription;
   addNotificationResponseReceivedListener(
     handler: (response: {
-      notification: { request: ExpoNotificationRequest & { identifier?: string } };
+      notification: { request: ExpoNotificationRequest & { identifier: string } };
       actionIdentifier: string;
     }) => void,
   ): ExpoNotificationSubscription;

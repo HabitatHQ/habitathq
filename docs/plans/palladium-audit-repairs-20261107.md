@@ -90,3 +90,67 @@ The pnpm lockfile matches `origin/main` byte-for-byte: SHA-256 `6acff7bdcbd7868b
 - The baseline dedupe failure remains outside these audit repairs.
 
 All temporary probe fixtures, reports, services, and the disposable PostgreSQL container were removed/stopped after implementation verification. No commits or pushes were made during that verification phase. Publication and cleanup are separately authorized: preserve this source and evidence on the remote default branch before removing the repair worktree, its duplicated dependencies, and its Cargo artifacts. Preserve the primary checkout and unrelated worktrees.
+
+## PR integration verification
+
+PR #103 exposed a protected-field access in the new E2E failure diagnostic.
+The diagnostic now uses the public `getSyncStatus()` API, and the E2E package's
+separate typecheck is included in the publication verification.
+
+Additional validated review corrections:
+
+- Respect explicit JWK `key_ops`; retain mixed-key, fail-closed selection.
+- Purge root-level legacy UUID tombstones without removing unmarked blobs.
+- Reject HLC send/receive exhaustion before an unreadable clock can persist.
+- Bound recurring clock requests, retain obscured clock failures, and keep
+  blocking uplink quarantine visible in sync status.
+- Snapshot nested native startup payloads and dispatch queued requests before
+  newly admitted requests; do not retain already-posted worker payloads.
+- Preserve React object-valued parameters accepted by adapter text coercion,
+  including in-place Date changes.
+- Coordinate an admitted Web Push enrollment POST with removal, and distinguish
+  replacement-browser removal from an older cached backend retry.
+- Release browser callbacks/timers on disposal; distinguish timeout closes from
+  user dismissals; isolate interaction observers; stop pending sends after
+  instance disposal; restore channel resources on later attachment.
+- Preserve native interaction metadata across channel recreation, ignore absent
+  or malformed metadata, and avoid historical per-channel payload maps.
+- Handle native listener-registration failures, aliased channel ownership,
+  retryable cleanup failures, and headless-only toast dismissal.
+
+The proposed delete-wins change was rejected: delete followed by insert is an
+intentional replacement under the existing operation-normalization contract.
+Local and remote alias regressions now explicitly preserve the replacement and
+avoid a delete tombstone. The coverage recipe retains its original Nuxt
+exclusion; provisioning missing coverage-provider dependencies remains outside
+these repairs. No coverage run is claimed.
+
+Post-correction verification:
+
+| Check | Observed result |
+|---|---|
+| Maintained package builds, lint, typechecks, and unit suites | Passed; 985 tests across 19 suites/packages with tests. Warnings remain disclosed above. |
+| Separate E2E package typecheck and full live-server suite | Passed; 50 E2E tests. |
+| Rust workspace with live PostgreSQL integration | 236 tests passed; all-target/all-feature Clippy and formatting checks passed. |
+| All app unit suites after serial Nuxt preparation | 1,822 passed and one existing skip. A concurrent preparation attempt transiently removed generated tsconfigs; the serialized preparation/run passed. |
+| Scoped Semgrep and dependency-cruiser | Passed; 812 modules and 616 dependencies, no architecture violations. |
+
+Runtime qualification after these corrections:
+
+- A real SQLite/native-bridge before/after probe persisted a mutated amount of
+  99 and let a read overtake the queued write before the fix; afterward both
+  queued result and immediate read retained the submitted amount of 1.
+- A real loopback HTTP enrollment probe left one backend enrollment after
+  cancellation before the fix, and none afterward.
+- A real loopback HTTP clock request stalled, timed out at a configured 100 ms
+  deadline (105 ms observed), and a later cycle recovered to `caught_up`.
+  Compiled HLC send/receive rejected numeric-domain exhaustion.
+- A mounted ReactDOM/happy-dom consumer queried real Node SQLite with a Date,
+  then mutated that same Date and rendered the changed result.
+- Built notification classes exercised timeout-versus-user-dismiss semantics,
+  observer isolation, active callback disposal, reattachment, native metadata
+  recovery after recreation, and headless dismissal. Browser Notification and
+  Expo providers were synthetic; this is not permission, OS, or device evidence.
+- Actual Chromium React/OPFS UI created and edited a note, then showed the saved
+  title after reload through accessibility observation. Screenshot capture
+  timed out, so no post-correction screenshot proof is claimed.

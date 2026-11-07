@@ -89,6 +89,13 @@ describe("ToastChannel", () => {
     expect(ch.headless.state.toasts).toHaveLength(0);
   });
 
+  it("dismisses headless-only toast IDs", () => {
+    const toast = new ToastChannel();
+    toast.headless.add({ title: "External", variant: "default", id: "external" });
+    toast.dismiss("external");
+    expect(toast.headless.state.toasts).toEqual([]);
+  });
+
   it("forwards toast clicks and user dismissals without duplicate click-close dismissal", async () => {
     const toast = new ToastChannel();
     const instance = createNotifications({ channels: { toast } });
@@ -116,6 +123,7 @@ describe("ToastChannel", () => {
 
   it("keeps shared-channel interactions alive until the last instance is disposed", async () => {
     const toast = new ToastChannel();
+    const dispose = vi.spyOn(toast, "dispose");
     const first = createNotifications({ channels: { toast } });
     const second = createNotifications({ channels: { toast } });
     const firstClick = vi.fn();
@@ -123,6 +131,7 @@ describe("ToastChannel", () => {
     first.on("clicked", firstClick);
     second.on("clicked", secondClick);
     await first.dispose();
+    expect(dispose).not.toHaveBeenCalled();
     await second.notify("Still active").id("shared").via("toast").send();
     toast.click("shared");
     expect(firstClick).not.toHaveBeenCalled();
@@ -132,8 +141,26 @@ describe("ToastChannel", () => {
     });
     await first.dispose();
     await second.dispose();
+    expect(dispose).toHaveBeenCalledOnce();
     toast.click("shared");
     expect(secondClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores toast tracking when a disposed shared channel gets a later owner", async () => {
+    const toast = new ToastChannel({ maxVisible: 1 });
+    const first = createNotifications({ channels: { toast } });
+    await first.notify("Old").id("old").via("toast").send();
+    await first.dispose();
+    const second = createNotifications({ channels: { toast } });
+    const clicked = vi.fn();
+    second.on("clicked", clicked);
+    await second.notify("New").id("new").via("toast").send();
+    toast.click("new");
+    expect(clicked).toHaveBeenCalledOnce();
+    await second.notify("Evicts new").id("evicts").via("toast").send();
+    toast.click("new");
+    expect(clicked).toHaveBeenCalledOnce();
+    await second.dispose();
   });
 
   it("forwards real fallback-toast activation with its original notification", async () => {

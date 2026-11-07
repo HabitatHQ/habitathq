@@ -365,6 +365,30 @@ describe("Hlc", () => {
       vi.useRealTimers();
     }
   });
+
+  it("keeps the maximum safe wall time round-trippable while incrementing its counter", () => {
+    const maximum = {
+      wallMs: Number.MAX_SAFE_INTEGER,
+      counter: 41,
+      nodeId: "00000000-0000-4000-8000-000000000001",
+    };
+    const sent = sendHlc(maximum, maximum.wallMs);
+    expect(sent).toEqual({ ...maximum, counter: 42 });
+    expect(hlcFromString(hlcToString(sent))).toEqual(sent);
+    const received = recvHlc(maximum, { ...maximum, counter: 43 }, maximum.wallMs);
+    expect(received).toEqual({ ...maximum, counter: 44 });
+    expect(hlcFromString(hlcToString(received))).toEqual(received);
+  });
+
+  it("rejects send and receive advancement when the safe wall-time domain is exhausted", () => {
+    const maximum = {
+      wallMs: Number.MAX_SAFE_INTEGER,
+      counter: 0xffff_ffff,
+      nodeId: "00000000-0000-4000-8000-000000000001",
+    };
+    expect(() => sendHlc(maximum, maximum.wallMs)).toThrow(RangeError);
+    expect(() => recvHlc(maximum, maximum, maximum.wallMs)).toThrow(RangeError);
+  });
   it("keeps sortable strings aligned with HLC order across the safe-integer boundary", () => {
     const nodeId = "00000000-0000-4000-8000-000000000001";
     const before = { wallMs: 999_999_999_999_999, counter: 0xffff_ffff, nodeId };

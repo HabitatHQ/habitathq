@@ -486,6 +486,10 @@ mod tests {
             }],
         );
         first.insert(&scope, &change, u64::MAX).await?;
+        assert_eq!(
+            second.page(&scope, None, 10).await?.changes,
+            Vec::<Change>::new()
+        );
         second.insert(&scope, &change, u64::MAX).await?;
         assert_eq!(
             first.page(&scope, None, 10).await?.changes,

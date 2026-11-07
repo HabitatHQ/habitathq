@@ -20,14 +20,32 @@ export class ToastChannel implements NotificationsChannel {
   private readonly _defaultDuration: number | undefined;
   private _interactionHandler: NotificationInteractionHandler | undefined;
   private readonly _notifications = new Map<string, Notification>();
-  private readonly _unsubscribeState: () => void;
+  private _unsubscribeState: (() => void) | undefined;
   private readonly _clicked = new Set<string>();
-
+  private _disposed = false;
   constructor(opts?: ToastChannelOpts) {
     this.headless = new HeadlessToastState(
       opts?.maxVisible === undefined ? {} : { maxVisible: opts.maxVisible },
     );
     this._defaultDuration = opts?.defaultDuration;
+    this._subscribeState();
+  }
+  setInteractionHandler(handler: NotificationInteractionHandler | undefined): void {
+    this._interactionHandler = handler;
+    if (handler === undefined || !this._disposed) return;
+    this._disposed = false;
+    this._subscribeState();
+  }
+  dispose(): void {
+    if (this._disposed) return;
+    this._disposed = true;
+    this._interactionHandler = undefined;
+    this._unsubscribeState?.();
+    this._unsubscribeState = undefined;
+    this._notifications.clear();
+    this._clicked.clear();
+  }
+  private _subscribeState(): void {
     this._unsubscribeState = this.headless.subscribe((state) => {
       const visible = new Set<string>();
       for (const toast of state.toasts) visible.add(toast.id);
@@ -38,19 +56,8 @@ export class ToastChannel implements NotificationsChannel {
       }
     });
   }
-
-  setInteractionHandler(handler: NotificationInteractionHandler | undefined): void {
-    this._interactionHandler = handler;
-  }
-
-  dispose(): void {
-    this._interactionHandler = undefined;
-    this._unsubscribeState();
-    this._notifications.clear();
-    this._clicked.clear();
-  }
-
   async send(notification: Notification): Promise<ChannelStatus> {
+    if (this._disposed) return { status: "skipped", reason: "Notification channel is disposed" };
     const variant = this._inferVariant(notification);
     const id = notification.id ?? crypto.randomUUID();
     this._clicked.delete(id);
@@ -65,43 +72,39 @@ export class ToastChannel implements NotificationsChannel {
     });
     return { status: "delivered" };
   }
-
   async requestPermission(): Promise<PermissionState> {
     return "not-applicable";
   }
-
   permissionStatus(): PermissionState {
     return "not-applicable";
   }
-
   isAvailable(): boolean {
-    return true;
+    return !this._disposed;
   }
-
   dismiss(id: string): void {
     const notification = this._notifications.get(id);
-    if (notification === undefined) return;
+    if (notification === undefined) {
+      this.headless.dismiss(id);
+      return;
+    }
     this._notifications.delete(id);
     const clicked = this._clicked.delete(id);
     this.headless.dismiss(id);
     if (clicked) return;
     this._interactionHandler?.dismissed(notification);
   }
-
   click(id: string, actionId?: string): void {
     const notification = this._notifications.get(id);
     if (notification === undefined) return;
     this._clicked.add(id);
     this._interactionHandler?.clicked(notification, actionId);
   }
-
   update(
     id: string,
     patch: Readonly<Partial<Pick<ToastEntry, "title" | "body" | "icon" | "variant">>>,
   ): void {
     this.headless.update(id, patch);
   }
-
   private _inferVariant(notification: Notification): ToastVariant {
     if (
       typeof notification.data === "object" &&

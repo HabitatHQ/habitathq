@@ -246,7 +246,7 @@ async function waitServerHas(
     client === undefined
       ? undefined
       : {
-          status: client.engine.status,
+          status: client.engine.getSyncStatus(),
           lastError: client.transport.lastError,
           outbox: await client.engine.adapter.exec(
             "SELECT change_id, terminal, terminal_error FROM _sync_outbox",

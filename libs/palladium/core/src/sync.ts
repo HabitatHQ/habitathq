@@ -306,6 +306,7 @@ const QUARANTINE_MIGRATIONS = [
 ] as const;
 
 const CLOCK_SERVER_PATH = "/v1/clock";
+const CLOCK_REQUEST_TIMEOUT_MS = 30_000;
 
 const EVENT_TABLE = "_sync_events";
 const EVENT_DDL = `CREATE TABLE IF NOT EXISTS ${EVENT_TABLE} (
@@ -727,7 +728,13 @@ export class SyncTransport<S extends SchemaMap> {
 
   async #fetchClock(): Promise<SyncClock | null> {
     try {
-      const response = await this.#fetchCancellable(`${this.#serverUrl}${CLOCK_SERVER_PATH}`);
+      const response = await this.#fetchCancellable(
+        `${this.#serverUrl}${CLOCK_SERVER_PATH}`,
+        undefined,
+        this.#requestTimeoutMs === undefined
+          ? CLOCK_REQUEST_TIMEOUT_MS
+          : Math.min(this.#requestTimeoutMs, CLOCK_REQUEST_TIMEOUT_MS),
+      );
       if (!response.ok) {
         const body = await this.#readBody(() => response.text());
         const code = serverErrorCode(body);
@@ -817,7 +824,11 @@ export class SyncTransport<S extends SchemaMap> {
     return res.status === 401 ? send(true) : res;
   }
 
-  async #fetchCancellable(input: string, init?: RequestInit): Promise<Response> {
+  async #fetchCancellable(
+    input: string,
+    init?: RequestInit,
+    timeoutMs = this.#requestTimeoutMs,
+  ): Promise<Response> {
     const controller = new AbortController();
     let timedOut = false;
     this.#activeAbortController?.abort();
@@ -825,13 +836,13 @@ export class SyncTransport<S extends SchemaMap> {
     this.#activeAbortController = controller;
     this.#activeRequestTimedOut = false;
     this.#activeRequestTimer =
-      this.#requestTimeoutMs === undefined
+      timeoutMs === undefined
         ? undefined
         : setTimeout(() => {
             timedOut = true;
             this.#activeRequestTimedOut = true;
             controller.abort();
-          }, this.#requestTimeoutMs);
+          }, timeoutMs);
     let rejectAbort!: (error: SyncRequestAbortedError) => void;
     const aborted = new Promise<never>((_resolve, reject) => {
       rejectAbort = reject;
@@ -1128,7 +1139,11 @@ export class SyncTransport<S extends SchemaMap> {
         break;
       }
     }
-    this.#engine.setStatus(POST_OUTCOME_TO_STATUS[lastOutcome]);
+    this.#engine.setStatus(
+      lastOutcome === "ok" && (await this.#hasUnresolvedFailure())
+        ? this.#failureStatus()
+        : POST_OUTCOME_TO_STATUS[lastOutcome],
+    );
   }
 
   #isOutboxRowBlocked(row: OutboxRow): boolean {
@@ -1923,6 +1938,17 @@ export class SyncTransport<S extends SchemaMap> {
         this.#engine.setStatus("degraded");
         return;
       }
+      // A successful downlink resolves its own request/protocol error, not
+      // an earlier calibration failure that a later error may have obscured.
+      if (
+        this.#clockFailure !== null &&
+        (this.#lastError === null ||
+          (this.#lastError.phase === "downlink" &&
+            !this.#lastError.code.startsWith("quarantine_")) ||
+          (this.#lastError.phase === "protocol" && this.#lastError.changeId === undefined))
+      ) {
+        this.#lastError = this.#clockFailure;
+      }
       if (await this.#hasUnresolvedFailure()) {
         this.#engine.setStatus(this.#failureStatus());
       } else {
@@ -1944,7 +1970,7 @@ export class SyncTransport<S extends SchemaMap> {
 
   async #hasUnresolvedFailure(): Promise<boolean> {
     if (
-      (this.#clockFailure !== null && this.#lastError === this.#clockFailure) ||
+      this.#clockFailure !== null ||
       this.#lastError?.code === "invalid_clock" ||
       this.#lastError?.code === "invalid_receipt" ||
       this.#lastError?.code.startsWith("quarantine_") === true
@@ -1965,7 +1991,15 @@ export class SyncTransport<S extends SchemaMap> {
         [],
       ),
     );
-    return terminalRows.length > 0;
+    if (terminalRows.length > 0) return true;
+    const quarantinedUploads = await this.#engine.withStorage((adapter) =>
+      adapter.exec<{ change_id: string }>(
+        `SELECT change_id FROM ${OUTBOX_QUARANTINE_TABLE}
+          WHERE disposition = 'blocking' LIMIT 1`,
+        [],
+      ),
+    );
+    return quarantinedUploads.length > 0;
   }
 
   /** Read persisted quarantine state for a change. */

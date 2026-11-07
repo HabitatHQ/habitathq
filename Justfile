@@ -83,9 +83,9 @@ coverage-summary:
 mutants:
     cargo mutants --workspace
 
-# Measure coverage with each maintained package's own Vitest configuration.
+# Measure coverage with each coverage-enabled package's own Vitest configuration.
 coverage-ts:
-    pnpm --filter '@palladium/*' --filter '!@palladium/e2e' --filter '!@palladium/example-*' --filter '!@palladium/worker' -r --if-present test --coverage
+    pnpm --filter '@palladium/*' --filter '!@palladium/e2e' --filter '!@palladium/example-*' --filter '!@palladium/nuxt' --filter '!@palladium/worker' -r --if-present test --coverage
     @echo "Coverage reports written to coverage/ in each package directory"
 
 # TypeScript: run Stryker mutation tests against @palladium/core
