@@ -197,6 +197,50 @@ describe.each([false, true])("worker terminal failures (reporter throws: %s)", (
   });
 });
 
+it("settles native requests queued before and during initialization independently", async () => {
+  const opening = defer<void>();
+  const records = new Map<string, unknown>();
+  const { initialize, sendToWorker } = createDatabasePlugin({
+    appName: "Native",
+    createWorker: () => {
+      throw new Error("native must not create a worker");
+    },
+    native: {
+      init: () => opening.promise,
+      dispatch: async (request) => {
+        if (typeof request !== "object" || request === null || !("type" in request)) {
+          throw new Error("invalid request");
+        }
+        if (request["type"] === "FAIL") throw new Error("request failed");
+        if (request["type"] === "SAVE") {
+          if (!("id" in request) || !("value" in request)) throw new Error("invalid save");
+          records.set(String(request.id), request.value);
+          return request.value;
+        }
+        if (!("id" in request)) throw new Error("invalid read");
+        return records.get(String(request.id));
+      },
+    },
+  });
+  const request = { type: "SAVE", id: "before", value: { amount: 1 } };
+  const before = sendToWorker(request);
+  request.value.amount = 99;
+  const initialized = initialize(true, () => {
+    throw new Error("startup failed");
+  });
+  const during = sendToWorker({ type: "SAVE", id: "during", value: 2 });
+  const failure = expect(sendToWorker({ type: "FAIL" })).rejects.toThrow("request failed");
+  opening.resolve();
+  const readAfterOpening = opening.promise.then(() => sendToWorker({ type: "READ", id: "before" }));
+  await initialized;
+  await expect(before).resolves.toEqual({ amount: 1 });
+  await expect(readAfterOpening).resolves.toEqual({ amount: 1 });
+  await expect(during).resolves.toBe(2);
+  await failure;
+  await expect(sendToWorker({ type: "READ", id: "before" })).resolves.toEqual({ amount: 1 });
+  await expect(sendToWorker({ type: "READ", id: "during" })).resolves.toBe(2);
+});
+
 describe.each([false, true])("native terminal failures (reporter throws: %s)", (throws) => {
   it("rejects future RPCs and reports the native init rejection once", async () => {
     const onError = vi.fn(() => {

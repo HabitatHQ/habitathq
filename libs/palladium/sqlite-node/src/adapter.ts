@@ -53,27 +53,31 @@ function coerce(v: unknown): null | number | bigint | string | Uint8Array {
   return String(v);
 }
 
-export class NodeSqliteAdapter implements TransactableStorageAdapter, ConstraintDeferringAdapter {
-  readonly #config: NodeSqliteConfig;
-  #db: DatabaseSyncType | null = null;
+/** A connection view; transaction views expire when their callback settles. */
+class ConnectionAdapter implements StorageAdapter, ConstraintDeferringAdapter {
+  #db: DatabaseSyncType | null;
 
-  constructor(config: NodeSqliteConfig = { vfs: { type: "memory" } }) {
-    this.#config = config;
+  constructor(db: DatabaseSyncType) {
+    this.#db = db;
+  }
+
+  expire(): void {
+    this.#db = null;
   }
 
   get #database(): DatabaseSyncType {
     if (this.#db === null) {
-      throw new Error("NodeSqliteAdapter: call open() before using the adapter.");
+      throw new Error("NodeSqliteAdapter: transaction callback has already settled.");
     }
     return this.#db;
   }
 
-  /** Reuse the active connection until close(); opening after close creates a new connection. */
   async open(): Promise<void> {
-    if (this.#db !== null) return;
-    // Stryker disable next-line StringLiteral -- ":memory:" is the SQLite in-memory URI; any mutation breaks the adapter
-    const path = this.#config.vfs.type === "memory" ? ":memory:" : this.#config.vfs.filename;
-    this.#db = new DatabaseSync(path);
+    throw new Error("NodeSqliteAdapter: transaction handles cannot open the shared connection.");
+  }
+
+  async close(): Promise<void> {
+    throw new Error("NodeSqliteAdapter: transaction handles cannot close the shared connection.");
   }
 
   async exec<T = Record<string, unknown>>(
@@ -117,18 +121,6 @@ export class NodeSqliteAdapter implements TransactableStorageAdapter, Constraint
     }
   }
 
-  async transaction<T>(fn: (tx: StorageAdapter) => Promise<T>): Promise<T> {
-    this.#database.exec("BEGIN");
-    try {
-      const result = await fn(this);
-      this.#database.exec("COMMIT");
-      return result;
-    } catch (err) {
-      this.#database.exec("ROLLBACK");
-      throw err;
-    }
-  }
-
   /**
    * Defer FK checks to COMMIT (`D2c`). Effective only inside a transaction.
    *
@@ -142,11 +134,101 @@ export class NodeSqliteAdapter implements TransactableStorageAdapter, Constraint
   async deferForeignKeys(): Promise<void> {
     this.#database.exec("PRAGMA defer_foreign_keys = ON");
   }
+}
 
-  async close(): Promise<void> {
-    if (this.#db !== null) {
-      this.#db.close();
-      this.#db = null;
+export class NodeSqliteAdapter implements TransactableStorageAdapter, ConstraintDeferringAdapter {
+  readonly #config: NodeSqliteConfig;
+  #db: DatabaseSyncType | null = null;
+  #connection: ConnectionAdapter | null = null;
+  #queue: Promise<void> = Promise.resolve();
+
+  constructor(config: NodeSqliteConfig = { vfs: { type: "memory" } }) {
+    this.#config = config;
+  }
+
+  #serialize<T>(fn: () => T | Promise<T>): Promise<T> {
+    const operation = this.#queue.then(fn);
+    this.#queue = operation.then(
+      () => {},
+      () => {},
+    );
+    return operation;
+  }
+
+  #view(): ConnectionAdapter {
+    if (this.#connection === null) {
+      throw new Error("NodeSqliteAdapter: call open() before using the adapter.");
     }
+    return this.#connection;
+  }
+
+  /** Reuse the active connection until close(); all operations are FIFO. */
+  open(): Promise<void> {
+    return this.#serialize(() => {
+      if (this.#db !== null) return;
+      const path = this.#config.vfs.type === "memory" ? ":memory:" : this.#config.vfs.filename;
+      const db = new DatabaseSync(path);
+      this.#db = db;
+      this.#connection = new ConnectionAdapter(db);
+    });
+  }
+
+  exec<T = Record<string, unknown>>(sql: string, params: readonly unknown[] = []): Promise<T[]> {
+    return this.#serialize(() => this.#view().exec<T>(sql, params));
+  }
+
+  put(table: string, id: string, data: Record<string, unknown>): Promise<void> {
+    return this.#serialize(() => this.#view().put(table, id, data));
+  }
+
+  patch(table: string, id: string, patch: Record<string, unknown>): Promise<void> {
+    return this.#serialize(() => this.#view().patch(table, id, patch));
+  }
+
+  remove(table: string, id: string): Promise<void> {
+    return this.#serialize(() => this.#view().remove(table, id));
+  }
+
+  runMigrations(migrations: readonly string[]): Promise<void> {
+    return this.#serialize(() => this.#view().runMigrations(migrations));
+  }
+
+  deferForeignKeys(): Promise<void> {
+    return this.#serialize(() => this.#view().deferForeignKeys());
+  }
+
+  /**
+   * Exclusive transaction. Inside the callback use only its scoped `tx` handle:
+   * calls on the outer adapter wait until this callback commits or rolls back.
+   * The scoped handle cannot be used after the callback settles.
+   */
+  transaction<T>(fn: (tx: StorageAdapter) => Promise<T>): Promise<T> {
+    return this.#serialize(async () => {
+      this.#view();
+      const db = this.#db;
+      if (db === null) throw new Error("NodeSqliteAdapter: call open() before using the adapter.");
+      const tx = new ConnectionAdapter(db);
+      db.exec("BEGIN");
+      try {
+        const result = await fn(tx);
+        db.exec("COMMIT");
+        return result;
+      } catch (err) {
+        db.exec("ROLLBACK");
+        throw err;
+      } finally {
+        tx.expire();
+      }
+    });
+  }
+
+  close(): Promise<void> {
+    return this.#serialize(() => {
+      if (this.#db === null) return;
+      this.#db.close();
+      this.#connection?.expire();
+      this.#connection = null;
+      this.#db = null;
+    });
   }
 }

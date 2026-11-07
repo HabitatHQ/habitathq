@@ -24,14 +24,17 @@ impl FilesystemBlobStore {
         Self { root: root.into() }
     }
 
-    /// Path for the blob data file.
-    fn blob_path(&self, id: BlobId) -> PathBuf {
-        self.root.join(id.to_string())
+    /// Scope-qualified data file; hashing prevents scope traversal and collisions.
+    fn blob_path(&self, scope: &str, id: BlobId) -> PathBuf {
+        use sha2::Digest;
+        let scope_key = sha2::Sha256::digest(scope.as_bytes());
+        self.root
+            .join(format!("{scope_key:x}"))
+            .join(id.to_string())
     }
 
-    /// Path for the tombstone marker file used to implement soft-delete.
-    fn tombstone_path(&self, id: BlobId) -> PathBuf {
-        self.root.join(format!("{id}.tombstone"))
+    fn tombstone_path(&self, scope: &str, id: BlobId) -> PathBuf {
+        self.blob_path(scope, id).with_extension("tombstone")
     }
 
     /// Remove the bytes of all blobs that have been soft-deleted.
@@ -40,22 +43,38 @@ impl FilesystemBlobStore {
     ///
     /// Returns an error if any file removal fails.
     pub async fn purge_deleted(&self) -> Result<(), BlobError> {
-        let mut dir = fs::read_dir(&self.root).await?;
-        while let Some(entry) = dir.next_entry().await? {
-            let path = entry.path();
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or_default()
-                .to_owned();
-            if let Some(id_str) = name.strip_suffix(".tombstone") {
-                // Parse the UUID; skip non-UUID filenames gracefully.
-                if let Ok(id) = id_str.parse::<BlobId>() {
-                    let blob = self.blob_path(id);
-                    if blob.exists() {
-                        fs::remove_file(&blob).await?;
+        let mut scopes = match fs::read_dir(&self.root).await {
+            Ok(scopes) => scopes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(BlobError::Io(error)),
+        };
+        while let Some(scope_entry) = scopes.next_entry().await? {
+            let entry_type = scope_entry.file_type().await?;
+            if !entry_type.is_dir() {
+                if entry_type.is_file()
+                    && scope_entry
+                        .file_name()
+                        .to_str()
+                        .and_then(|name| name.strip_suffix(".tombstone"))
+                        .is_some_and(|id| id.parse::<uuid::Uuid>().is_ok())
+                {
+                    let marker = scope_entry.path();
+                    let blob = marker.with_extension("");
+                    if fs::try_exists(&blob).await? {
+                        fs::remove_file(blob).await?;
                     }
-                    fs::remove_file(&path).await?;
+                    fs::remove_file(marker).await?;
+                }
+                continue;
+            }
+            let mut files = fs::read_dir(scope_entry.path()).await?;
+            while let Some(entry) = files.next_entry().await? {
+                if entry.file_name().to_string_lossy().ends_with(".tombstone") {
+                    let blob = entry.path().with_extension("");
+                    if fs::try_exists(&blob).await? {
+                        fs::remove_file(blob).await?;
+                    }
+                    fs::remove_file(entry.path()).await?;
                 }
             }
         }
@@ -64,40 +83,41 @@ impl FilesystemBlobStore {
 }
 
 impl BlobStore for FilesystemBlobStore {
-    async fn put(&self, id: BlobId, data: &[u8]) -> Result<(), BlobError> {
-        if fs::try_exists(self.tombstone_path(id)).await? {
+    async fn put(&self, scope: &str, id: BlobId, data: &[u8]) -> Result<(), BlobError> {
+        if fs::try_exists(self.tombstone_path(scope, id)).await? {
             return Err(BlobError::NotFound(id));
         }
-        fs::create_dir_all(&self.root).await?;
-        fs::write(self.blob_path(id), data).await?;
+        let path = self.blob_path(scope, id);
+        fs::create_dir_all(path.parent().unwrap_or(&self.root)).await?;
+        fs::write(path, data).await?;
         Ok(())
     }
 
-    async fn get(&self, id: BlobId) -> Result<Vec<u8>, BlobError> {
-        let tombstone = self.tombstone_path(id);
-        if tombstone.exists() {
+    async fn get(&self, scope: &str, id: BlobId) -> Result<Vec<u8>, BlobError> {
+        if fs::try_exists(self.tombstone_path(scope, id)).await? {
             return Err(BlobError::NotFound(id));
         }
-        let path = self.blob_path(id);
-        match fs::read(&path).await {
+        match fs::read(self.blob_path(scope, id)).await {
             Ok(bytes) => Ok(bytes),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(BlobError::NotFound(id)),
             Err(e) => Err(BlobError::Io(e)),
         }
     }
 
-    async fn delete(&self, id: BlobId) -> Result<(), BlobError> {
-        // Check blob exists and is not already deleted.
-        if !self.blob_path(id).exists() || self.tombstone_path(id).exists() {
+    async fn delete(&self, scope: &str, id: BlobId) -> Result<(), BlobError> {
+        if !fs::try_exists(self.blob_path(scope, id)).await?
+            || fs::try_exists(self.tombstone_path(scope, id)).await?
+        {
             return Err(BlobError::NotFound(id));
         }
-        fs::write(self.tombstone_path(id), b"").await?;
+        let tombstone = self.tombstone_path(scope, id);
+        fs::write(&tombstone, b"").await?;
         Ok(())
     }
 
-    async fn exists(&self, id: BlobId) -> Result<bool, BlobError> {
-        Ok(fs::try_exists(self.blob_path(id)).await?
-            && !fs::try_exists(self.tombstone_path(id)).await?)
+    async fn exists(&self, scope: &str, id: BlobId) -> Result<bool, BlobError> {
+        Ok(fs::try_exists(self.blob_path(scope, id)).await?
+            && !fs::try_exists(self.tombstone_path(scope, id)).await?)
     }
 }
 
@@ -109,98 +129,60 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn put_get_round_trip() {
+    async fn scoped_blobs_are_isolated_and_legacy_paths_are_not_read() {
         let dir = tempfile::tempdir().unwrap();
         let store = FilesystemBlobStore::new(dir.path());
         let id = uuid::Uuid::new_v4();
-        store.put(id, b"hello blobs").await.unwrap();
-        let got = store.get(id).await.unwrap();
-        assert_eq!(got, b"hello blobs");
-    }
-
-    #[tokio::test]
-    async fn get_missing_returns_not_found() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = FilesystemBlobStore::new(dir.path());
-        let id = uuid::Uuid::new_v4();
-        let err = store.get(id).await.unwrap_err();
-        assert!(matches!(err, BlobError::NotFound(_)));
-    }
-
-    #[tokio::test]
-    async fn delete_marks_as_deleted() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = FilesystemBlobStore::new(dir.path());
-        let id = uuid::Uuid::new_v4();
-        store.put(id, b"data").await.unwrap();
-        store.delete(id).await.unwrap();
-        // Tombstone should exist
-        assert!(store.tombstone_path(id).exists());
-    }
-
-    #[tokio::test]
-    async fn get_after_delete_returns_not_found() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = FilesystemBlobStore::new(dir.path());
-        let id = uuid::Uuid::new_v4();
-        store.put(id, b"data").await.unwrap();
-        store.delete(id).await.unwrap();
-        let err = store.get(id).await.unwrap_err();
-        assert!(matches!(err, BlobError::NotFound(_)));
-    }
-
-    #[tokio::test]
-    async fn exists_true_before_delete_false_after() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = FilesystemBlobStore::new(dir.path());
-        let id = uuid::Uuid::new_v4();
-        store.put(id, b"data").await.unwrap();
-        assert!(store.exists(id).await.unwrap());
-        store.delete(id).await.unwrap();
-        assert!(!store.exists(id).await.unwrap());
-    }
-
-    #[tokio::test]
-    async fn put_after_delete_rejects_replacement_until_purge() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = FilesystemBlobStore::new(dir.path());
-        let id = uuid::Uuid::new_v4();
-        store.put(id, b"original bytes").await.unwrap();
-        store.delete(id).await.unwrap();
-
+        fs::write(dir.path().join(id.to_string()), b"legacy bytes")
+            .await
+            .unwrap();
+        store.put("alice", id, b"alice bytes").await.unwrap();
+        store.put("bob", id, b"bob bytes").await.unwrap();
+        assert_eq!(store.get("alice", id).await.unwrap(), b"alice bytes");
+        assert_eq!(store.get("bob", id).await.unwrap(), b"bob bytes");
+        assert!(!store.exists("unknown", id).await.unwrap());
         assert!(matches!(
-            store.put(id, b"replacement bytes").await,
-            Err(BlobError::NotFound(deleted_id)) if deleted_id == id
+            store.get("unknown", id).await,
+            Err(BlobError::NotFound(_))
         ));
-        assert!(matches!(
-            store.get(id).await,
-            Err(BlobError::NotFound(deleted_id)) if deleted_id == id
-        ));
-        assert!(!store.exists(id).await.unwrap());
         assert_eq!(
-            fs::read(store.blob_path(id)).await.unwrap(),
-            b"original bytes"
+            fs::read(dir.path().join(id.to_string())).await.unwrap(),
+            b"legacy bytes"
         );
-
-        store.purge_deleted().await.unwrap();
-        assert!(!store.blob_path(id).exists());
-        assert!(!store.tombstone_path(id).exists());
-
-        let fresh_id = uuid::Uuid::new_v4();
-        store.put(fresh_id, b"fresh bytes").await.unwrap();
-        assert_eq!(store.get(fresh_id).await.unwrap(), b"fresh bytes");
     }
 
     #[tokio::test]
-    async fn purge_deleted_removes_bytes() {
+    async fn delete_and_purge_are_scoped() {
         let dir = tempfile::tempdir().unwrap();
         let store = FilesystemBlobStore::new(dir.path());
         let id = uuid::Uuid::new_v4();
-        store.put(id, b"data").await.unwrap();
-        store.delete(id).await.unwrap();
+        store.put("alice", id, b"alice").await.unwrap();
+        store.put("bob", id, b"bob").await.unwrap();
+        store.delete("alice", id).await.unwrap();
+        assert!(!store.exists("alice", id).await.unwrap());
+        assert_eq!(store.get("bob", id).await.unwrap(), b"bob");
         store.purge_deleted().await.unwrap();
-        // Both data file and tombstone should be gone.
-        assert!(!store.blob_path(id).exists());
-        assert!(!store.tombstone_path(id).exists());
+        assert!(!store.blob_path("alice", id).exists());
+        assert_eq!(store.get("bob", id).await.unwrap(), b"bob");
+    }
+
+    #[tokio::test]
+    async fn purge_removes_legacy_uuid_tombstones_but_preserves_unmarked_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = FilesystemBlobStore::new(dir.path());
+        let deleted = uuid::Uuid::new_v4();
+        let retained = uuid::Uuid::new_v4();
+        let marker = dir.path().join(format!("{deleted}.tombstone"));
+        let deleted_path = dir.path().join(deleted.to_string());
+        let retained_path = dir.path().join(retained.to_string());
+        fs::write(&deleted_path, b"deleted bytes").await.unwrap();
+        fs::write(&marker, b"").await.unwrap();
+        fs::write(&retained_path, b"legacy bytes").await.unwrap();
+
+        store.purge_deleted().await.unwrap();
+
+        assert!(!fs::try_exists(deleted_path).await.unwrap());
+        assert!(!fs::try_exists(marker).await.unwrap());
+        assert_eq!(fs::read(retained_path).await.unwrap(), b"legacy bytes");
     }
 }

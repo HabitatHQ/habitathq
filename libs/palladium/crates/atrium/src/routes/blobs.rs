@@ -114,15 +114,17 @@ pub(super) async fn get_blob(
     State(state): State<AtriumState>,
     Caller(user): Caller,
     Path(blob_id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<impl IntoResponse, AtriumError> {
+    let workspace = require_header(&headers, WORKSPACE_HEADER)?;
     let db = state.db();
     let blob = db
-        .get_blob(&blob_id)
+        .get_blob(&workspace, &blob_id)
         .await?
         .ok_or_else(|| AtriumError::NotFound(format!("blob {blob_id} not found")))?;
-    db.require_member(&blob.workspace_id, user.as_str()).await?;
+    db.require_member(&workspace, user.as_str()).await?;
     if !db
-        .can_read(&blob.workspace_id, user.as_str(), &blob.note_id)
+        .can_read(&workspace, user.as_str(), &blob.note_id)
         .await?
     {
         return Err(AtriumError::Forbidden(format!(
@@ -131,5 +133,18 @@ pub(super) async fn get_blob(
     }
     let content_type = HeaderValue::from_str(&blob.content_type)
         .unwrap_or_else(|_| HeaderValue::from_static(DEFAULT_CONTENT_TYPE));
-    Ok(([(CONTENT_TYPE, content_type)], blob.bytes))
+    Ok((
+        [
+            (CONTENT_TYPE, content_type),
+            (
+                axum::http::header::CONTENT_DISPOSITION,
+                HeaderValue::from_static("attachment"),
+            ),
+            (
+                axum::http::header::X_CONTENT_TYPE_OPTIONS,
+                HeaderValue::from_static("nosniff"),
+            ),
+        ],
+        blob.bytes,
+    ))
 }

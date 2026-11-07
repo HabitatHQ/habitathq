@@ -7,6 +7,15 @@ use uuid::Uuid;
 
 use crate::{Error, Result};
 
+fn instance_identity(url: &str, schema: &str) -> String {
+    use sha2::Digest;
+    let mut identity = Vec::with_capacity(url.len() + schema.len() + 1);
+    identity.extend_from_slice(url.as_bytes());
+    identity.push(0);
+    identity.extend_from_slice(schema.as_bytes());
+    format!("postgres:{:x}", sha2::Sha256::digest(identity))
+}
+
 // ── Identifier validation ─────────────────────────────────────────────────
 
 /// Validate that `name` is a safe SQL identifier.
@@ -15,10 +24,10 @@ use crate::{Error, Result};
 /// Must start with a letter or underscore (not a digit).
 ///
 /// # Errors
-/// Returns [`Error::InvalidIdentifier`] if the name is empty, starts with a
-/// digit, or contains characters outside `[a-zA-Z0-9_]`.
+/// Returns [`Error::InvalidIdentifier`] if the name is empty, exceeds PostgreSQL's
+/// 63-byte identifier limit, starts with a digit, or contains invalid characters.
 pub fn validate_identifier(name: &str) -> Result<()> {
-    if name.is_empty() {
+    if name.is_empty() || name.len() > 63 {
         return Err(Error::InvalidIdentifier(name.to_owned()));
     }
     let mut chars = name.chars();
@@ -103,7 +112,7 @@ impl PostgresStore {
     /// # Errors
     /// Returns an error if the connection, instance registration, or migration fails.
     pub async fn connect(url: &str) -> Result<Self> {
-        let guard = palladium_core::register(url)?;
+        let guard = palladium_core::register(instance_identity(url, "public"))?;
         let pool = PgPool::connect(url).await?;
         Self::migrate(&pool).await?;
         Ok(Self {
@@ -119,9 +128,16 @@ impl PostgresStore {
     /// # Errors
     /// Returns an error if configuration validation, connection, registration, or migration fails.
     pub async fn connect_with_config(cfg: &InstanceConfig) -> Result<Self> {
-        let guard = palladium_core::register(&cfg.path)?;
         let postgres_opts = cfg.postgres.as_ref();
         let isolation = postgres_opts.map_or(&PostgresIsolation::Schema, |p| &p.isolation);
+        let schema = match isolation {
+            PostgresIsolation::Schema => postgres_opts
+                .and_then(|p| p.schema.as_deref())
+                .unwrap_or(&cfg.name),
+            PostgresIsolation::Db => "public",
+        };
+        validate_identifier(schema)?;
+        let guard = palladium_core::register(instance_identity(&cfg.path, schema))?;
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(cfg.limits.pool_size)
             .acquire_timeout(std::time::Duration::from_secs(
@@ -367,6 +383,8 @@ mod tests {
         assert!(super::validate_identifier("schema_2").is_ok());
         assert!(super::validate_identifier("_underscore").is_ok());
         assert!(super::validate_identifier("CamelCase").is_ok());
+        assert!(super::validate_identifier(&"a".repeat(63)).is_ok());
+        assert!(super::validate_identifier(&"a".repeat(64)).is_err());
     }
 
     #[test]
@@ -376,6 +394,18 @@ mod tests {
         assert!(super::validate_identifier("").is_err());
         assert!(super::validate_identifier("1starts_with_digit").is_err());
         assert!(super::validate_identifier("semi;colon").is_err());
+    }
+
+    #[test]
+    fn postgres_registry_identity_includes_schema_without_url_credentials() {
+        let one = super::instance_identity("postgres://user:secret@host/db", "one");
+        let two = super::instance_identity("postgres://user:secret@host/db", "two");
+        assert_ne!(one, two);
+        assert!(!one.contains("secret"));
+        assert_eq!(
+            one,
+            super::instance_identity("postgres://user:secret@host/db", "one")
+        );
     }
 
     #[cfg(feature = "integration-tests")]
@@ -420,6 +450,52 @@ mod tests {
         assert!(outcomes
             .iter()
             .any(|outcome| matches!(outcome, InsertOutcome::Duplicate(_))));
+        Ok(())
+    }
+
+    #[cfg(feature = "integration-tests")]
+    #[tokio::test]
+    async fn same_database_url_can_open_and_isolate_distinct_schemas(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let url = std::env::var("DATABASE_URL")?;
+        let suffix = Uuid::new_v4().simple().to_string();
+        let first_schema = format!("audit_a_{suffix}");
+        let second_schema = format!("audit_b_{suffix}");
+        let make_config = |name: &str, schema: &str| palladium_core::InstanceConfig {
+            name: name.to_owned(),
+            path: url.clone(),
+            backend: palladium_core::BackendKind::Postgres,
+            limits: palladium_core::InstanceLimits::default(),
+            postgres: Some(palladium_core::PostgresInstanceOptions {
+                isolation: palladium_core::PostgresIsolation::Schema,
+                schema: Some(schema.to_owned()),
+            }),
+        };
+        let first =
+            PostgresStore::connect_with_config(&make_config("first", &first_schema)).await?;
+        let second =
+            PostgresStore::connect_with_config(&make_config("second", &second_schema)).await?;
+        let scope = Scope::new(format!("scope-{suffix}"));
+        let row_id = Uuid::now_v7();
+        let change = Change::new(
+            Hlc::new(NodeId::new(), 1),
+            vec![Op::Insert {
+                table: "todos".into(),
+                row_id,
+                data: json!({"id": row_id}),
+            }],
+        );
+        first.insert(&scope, &change, u64::MAX).await?;
+        assert_eq!(
+            second.page(&scope, None, 10).await?.changes,
+            Vec::<Change>::new()
+        );
+        second.insert(&scope, &change, u64::MAX).await?;
+        assert_eq!(
+            first.page(&scope, None, 10).await?.changes,
+            vec![change.clone()]
+        );
+        assert_eq!(second.page(&scope, None, 10).await?.changes, vec![change]);
         Ok(())
     }
 

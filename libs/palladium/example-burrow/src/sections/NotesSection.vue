@@ -100,7 +100,7 @@ async function loadThumb(blobId: string): Promise<void> {
   if (thumbs.value.has(blobId) || inFlight.has(blobId)) return;
   inFlight.add(blobId);
   try {
-    const blob = await props.api.getBlob(blobId);
+    const blob = await props.api.getBlob(props.account.workspaceId, blobId);
     if (blob && acceptingThumbs && wantedBlobIds.has(blobId) && !thumbs.value.has(blobId)) {
       const next = new Map(thumbs.value);
       next.set(blobId, URL.createObjectURL(blob));

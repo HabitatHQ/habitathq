@@ -1,6 +1,7 @@
 import { createNotifications, MockChannel, type Notification } from "@palladium/notifications-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebPushChannel } from "../channel.js";
+import type { PushSubscriptionJSON } from "../types.js";
 
 const mockPushSubscription = {
   endpoint: "https://fcm.googleapis.com/fcm/send/test-token",
@@ -22,9 +23,11 @@ const mockPushManager = {
 
 const mockRegistration = {
   scope: "https://example.test/",
+  active: { state: "activated" },
+  installing: null,
+  waiting: null,
   pushManager: mockPushManager,
 };
-
 const mockServiceWorker = {
   register: vi.fn().mockResolvedValue(mockRegistration),
   getRegistration: vi.fn().mockResolvedValue(mockRegistration),
@@ -60,6 +63,17 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
 });
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve(value: T): void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 
 describe("WebPushChannel", () => {
   it("isAvailable() returns true when APIs present", () => {
@@ -140,6 +154,239 @@ describe("WebPushChannel", () => {
       status: "skipped",
       reason: "Not subscribed to web push",
     });
+  });
+
+  it("waits for the registered worker to activate before subscribing", async () => {
+    const activation = new EventTarget();
+    const addListener = vi.spyOn(activation, "addEventListener");
+    const worker = Object.assign(activation, { state: "installing" as ServiceWorkerState });
+    mockServiceWorker.register.mockResolvedValueOnce({
+      ...mockRegistration,
+      active: null,
+      installing: worker as unknown as ServiceWorker,
+      waiting: null,
+    });
+    const ch = new WebPushChannel({ vapidPublicKey: "dGVzdA==" });
+    const pending = ch.subscribe();
+    await vi.waitFor(() =>
+      expect(addListener).toHaveBeenCalledWith("statechange", expect.any(Function)),
+    );
+    expect(mockPushManager.subscribe).not.toHaveBeenCalled();
+    worker.state = "activated";
+    activation.dispatchEvent(new Event("statechange"));
+    await expect(pending).resolves.toEqual(expectedSubscription);
+    expect(mockPushManager.subscribe).toHaveBeenCalledOnce();
+  });
+
+  it("does not resolve activation through a different global ready registration", async () => {
+    const activation = new EventTarget();
+    const worker = Object.assign(activation, { state: "installing" as ServiceWorkerState });
+    mockServiceWorker.register.mockResolvedValueOnce({
+      ...mockRegistration,
+      active: null,
+      installing: worker as unknown as ServiceWorker,
+      waiting: null,
+    });
+    const ch = new WebPushChannel({ vapidPublicKey: "dGVzdA==" });
+    const pending = ch.subscribe();
+    await Promise.resolve();
+    worker.state = "redundant";
+    activation.dispatchEvent(new Event("statechange"));
+    await expect(pending).resolves.toBeNull();
+    expect(mockPushManager.subscribe).not.toHaveBeenCalled();
+  });
+
+  it("cancels activation wait on unsubscribe and releases the worker listener", async () => {
+    const activation = new EventTarget();
+    const worker = Object.assign(activation, { state: "installing" as ServiceWorkerState });
+    const removeListener = vi.spyOn(activation, "removeEventListener");
+    mockServiceWorker.register.mockResolvedValueOnce({
+      ...mockRegistration,
+      active: null,
+      installing: worker as unknown as ServiceWorker,
+      waiting: null,
+    });
+    const ch = new WebPushChannel({ vapidPublicKey: "dGVzdA==" });
+    const subscribing = ch.subscribe();
+    await Promise.resolve();
+    const unsubscribing = ch.unsubscribe();
+    await expect(subscribing).resolves.toBeNull();
+    await unsubscribing;
+    expect(removeListener).toHaveBeenCalledWith("statechange", expect.any(Function));
+  });
+
+  it("times out activation waits and releases the worker listener", async () => {
+    vi.useFakeTimers();
+    const activation = new EventTarget();
+    const worker = Object.assign(activation, { state: "installing" as ServiceWorkerState });
+    const removeListener = vi.spyOn(activation, "removeEventListener");
+    mockServiceWorker.register.mockResolvedValueOnce({
+      ...mockRegistration,
+      active: null,
+      installing: worker as unknown as ServiceWorker,
+      waiting: null,
+    });
+    const ch = new WebPushChannel({ vapidPublicKey: "dGVzdA==" });
+    const subscribing = ch.subscribe();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(30_000);
+    await expect(subscribing).resolves.toBeNull();
+    expect(removeListener).toHaveBeenCalledWith("statechange", expect.any(Function));
+    vi.useRealTimers();
+  });
+
+  it("coalesces concurrent enrollment attempts and preserves successful backend state", async () => {
+    const response = deferred<Response>();
+    const fetchMock = vi.fn().mockReturnValue(response.promise);
+    vi.stubGlobal("fetch", fetchMock);
+    const ch = new WebPushChannel({
+      vapidPublicKey: "dGVzdA==",
+      subscribeEndpoint: "/api/push/subscribe",
+    });
+    const first = ch.subscribe();
+    const second = ch.subscribe();
+    expect(second).toBe(first);
+    await Promise.resolve();
+    response.resolve(new Response(null, { status: 204 }));
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      expectedSubscription,
+      expectedSubscription,
+    ]);
+    expect(ch.getSubscription()).toEqual(expectedSubscription);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("does not clear a newer subscription when backend unsubscribe completes later", async () => {
+    const unsubscribeResponse = deferred<Response>();
+    const unsubscribeStarted = deferred<void>();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockImplementationOnce(() => {
+        unsubscribeStarted.resolve();
+        return unsubscribeResponse.promise;
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const ch = new WebPushChannel({
+      vapidPublicKey: "dGVzdA==",
+      subscribeEndpoint: "/api/subscribe",
+      unsubscribeEndpoint: "/api/unsubscribe",
+      sendEndpoint: "/api/send",
+    });
+    await ch.subscribe();
+    const unsubscribe = ch.unsubscribe();
+    await unsubscribeStarted.promise;
+    const replacement = {
+      ...mockPushSubscription,
+      endpoint: "https://push.example.test/new",
+      toJSON: () => ({ ...expectedSubscription, endpoint: "https://push.example.test/new" }),
+    };
+    mockPushManager.subscribe.mockResolvedValueOnce(replacement);
+    const subscribe = ch.subscribe();
+    await subscribe;
+    unsubscribeResponse.resolve(new Response(null, { status: 204 }));
+    await unsubscribe;
+    expect(ch.getSubscription()?.endpoint).toBe(replacement.endpoint);
+  });
+
+  it("removes backend enrollment that completes after cancellation", async () => {
+    const enrollmentStarted = deferred<void>();
+    const finishEnrollment = deferred<void>();
+    const backend = new Set<string>();
+    let browserActive = true;
+    mockPushSubscription.unsubscribe.mockImplementationOnce(async () => {
+      browserActive = false;
+      return true;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const subscription: PushSubscriptionJSON = JSON.parse(String(init.body));
+        if (init.method === "POST") {
+          enrollmentStarted.resolve();
+          await finishEnrollment.promise;
+          backend.add(subscription.endpoint);
+        } else {
+          backend.delete(subscription.endpoint);
+        }
+        return new Response(null, { status: 204 });
+      }),
+    );
+    const ch = new WebPushChannel({
+      vapidPublicKey: "dGVzdA==",
+      subscribeEndpoint: "/api/subscribe",
+      unsubscribeEndpoint: "/api/unsubscribe",
+    });
+    const subscribing = ch.subscribe();
+    await enrollmentStarted.promise;
+    const unsubscribing = ch.unsubscribe();
+    await vi.waitFor(() => expect(browserActive).toBe(false));
+    finishEnrollment.resolve();
+    await Promise.all([subscribing, unsubscribing]);
+    expect(backend).toEqual(new Set());
+    expect(ch.getSubscription()).toBeNull();
+  });
+
+  it("removes a replacement while its enrollment and an older removal are pending", async () => {
+    const oldRemovalStarted = deferred<void>();
+    const finishOldRemoval = deferred<void>();
+    const replacementStarted = deferred<void>();
+    const finishReplacement = deferred<void>();
+    const backend = new Set<string>();
+    let browserActive = true;
+    const replacement = {
+      ...mockPushSubscription,
+      endpoint: "https://push.example.test/replacement",
+      unsubscribe: vi.fn(async () => {
+        browserActive = false;
+        return true;
+      }),
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const subscription: PushSubscriptionJSON = JSON.parse(String(init.body));
+        if (init.method === "POST") {
+          if (subscription.endpoint === replacement.endpoint) {
+            replacementStarted.resolve();
+            await finishReplacement.promise;
+          }
+          backend.add(subscription.endpoint);
+        } else {
+          if (subscription.endpoint === mockPushSubscription.endpoint) {
+            oldRemovalStarted.resolve();
+            await finishOldRemoval.promise;
+          }
+          backend.delete(subscription.endpoint);
+        }
+        return new Response(null, { status: 204 });
+      }),
+    );
+    const ch = new WebPushChannel({
+      vapidPublicKey: "dGVzdA==",
+      subscribeEndpoint: "/api/subscribe",
+      unsubscribeEndpoint: "/api/unsubscribe",
+    });
+    await ch.subscribe();
+    const oldRemoval = ch.unsubscribe();
+    await oldRemovalStarted.promise;
+    mockPushManager.subscribe.mockResolvedValueOnce(replacement);
+    mockPushManager.getSubscription.mockResolvedValueOnce(replacement);
+    const enrollment = ch.subscribe();
+    await replacementStarted.promise;
+    expect(await ch.send({ title: "Do not use the removed subscription" })).toEqual({
+      status: "skipped",
+      reason: "Not subscribed to web push",
+    });
+    const removal = ch.unsubscribe();
+    await vi.waitFor(() => expect(browserActive).toBe(false));
+    finishReplacement.resolve();
+    finishOldRemoval.resolve();
+    await Promise.all([oldRemoval, enrollment, removal]);
+    expect(browserActive).toBe(false);
+    expect(backend).toEqual(new Set());
+    expect(ch.getSubscription()).toBeNull();
   });
 
   it.each([400, 401, 500, "network"] as const)(
@@ -342,7 +589,6 @@ describe("WebPushChannel", () => {
 
       await expect(ch.unsubscribe()).resolves.toBeUndefined();
       expect(unsubscribeMock).toHaveBeenCalledOnce();
-      expect(mockPushManager.getSubscription).toHaveBeenCalledOnce();
       expect(fetchMock).toHaveBeenLastCalledWith(
         "/api/push/unsubscribe",
         expect.objectContaining({

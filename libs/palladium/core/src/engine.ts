@@ -42,17 +42,28 @@ export type SyncStatus =
   | "blocked_auth"
   | "degraded";
 
-function normalizeOps<S extends SchemaMap>(ops: ReadonlyArray<Op<S>>): Op<S>[] {
+// A transaction describes its final row writes: a later insert replaces an
+// earlier delete before either is applied. Only a normalized, applied delete
+// retires the UUID; table aliases must follow the same rule as exact spellings.
+function normalizeOps<S extends SchemaMap>(
+  ops: ReadonlyArray<Op<S>>,
+  canonicalizeTables = true,
+): Op<S>[] {
   type State = { op: Op<S>; order: number };
   const states = new Map<string, State>();
   let order = 0;
   for (const op of ops) {
-    const key = `${String(op.table)}\u0000${op.id}`;
+    const table = canonicalizeTables ? canonicalTable(String(op.table)) : String(op.table);
+    const normalized = { ...op, table: table as keyof S & string } as Op<S>;
+    const key = `${table}\u0000${op.id}`;
     const prior = states.get(key);
     if (op.type === "insert") {
-      states.set(key, { op: { ...op, data: { ...op.data } }, order: prior?.order ?? order++ });
+      states.set(key, {
+        op: { ...normalized, data: { ...op.data } } as Op<S>,
+        order: prior?.order ?? order++,
+      });
     } else if (op.type === "delete") {
-      states.set(key, { op, order: prior?.order ?? order++ });
+      states.set(key, { op: normalized, order: prior?.order ?? order++ });
     } else if (prior?.op.type === "insert") {
       const insert = prior.op;
       states.set(key, {
@@ -66,7 +77,7 @@ function normalizeOps<S extends SchemaMap>(ops: ReadonlyArray<Op<S>>): Op<S>[] {
       });
     } else if (prior?.op.type === "delete") {
     } else {
-      states.set(key, { op, order: order++ });
+      states.set(key, { op: normalized, order: order++ });
     }
   }
   return [...states.values()].sort((a, b) => a.order - b.order).map(({ op }) => op);
@@ -127,12 +138,10 @@ function cursorAdvances(cursor: string, savedCursor: string): boolean {
  * with a mixed-case alias could bypass the LWW register for the same cell and
  * clobber a newer local value.
  *
- * Resolution: callers (and the wire) keep their original spelling, but every
- * internal path that keys LWW metadata, pending buffers, tombstones, purges,
- * shadow-table deletes, or outbox SQL uses the canonical lowercased table name
- * and the canonical column spelling resolved against the declared schema. The
- * Rust server is allowed to keep its current behaviour; wire canonicality is
- * the caller's responsibility and is not asserted here.
+ * Local wire operations and every internal LWW key use lowercased table names
+ * and column names resolved against the applied SQLite schema. Remote payloads
+ * retain their original identity for replay/idempotency while their operations
+ * are canonicalized before normalization and application.
  */
 function canonicalTable(name: string): string {
   return name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
@@ -866,6 +875,20 @@ export class PalladiumEngine<S extends SchemaMap> {
         }
         this.#tableColumns = tableColumns;
       });
+    } else {
+      await this.#serialize(async () => {
+        const tableColumns = await readSchemaColumns(this.adapter);
+        const columnsFor = (table: string): ReadonlySet<string> =>
+          tableColumns.get(canonicalTable(table)) ?? EMPTY_COLUMNS;
+        if (isTransactable(this.adapter)) {
+          await this.#transaction((transaction) =>
+            migrateShadowTablesToCanonical(transaction, columnsFor),
+          );
+        } else {
+          await migrateShadowTablesToCanonical(this.adapter, columnsFor);
+        }
+        this.#tableColumns = tableColumns;
+      });
     }
   }
 
@@ -1065,7 +1088,10 @@ export class PalladiumEngine<S extends SchemaMap> {
       );
     }
     const builtOps = builder.build();
-    const ops = freezeOps(normalizeOps(builtOps));
+    const canonicalOps: Op<S>[] = builtOps.map((op) =>
+      canonicalOp(op, (table) => this.#columnsFor(table)),
+    );
+    const ops = freezeOps(normalizeOps(canonicalOps));
     const touchedTables = new Set<string>();
     const changeId = crypto.randomUUID();
 
@@ -1239,14 +1265,14 @@ export class PalladiumEngine<S extends SchemaMap> {
     const ownedChange = snapshotJson(change);
     const { hlc, ops } = ownedChange;
     if (!isValidHlc(hlc)) throw new TypeError("Invalid remote HLC");
-    const canonicalOps = normalizeOps(ops);
-    if (!sameOps(ops, canonicalOps)) throw new TypeError("Remote change is not canonical");
+    const wireNormalized = normalizeOps(ops, false);
+    if (!sameOps(ops, wireNormalized)) throw new TypeError("Remote change is not canonical");
     for (const op of ops) {
       if (!isUuidV7(op.id)) throw new TypeError("Remote row id must be a canonical UUIDv7");
     }
     if (ops.length === 0) return;
-    const identifierCanonicalOps: ReadonlyArray<Op<S>> = canonicalOps.map((op) =>
-      canonicalOp(op, (table) => this.#columnsFor(table)),
+    const identifierCanonicalOps = normalizeOps(
+      ops.map((op) => canonicalOp(op, (table) => this.#columnsFor(table))),
     );
     const touchedTables = new Set<string>();
     await this.#serialize(async () => {
@@ -1303,16 +1329,21 @@ export class PalladiumEngine<S extends SchemaMap> {
   ): Promise<boolean> {
     const ownedPurges = snapshotJson(purges);
     const prepared = snapshotJson(changes).map((change) => {
-      if (!isValidHlc(change.hlc)) throw new TypeError("Invalid remote HLC");
-      const canonicalOps = normalizeOps(change.ops);
-      if (!sameOps(change.ops, canonicalOps)) throw new TypeError("Remote change is not canonical");
-      for (const op of change.ops) {
-        if (!isUuidV7(op.id)) throw new TypeError("Remote row id must be a canonical UUIDv7");
+      try {
+        if (!isValidHlc(change.hlc)) throw new TypeError("Invalid remote HLC");
+        const wireNormalized = normalizeOps(change.ops, false);
+        if (!sameOps(change.ops, wireNormalized))
+          throw new TypeError("Remote change is not canonical");
+        for (const op of change.ops) {
+          if (!isUuidV7(op.id)) throw new TypeError("Remote row id must be a canonical UUIDv7");
+        }
+        const identifierCanonicalOps = normalizeOps(
+          change.ops.map((op) => canonicalOp(op, (table) => this.#columnsFor(table))),
+        );
+        return { change, identifierCanonicalOps, failure: undefined };
+      } catch (failure) {
+        return { change, identifierCanonicalOps: [] as Op<S>[], failure };
       }
-      const identifierCanonicalOps = canonicalOps.map((op) =>
-        canonicalOp(op, (table) => this.#columnsFor(table)),
-      );
-      return { change, identifierCanonicalOps };
     });
     const touchedTables = new Set<string>();
     let allApplied = true;
@@ -1323,7 +1354,13 @@ export class PalladiumEngine<S extends SchemaMap> {
         }
         this.#suppressLocalEmit = true;
         try {
-          for (const { change, identifierCanonicalOps } of prepared) {
+          for (const { change, identifierCanonicalOps, failure } of prepared) {
+            if (failure !== undefined) {
+              if (onRejected === undefined) throw failure;
+              allApplied = false;
+              await this.#transaction((adpt) => onRejected(change, failure, adpt));
+              continue;
+            }
             const changeTouchedTables = new Set<string>();
             const previousHlc = this.#currentHlc;
             try {

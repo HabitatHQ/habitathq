@@ -2,7 +2,7 @@
 import { sql } from "@palladium/core";
 import { useLiveQuery } from "@palladium/vue";
 import { ref } from "vue";
-import { db, generateUlid } from "./db.js";
+import { db, generateUuidV7 } from "./db.js";
 
 type Task = { id: string; text: string; done: number };
 
@@ -12,7 +12,7 @@ const newText = ref("");
 async function addTask(): Promise<void> {
   const text = newText.value.trim();
   if (!text) return;
-  await db.insert("tasks", { id: generateUlid(), text, done: 0 });
+  await db.insert("tasks", { id: generateUuidV7(), text, done: 0 });
   newText.value = "";
 }
 

@@ -3,6 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ToastChannel } from "../channel.js";
 
 describe("ToastChannel", () => {
+  beforeEach(() => {
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("document", { visibilityState: "visible" });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("send() returns delivered status", async () => {
     const ch = new ToastChannel();
     const result = await ch.send({ title: "Hello" });
@@ -78,6 +87,120 @@ describe("ToastChannel", () => {
     await ch.send({ title: "Title", id: "t1" });
     ch.dismiss("t1");
     expect(ch.headless.state.toasts).toHaveLength(0);
+  });
+
+  it("dismisses headless-only toast IDs", () => {
+    const toast = new ToastChannel();
+    toast.headless.add({ title: "External", variant: "default", id: "external" });
+    toast.dismiss("external");
+    expect(toast.headless.state.toasts).toEqual([]);
+  });
+
+  it("forwards toast clicks and user dismissals without duplicate click-close dismissal", async () => {
+    const toast = new ToastChannel();
+    const instance = createNotifications({ channels: { toast } });
+    const clicked = vi.fn();
+    const dismissed = vi.fn();
+    instance.on("clicked", clicked);
+    instance.on("dismissed", dismissed);
+    await instance.notify("Toast").id("toast-1").via("toast").send();
+    toast.click("toast-1", "open");
+    toast.dismiss("toast-1");
+    expect(clicked).toHaveBeenCalledWith({
+      channel: "toast",
+      notification: { title: "Toast", id: "toast-1" },
+      actionId: "open",
+    });
+    expect(dismissed).not.toHaveBeenCalled();
+
+    await instance.notify("Dismiss").id("toast-2").via("toast").send();
+    toast.dismiss("toast-2");
+    expect(dismissed).toHaveBeenCalledWith({
+      channel: "toast",
+      notification: { title: "Dismiss", id: "toast-2" },
+    });
+  });
+
+  it("keeps shared-channel interactions alive until the last instance is disposed", async () => {
+    const toast = new ToastChannel();
+    const dispose = vi.spyOn(toast, "dispose");
+    const first = createNotifications({ channels: { toast } });
+    const second = createNotifications({ channels: { toast } });
+    const firstClick = vi.fn();
+    const secondClick = vi.fn();
+    first.on("clicked", firstClick);
+    second.on("clicked", secondClick);
+    await first.dispose();
+    expect(dispose).not.toHaveBeenCalled();
+    await second.notify("Still active").id("shared").via("toast").send();
+    toast.click("shared");
+    expect(firstClick).not.toHaveBeenCalled();
+    expect(secondClick).toHaveBeenCalledWith({
+      channel: "toast",
+      notification: { title: "Still active", id: "shared" },
+    });
+    await first.dispose();
+    await second.dispose();
+    expect(dispose).toHaveBeenCalledOnce();
+    toast.click("shared");
+    expect(secondClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores toast tracking when a disposed shared channel gets a later owner", async () => {
+    const toast = new ToastChannel({ maxVisible: 1 });
+    const first = createNotifications({ channels: { toast } });
+    await first.notify("Old").id("old").via("toast").send();
+    await first.dispose();
+    const second = createNotifications({ channels: { toast } });
+    const clicked = vi.fn();
+    second.on("clicked", clicked);
+    await second.notify("New").id("new").via("toast").send();
+    toast.click("new");
+    expect(clicked).toHaveBeenCalledOnce();
+    await second.notify("Evicts new").id("evicts").via("toast").send();
+    toast.click("new");
+    expect(clicked).toHaveBeenCalledOnce();
+    await second.dispose();
+  });
+
+  it("forwards real fallback-toast activation with its original notification", async () => {
+    const browser = new MockChannel("browser");
+    browser.setBehavior("failed");
+    const toast = new ToastChannel();
+    const instance = createNotifications({ channels: { browser, toast }, fallback: ["toast"] });
+    const clicked = vi.fn();
+    instance.on("clicked", clicked);
+    await instance.notify("Fallback").id("fallback").via("browser").send();
+    toast.click("fallback", "open");
+    expect(clicked).toHaveBeenCalledWith({
+      channel: "toast",
+      notification: { title: "Fallback", id: "fallback" },
+      actionId: "open",
+    });
+    await instance.dispose();
+  });
+
+  it("ignores interactions for evicted, dismissed, and cleared headless toasts", async () => {
+    const toast = new ToastChannel({ maxVisible: 1 });
+    const instance = createNotifications({ channels: { toast } });
+    const clicked = vi.fn();
+    instance.on("clicked", clicked);
+    await instance.notify("Evicted").id("evicted").via("toast").send();
+    await instance.notify("Dismissed").id("dismissed").via("toast").send();
+    toast.click("evicted");
+    toast.headless.dismiss("dismissed");
+    toast.click("dismissed");
+    await instance.notify("Cleared").id("cleared").via("toast").send();
+    toast.headless.clear();
+    toast.click("cleared");
+    expect(clicked).not.toHaveBeenCalled();
+    await instance.notify("Visible").id("visible").via("toast").send();
+    toast.click("visible");
+    expect(clicked).toHaveBeenCalledWith({
+      channel: "toast",
+      notification: { title: "Visible", id: "visible" },
+    });
+    await instance.dispose();
   });
 
   it("update() delegates to headless state", async () => {

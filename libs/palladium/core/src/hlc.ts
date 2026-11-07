@@ -79,8 +79,17 @@ export function generateUuidV7(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-/** Freeze a newly-created HLC without allocating a defensive copy. */
+/** Keep generated clocks inside the persisted parser's numeric domain. */
 function freezeHlc(hlc: Hlc): Hlc {
+  if (
+    !Number.isSafeInteger(hlc.wallMs) ||
+    hlc.wallMs < 0 ||
+    !Number.isSafeInteger(hlc.counter) ||
+    hlc.counter < 0 ||
+    hlc.counter > 0xffff_ffff
+  ) {
+    throw new RangeError("HLC numeric fields are outside the supported range");
+  }
   return Object.freeze(hlc);
 }
 
@@ -108,6 +117,7 @@ function nextCounter(wallMs: number, counter: number): { wallMs: number; counter
  * Advance an HLC before *sending* a message.
  * Guarantees the returned timestamp is strictly greater than `prev`.
  * If the counter would overflow `COUNTER_MAX`, wallMs is advanced by 1 ms.
+ * Throws if advancement exhausts the safe-integer wall-time domain.
  */
 export function sendHlc(prev: Hlc, nowMs = Date.now()): Hlc {
   if (nowMs > prev.wallMs) {
@@ -122,6 +132,7 @@ export function sendHlc(prev: Hlc, nowMs = Date.now()): Hlc {
  * Advance an HLC after *receiving* a remote message with timestamp `remote`.
  * The result is greater than both `local` and `remote`.
  * If the counter would overflow `COUNTER_MAX`, wallMs is advanced by 1 ms.
+ * Throws if advancement exhausts the safe-integer wall-time domain.
  */
 export function recvHlc(local: Hlc, remote: Hlc, nowMs = Date.now()): Hlc {
   const maxWall = Math.max(local.wallMs, remote.wallMs, nowMs);
@@ -154,10 +165,16 @@ export function compareHlc(a: Hlc, b: Hlc): -1 | 0 | 1 {
   return 0;
 }
 
-/** Serialise an HLC to a sortable string: `<wallMs>-<counter>-<nodeId>`. */
+/**
+ * Serialize an HLC as fixed-width decimal fields followed by its node UUID.
+ * Persisted strings from the earlier 15-digit wall field remain readable, but
+ * newly written strings use 16 digits so the full non-negative safe-integer
+ * timestamp domain remains lexicographically ordered. Mixed old/new encodings
+ * must be rewritten before comparing strings lexically; compare HLC values via
+ * {@link compareHlc} when data may contain both formats.
+ */
 export function hlcToString(hlc: Hlc): string {
-  // Zero-pad wallMs to 15 digits and counter to 10 digits for lexicographic sort.
-  const wall = hlc.wallMs.toString().padStart(15, "0");
+  const wall = hlc.wallMs.toString().padStart(16, "0");
   const ctr = hlc.counter.toString().padStart(10, "0");
   return `${wall}-${ctr}-${hlc.nodeId}`;
 }
@@ -172,8 +189,13 @@ export function hlcFromString(s: string): Hlc {
   const wallMs = Number(s.slice(0, firstDash));
   const counter = Number(s.slice(firstDash + 1, secondDash));
   const nodeId = s.slice(secondDash + 1);
-  // Stryker disable next-line ConditionalExpression,EqualityOperator -- wallMs<0 and counter<0 are unreachable via hlcToString format (leading `-` changes slice position, never yields negative numbers)
-  if (!Number.isFinite(wallMs) || wallMs < 0 || !Number.isFinite(counter) || counter < 0) {
+  if (
+    !Number.isSafeInteger(wallMs) ||
+    wallMs < 0 ||
+    !Number.isSafeInteger(counter) ||
+    counter < 0 ||
+    counter > COUNTER_MAX
+  ) {
     throw new Error(`Invalid HLC string: "${s}"`);
   }
   return freezeHlc({ wallMs, counter, nodeId });

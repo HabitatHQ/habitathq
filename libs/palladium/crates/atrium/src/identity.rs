@@ -81,15 +81,20 @@ struct JwkSet {
 }
 #[derive(Debug, Deserialize)]
 struct Jwk {
-    kid: String,
-    kty: String,
-    n: String,
-    e: String,
+    kid: Option<String>,
+    kty: Option<String>,
+    n: Option<String>,
+    e: Option<String>,
+    alg: Option<String>,
+    #[serde(rename = "use")]
+    key_use: Option<String>,
+    key_ops: Option<Vec<String>>,
 }
 #[derive(Debug, Deserialize)]
 struct Claims {
     sub: String,
 }
+const JWKS_REFRESH_COOLDOWN: Duration = Duration::from_secs(30);
 impl JwtJwksProvider {
     /// Create a provider from Authentik OIDC discovery metadata.
     ///
@@ -147,11 +152,10 @@ impl JwtJwksProvider {
     }
     async fn refresh(&self) -> Result<(), AtriumError> {
         let keys = fetch_keys(&self.client, &self.jwks_url).await?;
-        {
-            let mut cache = self.cache.lock().await;
-            cache.keys = keys;
-            cache.refreshed = Instant::now();
-        }
+        let mut cache = self.cache.lock().await;
+        cache.keys = keys;
+        cache.refreshed = Instant::now();
+        drop(cache);
         Ok(())
     }
 }
@@ -170,11 +174,9 @@ async fn fetch_keys(
         .await
         .map_err(provider_err)?;
     let mut m = HashMap::new();
-    for j in s.keys {
-        if j.kty == "RSA" {
-            if let Ok(k) = DecodingKey::from_rsa_components(&j.n, &j.e) {
-                m.insert(j.kid, k);
-            }
+    for jwk in s.keys {
+        if let Some((kid, key)) = eligible_rsa_key(jwk) {
+            m.insert(kid, key);
         }
     }
     if m.is_empty() {
@@ -183,6 +185,22 @@ async fn fetch_keys(
         ));
     }
     Ok(m)
+}
+fn eligible_rsa_key(jwk: Jwk) -> Option<(String, DecodingKey)> {
+    if jwk.kty.as_deref() != Some("RSA")
+        || jwk.alg.as_deref().is_some_and(|alg| alg != "RS256")
+        || jwk.key_use.as_deref().is_some_and(|usage| usage != "sig")
+        || jwk
+            .key_ops
+            .as_ref()
+            .is_some_and(|operations| !operations.iter().any(|operation| operation == "verify"))
+    {
+        return None;
+    }
+    let (kid, n, e) = (jwk.kid?, jwk.n?, jwk.e?);
+    DecodingKey::from_rsa_components(&n, &e)
+        .ok()
+        .map(|key| (kid, key))
 }
 fn provider_err<E: std::fmt::Display>(e: E) -> AtriumError {
     AtriumError::ProviderUnavailable(format!("OIDC provider unavailable: {e}"))
@@ -226,8 +244,11 @@ impl IdentityProvider for JwtJwksProvider {
         let mut key = self.cache.lock().await.keys.get(&kid).cloned();
         if key.is_none() {
             let _refresh_guard = self.refresh_lock.lock().await;
-            key = self.cache.lock().await.keys.get(&kid).cloned();
-            if key.is_none() {
+            let mut cache = self.cache.lock().await;
+            key = cache.keys.get(&kid).cloned();
+            if key.is_none() && cache.refreshed.elapsed() >= JWKS_REFRESH_COOLDOWN {
+                cache.refreshed = Instant::now();
+                drop(cache);
                 self.refresh().await?;
                 key = self.cache.lock().await.keys.get(&kid).cloned();
             }
@@ -271,6 +292,26 @@ mod tests {
             .unwrap()
             .into_parts()
             .0
+    }
+    #[test]
+    fn mixed_jwks_ignores_unsupported_and_non_signing_keys() {
+        let set: JwkSet = serde_json::from_value(serde_json::json!({
+            "keys": [
+                {"kid":"ec","kty":"EC","crv":"P-256","x":"x","y":"y"},
+                {"kid":"enc","kty":"RSA","n":"AQAB","e":"AQAB","use":"enc"},
+                {"kid":"wrong-alg","kty":"RSA","n":"AQAB","e":"AQAB","alg":"RS512"},
+                {"kid":"sign-only","kty":"RSA","n":"AQAB","e":"AQAB","key_ops":["sign"]},
+                {"kid":"no-ops","kty":"RSA","n":"AQAB","e":"AQAB","key_ops":[]},
+                {"kid":"verify","kty":"RSA","n":"AQAB","e":"AQAB","key_ops":["verify"]},
+                {"kid":"sign","kty":"RSA","n":"AQAB","e":"AQAB","alg":"RS256","use":"sig"}
+            ]
+        }))
+        .unwrap();
+        assert_eq!(set.keys.len(), 7);
+        let keys: HashMap<_, _> = set.keys.into_iter().filter_map(eligible_rsa_key).collect();
+        assert_eq!(keys.len(), 2);
+        assert!(keys.contains_key("sign"));
+        assert!(keys.contains_key("verify"));
     }
     #[tokio::test]
     async fn dev() {

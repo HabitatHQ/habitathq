@@ -1,6 +1,7 @@
 import type {
   ChannelStatus,
   Notification,
+  NotificationInteractionHandler,
   NotificationsChannel,
   PermissionState,
 } from "@palladium/notifications-core";
@@ -14,15 +15,42 @@ function mapPermission(p: NotificationPermission): PermissionState {
 
 export class BrowserNotificationChannel implements NotificationsChannel {
   readonly name = "browser" as const;
+  private _interactionHandler: NotificationInteractionHandler | undefined;
   private readonly _opts: BrowserNotificationChannelOpts;
+  private readonly _active = new Set<{
+    notification: Notification;
+    instance: InstanceType<typeof globalThis.Notification>;
+    timer: ReturnType<typeof setTimeout> | undefined;
+    timedOut: boolean;
+  }>();
+  private _disposed = false;
 
   constructor(opts?: BrowserNotificationChannelOpts) {
     this._opts = opts ?? {};
   }
+  setInteractionHandler(handler: NotificationInteractionHandler | undefined): void {
+    this._interactionHandler = handler;
+    if (handler !== undefined && this._disposed) this._disposed = false;
+  }
+
+  dispose(): void {
+    if (this._disposed) return;
+    this._disposed = true;
+    this._interactionHandler = undefined;
+    for (const active of this._active) {
+      if (active.timer !== undefined) clearTimeout(active.timer);
+      active.instance.onclick = null;
+      active.instance.onclose = null;
+    }
+    this._active.clear();
+  }
 
   isAvailable(): boolean {
     return (
-      typeof window !== "undefined" && typeof Notification !== "undefined" && Notification !== null
+      !this._disposed &&
+      typeof window !== "undefined" &&
+      typeof Notification !== "undefined" &&
+      Notification !== null
     );
   }
 
@@ -38,6 +66,7 @@ export class BrowserNotificationChannel implements NotificationsChannel {
   }
 
   async send(notification: Notification): Promise<ChannelStatus> {
+    if (this._disposed) return { status: "skipped", reason: "Notification channel is disposed" };
     if (!this.isAvailable()) {
       return { status: "skipped", reason: "Browser Notification API not available" };
     }
@@ -62,26 +91,63 @@ export class BrowserNotificationChannel implements NotificationsChannel {
         ...(notification.data === undefined ? {} : { data: notification.data }),
       };
       const n = new Notification(notification.title, options);
-
+      const active = {
+        notification,
+        instance: n,
+        timer: undefined as ReturnType<typeof setTimeout> | undefined,
+        timedOut: false,
+      };
+      this._active.add(active);
+      const finish = () => {
+        if (active.timer !== undefined) clearTimeout(active.timer);
+        this._active.delete(active);
+        n.onclick = null;
+        n.onclose = null;
+      };
       if (this._opts.autoDismissMs !== undefined) {
-        const ms = this._opts.autoDismissMs;
-        setTimeout(() => n.close(), ms);
+        active.timer = setTimeout(() => {
+          active.timedOut = true;
+          try {
+            n.close();
+          } finally {
+            finish();
+          }
+        }, this._opts.autoDismissMs);
       }
 
       n.onclick = (event) => {
         event.preventDefault();
-        if (typeof window !== "undefined") {
-          window.focus();
-          if (notification.deepLink !== undefined) {
-            window.location.href = notification.deepLink;
+        try {
+          if (typeof window !== "undefined") {
+            window.focus();
+            if (notification.deepLink !== undefined) window.location.href = notification.deepLink;
+          }
+        } finally {
+          try {
+            this._interactionHandler?.clicked(notification);
+          } finally {
+            try {
+              this._opts.onNotificationClick?.(notification);
+            } finally {
+              finish();
+              n.close();
+            }
           }
         }
-        this._opts.onNotificationClick?.(notification);
-        n.close();
       };
 
       n.onclose = () => {
-        this._opts.onNotificationDismiss?.(notification);
+        try {
+          if (!active.timedOut) {
+            try {
+              this._interactionHandler?.dismissed(notification);
+            } finally {
+              this._opts.onNotificationDismiss?.(notification);
+            }
+          }
+        } finally {
+          finish();
+        }
       };
 
       return { status: "delivered" };

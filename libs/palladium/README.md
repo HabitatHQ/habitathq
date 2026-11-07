@@ -61,6 +61,12 @@ Configuration errors stop startup before serving any instance. The existing
 `--auth` setting applies independently to every mounted API; the default bind
 address remains loopback.
 
+`palladium instances list` inspects the configured backend without creating
+databases or running migrations. `ok` means an existing initialized store was
+found. PostgreSQL connection strings are redacted in listing output. PostgreSQL
+schema identifiers are limited to 63 bytes; instance ownership includes both
+the connection URL and selected schema.
+
 ### Storage ownership and Kysely
 
 `PalladiumDialect` transactions use the adapter's real transaction boundary and
@@ -91,8 +97,9 @@ metadata/chunk snapshot.
 Local builders and remote admission capture immutable JSON snapshots before
 asynchronous work. SQL application, durable outbox capture, and observers consume
 the same submitted values; later caller mutation cannot change them. Local and
-remote LWW writes resolve column aliases against the applied SQLite schema while
-preserving wire payload spelling. Conflicting aliases in one operation are rejected.
+remote LWW writes resolve column aliases against the applied SQLite schema.
+Local wire operations use canonical identifiers; received remote payloads keep
+their wire identity. Conflicting aliases in one operation are rejected.
 
 Post-commit observer failures do not reject an already-committed mutation or
 prevent other observers and live queries from receiving it. Synchronous throws
@@ -109,6 +116,12 @@ Public HLC values are snapshots, not references to the engine's clock. A
 transport fingerprint override does not overwrite the local schema identity
 used when reopening.
 
+HLC strings now use 16 timestamp digits so lexical order covers the supported
+safe-integer domain. Readers also accept previous 15-digit strings. Do not
+lexically compare mixed old/new encodings: parse them or rewrite them first.
+Clock advancement rejects safe-integer exhaustion before persisting an HLC
+that cannot be read back.
+
 Quoted and schema-qualified SQL table names participate in live-query
 invalidation. LWW metadata and logical-reset table identities use SQLite's
 ASCII-only case folding, preserving distinct Unicode identifiers. Legacy metadata
@@ -118,16 +131,41 @@ legacy buffered patch keys are canonicalized before replay. Logical reset reject
 foreign-key cascades and DELETE-trigger writes into preserved or unowned tables;
 INSERT/UPDATE-only triggers do not prevent deletion.
 
+Schema-less initialization also reads authoritative SQLite column names and
+migrates legacy alias metadata. Local changes normalize canonical identifiers
+before operation normalization; SQL application and conflict metadata use the
+same identity.
+
+Remote preparation errors follow the downlink quarantine policy. A rejected
+change withholds the page checkpoint without rolling back other committed
+changes. Successfully replayed changes clear their quarantine evidence even
+when another change still blocks the page. Clock, upload, and receipt errors
+clear only when their own operation recovers.
+Clock requests have a finite 30-second maximum, respecting shorter configured
+request deadlines. A successful downlink does not hide an unresolved clock
+failure or a blocking quarantined upload.
+
 Blocked IndexedDB deletion remains pending until the browser's deletion request
 settles. IndexedDB disposal closes its database handle and waits for active
 transactions to settle. An empty localStorage blob prefix is invalid; memory blob
 reads and writes isolate their bytes from caller mutation. SQLite blob storage
 checks table readiness again after database replacement.
 
-Capacitor queries preserve rows from commented SQL, CTEs, and DML `RETURNING`.
+Capacitor queries preserve rows from commented SQL, CTEs, and DML `RETURNING`,
+including quoted semicolons and parentheses.
 Capacitor physical opens are single-flight and publish the connection only
 after a successful open. Repeated opens reuse a live handle, failed opens can
 be retried, and close waits for an in-flight open before releasing the handle.
+
+Browser SQLite open and close operations are ordered, including while WASM is
+initializing. Concurrent opens reuse the active handle; close waits for earlier
+opens, and a later open starts a new connection.
+
+Node SQLite serializes direct operations and transactions on its connection.
+Use only the callback's `tx` adapter inside a transaction: operations on the outer
+adapter wait for its commit or rollback. Transaction handles expire when their
+callback settles and cannot open or close the shared connection.
+
 Native verification uses SQLite-backed compatible connections unless physical
 device evidence is explicitly stated.
 
@@ -135,6 +173,9 @@ A timed-out worker mutation is not automatically replayed: its commit outcome
 is unknown to the caller. Terminal database startup failure rejects both queued
 and future RPCs rather than leaving them pending, even if the error-reporting
 callback throws.
+Successful native startup snapshots nested request values and dispatches queued
+requests before admitting later requests. An individual dispatch failure does
+not prevent the remaining requests from settling.
 
 Worker invalidation, role, error, and diagnostic subscriptions are independent.
 Every subscription returns an idempotent unsubscribe function; diagnostics replay
@@ -142,18 +183,30 @@ the latest 20 events. `client.live(sql, params, onRows, onError?)` ignores late
 or superseded query completions. Active query failures reach the supplied error
 handler, or are logged when it is absent.
 
-Atrium blob uploads accept up to 16 MiB, including the boundary. Larger requests
-return HTTP 413 without creating a blob or replacing existing bytes; ordinary
-JSON routes retain their 2 MiB request-body limit.
+Atrium blob identity is `(workspace_id, blob_id)`; uploads and downloads require
+`X-Workspace`. Existing blob rows migrate transactionally without dropping bytes.
+Concurrent identical uploads are idempotent; conflicting content in the same
+workspace returns 409. Downloads are attachments with `nosniff`, including
+uploader-selected HTML. Uploads accept up to 16 MiB; larger requests return
+HTTP 413 without replacing existing bytes. JSON routes retain their 2 MiB limit.
 
-Filesystem blob writes reject retained soft-deleted IDs with `BlobError::NotFound`.
-The tombstone and original bytes remain intact until `purge_deleted()` removes
-them; a rejected write does not implicitly restore a deleted blob.
+Atrium child parentage is immutable. Revoke events are generated from actual
+recipient visibility changes, not redundant requests against private records.
+
+Axum blob storage uses `(authorized scope, UUID)` for every store operation,
+including presigning. Filesystem paths are scope-qualified. Existing unscoped
+files are preserved but not served: administrators must establish ownership
+and relocate them into the intended scope before use; there is no unsafe
+unscoped fallback. Retained soft-deleted IDs reject writes with
+`BlobError::NotFound` until `purge_deleted()` reclaims their tombstone and bytes.
 
 Rust `AppendCursor` construction requires a `NonZeroU64`. Parsing and
 deserialization reject zero, noncanonical decimal strings, and overflow; JSON
 serialization remains a decimal string. `position()` returns the validated
 numeric value. Start-of-history is represented by an absent cursor.
+
+The Axum HTTP boundary additionally rejects cursors above `i64::MAX`, matching
+the database append-position range.
 
 ### Reactive binding lifecycle
 
@@ -170,6 +223,11 @@ Live-query bindings discard initial results and errors after their subscription
 or component scope ends. Once a change notification publishes newer rows, a late
 initial result or error cannot replace them; that notification also settles loading.
 
+React query identity preserves bigint, undefined/null parameters, binary content,
+and object values accepted through the adapter's text coercion, without
+render-time JSON serialization. Failed parameter coercion is reported through
+the hook's `error` state instead of escaping render.
+
 Notification permissions are instance-level state changes, independent of
 delivery. Use `instance.requestPermission(channel)` or
 `instance.browser.requestPermission()` so every active React, Vue and Svelte
@@ -181,6 +239,22 @@ raw adapter returned by `getChannel()` are lower-level and do not emit instance
 events. Dispose Svelte notification stores and call
 `NotificationsState.destroy()` when their owning scope ends; Vue composables
 and React hooks unsubscribe with their component scopes.
+
+Instance `clicked` and `dismissed` events forward supported channel interactions.
+A close following activation is not a dismissal. Toast renderers should use
+`ToastChannel.click()` for activation and `dismiss()` for deliberate user
+dismissal; headless eviction/clear only removes display state and interaction
+metadata. Shared channels retain their listeners until the last instance calls
+`dispose()`. Capacitor and Expo forward their available tap/action events, not
+unsupported native dismissal events.
+Interaction observers are isolated. Browser auto-dismiss timeouts are not user
+dismissals; final-owner disposal detaches active callbacks and timers. A later
+instance attaching the same channel restores its listeners. Pending instance
+sends stop after disposal, and cleanup attempts every channel even if one fails;
+failed cleanup can be retried. Native tap metadata carries the original
+notification across channel recreation; absent or malformed metadata is ignored.
+A pending disposal cannot remove a later instance's ownership. Native action
+listeners are restored if reattachment happens before their removal completes.
 
 Capacitor local-notification IDs use deterministic positive signed-32-bit
 hashes (`1..2147483647`); zero is reserved and generated IDs wrap at the upper
@@ -197,6 +271,14 @@ service-worker scope, including on a fresh channel after reload. Browser or
 backend removal failure rejects the promise; backend failure retains the
 endpoint and keys for retry without repeating an already-successful browser
 unsubscribe. Only successful completion clears the retry payload.
+
+Concurrent enrollment calls share one flight. Enrollment waits for the returned
+registration's worker to activate, with a 30-second deadline; unsubscribe cancels
+that wait. A delayed backend unsubscribe cannot clear a newer subscription.
+Removal waits for an already-admitted enrollment POST before its backend DELETE,
+so a late POST cannot recreate the enrollment after removal. Browser removal
+tracks replacements before their backend enrollment settles. Retry payloads stay
+blocked after browser removal while a replacement is being enrolled.
 
 Configure `WebPushChannel` with `sendEndpoint` to submit notifications to your
 application backend. `send()` POSTs JSON `{ subscription, notification }`, where
@@ -250,3 +332,8 @@ per-provider issuer is
 that path at `.well-known/openid-configuration`, and its JWKS endpoint is
 `jwks/`. The loopback HTTP endpoints are intentionally suitable only for local
 development; production requires an HTTPS issuer.
+
+OIDC key sets may mix RSA and unsupported key types. Atrium selects eligible
+RS256 signing keys and rejects unsupported token algorithms. Unknown key IDs
+share a serialized refresh with a 30-second cooldown, including provider failures;
+legitimate newly rotated keys become discoverable after that cooldown.

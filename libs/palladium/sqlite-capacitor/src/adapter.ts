@@ -112,13 +112,18 @@ function tokenizeSql(sql: string): SqlToken[] {
   return tokens;
 }
 
+/** SQL syntax must not match text inside literals or quoted identifiers. */
+function isToken(token: SqlToken | undefined, kind: SqlToken["kind"], value: string): boolean {
+  return token?.kind === kind && token.value === value;
+}
+
 /** Find the index after a balanced parenthesized token group. */
 function afterParentheses(tokens: readonly SqlToken[], open: number): number {
-  if (tokens[open]?.value !== "(") return -1;
+  if (!isToken(tokens[open], "punctuation", "(")) return -1;
   let depth = 0;
   for (let i = open; i < tokens.length; i++) {
-    if (tokens[i]?.value === "(") depth++;
-    else if (tokens[i]?.value === ")" && --depth === 0) return i + 1;
+    if (isToken(tokens[i], "punctuation", "(")) depth++;
+    else if (isToken(tokens[i], "punctuation", ")") && --depth === 0) return i + 1;
   }
   return -1;
 }
@@ -126,28 +131,28 @@ function afterParentheses(tokens: readonly SqlToken[], open: number): number {
 /** Return the first token after a CTE list, or -1 for malformed/unrecognized syntax. */
 function cteBodyStart(tokens: readonly SqlToken[]): number {
   let i = 1;
-  if (tokens[i]?.value === "RECURSIVE") i++;
+  if (isToken(tokens[i], "word", "RECURSIVE")) i++;
   while (i < tokens.length) {
     // The name itself can be a bare or quoted identifier.
     if (tokens[i]?.kind !== "word" && tokens[i]?.kind !== "quoted") return -1;
     i++;
-    if (tokens[i]?.value === "(") {
+    if (isToken(tokens[i], "punctuation", "(")) {
       i = afterParentheses(tokens, i);
       if (i < 0) return -1;
     }
-    if (tokens[i]?.value !== "AS") return -1;
+    if (!isToken(tokens[i], "word", "AS")) return -1;
     i++;
-    if (tokens[i]?.value === "NOT") {
+    if (isToken(tokens[i], "word", "NOT")) {
       i++;
-      if (tokens[i]?.value !== "MATERIALIZED") return -1;
+      if (!isToken(tokens[i], "word", "MATERIALIZED")) return -1;
       i++;
-    } else if (tokens[i]?.value === "MATERIALIZED") {
+    } else if (isToken(tokens[i], "word", "MATERIALIZED")) {
       i++;
     }
-    if (tokens[i]?.value !== "(") return -1;
+    if (!isToken(tokens[i], "punctuation", "(")) return -1;
     i = afterParentheses(tokens, i);
     if (i < 0) return -1;
-    if (tokens[i]?.value !== ",") return i;
+    if (!isToken(tokens[i], "punctuation", ",")) return i;
     i++;
   }
   return -1;
@@ -157,8 +162,8 @@ function cteBodyStart(tokens: readonly SqlToken[]): number {
 function hasTopLevelReturning(tokens: readonly SqlToken[]): boolean {
   let depth = 0;
   for (const token of tokens) {
-    if (token.value === "(") depth++;
-    else if (token.value === ")") depth--;
+    if (isToken(token, "punctuation", "(")) depth++;
+    else if (isToken(token, "punctuation", ")")) depth--;
     else if (depth === 0 && token.kind === "word" && token.value === "RETURNING") return true;
   }
   return false;
@@ -171,7 +176,7 @@ function classification(
   const tokens = tokenizeSql(sql);
   const statements: SqlToken[][] = [[]];
   for (const token of tokens) {
-    if (token.value === ";") statements.push([]);
+    if (isToken(token, "punctuation", ";")) statements.push([]);
     else statements[statements.length - 1]?.push(token);
   }
   const nonEmpty = statements.filter((statement) => statement.length > 0);
@@ -179,11 +184,12 @@ function classification(
 
   const statement = nonEmpty[0] as SqlToken[];
   let start = 0;
-  let verb = statement[0]?.value ?? "";
+  let verb = statement[0]?.kind === "word" ? statement[0].value : "";
   if (verb === "WITH") {
     start = cteBodyStart(statement);
     if (start < 0) return { kind: "command" };
-    verb = statement[start]?.value ?? "";
+    const command = statement[start];
+    verb = command?.kind === "word" ? command.value : "";
   }
 
   if (verb === "SELECT" || verb === "VALUES" || verb === "PRAGMA" || verb === "EXPLAIN") {

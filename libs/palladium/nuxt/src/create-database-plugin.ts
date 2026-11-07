@@ -5,6 +5,7 @@ import type {
 } from "./types.js";
 
 type PendingEntry = {
+  request?: Record<string, unknown>;
   resolve: (v: unknown) => void;
   reject: (e: Error) => void;
 };
@@ -67,7 +68,11 @@ export function createDatabasePlugin(config: DatabasePluginConfig) {
     }
     const id = crypto.randomUUID();
     return new Promise<T>((resolve, reject) => {
-      pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
+      pending.set(id, {
+        ...(worker === null && native !== undefined ? { request: structuredClone(req) } : {}),
+        resolve: resolve as (v: unknown) => void,
+        reject,
+      });
       worker?.postMessage({ ...req, id });
     });
   }
@@ -104,6 +109,17 @@ export function createDatabasePlugin(config: DatabasePluginConfig) {
     if (isNativePlatform && native) {
       try {
         await native.init();
+        // Requests admitted during native startup have no worker to receive them.
+        // Transfer ownership before dispatch so completion cannot drain them twice.
+        for (const [id, entry] of pending) {
+          if (entry.request === undefined) throw new Error("Native request payload is unavailable");
+          pending.delete(id);
+          try {
+            Promise.resolve(native.dispatch(entry.request)).then(entry.resolve, entry.reject);
+          } catch (error) {
+            entry.reject(error instanceof Error ? error : new Error(String(error)));
+          }
+        }
         nativeReady = true;
       } catch (err) {
         const message = `Database failed to start: ${err instanceof Error ? err.message : String(err)}`;

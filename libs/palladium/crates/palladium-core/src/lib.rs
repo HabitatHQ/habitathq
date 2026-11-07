@@ -124,6 +124,9 @@ pub fn validate_structure(change: &Change) -> std::result::Result<(), String> {
                     return Err("change is not canonical".to_owned());
                 }
             }
+            Op::Update { col, .. } if col.eq_ignore_ascii_case("id") => {
+                return Err("update cannot modify immutable primary key id".to_owned());
+            }
             Op::Update { col, .. } => match operation_states.get_mut(&key) {
                 None => {
                     operation_states.insert(key, Some(vec![col.as_str()]));
@@ -150,3 +153,27 @@ pub fn canonical_change_bytes(change: &Change) -> std::result::Result<Vec<u8>, s
 
 /// Convenience `Result` alias using [`Error`].
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod structure_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn updates_cannot_change_immutable_id_in_any_case() {
+        let row_id = uuid::Uuid::now_v7();
+        for col in ["id", "ID", "Id", "iD"] {
+            let change = Change::new(
+                Hlc::new(NodeId::new(), 1),
+                vec![Op::Update {
+                    table: "items".into(),
+                    row_id,
+                    col: col.into(),
+                    value: json!("forged"),
+                }],
+            );
+            assert!(validate_structure(&change).is_err(), "accepted {col}");
+        }
+    }
+}

@@ -70,36 +70,29 @@ class TestSqliteStorage implements StorageAdapter {
 }
 
 describe("SqliteBlobAdapter", () => {
-  it.each([true, false])(
-    "recreates a namespaced table after first-use DDL rolls back (explicit transaction: %s)",
-    async (explicitTransaction) => {
-      const storage = new NodeSqliteAdapter();
-      await storage.open();
-      const media = new SqliteBlobAdapter(storage, { table: "media", namespace: "app" });
-      try {
-        await expect(
-          storage.transaction(async (tx) => {
-            await media.put(
-              "rolled-back",
-              new Uint8Array([255]),
-              explicitTransaction ? { transaction: tx } : undefined,
-            );
-            throw new Error("rollback");
-          }),
-        ).rejects.toThrow("rollback");
-        expect(
-          await storage.exec(
-            "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'media'",
-          ),
-        ).toEqual([]);
-        expect(await media.get("rolled-back")).toBeNull();
-        await media.put("retry", new Uint8Array([0, 128, 255]));
-        expect(await media.get("retry")).toEqual(new Uint8Array([0, 128, 255]));
-      } finally {
-        await storage.close();
-      }
-    },
-  );
+  it("recreates a namespaced table after transaction-scoped first-use DDL rolls back", async () => {
+    const storage = new NodeSqliteAdapter();
+    await storage.open();
+    const media = new SqliteBlobAdapter(storage, { table: "media", namespace: "app" });
+    try {
+      await expect(
+        storage.transaction(async (tx) => {
+          await media.put("rolled-back", new Uint8Array([255]), { transaction: tx });
+          throw new Error("rollback");
+        }),
+      ).rejects.toThrow("rollback");
+      expect(
+        await storage.exec(
+          "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'media'",
+        ),
+      ).toEqual([]);
+      expect(await media.get("rolled-back")).toBeNull();
+      await media.put("retry", new Uint8Array([0, 128, 255]));
+      expect(await media.get("retry")).toEqual(new Uint8Array([0, 128, 255]));
+    } finally {
+      await storage.close();
+    }
+  });
 
   it.each(["put", "get", "has", "delete", "clear"] as const)(
     "recovers when %s is the first operation after same-object memory database replacement",

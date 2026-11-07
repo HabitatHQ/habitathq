@@ -74,6 +74,56 @@ describe("ExpoNotificationChannel", () => {
     expect(result.status).toBe("delivered");
   });
 
+  it("forwards Expo notification responses as clicked events and releases its listener", async () => {
+    const adapter = createMockAdapter();
+    const ch = new ExpoNotificationChannel({ adapter });
+    const handler = vi.fn();
+    ch.setInteractionHandler({
+      clicked: handler,
+      dismissed: vi.fn(),
+    });
+    const notification = { title: "Open" };
+    await ch.send(notification);
+    const request = adapter.scheduledNotifications[0];
+    const responseHandler = vi.mocked(adapter.addNotificationResponseReceivedListener).mock
+      .calls[0]?.[0];
+    if (request === undefined) throw new Error("Expected scheduled notification");
+    responseHandler?.({
+      notification: {
+        request: { ...request, identifier: "notification-id-123" },
+      },
+      actionIdentifier: "open",
+    });
+    expect(handler).toHaveBeenCalledWith(notification, "open");
+    await ch.dispose();
+    expect(
+      vi.mocked(adapter.addNotificationResponseReceivedListener).mock.results[0]?.value.remove,
+    ).toHaveBeenCalledOnce();
+  });
+
+  it("recovers native interaction payload from scheduled metadata after channel recreation", async () => {
+    const adapter = createMockAdapter();
+    const first = new ExpoNotificationChannel({ adapter });
+    const notification = { title: "Persisted", id: "persisted", data: { task: 4 } };
+    await first.send(notification);
+    await first.dispose();
+    const reopened = new ExpoNotificationChannel({ adapter });
+    const clicked = vi.fn();
+    reopened.setInteractionHandler({ clicked, dismissed: vi.fn() });
+    const responseHandler = vi
+      .mocked(adapter.addNotificationResponseReceivedListener)
+      .mock.calls.at(-1)?.[0];
+    const request = adapter.scheduledNotifications[0];
+    if (request === undefined || responseHandler === undefined)
+      throw new Error("Expected native metadata");
+    responseHandler({
+      notification: { request: { ...request, identifier: "notification-id-123" } },
+      actionIdentifier: "open",
+    });
+    expect(clicked).toHaveBeenCalledWith(notification, "open");
+    await reopened.dispose();
+  });
+
   it("send() includes deepLink in data when present", async () => {
     const adapter = createMockAdapter();
     const ch = new ExpoNotificationChannel({ adapter });
@@ -92,6 +142,17 @@ describe("ExpoNotificationChannel", () => {
     if (result.status === "failed") {
       expect(result.error.message).toContain("adapter error");
     }
+  });
+
+  it("reattaches its response listener when reused after final-owner disposal", async () => {
+    const adapter = createMockAdapter();
+    const channel = new ExpoNotificationChannel({ adapter });
+    channel.setInteractionHandler({ clicked: vi.fn(), dismissed: vi.fn() });
+    await channel.dispose();
+    channel.setInteractionHandler({ clicked: vi.fn(), dismissed: vi.fn() });
+    expect(adapter.addNotificationResponseReceivedListener).toHaveBeenCalledTimes(2);
+    expect(channel.isAvailable()).toBe(true);
+    await channel.dispose();
   });
 
   it("permissionStatus() returns 'default' initially", () => {

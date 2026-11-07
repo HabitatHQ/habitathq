@@ -1001,6 +1001,135 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
       await db.adapter.close();
     }
   });
+  it("uses live SQLite column identity without a SchemaConfig", async () => {
+    const db = makeDb();
+    await db.adapter.open();
+    await db.adapter.exec(
+      "CREATE TABLE tasks (id TEXT PRIMARY KEY, name TEXT NOT NULL, done INTEGER NOT NULL)",
+    );
+    await db.init();
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    await db.applyRemote({
+      hlc: { wallMs: 2_000, counter: 0, nodeId: "00000000-0000-4000-8000-00000000cafe" },
+      ops: [{ type: "insert", table: "tasks", id, data: { id, name: "newer", done: 0 } }],
+    });
+    await db.adapter.exec("UPDATE tasks SET name = ? WHERE id = ?", ["legacy newest", id]);
+    await db.adapter.exec(
+      `INSERT INTO _sync_row_meta (tbl, row_id, col, hlc_wall_ms, hlc_counter, hlc_node_id)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      ["tasks", id, "Name", 3_000, 0, "00000000-0000-4000-8000-00000000cafe"],
+    );
+    await db.init();
+    await db.applyRemote({
+      hlc: { wallMs: 2_500, counter: 0, nodeId: "00000000-0000-4000-8000-00000000cafe" },
+      ops: [{ type: "update", table: "tasks", id, patch: { Name: "stale alias" } }],
+    });
+    expect(await db.exec(sql`SELECT name FROM tasks WHERE id = ${id}`)).toEqual([
+      { name: "legacy newest" },
+    ]);
+    await db.adapter.close();
+  });
+  it("routes remote preparation failures through rejection policy without checkpointing", async () => {
+    const db = makeDb();
+    await db.init(SCHEMA);
+    const bad: RemoteChange<Schema> = {
+      id: "00000000-0000-4000-8000-000000000021",
+      hlc: { wallMs: 2_000, counter: 0, nodeId: "00000000-0000-4000-8000-00000000cafe" },
+      ops: [
+        {
+          type: "update",
+          table: "tasks",
+          id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+          patch: { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac" } as never,
+        },
+      ],
+    };
+    const good: RemoteChange<Schema> = {
+      id: "00000000-0000-4000-8000-000000000022",
+      hlc: { wallMs: 2_001, counter: 0, nodeId: "00000000-0000-4000-8000-00000000cafe" },
+      ops: [
+        {
+          type: "insert",
+          table: "tasks",
+          id: "018f0f50-7b8d-7a1c-8e2f-1234567890ad",
+          data: { id: "018f0f50-7b8d-7a1c-8e2f-1234567890ad", name: "valid", done: 0 },
+        },
+      ],
+    };
+    const rejected: Array<string | undefined> = [];
+    let checkpointed = false;
+    const applied = await db.applyRemotePage(
+      [bad, good],
+      [],
+      async () => {
+        checkpointed = true;
+      },
+      async (change, error) => {
+        expect(String(error)).toContain("immutable primary key");
+        rejected.push(change.id);
+      },
+    );
+    expect(applied).toBe(false);
+    expect(rejected).toEqual([bad.id]);
+    expect(checkpointed).toBe(false);
+    expect(await db.exec(sql`SELECT name FROM tasks`)).toEqual([{ name: "valid" }]);
+    await db.adapter.close();
+  });
+  it("normalizes remote delete-then-insert replacement after canonicalizing table identity", async () => {
+    const db = makeDb();
+    await db.init(SCHEMA);
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    await db.applyRemote({
+      hlc: { wallMs: 1_000, counter: 0, nodeId: "00000000-0000-4000-8000-00000000cafe" },
+      ops: [{ type: "insert", table: "tasks", id, data: { id, name: "before", done: 0 } }],
+    });
+    const applied = await db.applyRemotePage(
+      [
+        {
+          id: "00000000-0000-4000-8000-000000000031",
+          hlc: { wallMs: 2_000, counter: 0, nodeId: "00000000-0000-4000-8000-00000000cafe" },
+          ops: [
+            { type: "delete", table: "tasks", id },
+            { type: "insert", table: "TASKS", id, data: { id, name: "after", done: 0 } },
+          ],
+        },
+      ],
+      [],
+      async () => {},
+    );
+    expect(applied).toBe(true);
+    expect(await db.exec(sql`SELECT name FROM tasks WHERE id = ${id}`)).toEqual([
+      { name: "after" },
+    ]);
+    expect(
+      await db.exec(sql`SELECT 1 AS found FROM _sync_row_meta
+        WHERE tbl = 'tasks' AND row_id = ${id} AND col = '__palladium_deleted__'`),
+    ).toEqual([]);
+    await db.adapter.close();
+  });
+  it("rejects remote HLC advancement at the safe-integer limit before any durable mutation", async () => {
+    const db = makeDb();
+    await db.init(SCHEMA);
+    const maximum = {
+      wallMs: Number.MAX_SAFE_INTEGER,
+      counter: 0xffff_ffff,
+      nodeId: "00000000-0000-4000-8000-00000000cafe",
+    };
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+
+    await expect(
+      db.applyRemote({
+        hlc: maximum,
+        ops: [{ type: "insert", table: "tasks", id, data: { id, name: "unsafe", done: 0 } }],
+      }),
+    ).rejects.toThrow(RangeError);
+
+    expect(db.currentHlc).toBeNull();
+    expect(await db.exec(sql`SELECT * FROM tasks WHERE id = ${id}`)).toEqual([]);
+    expect(await db.getSyncState("hlc")).toBeNull();
+    expect(await db.getSyncState("accepted_hlc")).toBeNull();
+    await db.adapter.close();
+  });
   it("preserves manual refresh listener rejection (issue #86)", async () => {
     const db = makeDbWithSchema();
     await db.init(SCHEMA);
@@ -1035,6 +1164,26 @@ describe("PalladiumEngine changes:local + applyRemote", () => {
     expect(reported[0]?.message).toBe("changes:local listener failure");
   });
 
+  it("keeps local delete-then-insert replacement semantics for one row ID", async () => {
+    const db = makeDb();
+    await db.init(SCHEMA);
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    await db.insert("tasks", { id, name: "before", done: 0 });
+
+    await db.tx((tx) => {
+      tx.delete("tasks", id);
+      tx.insert("tasks", { id, name: "after", done: 0 });
+    });
+
+    expect(await db.exec(sql`SELECT name FROM tasks WHERE id = ${id}`)).toEqual([
+      { name: "after" },
+    ]);
+    expect(
+      await db.exec(sql`SELECT 1 AS found FROM _sync_row_meta
+        WHERE tbl = 'tasks' AND row_id = ${id} AND col = '__palladium_deleted__'`),
+    ).toEqual([]);
+    await db.adapter.close();
+  });
   it("isolates throwing changes:local listener from update and delete (issue #86)", async () => {
     const db = makeDbWithSchema();
     await db.init(SCHEMA);

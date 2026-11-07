@@ -48,6 +48,7 @@ export class BrowserSqliteAdapter
 {
   readonly #config: BrowserSqliteConfig;
   #db: Sqlite3Db | null = null;
+  #lifecycle: Promise<void> = Promise.resolve();
   // biome-ignore lint/suspicious/noExplicitAny: sqlite-wasm internals
   #sqlite3: any = null;
   #pool: {
@@ -66,7 +67,14 @@ export class BrowserSqliteAdapter
     return this.#db;
   }
 
-  async open(): Promise<void> {
+  /** Serialize open/close admission so a pending open cannot revive a closed adapter. */
+  open(): Promise<void> {
+    const opening = this.#lifecycle.then(() => this.#openConnection());
+    this.#lifecycle = opening.catch(() => {});
+    return opening;
+  }
+
+  async #openConnection(): Promise<void> {
     if (this.#db !== null) return;
     const vfs = this.#config.vfs;
     dbg("sqlite-browser", "open start", { type: vfs.type });
@@ -223,11 +231,15 @@ export class BrowserSqliteAdapter
     await this.open();
   }
 
-  async close(): Promise<void> {
-    if (this.#db !== null) {
-      dbg("sqlite-browser", "close");
-      this.#db.close();
-      this.#db = null;
-    }
+  close(): Promise<void> {
+    const closing = this.#lifecycle.then(() => {
+      if (this.#db !== null) {
+        dbg("sqlite-browser", "close");
+        this.#db.close();
+        this.#db = null;
+      }
+    });
+    this.#lifecycle = closing.catch(() => {});
+    return closing;
   }
 }

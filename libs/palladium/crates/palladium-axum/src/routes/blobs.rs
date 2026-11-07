@@ -33,7 +33,7 @@ async fn authorize<S: ChangeStore + Send + Sync>(
     principal: &crate::auth::Principal,
     action: Action,
     resource: Resource,
-) -> Result<(), AppError> {
+) -> Result<crate::auth::Grant, AppError> {
     state
         .authorizer
         .authorize(AuthorizationRequest {
@@ -42,7 +42,6 @@ async fn authorize<S: ChangeStore + Send + Sync>(
             resource,
         })
         .await
-        .map(|_| ())
         .map_err(|error| match error {
             crate::auth::AuthorizationError::Forbidden(message) => AppError::Forbidden(message),
             crate::auth::AuthorizationError::NotFound => AppError::NotFound,
@@ -58,7 +57,7 @@ where
     S: ChangeStore + Send + Sync,
     S::Error: std::error::Error + Send + Sync + 'static,
 {
-    authorize(
+    let grant = authorize(
         &state,
         &principal,
         Action::CreateBlob,
@@ -89,7 +88,9 @@ where
     let id = Uuid::new_v4();
     #[allow(clippy::cast_possible_truncation)]
     let size = bytes.len() as u64;
-    bs.put(id, &bytes).await.map_err(AppError::internal)?;
+    bs.put(grant.scope().as_str(), id, &bytes)
+        .await
+        .map_err(AppError::internal)?;
     Ok((StatusCode::CREATED, Json(BlobCreated { id, size, mime })))
 }
 
@@ -102,9 +103,9 @@ where
     S: ChangeStore + Send + Sync,
     S::Error: std::error::Error + Send + Sync + 'static,
 {
-    authorize(&state, &principal, Action::ReadBlob, Resource::Blob(id)).await?;
+    let grant = authorize(&state, &principal, Action::ReadBlob, Resource::Blob(id)).await?;
     let bs = state.blob_store.as_ref().ok_or_else(no_blob_store)?;
-    let bytes = bs.get(id).await.map_err(blob_err)?;
+    let bytes = bs.get(grant.scope().as_str(), id).await.map_err(blob_err)?;
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/octet-stream")
@@ -121,9 +122,11 @@ where
     S: ChangeStore + Send + Sync,
     S::Error: std::error::Error + Send + Sync + 'static,
 {
-    authorize(&state, &principal, Action::DeleteBlob, Resource::Blob(id)).await?;
+    let grant = authorize(&state, &principal, Action::DeleteBlob, Resource::Blob(id)).await?;
     let bs = state.blob_store.as_ref().ok_or_else(no_blob_store)?;
-    bs.delete(id).await.map_err(blob_err)?;
+    bs.delete(grant.scope().as_str(), id)
+        .await
+        .map_err(blob_err)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -136,9 +139,9 @@ where
     S: ChangeStore + Send + Sync,
     S::Error: std::error::Error + Send + Sync + 'static,
 {
-    authorize(&state, &principal, Action::PresignBlob, Resource::Blob(id)).await?;
+    let grant = authorize(&state, &principal, Action::PresignBlob, Resource::Blob(id)).await?;
     let bs = state.blob_store.as_ref().ok_or_else(no_blob_store)?;
-    Ok(bs.presigned_get_url(id, DEFAULT_PRESIGN_TTL_SECS).map_or_else(|| (StatusCode::NOT_IMPLEMENTED, Json(serde_json::json!({"error": "presigned URLs not supported by this backend"}))).into_response(), |url| Json(PresignedUrl { url }).into_response()))
+    Ok(bs.presigned_get_url(grant.scope().as_str(), id, DEFAULT_PRESIGN_TTL_SECS).map_or_else(|| (StatusCode::NOT_IMPLEMENTED, Json(serde_json::json!({"error": "presigned URLs not supported by this backend"}))).into_response(), |url| Json(PresignedUrl { url }).into_response()))
 }
 
 fn no_blob_store() -> AppError {
@@ -394,5 +397,88 @@ mod tests {
             .unwrap();
         // Returns 400 — blob storage is not configured.
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn blob_routes_isolate_scopes_for_upload_get_delete_and_presign() {
+        let store = SqliteStore::in_memory().await.unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppState::new(store)
+            .with_blob_store(FilesystemBlobStore::new(dir.path()))
+            .with_authenticator(crate::BearerAuthenticator)
+            .with_authorizer(crate::BearerScopeAuthorizer);
+        let router = create_router(state, CorsLayer::permissive());
+        let (content_type, body) = multipart_body(b"alice bytes", "application/octet-stream");
+        let uploaded = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/blobs")
+                    .header("authorization", "Bearer alice")
+                    .header("content-type", content_type)
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(uploaded.status(), StatusCode::CREATED);
+        let payload = axum::body::to_bytes(uploaded.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let id = serde_json::from_slice::<serde_json::Value>(&payload).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+
+        let bob_get = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/v1/blobs/{id}"))
+                    .header("authorization", "Bearer bob")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(bob_get.status(), StatusCode::NOT_FOUND);
+        let bob_delete = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/v1/blobs/{id}"))
+                    .header("authorization", "Bearer bob")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(bob_delete.status(), StatusCode::NOT_FOUND);
+
+        let alice_get = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/v1/blobs/{id}"))
+                    .header("authorization", "Bearer alice")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(alice_get.status(), StatusCode::OK);
+        let alice_presign = router
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/v1/blobs/{id}/presigned"))
+                    .header("authorization", "Bearer alice")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(alice_presign.status(), StatusCode::NOT_IMPLEMENTED);
     }
 }

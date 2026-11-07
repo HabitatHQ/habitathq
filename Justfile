@@ -15,9 +15,8 @@ fmt-ts:
     pnpm exec biome format --write .
 
 # Run maintained Palladium package suites using their own Vitest configuration.
-# Nuxt has no unit suite; it is still built, linted, and typechecked by CI.
 test-ts: build-palladium-ts
-    pnpm --filter '@palladium/*' --filter '!@palladium/e2e' --filter '!@palladium/example-*' --filter '!@palladium/nuxt' -r --if-present test
+    pnpm --filter '@palladium/*' --filter '!@palladium/e2e' --filter '!@palladium/example-*' -r --if-present test
 
 # Build maintained Palladium packages in dependency order before consuming exports.
 build-palladium-ts:
@@ -84,7 +83,7 @@ coverage-summary:
 mutants:
     cargo mutants --workspace
 
-# Measure coverage with each maintained package's own Vitest configuration.
+# Measure coverage with each coverage-enabled package's own Vitest configuration.
 coverage-ts:
     pnpm --filter '@palladium/*' --filter '!@palladium/e2e' --filter '!@palladium/example-*' --filter '!@palladium/nuxt' --filter '!@palladium/worker' -r --if-present test --coverage
     @echo "Coverage reports written to coverage/ in each package directory"

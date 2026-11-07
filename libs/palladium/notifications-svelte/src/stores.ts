@@ -6,6 +6,7 @@ export interface NotificationsStoreResult {
   browserPermission: Readable<PermissionState>;
   notify: NotificationsInstance["notify"];
   toast: NotificationsInstance["toast"];
+  on: NotificationsInstance["on"];
   browser: NotificationsInstance["browser"];
   destroy(): void;
 }
@@ -25,6 +26,7 @@ export function createNotificationsStore(
     browserPermission: _browserPermission,
     notify: (title) => instance.notify(title),
     toast: instance.toast,
+    on: (event, handler) => instance.on(event, handler),
     browser: instance.browser,
     destroy(): void {
       unsub();

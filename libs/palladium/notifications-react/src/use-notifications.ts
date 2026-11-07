@@ -18,6 +18,7 @@ export interface UseNotificationsReturn {
   use(middleware: Middleware): void;
   on<E extends NotificationEvent>(event: E, handler: NotificationEventHandler<E>): Unsubscribe;
   getChannel(name: ChannelName): NotificationsChannel | undefined;
+  dispose(): Promise<void>;
 }
 
 export function useNotifications(): UseNotificationsReturn {
@@ -37,6 +38,7 @@ export function useNotifications(): UseNotificationsReturn {
   );
 
   const getChannel = useCallback((name: ChannelName) => instance.getChannel(name), [instance]);
+  const dispose = useCallback(() => instance.dispose(), [instance]);
 
-  return { notify, toast, browser, use, on, getChannel };
+  return { notify, toast, browser, use, on, getChannel, dispose };
 }

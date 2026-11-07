@@ -547,3 +547,39 @@ async fn fresh_clock_skew_is_rejected_but_identical_rollback_retry_precedes_skew
         .unwrap();
     assert_eq!(page(&bytes)["changes"].as_array().unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn changes_accepts_cursor_at_signed_database_limit() {
+    let response = palladium()
+        .await
+        .oneshot(
+            Request::builder()
+                .uri("/v1/changes?cursor=9223372036854775807")
+                .header("authorization", "Bearer alice")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body = page(&bytes);
+    assert_eq!(body["changes"], json!([]));
+}
+#[tokio::test]
+async fn changes_rejects_cursor_above_signed_database_range() {
+    let response = palladium()
+        .await
+        .oneshot(
+            Request::builder()
+                .uri("/v1/changes?cursor=9223372036854775808")
+                .header("authorization", "Bearer alice")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}

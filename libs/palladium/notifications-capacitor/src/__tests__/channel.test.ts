@@ -99,6 +99,27 @@ describe("CapacitorNotificationChannel", () => {
     expect(result.status).toBe("skipped");
   });
 
+  it("forwards Capacitor local notification actions and removes its listener on dispose", async () => {
+    const local = createMockLocal();
+    const remove = vi.fn();
+    vi.mocked(local.addListener).mockResolvedValue({ remove });
+    const channel = new CapacitorNotificationChannel({ localNotifications: local });
+    const clicked = vi.fn();
+    channel.setInteractionHandler({ clicked, dismissed: vi.fn() });
+    const notification = { title: "Tap", id: "tap-1" };
+    await channel.send(notification);
+    const scheduled = local.scheduledNotifications[0];
+    if (scheduled === undefined) throw new Error("Expected scheduled notification");
+    const listener = vi.mocked(local.addListener).mock.calls[0]?.[1];
+    listener?.({
+      actionId: "open",
+      notification: { id: scheduled.id, extra: scheduled.extra },
+    });
+    expect(clicked).toHaveBeenCalledWith(notification, "open");
+    await channel.dispose();
+    expect(remove).toHaveBeenCalledOnce();
+  });
+
   it("schedules Android-compatible deterministic IDs and replaces pending logical notifications", async () => {
     const pending = new Map<number, { id: number; title: string }>();
     const local = createMockLocal();
@@ -214,5 +235,70 @@ describe("CapacitorNotificationChannel", () => {
   it("name is 'capacitor'", () => {
     const ch = new CapacitorNotificationChannel({});
     expect(ch.name).toBe("capacitor");
+  });
+  it("fails closed when listener registration rejects and does not produce an unhandled rejection", async () => {
+    const local = createMockLocal();
+    const registrationError = new Error("listener registration failed");
+    vi.mocked(local.addListener).mockRejectedValue(registrationError);
+    const channel = new CapacitorNotificationChannel({ localNotifications: local });
+    const result = await channel.send({ title: "No interactions" });
+    expect(channel.isAvailable()).toBe(false);
+    expect(result).toEqual({ status: "failed", error: registrationError });
+    await channel.dispose();
+  });
+
+  it("recovers native interaction payload from scheduled metadata after channel recreation", async () => {
+    const local = createMockLocal();
+    const first = new CapacitorNotificationChannel({ localNotifications: local });
+    const notification = { title: "Persisted", id: "persisted", data: { task: 4 } };
+    await first.send(notification);
+    await first.dispose();
+    const reopened = new CapacitorNotificationChannel({ localNotifications: local });
+    const clicked = vi.fn();
+    reopened.setInteractionHandler({ clicked, dismissed: vi.fn() });
+    const listener = vi.mocked(local.addListener).mock.calls.at(-1)?.[1];
+    const scheduled = local.scheduledNotifications[0];
+    if (listener === undefined || scheduled === undefined)
+      throw new Error("Expected native metadata");
+    listener({
+      actionId: "open",
+      notification: { id: scheduled.id, extra: scheduled.extra },
+    });
+    expect(clicked).toHaveBeenCalledWith(notification, "open");
+    await reopened.dispose();
+  });
+  it("restores interactions when reused during a pending native listener removal", async () => {
+    const local = createMockLocal();
+    let finishRemoval!: () => void;
+    const removal = new Promise<void>((resolve) => {
+      finishRemoval = resolve;
+    });
+    type ActionListener = Parameters<CapacitorLocalNotifications["addListener"]>[1];
+    const active = new Set<ActionListener>();
+    vi.mocked(local.addListener).mockImplementation(async (_event, listener) => {
+      active.add(listener);
+      return {
+        async remove() {
+          await removal;
+          active.delete(listener);
+        },
+      };
+    });
+    const channel = new CapacitorNotificationChannel({ localNotifications: local });
+    const original = { id: "pending-removal", title: "Still owned" };
+    await channel.send(original);
+    const disposing = channel.dispose();
+    const clicked = vi.fn();
+    channel.setInteractionHandler({ clicked, dismissed: vi.fn() });
+    finishRemoval();
+    await disposing;
+    const scheduled = local.scheduledNotifications[0];
+    if (scheduled === undefined) throw new Error("Expected scheduled metadata");
+    const action = { actionId: "open", notification: { id: scheduled.id, extra: scheduled.extra } };
+    for (const listener of active) listener(action);
+    expect(clicked).toHaveBeenCalledWith(original, "open");
+    await channel.dispose();
+    for (const listener of active) listener(action);
+    expect(clicked).toHaveBeenCalledOnce();
   });
 });
