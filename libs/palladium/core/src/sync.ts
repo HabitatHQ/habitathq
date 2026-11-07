@@ -1109,7 +1109,7 @@ export class SyncTransport<S extends SchemaMap> {
       return;
     }
     this.#engine.setStatus("syncing");
-    if (!this.#clockCalibrated && (await this.#fetchClock()) === null) {
+    if (!this.#clockCalibrated) {
       this.#engine.setStatus(this.#failureStatus());
       return;
     }

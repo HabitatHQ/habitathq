@@ -225,7 +225,8 @@ initial result or error cannot replace them; that notification also settles load
 
 React query identity preserves bigint, undefined/null parameters, binary content,
 and object values accepted through the adapter's text coercion, without
-render-time JSON serialization.
+render-time JSON serialization. Failed parameter coercion is reported through
+the hook's `error` state instead of escaping render.
 
 Notification permissions are instance-level state changes, independent of
 delivery. Use `instance.requestPermission(channel)` or
@@ -252,6 +253,8 @@ instance attaching the same channel restores its listeners. Pending instance
 sends stop after disposal, and cleanup attempts every channel even if one fails;
 failed cleanup can be retried. Native tap metadata carries the original
 notification across channel recreation; absent or malformed metadata is ignored.
+A pending disposal cannot remove a later instance's ownership. Native action
+listeners are restored if reattachment happens before their removal completes.
 
 Capacitor local-notification IDs use deterministic positive signed-32-bit
 hashes (`1..2147483647`); zero is reserved and generated IDs wrap at the upper

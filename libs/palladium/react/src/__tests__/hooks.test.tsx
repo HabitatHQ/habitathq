@@ -154,6 +154,35 @@ describe("useLiveQuery", () => {
     await db.adapter.close();
   });
 
+  it("reports failed object coercion through query error state and recovers", async () => {
+    const db = makeDb();
+    await db.init(SCHEMA);
+    function App({ value }: { value: unknown }): ReactNode {
+      const { rows, loading, error } = useLiveQuery<{ value: string }>(
+        sql`SELECT ${value} AS value`,
+      );
+      return (
+        <div data-testid="coercion">{error?.name ?? (loading ? "loading" : rows[0]?.value)}</div>
+      );
+    }
+    const view = render(<App value={Object.create(null)} />, { wrapper: wrapper(db) });
+    await waitFor(() => expect(screen.getByTestId("coercion").textContent).toBe("TypeError"));
+    view.rerender(
+      <App
+        value={{
+          toString() {
+            throw new RangeError();
+          },
+        }}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId("coercion").textContent).toBe("RangeError"));
+    view.rerender(<App value="Recovered" />);
+    await waitFor(() => expect(screen.getByTestId("coercion").textContent).toBe("Recovered"));
+    view.unmount();
+    await db.adapter.close();
+  });
+
   it("re-renders when a row is inserted", async () => {
     const db = makeDb();
     await db.init(SCHEMA);

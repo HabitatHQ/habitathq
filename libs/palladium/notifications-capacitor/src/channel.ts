@@ -95,7 +95,12 @@ export class CapacitorNotificationChannel implements NotificationsChannel {
     try {
       const handle = await listenerPromise;
       await handle.remove();
+      if (this._actionListener !== listenerPromise) return;
       this._actionListener = undefined;
+      if (!this._disposed && this._interactionHandler !== undefined) {
+        this._listenerError = undefined;
+        this._registerActionListener();
+      }
     } catch {
       // Keep the listener promise so a later dispose() can retry registration cleanup.
     }

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { NotificationInteractionHandler } from "../channel.js";
 import { createNotifications } from "../instance.js";
 import { MockChannel } from "../mock.js";
 
@@ -419,5 +420,36 @@ describe("createNotifications", () => {
     expect(clicked).toHaveBeenCalledTimes(2);
     await instance.dispose();
     expect(dispose).toHaveBeenCalledTimes(2);
+  });
+
+  it("preserves a later owner while an earlier disposal is awaiting cleanup", async () => {
+    let finishRemoval!: () => void;
+    const removal = new Promise<void>((resolve) => {
+      finishRemoval = resolve;
+    });
+    let handler: NotificationInteractionHandler | undefined;
+    const channel = {
+      name: "toast" as const,
+      send: async () => ({ status: "delivered" as const }),
+      requestPermission: async () => "granted" as const,
+      permissionStatus: () => "granted" as const,
+      isAvailable: () => true,
+      setInteractionHandler(next: NotificationInteractionHandler | undefined) {
+        handler = next;
+      },
+      dispose: () => removal,
+    };
+    const first = createNotifications({ channels: { toast: channel } });
+    const disposing = first.dispose();
+    const second = createNotifications({ channels: { toast: channel } });
+    const titles: string[] = [];
+    second.on("clicked", ({ notification }) => titles.push(notification.title));
+    finishRemoval();
+    await disposing;
+    handler?.clicked({ title: "Current owner" });
+    expect(titles).toEqual(["Current owner"]);
+    await second.dispose();
+    handler?.clicked({ title: "After final disposal" });
+    expect(titles).toEqual(["Current owner"]);
   });
 });

@@ -445,7 +445,7 @@ export function createNotifications(config: NotificationsConfig = {}): Notificat
         try {
           channel.setInteractionHandler?.(undefined);
           await channel.dispose?.();
-          interactionOwners.delete(channel);
+          if (interactionOwners.get(channel) === owners) interactionOwners.delete(channel);
           ownedInteractions.delete(channel);
         } catch (error) {
           cleanupError ??= error;

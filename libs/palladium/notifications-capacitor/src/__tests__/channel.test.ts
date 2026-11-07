@@ -267,14 +267,38 @@ describe("CapacitorNotificationChannel", () => {
     expect(clicked).toHaveBeenCalledWith(notification, "open");
     await reopened.dispose();
   });
-  it("reattaches its action listener when reused after final-owner disposal", async () => {
+  it("restores interactions when reused during a pending native listener removal", async () => {
     const local = createMockLocal();
+    let finishRemoval!: () => void;
+    const removal = new Promise<void>((resolve) => {
+      finishRemoval = resolve;
+    });
+    type ActionListener = Parameters<CapacitorLocalNotifications["addListener"]>[1];
+    const active = new Set<ActionListener>();
+    vi.mocked(local.addListener).mockImplementation(async (_event, listener) => {
+      active.add(listener);
+      return {
+        async remove() {
+          await removal;
+          active.delete(listener);
+        },
+      };
+    });
     const channel = new CapacitorNotificationChannel({ localNotifications: local });
-    channel.setInteractionHandler({ clicked: vi.fn(), dismissed: vi.fn() });
+    const original = { id: "pending-removal", title: "Still owned" };
+    await channel.send(original);
+    const disposing = channel.dispose();
+    const clicked = vi.fn();
+    channel.setInteractionHandler({ clicked, dismissed: vi.fn() });
+    finishRemoval();
+    await disposing;
+    const scheduled = local.scheduledNotifications[0];
+    if (scheduled === undefined) throw new Error("Expected scheduled metadata");
+    const action = { actionId: "open", notification: { id: scheduled.id, extra: scheduled.extra } };
+    for (const listener of active) listener(action);
+    expect(clicked).toHaveBeenCalledWith(original, "open");
     await channel.dispose();
-    channel.setInteractionHandler({ clicked: vi.fn(), dismissed: vi.fn() });
-    expect(local.addListener).toHaveBeenCalledTimes(2);
-    expect(channel.isAvailable()).toBe(true);
-    await channel.dispose();
+    for (const listener of active) listener(action);
+    expect(clicked).toHaveBeenCalledOnce();
   });
 });

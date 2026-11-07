@@ -9,16 +9,6 @@ export interface LiveQueryResult<T> {
   error: Error | null;
 }
 
-/**
- * Subscribe to a live SQL query.
- *
- * Re-renders whenever any of the query's watched tables are written to.
- * A change notification supersedes the initial execution if the two overlap.
- * Parameter identity supports SQLite scalar values, bigint, blobs, and text-coerced objects.
- * ```tsx
- * const { rows, loading } = useLiveQuery<Task>(sql`SELECT * FROM tasks`);
- * ```
- */
 function parameterIdentity(value: unknown): string {
   if (value === null) return "null:";
   if (value instanceof Uint8Array) {
@@ -38,7 +28,13 @@ function parameterIdentity(value: unknown): string {
     case "number":
       return `number:${Object.is(value, -0) ? "-0" : value}`;
     default:
-      return `coerced:${String(value)}`;
+      try {
+        return `coerced:${String(value)}`;
+      } catch (error) {
+        // A stable failure key lets execution report the error without a render/effect loop.
+        const failure = error instanceof Error ? `${error.name}:${error.message}` : typeof error;
+        return `uncoercible:${failure}`;
+      }
   }
 }
 
@@ -51,6 +47,16 @@ function queryIdentity(params: readonly unknown[]): string {
   return identity;
 }
 
+/**
+ * Subscribe to a live SQL query.
+ *
+ * Re-renders whenever any of the query's watched tables are written to.
+ * A change notification supersedes the initial execution if the two overlap.
+ * Parameter identity supports SQLite scalar values, bigint, blobs, and text-coerced objects.
+ * ```tsx
+ * const { rows, loading } = useLiveQuery<Task>(sql`SELECT * FROM tasks`);
+ * ```
+ */
 export function useLiveQuery<T = Record<string, unknown>>(query: SqlQuery): LiveQueryResult<T> {
   const engine = usePalladium();
   const queryKey = `${query.text}\u0000${queryIdentity(query.params)}`;

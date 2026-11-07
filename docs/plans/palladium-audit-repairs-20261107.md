@@ -154,3 +154,31 @@ Runtime qualification after these corrections:
 - Actual Chromium React/OPFS UI created and edited a note, then showed the saved
   title after reload through accessibility observation. Screenshot capture
   timed out, so no post-correction screenshot proof is claimed.
+
+### Final review corrections
+
+- Instance cleanup retains the ownership set installed by a later instance while
+  an earlier disposal is awaiting channel cleanup.
+- Capacitor action-listener removal re-registers the listener if a new owner
+  attached while removal was pending.
+- Failed React parameter coercion has a stable error identity, so query execution
+  reports the failure through hook state rather than throwing during render or
+  repeatedly restarting the effect.
+- A failed initial clock calibration no longer makes a duplicate clock request
+  from the outbox drain; the queued write remains durable for a later cycle.
+
+Runtime probes compared the committed PR head with these corrections. Before
+the changes, the later instance leaked interactions after disposal, the reused
+Capacitor channel lost its native action listener, and an uncoercible parameter
+reached a React error boundary. Afterward, later-owner disposal stopped
+interactions, native actions were delivered, and the hook rendered `TypeError`
+through its own error state with no boundary failure. Native providers were
+synthetic, React used ReactDOM/happy-dom, and storage used real Node SQLite.
+A real loopback HTTP probe observed two clock requests before and one afterward
+for an unavailable clock endpoint; the single queued write remained in SQLite
+in both cases.
+
+The final local pass built, linted, and typechecked the maintained packages and
+passed 987 package tests, all 50 live E2E tests, and 1,822 app tests with one
+existing skip. The E2E client typecheck also passed. Existing lint warnings
+remain unsuppressed.
