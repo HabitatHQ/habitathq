@@ -200,6 +200,15 @@ and relocate them into the intended scope before use; there is no unsafe
 unscoped fallback. Retained soft-deleted IDs reject writes with
 `BlobError::NotFound` until `purge_deleted()` reclaims their tombstone and bytes.
 
+Generic Axum multipart upload receipts return the caller-supplied MIME label,
+but the generic blob store does not persist that label. Downloads always return
+the bytes as `application/octet-stream` with `Content-Disposition: attachment`
+and `X-Content-Type-Options: nosniff`; the upload MIME is advisory and is never
+blindly reflected by the server. Clients may retain it in their own `BlobRef`
+and pass that reference to `engine.blobs.get(ref, "blob" | "url")` for local
+interpretation. This local conversion does not validate the media type or make
+active content safe to display.
+
 Rust `AppendCursor` construction requires a `NonZeroU64`. Parsing and
 deserialization reject zero, noncanonical decimal strings, and overflow; JSON
 serialization remains a decimal string. `position()` returns the validated

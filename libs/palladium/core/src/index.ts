@@ -6,6 +6,7 @@ export type {
   BlobAdapter,
   BlobAdapterOptions,
   BlobGetFormat,
+  BlobGetOptions,
   BlobGetResult,
   BlobStoreLifecycle,
 } from "./blob-adapter.js";

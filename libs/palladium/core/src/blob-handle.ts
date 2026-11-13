@@ -1,7 +1,9 @@
+import type { BlobRef } from "./blob.js";
 import type {
   BlobAdapter,
   BlobAdapterOptions,
   BlobGetFormat,
+  BlobGetOptions,
   BlobGetResult,
   BlobStoreLifecycle,
 } from "./blob-adapter.js";
@@ -23,16 +25,22 @@ export class BlobHandle {
     return this.#adapter.put(id, bytes, options);
   }
 
-  /** Retrieve bytes in the requested format. Default: "bytes". */
+  /**
+   * Retrieve bytes in the requested format. Default: "bytes". A BlobRef supplies
+   * caller-owned MIME metadata for local Blob/URL conversion; an explicit
+   * `options.mimeType` takes precedence. Generic server downloads remain opaque.
+   */
   async get<F extends BlobGetFormat = "bytes">(
-    id: string,
+    ref: string | BlobRef,
     format?: F,
-    options?: BlobAdapterOptions,
+    options?: BlobGetOptions,
   ): Promise<BlobGetResult<F>> {
+    const id = typeof ref === "string" ? ref : ref.id;
+    const mime = options?.mimeType ?? (typeof ref === "string" ? undefined : ref.mimeType);
     const bytes = await this.#adapter.get(id, options);
     const fmt = (format ?? "bytes") as F;
-    const result = convertBlobBytes(bytes, fmt);
-    // Track object URLs so they can be revoked on close
+    const result = convertBlobBytes(bytes, fmt, mime);
+    // Track object URLs so they can be revoked on close.
     if (fmt === "url" && typeof result === "string") {
       this.#registry.track(result);
     }
