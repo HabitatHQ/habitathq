@@ -47,11 +47,12 @@ The benchmark used synthetic, local SQLite data; it does not establish productio
 
 ## Verification results observed
 
-- Maintained Palladium TypeScript build, all maintained unit suites, and TypeScript typechecks passed. Core: 505 tests; Node SQLite: 25; Capacitor SQLite: 62. `just lint-palladium-ts` reported existing non-fatal complexity/static-only-class warnings; no changes were made to silence them.
+- Maintained Palladium TypeScript build, all maintained unit suites, and TypeScript typechecks passed. Final core: 507 tests; Node SQLite: 25; Capacitor SQLite: 62. `just lint-palladium-ts` reported existing non-fatal complexity/static-only-class warnings; no changes were made to silence them.
 - Habitat typecheck and unit suite passed: 61 test files, 720 passed, 1 skipped. `check:fix` made no changes; it reported existing warnings/infos. The full accessibility suite still reports an unrelated critical Settings-page naming violation; the three selected TODO/category/activity modal flows were separately exercised in Chromium and exposed their visible names.
-- Rust `atrium` + `palladium-axum` tests passed (99); Clippy with `-D warnings` and `cargo fmt --all -- --check` passed after extracting helpers from a test that exceeded the line limit.
+- Final Rust `atrium` + `palladium-axum` tests passed (100); Clippy with `-D warnings` and `cargo fmt --all -- --check` passed. Regression coverage includes terminal root/child deletion delivery, earlier child deletions without historical-content disclosure, and unrelated-member denial.
 - Scoped Semgrep and `pnpm lint:deps` passed. `pnpm dedupe:check` remains red because it proposes unrelated workspace dependency/lockfile changes (`vue-router`, `@nuxt/ui`, Nuxt peer resolution, and `magic-string`). No dependency or lockfile changes were made.
 - The issue #104 persistent-SQLite benchmark and legacy-index replay probes are recorded above. Synthetic local SQLite/native-adapter probes are not production-device measurements.
+- A built-package Node/SQLite smoke confirmed that legacy pending replay commits row arrival, applies a winning scalar field, archives the incompatible nested field intact, and clears the pending row. Both stale and winning nested-value regressions passed.
 
 ## Risks and policy
 

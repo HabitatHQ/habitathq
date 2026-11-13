@@ -186,9 +186,16 @@ async function readSchemaColumns(
   return tables;
 }
 
+function assertSyncColumnValues(values: Record<string, unknown>): void {
+  if (!Object.values(values).every(isSyncColumnValue)) {
+    throw new TypeError("Replicated SQLite row columns must be scalar; encode JSON explicitly");
+  }
+}
+
 function canonicalOp<S extends SchemaMap>(
   op: Op<S>,
   tableColumns: (table: string) => ReadonlySet<string>,
+  allowLegacyNestedValues = false,
 ): Op<S> {
   const table = canonicalTable(String(op.table));
   if (op.type === "insert") {
@@ -200,9 +207,7 @@ function canonicalOp<S extends SchemaMap>(
       if (Object.hasOwn(out, column)) throw new TypeError("Duplicate SQLite column alias");
       out[column] = v;
     }
-    if (!Object.values(out).every(isSyncColumnValue)) {
-      throw new TypeError("Replicated SQLite row columns must be scalar; encode JSON explicitly");
-    }
+    if (!allowLegacyNestedValues) assertSyncColumnValues(out);
     return { ...op, table: table as keyof S & string, data: out as S[typeof table] };
   }
   if (op.type === "update") {
@@ -215,9 +220,7 @@ function canonicalOp<S extends SchemaMap>(
       if (Object.hasOwn(out, column)) throw new TypeError("Duplicate SQLite column alias");
       out[column] = v;
     }
-    if (!Object.values(out).every(isSyncColumnValue)) {
-      throw new TypeError("Replicated SQLite row columns must be scalar; encode JSON explicitly");
-    }
+    if (!allowLegacyNestedValues) assertSyncColumnValues(out);
     return { ...op, table: table as keyof S & string, patch: out as Partial<S[typeof table]> };
   }
   return { ...op, table: table as keyof S & string };
@@ -466,6 +469,18 @@ const PENDING_REMOTE_UPDATES_DDL = `CREATE TABLE IF NOT EXISTS ${PENDING_REMOTE_
 )`;
 const PENDING_REMOTE_UPDATES_LOOKUP_INDEX = `CREATE INDEX IF NOT EXISTS _sync_pending_remote_updates_lookup
 ON ${PENDING_REMOTE_UPDATES} (tbl, row_id, hlc_wall_ms, hlc_counter, hlc_node_id, pending_id)`;
+const PENDING_REMOTE_UPDATE_QUARANTINE = "_sync_pending_remote_update_quarantine";
+const PENDING_REMOTE_UPDATE_QUARANTINE_DDL = `CREATE TABLE IF NOT EXISTS ${PENDING_REMOTE_UPDATE_QUARANTINE} (
+  pending_id TEXT PRIMARY KEY,
+  tbl TEXT NOT NULL,
+  row_id TEXT NOT NULL,
+  patch TEXT NOT NULL,
+  hlc_wall_ms INTEGER NOT NULL,
+  hlc_counter INTEGER NOT NULL,
+  hlc_node_id TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  quarantined_at INTEGER NOT NULL
+)`;
 
 interface PendingRemoteUpdateRow extends MetaRow {
   pending_id: string;
@@ -963,6 +978,7 @@ export class PalladiumEngine<S extends SchemaMap> {
     await adpt.exec(APPLIED_CHANGES_DDL, []);
     await adpt.exec(PENDING_REMOTE_UPDATES_DDL, []);
     await adpt.exec(PENDING_REMOTE_UPDATES_LOOKUP_INDEX, []);
+    await adpt.exec(PENDING_REMOTE_UPDATE_QUARANTINE_DDL, []);
     this.#syncTablesReady = true;
   }
 
@@ -1622,6 +1638,85 @@ export class PalladiumEngine<S extends SchemaMap> {
     ]);
   }
 
+  async #quarantinePendingRemoteUpdate(
+    adpt: StorageAdapter,
+    table: string,
+    rowId: string,
+    pending: PendingRemoteUpdateRow,
+    patch: string,
+    reason: string,
+  ): Promise<void> {
+    await adpt.exec(
+      `INSERT OR REPLACE INTO ${PENDING_REMOTE_UPDATE_QUARANTINE}
+       (pending_id, tbl, row_id, patch, hlc_wall_ms, hlc_counter, hlc_node_id, reason, quarantined_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        pending.pending_id,
+        table,
+        rowId,
+        patch,
+        pending.hlc_wall_ms,
+        pending.hlc_counter,
+        pending.hlc_node_id,
+        reason,
+        Date.now(),
+      ],
+    );
+  }
+
+  async #replayPendingRemoteUpdate(
+    adpt: StorageAdapter,
+    table: string,
+    rowId: string,
+    tableName: keyof S & string,
+    pending: PendingRemoteUpdateRow,
+  ): Promise<void> {
+    let op: Extract<Op<S>, { type: "update" }>;
+    try {
+      op = canonicalOp(
+        {
+          type: "update",
+          table: tableName,
+          id: rowId,
+          patch: JSON.parse(pending.patch) as Record<string, unknown>,
+        } as Extract<Op<S>, { type: "update" }>,
+        (name) => this.#columnsFor(name),
+        true,
+      ) as Extract<Op<S>, { type: "update" }>;
+    } catch {
+      await this.#quarantinePendingRemoteUpdate(
+        adpt,
+        table,
+        rowId,
+        pending,
+        pending.patch,
+        "invalid_legacy_patch",
+      );
+      return;
+    }
+
+    const patch = op.patch as Record<string, unknown>;
+    const winning = await this.#winningCols(adpt, table, rowId, patch, metaRowToHlc(pending));
+    const supported: Record<string, unknown> = {};
+    const unsupported: Record<string, unknown> = {};
+    for (const [column, value] of Object.entries(winning)) {
+      (isSyncColumnValue(value) ? supported : unsupported)[column] = value;
+    }
+    if (Object.keys(unsupported).length > 0) {
+      await this.#quarantinePendingRemoteUpdate(
+        adpt,
+        table,
+        rowId,
+        pending,
+        JSON.stringify(unsupported),
+        "unsupported_nested_column_value",
+      );
+    }
+    if (Object.keys(supported).length === 0) return;
+    await this._patchRow(adpt, table, rowId, supported);
+    await this.#stampCols(adpt, table, rowId, Object.keys(supported), metaRowToHlc(pending));
+  }
+
   /** Stamp a bounded batch of columns of one row with the same write HLC. */
   async #stampCols(
     adpt: StorageAdapter,
@@ -1758,20 +1853,7 @@ export class PalladiumEngine<S extends SchemaMap> {
     const pending = await this.#pendingRemoteUpdates(adpt, table, data.id);
     await this.#clearPendingRemoteUpdates(adpt, table, data.id);
     for (const row of pending) {
-      // Legacy buffered patches may predate column canonicalization.
-      await this.#applyRemoteOp(
-        adpt,
-        canonicalOp(
-          {
-            type: "update",
-            table: op.table,
-            id: data.id,
-            patch: JSON.parse(row.patch) as Record<string, unknown>,
-          } as Extract<Op<S>, { type: "update" }>,
-          (name) => this.#columnsFor(name),
-        ),
-        metaRowToHlc(row),
-      );
+      await this.#replayPendingRemoteUpdate(adpt, table, data.id, op.table, row);
     }
   }
 

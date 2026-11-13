@@ -1434,6 +1434,77 @@ impl AtriumDb {
         Ok(Some(root))
     }
 
+    /// Allow prior root readers to receive an earlier child tombstone after root deletion.
+    pub async fn can_read_deleted_root_child_deletion(
+        &self,
+        workspace: &str,
+        caller: &str,
+        change_id: &str,
+        table: &str,
+        row_id: &str,
+    ) -> Result<bool, AtriumError> {
+        Ok(sqlx::query_scalar::<_, i64>(
+            "SELECT 1
+             FROM palladium_changes AS child_change
+             JOIN deleted_roots AS deleted
+               ON deleted.workspace_id = child_change.scope
+             JOIN palladium_changes AS terminal_change
+               ON terminal_change.scope = deleted.workspace_id
+              AND terminal_change.id = deleted.deleted_change_id
+             JOIN records AS children
+               ON children.workspace_id = deleted.workspace_id
+              AND children.root_id = deleted.root_id
+              AND children.table_name = ?
+              AND children.row_id = ?
+             JOIN records AS roots
+               ON roots.workspace_id = deleted.workspace_id
+              AND roots.row_id = deleted.root_id
+              AND roots.root_id IS NULL
+             WHERE child_change.scope = ?
+               AND child_change.id = ?
+               AND child_change.append_seq < terminal_change.append_seq
+               AND (
+                   roots.owner_user_id = ?
+                   OR roots.sharing IN (?, ?)
+                   OR EXISTS (
+                       SELECT 1 FROM shares
+                       WHERE shares.workspace_id = deleted.workspace_id
+                         AND shares.root_id = deleted.root_id
+                         AND shares.grantee_user_id = ?
+                   )
+               )",
+        )
+        .bind(table)
+        .bind(row_id)
+        .bind(workspace)
+        .bind(change_id)
+        .bind(caller)
+        .bind(SHARING_HOUSEHOLD_READ)
+        .bind(SHARING_HOUSEHOLD_RW)
+        .bind(caller)
+        .fetch_optional(&self.pool)
+        .await?
+        .is_some())
+    }
+
+    pub async fn row_belongs_to_root(
+        &self,
+        workspace: &str,
+        root_id: &str,
+        row_id: &str,
+    ) -> Result<bool, AtriumError> {
+        Ok(sqlx::query_scalar::<_, i64>(
+            "SELECT 1 FROM records
+             WHERE workspace_id = ? AND row_id = ? AND root_id = ?",
+        )
+        .bind(workspace)
+        .bind(row_id)
+        .bind(root_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .is_some())
+    }
+
     /// Allow a replica with prior ACL access to receive the exact terminal root deletion.
     pub async fn can_read_deleted_root_change(
         &self,

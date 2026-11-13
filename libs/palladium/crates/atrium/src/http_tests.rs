@@ -841,6 +841,84 @@ async fn a7_deleted_root_change_reaches_previously_authorized_replica_with_child
 }
 
 #[tokio::test]
+async fn a7_deleted_root_delivers_earlier_child_deletion_without_history() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let (note, root_change) = root_insert("notes");
+    assert_eq!(
+        post_change(&app, "alice", &ws, root_change).await,
+        StatusCode::CREATED
+    );
+    let (image, child_change) = child_insert("note_images", note);
+    assert_eq!(
+        post_change(&app, "alice", &ws, child_change).await,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        share(&app, "alice", &ws, note, "bob", "read").await,
+        StatusCode::OK
+    );
+
+    let initial = get_env(&app, "bob", &ws).await;
+    let cursor = initial["cursor"].as_str().unwrap();
+    let child_deletion = wrap(&json!([
+        { "op": "delete", "table": "note_images", "row_id": image }
+    ]));
+    let root_deletion = wrap(&json!([{ "op": "delete", "table": "notes", "row_id": note }]));
+    assert_eq!(
+        post_change(&app, "alice", &ws, child_deletion.clone()).await,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        post_change(&app, "alice", &ws, root_deletion.clone()).await,
+        StatusCode::CREATED
+    );
+
+    let (status, response) = call(
+        &app,
+        "GET",
+        &format!("/v1/changes?cursor={cursor}"),
+        Some("bob"),
+        Some(&ws),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{response:?}");
+    let delivered = response["changes"].as_array().unwrap();
+    assert!(
+        delivered
+            .iter()
+            .any(|change| change["id"] == child_deletion["id"]),
+        "the replica must receive the earlier child tombstone"
+    );
+    assert!(
+        delivered
+            .iter()
+            .any(|change| change["id"] == root_deletion["id"]),
+        "the replica must receive the terminal root tombstone"
+    );
+    assert!(
+        delivered.iter().all(|change| change["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|op| op["op"] == "delete")),
+        "deleted-root access must disclose deletion operations only"
+    );
+
+    let outsider = get_env(&app, "carol", &ws).await;
+    assert!(
+        outsider["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|change| change["id"] != child_deletion["id"]
+                && change["id"] != root_deletion["id"]),
+        "unrelated members must not receive either deletion"
+    );
+}
+
+#[tokio::test]
 async fn a7_delete_retires_unoffered_grant_events() {
     let app = app().await;
     let ws = family(&app).await;

@@ -67,4 +67,98 @@ describe("replicated SQLite column values", () => {
     unregister();
     await adapter.close();
   });
+
+  it("discards a legacy nested pending value when the arriving insert already wins", async () => {
+    const adapter = new NodeSqliteAdapter({ vfs: { type: "memory" } });
+    const engine = createEngine<Schema>(adapter);
+    await engine.init({
+      version: 1,
+      schema:
+        "CREATE TABLE notes (id TEXT PRIMARY KEY, title TEXT NOT NULL, payload TEXT NOT NULL)",
+    });
+    await adapter.exec(
+      "INSERT INTO _sync_pending_remote_updates (pending_id, tbl, row_id, patch, hlc_wall_ms, hlc_counter, hlc_node_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      ["legacy-losing", "notes", ID, JSON.stringify({ payload: NESTED }), 2_000, 0, REMOTE_NODE],
+    );
+
+    await engine.applyRemote({
+      hlc: { wallMs: 3_000, counter: 0, nodeId: REMOTE_NODE },
+      ops: [
+        {
+          type: "insert",
+          table: "notes",
+          id: ID,
+          data: { id: ID, title: "inserted", payload: JSON.stringify({ kept: true }) },
+        },
+      ],
+    });
+
+    expect(await adapter.exec("SELECT * FROM notes WHERE id = ?", [ID])).toEqual([
+      { id: ID, title: "inserted", payload: JSON.stringify({ kept: true }) },
+    ]);
+    expect(
+      await adapter.exec("SELECT * FROM _sync_pending_remote_updates WHERE row_id = ?", [ID]),
+    ).toEqual([]);
+    expect(
+      await adapter.exec(
+        "SELECT * FROM _sync_pending_remote_update_quarantine WHERE pending_id = ?",
+        ["legacy-losing"],
+      ),
+    ).toEqual([]);
+    await adapter.close();
+  });
+
+  it("archives a legacy nested pending winner without aborting row arrival", async () => {
+    const adapter = new NodeSqliteAdapter({ vfs: { type: "memory" } });
+    const engine = createEngine<Schema>(adapter);
+    await engine.init({
+      version: 1,
+      schema:
+        "CREATE TABLE notes (id TEXT PRIMARY KEY, title TEXT NOT NULL, payload TEXT NOT NULL)",
+    });
+    await adapter.exec(
+      "INSERT INTO _sync_pending_remote_updates (pending_id, tbl, row_id, patch, hlc_wall_ms, hlc_counter, hlc_node_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [
+        "legacy-winning",
+        "notes",
+        ID,
+        JSON.stringify({ title: "legacy", payload: NESTED }),
+        4_000,
+        0,
+        REMOTE_NODE,
+      ],
+    );
+
+    await engine.applyRemote({
+      hlc: { wallMs: 3_000, counter: 0, nodeId: REMOTE_NODE },
+      ops: [
+        {
+          type: "insert",
+          table: "notes",
+          id: ID,
+          data: { id: ID, title: "inserted", payload: JSON.stringify({ kept: true }) },
+        },
+      ],
+    });
+
+    expect(await adapter.exec("SELECT * FROM notes WHERE id = ?", [ID])).toEqual([
+      { id: ID, title: "legacy", payload: JSON.stringify({ kept: true }) },
+    ]);
+    expect(
+      await adapter.exec("SELECT * FROM _sync_pending_remote_updates WHERE row_id = ?", [ID]),
+    ).toEqual([]);
+    const quarantined = await adapter.exec<{
+      pending_id: string;
+      patch: string;
+      reason: string;
+    }>("SELECT pending_id, patch, reason FROM _sync_pending_remote_update_quarantine");
+    expect(quarantined).toEqual([
+      {
+        pending_id: "legacy-winning",
+        patch: JSON.stringify({ payload: NESTED }),
+        reason: "unsupported_nested_column_value",
+      },
+    ]);
+    await adapter.close();
+  });
 });

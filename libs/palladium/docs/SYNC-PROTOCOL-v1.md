@@ -27,6 +27,12 @@ V1 has no bare change-array response, no HLC history cursor, no legacy pending-o
   be an intentional literal, and array coercion loses structure. Recover them
   from an authoritative source or backup; no automatic data migration can
   recover information SQLite never stored.
+  When a row arrives, persisted legacy pending patches are compared by HLC
+  before scalar validation. Losing nested values are discarded as stale;
+  winning nested fields are durably moved to
+  `_sync_pending_remote_update_quarantine`, while supported winning scalar
+  fields from the same patch still apply. Quarantine retains the original
+  field values for explicit recovery and cannot block the valid row insert.
 - The server derives scope from authentication. Atrium additionally requires the `x-workspace` header and verifies workspace membership; callers do not submit a generic store scope in the change payload.
 - `PalladiumEngine.init({ version, schema })` derives and persists a local `schema_identity_v1` value. `SyncTransport` requires either an explicit `schemaFingerprint` or an initialized engine identity, and records that identity with durable outbox rows. Before posting an outbox row from a different identity, the transport moves it to `_sync_outbox_quarantine` rather than sending it. This implementation has no schema-identity field or negotiation in the v1 HTTP payload; server-side schema compatibility is therefore outside this wire contract.
 - A local schema identity may change during an upward, versioned `SchemaConfig` migration. Migration steps, current baseline DDL, `user_version`, and the new identity commit in one storage transaction; failure leaves the prior schema and identity intact. Same-version identity changes and downgrades are rejected. Pending outbox rows keep their original fingerprints and are quarantined, not relabeled, after an upgrade.
@@ -41,6 +47,11 @@ root/child ACL records, shares, accepted history, and blob bytes remain stored
 for replay and provenance. This is access revocation, not physical erasure or
 a promise of later garbage collection. A same-ID insert, replay, or reordered
 change cannot reactivate that root; restoration requires a new UUID.
+
+Previously authorized replicas continue to receive child deletion tombstones
+accepted before the root deletion, followed by the terminal root deletion.
+After root deletion, this exception exposes deletion-only changes; it does not
+make earlier row contents or updates visible again.
 
 On upgrade, Atrium backfills terminal root tombstones from retained accepted
 change history once, transactionally. A delete that existed only on an
