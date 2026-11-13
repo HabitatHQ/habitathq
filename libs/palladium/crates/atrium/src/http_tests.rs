@@ -764,12 +764,17 @@ async fn a7_deleted_root_revokes_owner_and_grantee_blob_access_durably() {
 }
 
 #[tokio::test]
-async fn a7_deleted_root_change_reaches_previously_authorized_replica() {
+async fn a7_deleted_root_change_reaches_previously_authorized_replica_with_children() {
     let app = app().await;
     let ws = family(&app).await;
     let (note, insert) = root_insert("notes");
     assert_eq!(
         post_change(&app, "alice", &ws, insert.clone()).await,
+        StatusCode::CREATED
+    );
+    let (image, image_insert) = child_insert("note_images", note);
+    assert_eq!(
+        post_change(&app, "alice", &ws, image_insert.clone()).await,
         StatusCode::CREATED
     );
     assert_eq!(
@@ -778,17 +783,23 @@ async fn a7_deleted_root_change_reaches_previously_authorized_replica() {
     );
 
     let initial = get_env(&app, "bob", &ws).await;
+    let initial_changes = initial["changes"].as_array().unwrap();
     assert!(
-        initial["changes"]
-            .as_array()
-            .unwrap()
+        initial_changes
             .iter()
             .any(|change| change["id"] == insert["id"]),
         "the replica must receive the root before its deletion"
     );
+    assert!(
+        initial_changes
+            .iter()
+            .any(|change| change["id"] == image_insert["id"]),
+        "the replica must receive the child before its deletion"
+    );
     let cursor = initial["cursor"].as_str().unwrap();
 
     let deletion = wrap(&json!([
+        { "op": "delete", "table": "note_images", "row_id": image },
         { "op": "delete", "table": "notes", "row_id": note }
     ]));
     assert_eq!(
@@ -805,13 +816,27 @@ async fn a7_deleted_root_change_reaches_previously_authorized_replica() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{response:?}");
+    let delivered_op_count = response["changes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|change| change["id"] == deletion["id"])
+        .and_then(|change| change["ops"].as_array())
+        .map(Vec::len);
+    assert_eq!(
+        delivered_op_count,
+        Some(2),
+        "the exact terminal change must reach the authorized replica with both child and root deletion ops"
+    );
+
+    let outsider = get_env(&app, "carol", &ws).await;
     assert!(
-        response["changes"]
+        outsider["changes"]
             .as_array()
             .unwrap()
             .iter()
-            .any(|change| change["id"] == deletion["id"]),
-        "the exact tombstone change must reach a replica with retained ACL provenance"
+            .all(|change| change["id"] != deletion["id"]),
+        "the terminal change must remain hidden from unrelated members"
     );
 }
 

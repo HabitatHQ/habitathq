@@ -12,6 +12,7 @@ use crate::{
     db::{AppendOutcome, AtriumDb, PendingEvent, EVENT_GRANT, EVENT_REVOKE},
     error::AtriumError,
     identity::Caller,
+    registry::{self, TableRole},
     state::AtriumState,
 };
 
@@ -126,16 +127,24 @@ async fn change_visible(
     if change.ops.is_empty() {
         return Ok(false);
     }
-    for op in &change.ops {
-        let row_id = op.row_id().to_string();
-        if db.can_read(workspace, caller, &row_id).await? {
-            continue;
+    let deleted_root = change.ops.iter().find_map(|op| {
+        (matches!(op, palladium_core::Op::Delete { .. })
+            && matches!(registry::role_of(op.table()), Some(TableRole::Root(_))))
+        .then(|| op.row_id().to_string())
+    });
+    if let Some(root_id) = deleted_root {
+        if db
+            .can_read_deleted_root_change(workspace, caller, &root_id, &change.id.to_string())
+            .await?
+        {
+            return Ok(true);
         }
-        let is_terminal_root_delete = matches!(op, palladium_core::Op::Delete { .. })
-            && db
-                .can_read_deleted_root_change(workspace, caller, &row_id, &change.id.to_string())
-                .await?;
-        if !is_terminal_root_delete {
+    }
+    for op in &change.ops {
+        if !db
+            .can_read(workspace, caller, &op.row_id().to_string())
+            .await?
+        {
             return Ok(false);
         }
     }
