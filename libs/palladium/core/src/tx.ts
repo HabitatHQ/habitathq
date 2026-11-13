@@ -23,6 +23,15 @@ export type JsonValue =
   | string
   | readonly JsonValue[]
   | { readonly [key: string]: JsonValue };
+/** Whether a value is a supported scalar in a replicated SQLite column. */
+export function isSyncColumnValue(value: unknown): value is null | boolean | number | string {
+  return (
+    value === null ||
+    typeof value === "boolean" ||
+    typeof value === "string" ||
+    (typeof value === "number" && Number.isFinite(value) && !Object.is(value, -0))
+  );
+}
 
 /** A replicated row with an immutable UUIDv7 primary key. */
 export type SyncRow = {
@@ -100,11 +109,12 @@ export function isJsonValue(value: unknown): value is JsonValue {
   return visitJsonValue(value, new WeakSet<object>());
 }
 
-/** Returns whether `value` is a JSON-safe replicated row with a canonical UUIDv7 id. */
+/** Returns whether `value` is a scalar-only JSON-safe row with a canonical UUIDv7 id. */
 export function isSyncRow(value: unknown): value is SyncRow {
   return (
     isJsonObject(value) &&
     isJsonValue(value) &&
+    Object.values(value).every(isSyncColumnValue) &&
     typeof value["id"] === "string" &&
     isUuidV7(value["id"])
   );

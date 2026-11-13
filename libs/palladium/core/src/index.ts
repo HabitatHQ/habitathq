@@ -99,4 +99,4 @@ export type {
   SyncRow,
   UpdateOp,
 } from "./tx.js";
-export { isJsonValue, isSyncRow, TxBuilder } from "./tx.js";
+export { isJsonValue, isSyncColumnValue, isSyncRow, TxBuilder } from "./tx.js";

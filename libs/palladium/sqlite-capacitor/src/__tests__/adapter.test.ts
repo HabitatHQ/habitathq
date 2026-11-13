@@ -587,6 +587,12 @@ describe("CapacitorSqliteAdapter", () => {
         false,
       );
     });
+    it("rejects nested values before writing", async () => {
+      await expect(
+        adapter.put("tasks", "1", { id: "1", name: "test", metadata: { labels: ["a"] } }),
+      ).rejects.toThrow("SQLite column values must be scalar");
+      expect(mockDb.run).not.toHaveBeenCalled();
+    });
 
     it("rejects invalid table names", async () => {
       await expect(adapter.put("bad table", "1", { id: "1" })).rejects.toThrow(
@@ -608,6 +614,12 @@ describe("CapacitorSqliteAdapter", () => {
         ["updated", "1"],
         false,
       );
+    });
+    it("rejects nested values before writing", async () => {
+      await expect(adapter.patch("tasks", "1", { name: { nested: true } })).rejects.toThrow(
+        "SQLite column values must be scalar",
+      );
+      expect(mockDb.run).not.toHaveBeenCalled();
     });
 
     it("no-ops for empty patch", async () => {

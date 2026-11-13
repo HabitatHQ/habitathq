@@ -12,13 +12,44 @@ V1 has no bare change-array response, no HLC history cursor, no legacy pending-o
 - Insert `data` must be a JSON object containing a string `id` exactly equal to
   its canonical lowercase UUIDv7 `row_id`. Both server admission and the client
   page decoder reject null/scalar/array data, missing IDs, and mismatches before
-  history append or checkpoint advancement. Nested JSON fields remain valid
-  wire values; this does not prescribe an adapter's application-column encoding.
+  history append or checkpoint advancement. JSON remains the wire/container
+  representation, but the TypeScript engine stores replicated insert data and
+  update patches only when every column value is a SQLite scalar (`null`,
+  boolean, string, or a finite number other than negative zero). It rejects
+  nested column values before any operation is applied; page application reports
+  that change as rejected and withholds the page checkpoint.
+  Store application-owned JSON columns explicitly as `JSON.stringify(value)`
+  and parse them in the application; SQLite affinity does not declare a JSON
+  column type. Direct adapter APIs continue to support binary `Uint8Array`
+  bindings; raw SQL callers must bind JSON text explicitly.
+  Values already persisted by older versions after object-to-string coercion
+  cannot be reliably identified or reconstructed: `[object Object]` may also
+  be an intentional literal, and array coercion loses structure. Recover them
+  from an authoritative source or backup; no automatic data migration can
+  recover information SQLite never stored.
 - The server derives scope from authentication. Atrium additionally requires the `x-workspace` header and verifies workspace membership; callers do not submit a generic store scope in the change payload.
 - `PalladiumEngine.init({ version, schema })` derives and persists a local `schema_identity_v1` value. `SyncTransport` requires either an explicit `schemaFingerprint` or an initialized engine identity, and records that identity with durable outbox rows. Before posting an outbox row from a different identity, the transport moves it to `_sync_outbox_quarantine` rather than sending it. This implementation has no schema-identity field or negotiation in the v1 HTTP payload; server-side schema compatibility is therefore outside this wire contract.
 - A local schema identity may change during an upward, versioned `SchemaConfig` migration. Migration steps, current baseline DDL, `user_version`, and the new identity commit in one storage transaction; failure leaves the prior schema and identity intact. Same-version identity changes and downgrades are rejected. Pending outbox rows keep their original fingerprints and are quarantined, not relabeled, after an upgrade.
 - Client row deletion is permanent remove-wins for that UUID: subsequent or reordered updates and same-ID inserts cannot restore it, regardless of HLC. Local reuse is rejected. Restoration requires a new UUID and deliberate reference updates. An ACL visibility purge is not a replicated deletion; authorized regrant/backfill can restore its local view.
 - This is a breaking pre-alpha cutover: upgrade all replicas and the server together. Mixed old/new row-lifecycle policies are unsupported; the new transport fails closed for uploads when the server lacks the authenticated clock endpoint. V1 still has no capability/schema negotiation or compatibility fallback.
+
+Atrium applies the same terminal remove-wins rule to aggregate-root ACLs.
+Acceptance of a root-table `delete` records a durable workspace/root tombstone
+in the same SQLite transaction as the accepted change. The tombstone denies
+owner and grantee reads and uploads, including blobs attached to descendants;
+root/child ACL records, shares, accepted history, and blob bytes remain stored
+for replay and provenance. This is access revocation, not physical erasure or
+a promise of later garbage collection. A same-ID insert, replay, or reordered
+change cannot reactivate that root; restoration requires a new UUID.
+
+On upgrade, Atrium backfills terminal root tombstones from retained accepted
+change history once, transactionally. A delete that existed only on an
+unuploaded client cannot be inferred from server history and is not covered by
+this backfill. Authorization reads may already in flight when a delete commits
+finish using the pre-delete decision; later authorization checks deny access.
+Blob writes serialize with deletion in SQLite: a write that commits first
+precedes the deletion, while a write that acquires the transaction afterward
+is denied. This lifecycle does not cancel an already-authorized blob response.
 
 ## 2. HTTP wire contract
 

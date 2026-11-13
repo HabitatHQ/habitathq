@@ -31,7 +31,7 @@ import type { SqlQuery } from "./sql.js";
 import type { StorageAdapter, TransactableStorageAdapter } from "./storage.js";
 import { isTransactable, supportsConstraintDeferral } from "./storage.js";
 import type { Op, SchemaMap } from "./tx.js";
-import { snapshotJson, TxBuilder } from "./tx.js";
+import { isSyncColumnValue, snapshotJson, TxBuilder } from "./tx.js";
 
 export type SyncStatus =
   | "uninitialized"
@@ -200,6 +200,9 @@ function canonicalOp<S extends SchemaMap>(
       if (Object.hasOwn(out, column)) throw new TypeError("Duplicate SQLite column alias");
       out[column] = v;
     }
+    if (!Object.values(out).every(isSyncColumnValue)) {
+      throw new TypeError("Replicated SQLite row columns must be scalar; encode JSON explicitly");
+    }
     return { ...op, table: table as keyof S & string, data: out as S[typeof table] };
   }
   if (op.type === "update") {
@@ -211,6 +214,9 @@ function canonicalOp<S extends SchemaMap>(
       if (column === "id") throw new TypeError("Cannot update the immutable primary key");
       if (Object.hasOwn(out, column)) throw new TypeError("Duplicate SQLite column alias");
       out[column] = v;
+    }
+    if (!Object.values(out).every(isSyncColumnValue)) {
+      throw new TypeError("Replicated SQLite row columns must be scalar; encode JSON explicitly");
     }
     return { ...op, table: table as keyof S & string, patch: out as Partial<S[typeof table]> };
   }

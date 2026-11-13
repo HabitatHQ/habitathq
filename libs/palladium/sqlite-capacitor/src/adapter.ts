@@ -34,11 +34,28 @@ export interface CapacitorSqliteConfig {
   readonly blobBindingFormat?: CapacitorSqliteBlobBindingFormat;
 }
 
+/** Reject unsupported SQLite column values before row writes reach platform drivers. */
+function assertScalarColumnValue(value: unknown): void {
+  if (
+    value === null ||
+    value === undefined ||
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    typeof value === "number" ||
+    typeof value === "bigint" ||
+    value instanceof Uint8Array
+  ) {
+    return;
+  }
+  throw new TypeError("SQLite column values must be scalar; encode JSON explicitly as a string");
+}
+
 function encodeBindings(
   values: readonly unknown[],
   format: CapacitorSqliteBlobBindingFormat,
 ): unknown[] {
   return values.map((value) => {
+    if (value === undefined) return null;
     if (!(value instanceof Uint8Array)) return value;
     const data = Array.from(value);
     return format === "android-buffer" ? { type: "Buffer", data } : data;
@@ -294,6 +311,7 @@ export class CapacitorSqliteAdapter implements TransactableStorageAdapter {
   async put(table: string, _id: string, data: Record<string, unknown>): Promise<void> {
     assertIdentifier(table);
     const keys = Object.keys(data);
+    for (const key of keys) assertScalarColumnValue(data[key]);
     for (const k of keys) assertIdentifier(k);
     if (keys.length === 0) return;
     const placeholders = keys.map(() => "?").join(", ");
@@ -316,6 +334,7 @@ export class CapacitorSqliteAdapter implements TransactableStorageAdapter {
     const keys = Object.keys(patch);
     if (keys.length === 0) return;
     for (const k of keys) assertIdentifier(k);
+    for (const key of keys) assertScalarColumnValue(patch[key]);
     const sets = keys.map((k) => `${k} = ?`).join(", ");
     const sql = `UPDATE ${table} SET ${sets} WHERE id = ?`;
     await this.#database.run(
