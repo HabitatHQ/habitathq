@@ -464,6 +464,8 @@ const PENDING_REMOTE_UPDATES_DDL = `CREATE TABLE IF NOT EXISTS ${PENDING_REMOTE_
   hlc_counter INTEGER NOT NULL,
   hlc_node_id TEXT NOT NULL
 )`;
+const PENDING_REMOTE_UPDATES_LOOKUP_INDEX = `CREATE INDEX IF NOT EXISTS _sync_pending_remote_updates_lookup
+ON ${PENDING_REMOTE_UPDATES} (tbl, row_id, hlc_wall_ms, hlc_counter, hlc_node_id, pending_id)`;
 
 interface PendingRemoteUpdateRow extends MetaRow {
   pending_id: string;
@@ -960,6 +962,7 @@ export class PalladiumEngine<S extends SchemaMap> {
     await adpt.exec(SYNC_STATE_DDL, []);
     await adpt.exec(APPLIED_CHANGES_DDL, []);
     await adpt.exec(PENDING_REMOTE_UPDATES_DDL, []);
+    await adpt.exec(PENDING_REMOTE_UPDATES_LOOKUP_INDEX, []);
     this.#syncTablesReady = true;
   }
 
@@ -1619,7 +1622,7 @@ export class PalladiumEngine<S extends SchemaMap> {
     ]);
   }
 
-  /** Stamp a set of columns of one row with the same write HLC. */
+  /** Stamp a bounded batch of columns of one row with the same write HLC. */
   async #stampCols(
     adpt: StorageAdapter,
     table: string,
@@ -1627,9 +1630,30 @@ export class PalladiumEngine<S extends SchemaMap> {
     cols: Iterable<string>,
     hlc: Hlc,
   ): Promise<void> {
+    const batchSize = 128;
+    let batch: string[] = [];
+    const writeBatch = async (): Promise<void> => {
+      const placeholders = batch.map(() => "(?, ?, ?, ?, ?, ?)").join(", ");
+      const params: unknown[] = [];
+      for (const col of batch) {
+        params.push(table, rowId, col, hlc.wallMs, hlc.counter, hlc.nodeId);
+      }
+      await adpt.exec(
+        `INSERT INTO ${SYNC_ROW_META} (tbl, row_id, col, hlc_wall_ms, hlc_counter, hlc_node_id)
+         VALUES ${placeholders}
+         ON CONFLICT (tbl, row_id, col) DO UPDATE SET
+           hlc_wall_ms = excluded.hlc_wall_ms,
+           hlc_counter = excluded.hlc_counter,
+           hlc_node_id = excluded.hlc_node_id`,
+        params,
+      );
+      batch = [];
+    };
     for (const col of cols) {
-      await this.#putColMeta(adpt, table, rowId, col, hlc);
+      batch.push(col);
+      if (batch.length === batchSize) await writeBatch();
     }
+    if (batch.length > 0) await writeBatch();
   }
 
   /** Stamp every column a *local* op writes with the change's HLC (no gating). */
@@ -1668,10 +1692,16 @@ export class PalladiumEngine<S extends SchemaMap> {
     fields: Record<string, unknown>,
     hlc: Hlc,
   ): Promise<Record<string, unknown>> {
+    const storedRows = await adpt.exec<MetaRow & { col: string }>(
+      `SELECT col, hlc_wall_ms, hlc_counter, hlc_node_id FROM ${SYNC_ROW_META}
+       WHERE tbl = ? AND row_id = ?`,
+      [table, rowId],
+    );
+    const storedByColumn = new Map(storedRows.map((row) => [row.col, metaRowToHlc(row)]));
     const winning: Record<string, unknown> = {};
     for (const [col, value] of Object.entries(fields)) {
-      const stored = await this.#getColMeta(adpt, table, rowId, col);
-      if (stored === null || compareHlc(hlc, stored) > 0) winning[col] = value;
+      const stored = storedByColumn.get(col);
+      if (stored === undefined || compareHlc(hlc, stored) > 0) winning[col] = value;
     }
     return winning;
   }
