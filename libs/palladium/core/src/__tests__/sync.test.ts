@@ -216,6 +216,68 @@ describe("SyncTransport — uplink", () => {
   });
 });
 
+describe("SyncTransport — deleted-root recovery", () => {
+  it("keeps generic forbidden uploads blocking later changes", async () => {
+    const db = await makeEngine(ALICE);
+    const posted: WireChange[] = [];
+    const { fetch } = makeFakeFetch((call) => {
+      if (call.init?.method === "POST") {
+        posted.push(JSON.parse(String(call.init.body)) as WireChange);
+        return jsonResponse({ code: "forbidden" }, 403);
+      }
+      return jsonResponse(page());
+    });
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await transport.poll();
+    await db.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      title: "forbidden",
+      updated_at: 1,
+    });
+    await db.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac",
+      title: "later",
+      updated_at: 2,
+    });
+    await transport.syncOnce();
+
+    expect(posted).toHaveLength(1);
+    expect(await outboxRows(db)).toHaveLength(2);
+    expect(await transport.inspectQuarantine()).toEqual([]);
+    expect(transport.lastError).toMatchObject({ phase: "uplink", code: "forbidden", status: 403 });
+    expect(db.getSyncStatus()).toBe("degraded");
+    await transport.dispose();
+  });
+
+  it("keeps the queued change when deleted-root quarantine persistence fails", async () => {
+    const db = await makeEngine(ALICE);
+    const { fetch } = makeFakeFetch((call) =>
+      call.init?.method === "POST"
+        ? jsonResponse({ code: "root_deleted" }, 403)
+        : jsonResponse(page()),
+    );
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await transport.poll();
+    await db.adapter.exec(
+      `CREATE TRIGGER reject_root_deleted_archive
+       BEFORE INSERT ON _sync_outbox_quarantine
+       WHEN NEW.error_code = 'root_deleted'
+       BEGIN SELECT RAISE(ABORT, 'archive unavailable'); END`,
+      [],
+    );
+    await db.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      title: "obsolete",
+      updated_at: 1,
+    });
+    await transport.syncOnce();
+
+    expect(await outboxRows(db)).toHaveLength(1);
+    expect(await transport.inspectQuarantine()).toEqual([]);
+    await transport.dispose();
+  });
+});
+
 describe("SyncTransport — downlink", () => {
   it("applies remote insert via applyRemote without firing changes:local", async () => {
     const db = await makeEngine(BOB);

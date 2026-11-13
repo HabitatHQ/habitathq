@@ -369,7 +369,12 @@ pub(super) async fn get_changes(
         limit,
     )
     .await?;
-    let mut purges = Vec::new();
+    let mut purges = db
+        .deleted_root_purges_for_reader(&workspace, user.as_str())
+        .await?
+        .into_iter()
+        .map(|(table, row_id)| PagePurge { table, row_id })
+        .collect::<Vec<_>>();
     for event in events.iter().filter(|event| event.kind == EVENT_REVOKE) {
         let records = db.records_for_root(&workspace, &event.root_id).await?;
         if records.is_empty() {

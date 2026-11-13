@@ -47,12 +47,14 @@ The benchmark used synthetic, local SQLite data; it does not establish productio
 
 ## Verification results observed
 
-- Maintained Palladium TypeScript build, all maintained unit suites, and TypeScript typechecks passed. Final core: 507 tests; Node SQLite: 25; Capacitor SQLite: 62. `just lint-palladium-ts` reported existing non-fatal complexity/static-only-class warnings; no changes were made to silence them.
+- Maintained Palladium TypeScript build, all maintained unit suites, and TypeScript typechecks passed. Final core: 510 tests; Node SQLite: 25; Capacitor SQLite: 62. `just lint-palladium-ts` reported existing non-fatal complexity/static-only-class warnings; no changes were made to silence them.
 - Habitat typecheck and unit suite passed: 61 test files, 720 passed, 1 skipped. `check:fix` made no changes; it reported existing warnings/infos. The full accessibility suite still reports an unrelated critical Settings-page naming violation; the three selected TODO/category/activity modal flows were separately exercised in Chromium and exposed their visible names.
-- Final Rust `atrium` + `palladium-axum` tests passed (100); Clippy with `-D warnings` and `cargo fmt --all -- --check` passed. Regression coverage includes terminal root/child deletion delivery, earlier child deletions without historical-content disclosure, and unrelated-member denial.
+- Final Rust `atrium` + `palladium-axum` tests passed (104); Clippy with `-D warnings` and `cargo fmt --all -- --check` passed. Regression coverage includes terminal root/child deletion delivery, earlier child deletions without historical-content disclosure, unrelated-member denial, concurrent duplicate deletion, atomic mixed-operation rejection, and legacy mixed-deletion purge controls without rewriting accepted history.
 - Scoped Semgrep and `pnpm lint:deps` passed. `pnpm dedupe:check` remains red because it proposes unrelated workspace dependency/lockfile changes (`vue-router`, `@nuxt/ui`, Nuxt peer resolution, and `magic-string`). No dependency or lockfile changes were made.
 - The issue #104 persistent-SQLite benchmark and legacy-index replay probes are recorded above. Synthetic local SQLite/native-adapter probes are not production-device measurements.
 - A built-package Node/SQLite smoke confirmed that legacy pending replay commits row arrival, applies a winning scalar field, archives the incompatible nested field intact, and clears the pending row. Both stale and winning nested-value regressions passed.
+- PR review follow-ups: ACL purge also clears archived pending fields atomically. Exact `root_deleted` responses archive obsolete outbox entries durably and permit unrelated uploads; generic forbidden responses still block. File-backed restart and archive-failure rollback regressions passed.
+- Final built client/live loopback Atrium smoke observed HTTP 403 `root_deleted`, intact quarantined deletion evidence, an empty active outbox, successful unrelated upload, and honest degraded status. A separate live HTTP scenario rejected mixed update/delete without advancing the cursor, then delivered a valid all-delete terminal change intact without redundant purge controls. The named in-memory server was stopped afterward.
 
 ## Risks and policy
 

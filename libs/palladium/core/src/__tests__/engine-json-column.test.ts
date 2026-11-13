@@ -29,13 +29,19 @@ describe("replicated SQLite column values", () => {
     });
     const beforeRows = await adapter.exec("SELECT * FROM notes");
     const beforeMetadata = await adapter.exec(
-      "SELECT col, hlc_wall_ms, hlc_counter, hlc_node_id FROM _sync_row_meta WHERE tbl = ? AND row_id = ? ORDER BY col",
-      ["notes", ID],
+      "SELECT * FROM _sync_row_meta ORDER BY tbl, row_id, col",
     );
-    const beforeOutbox = await adapter.exec("SELECT COUNT(*) AS count FROM probe_outbox");
+    const beforeOutbox = await adapter.exec("SELECT * FROM probe_outbox");
 
     await expect(
-      engine.tx((tx) => tx.update("notes", ID, { title: "changed", payload: NESTED })),
+      engine.tx((tx) => {
+        tx.insert("notes", {
+          id: "018f0f50-7b8d-7a1c-8e2f-1234567890aa",
+          title: "valid first",
+          payload: "text",
+        });
+        tx.update("notes", ID, { title: "changed", payload: NESTED });
+      }),
     ).rejects.toThrow("Replicated SQLite row columns must be scalar");
     await expect(
       engine.tx((tx) =>
@@ -50,19 +56,26 @@ describe("replicated SQLite column values", () => {
       engine.applyRemote({
         hlc: { wallMs: 2_000, counter: 0, nodeId: REMOTE_NODE },
         ops: [
+          {
+            type: "insert",
+            table: "notes",
+            id: "018f0f50-7b8d-7a1c-8e2f-1234567890aa",
+            data: {
+              id: "018f0f50-7b8d-7a1c-8e2f-1234567890aa",
+              title: "valid first",
+              payload: "text",
+            },
+          },
           { type: "update", table: "notes", id: ID, patch: { title: "remote", payload: NESTED } },
         ],
       }),
     ).rejects.toThrow("Replicated SQLite row columns must be scalar");
 
     expect(await adapter.exec("SELECT * FROM notes")).toEqual(beforeRows);
-    expect(
-      await adapter.exec(
-        "SELECT col, hlc_wall_ms, hlc_counter, hlc_node_id FROM _sync_row_meta WHERE tbl = ? AND row_id = ? ORDER BY col",
-        ["notes", ID],
-      ),
-    ).toEqual(beforeMetadata);
-    expect(await adapter.exec("SELECT COUNT(*) AS count FROM probe_outbox")).toEqual(beforeOutbox);
+    expect(await adapter.exec("SELECT * FROM _sync_row_meta ORDER BY tbl, row_id, col")).toEqual(
+      beforeMetadata,
+    );
+    expect(await adapter.exec("SELECT * FROM probe_outbox")).toEqual(beforeOutbox);
 
     unregister();
     await adapter.close();
@@ -159,6 +172,22 @@ describe("replicated SQLite column values", () => {
         reason: "unsupported_nested_column_value",
       },
     ]);
+    await adapter.exec(
+      "UPDATE _sync_pending_remote_update_quarantine SET tbl = 'Notes' WHERE pending_id = ?",
+      ["legacy-winning"],
+    );
+    await adapter.exec(
+      `INSERT INTO _sync_pending_remote_update_quarantine
+       SELECT 'other-row', tbl, '018f0f50-7b8d-7a1c-8e2f-1234567890ac', patch,
+              hlc_wall_ms, hlc_counter, hlc_node_id, reason, quarantined_at
+       FROM _sync_pending_remote_update_quarantine WHERE pending_id = ?`,
+      ["legacy-winning"],
+    );
+    await engine.purgeLocal("notes", ID);
+    expect(await adapter.exec("SELECT * FROM notes WHERE id = ?", [ID])).toEqual([]);
+    expect(
+      await adapter.exec("SELECT pending_id FROM _sync_pending_remote_update_quarantine"),
+    ).toEqual([{ pending_id: "other-row" }]);
     await adapter.close();
   });
 });

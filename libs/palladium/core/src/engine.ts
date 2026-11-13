@@ -1280,6 +1280,10 @@ export class PalladiumEngine<S extends SchemaMap> {
       id,
       tableName,
     ]);
+    await adpt.exec(
+      `DELETE FROM ${PENDING_REMOTE_UPDATE_QUARANTINE} WHERE row_id = ? AND LOWER(tbl) = ?`,
+      [id, tableName],
+    );
   }
 
   /**

@@ -363,6 +363,133 @@ describe("durable sync state — poll cursor across transport restart", () => {
   });
 });
 
+describe("durable sync state — deleted-root outbox", () => {
+  let dir: string;
+  let file: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "palladium-root-deleted-"));
+    file = join(dir, "db.sqlite");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("archives a deleted-root rejection and continues later uploads across restart", async () => {
+    const engine1 = new PalladiumEngine<Schema>(
+      new NodeSqliteAdapter({ vfs: { type: "file", filename: file } }),
+      { nodeId: ALICE },
+    );
+    await engine1.init(SCHEMA);
+    const posted: WireChange[] = [];
+    const firstFetch: typeof globalThis.fetch = async (input, init) => {
+      const url =
+        typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
+      if (new URL(url).pathname === "/v1/clock") {
+        return new Response(
+          JSON.stringify({ version: 1, nowMs: Date.now(), maxFutureMs: 300_000 }),
+        );
+      }
+      if (init?.method === "POST") {
+        const change = JSON.parse(String(init.body)) as WireChange;
+        posted.push(change);
+        return change.ops.some((op) => op.op === "insert" && op.data["title"] === "obsolete")
+          ? new Response(JSON.stringify({ code: "root_deleted" }), { status: 403 })
+          : new Response(JSON.stringify({ version: 1, outcome: "inserted", cursor: "1" }), {
+              status: 201,
+            });
+      }
+      return new Response(
+        JSON.stringify({
+          version: 1,
+          changes: [],
+          purges: [],
+          events: [],
+          cursor: "0",
+          upperBound: "0",
+          caughtUp: true,
+          control: { mustRefetch: false },
+        }),
+      );
+    };
+    const transport1 = new SyncTransport(engine1, { serverUrl: SERVER_URL, fetch: firstFetch });
+    await transport1.poll();
+    await engine1.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      title: "obsolete",
+      updated_at: 1,
+    });
+    await engine1.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac",
+      title: "unrelated",
+      updated_at: 2,
+    });
+    await transport1.syncOnce();
+
+    expect(posted).toHaveLength(2);
+    expect(await engine1.exec(sql`SELECT * FROM _sync_outbox`)).toEqual([]);
+    expect(engine1.getSyncStatus()).toBe("degraded");
+    const archived = await transport1.inspectQuarantine();
+    expect(archived).toEqual([
+      expect.objectContaining({
+        phase: "uplink",
+        changeId: posted[0]?.id,
+        code: "root_deleted",
+        permanent: true,
+        disposition: "root_deleted",
+        payload: JSON.stringify(posted[0]),
+      }),
+    ]);
+    await transport1.dispose();
+    await engine1.adapter.close();
+
+    const engine2 = new PalladiumEngine<Schema>(
+      new NodeSqliteAdapter({ vfs: { type: "file", filename: file } }),
+      { nodeId: BOB },
+    );
+    await engine2.init(SCHEMA);
+    const restartedPosts: WireChange[] = [];
+    const secondFetch: typeof globalThis.fetch = async (input, init) => {
+      const url =
+        typeof input === "string" ? input : input instanceof Request ? input.url : input.href;
+      if (new URL(url).pathname === "/v1/clock") {
+        return new Response(
+          JSON.stringify({ version: 1, nowMs: Date.now(), maxFutureMs: 300_000 }),
+        );
+      }
+      if (init?.method === "POST") {
+        restartedPosts.push(JSON.parse(String(init.body)) as WireChange);
+        return new Response(JSON.stringify({ version: 1, outcome: "inserted", cursor: "2" }), {
+          status: 201,
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          version: 1,
+          changes: [],
+          purges: [],
+          events: [],
+          cursor: "0",
+          upperBound: "0",
+          caughtUp: true,
+          control: { mustRefetch: false },
+        }),
+      );
+    };
+    const transport2 = new SyncTransport(engine2, { serverUrl: SERVER_URL, fetch: secondFetch });
+    expect(await transport2.inspectQuarantine()).toEqual(archived);
+    await transport2.syncOnce();
+
+    expect(restartedPosts).toEqual([]);
+    expect(await engine2.exec(sql`SELECT * FROM _sync_outbox`)).toEqual([]);
+    expect(engine2.getSyncStatus()).toBe("degraded");
+    expect(await transport2.inspectQuarantine()).toEqual(archived);
+    await transport2.dispose();
+    await engine2.adapter.close();
+  });
+});
+
 describe("durable sync state — schema identity", () => {
   it("persists the initialized fingerprint in sync state", async () => {
     const db = new PalladiumEngine<Schema>(new NodeSqliteAdapter({ vfs: { type: "memory" } }), {

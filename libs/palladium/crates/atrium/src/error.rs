@@ -16,6 +16,9 @@ pub enum AtriumError {
     /// The caller could not be authenticated → `401`.
     #[error("unauthorized: {0}")]
     Unauthorized(String),
+    /// The authenticated writer's queued change targets a permanently deleted root → `403`.
+    #[error("root deleted")]
+    RootDeleted,
     /// The caller is authenticated but not permitted → `403`.
     #[error("forbidden: {0}")]
     Forbidden(String),
@@ -54,6 +57,11 @@ impl IntoResponse for AtriumError {
         let (status, code, message) = match self {
             Self::Unauthorized(message) => (StatusCode::UNAUTHORIZED, "unauthorized", message),
             Self::Forbidden(message) => (StatusCode::FORBIDDEN, "forbidden", message),
+            Self::RootDeleted => (
+                StatusCode::FORBIDDEN,
+                "root_deleted",
+                "the aggregate root has been permanently deleted".to_owned(),
+            ),
             Self::NotFound(message) => (StatusCode::NOT_FOUND, "not_found", message),
             Self::BadRequest(message) => {
                 let code = match message.as_str() {
