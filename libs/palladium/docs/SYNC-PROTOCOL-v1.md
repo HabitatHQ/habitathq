@@ -55,11 +55,12 @@ accepted before the root deletion, followed by the terminal root deletion.
 After root deletion, this exception exposes deletion-only changes; it does not
 make earlier row contents or updates visible again.
 
-New root-deletion changes must contain only delete operations. Atrium rejects
-mixed update/insert-and-root-delete changes atomically before persistence.
-Previously accepted mixed terminal changes remain immutable; authorized readers
-receive root/child purge controls instead of their hidden historical payload.
-Ordinary all-delete terminal changes retain their replicated tombstones.
+Authenticated single-aggregate changes may combine a root deletion with other
+operations, as produced by a local transaction. Acceptance remains atomic and the
+original payload stays immutable. For mixed terminal changes, authorized readers
+receive root/child purge controls instead of the hidden historical payload.
+This also covers mixed terminal changes accepted before upgrade. Ordinary
+all-delete terminal changes retain their replicated tombstones.
 
 On upgrade, Atrium backfills terminal root tombstones from retained accepted
 change history once, transactionally. A delete that existed only on an
@@ -103,13 +104,20 @@ payloads are owned immutable snapshots, so caller mutation cannot make uploaded
 values differ from the committed write.
 
 For a formerly authorized writer, Atrium returns HTTP 403 with the exact code
-`root_deleted` when a queued write targets a permanently deleted aggregate.
+`root_deleted` only after every operation resolves to the same permanently
+deleted aggregate and node ownership plus retained write authorization pass.
 The client atomically archives the complete rejected change in
 `_sync_outbox_quarantine` with disposition `root_deleted`, removes it from the
 active queue, and continues unrelated uploads. This is not an acknowledgement:
 `inspectQuarantine()` retains the payload and sync status remains degraded after
-restart. The obsolete change cannot be retried. Generic HTTP 403 responses keep
-their existing blocking behavior; they do not authorize archival or queue removal.
+restart. The obsolete change cannot be retried, including after explicit discard.
+The archive also durably identifies the exact table/row IDs proven obsolete by
+that response. Later queued changes are archived without upload only when every
+operation targets one of those proven-obsolete rows. This lets an offline child
+insert followed by updates/deletes drain after the insert is rejected, even
+though the server never accepted that child. No server ACL records are created
+for rejected inserts. Generic HTTP 403 responses without this prior evidence
+keep their existing blocking behavior and do not authorize queue removal.
 
 ### 2.3 Download
 

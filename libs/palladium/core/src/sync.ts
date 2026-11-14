@@ -1098,17 +1098,47 @@ export class SyncTransport<S extends SchemaMap> {
     }
   }
 
+  async #obsoleteOutboxRows(adapter: StorageAdapter): Promise<Set<string>> {
+    const archives = await adapter.exec<{ payload: string }>(
+      `SELECT payload FROM ${OUTBOX_QUARANTINE_TABLE} WHERE error_code = 'root_deleted'`,
+      [],
+    );
+    const obsolete = new Set<string>();
+    for (const archive of archives) {
+      let payload: unknown;
+      try {
+        payload = JSON.parse(archive.payload);
+      } catch {
+        continue;
+      }
+      if (isWireChange(payload)) {
+        for (const op of payload.ops) obsolete.add(JSON.stringify([op.table, op.row_id]));
+      }
+    }
+    return obsolete;
+  }
+
   async #drainOutbox(): Promise<void> {
     if (this.#disposed || this.#stopping) return;
-    const rows = await this.#engine.withStorage((adapter) =>
-      adapter.exec<OutboxRow>(
+    const { rows, obsolete } = await this.#engine.withStorage(async (adapter) => {
+      const rows = await adapter.exec<OutboxRow>(
         `SELECT change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint,
                 retry_attempts, next_retry_at, terminal, terminal_error, created_at
            FROM ${OUTBOX_TABLE}
           ORDER BY hlc_wall_ms ASC, hlc_counter ASC, change_id ASC`,
         [],
-      ),
-    );
+      );
+      const obsolete =
+        rows.length === 0 ? new Set<string>() : await this.#obsoleteOutboxRows(adapter);
+      return { rows, obsolete };
+    });
+    const addObsoleteFromChange = (change: WireChange): void => {
+      for (const op of change.ops) obsolete.add(JSON.stringify([op.table, op.row_id]));
+    };
+    const targetsObsoleteRows = (change: WireChange): boolean =>
+      change.ops.length > 0 &&
+      change.ops.every((op) => obsolete.has(JSON.stringify([op.table, op.row_id])));
+    // The exact root_deleted response guarantees every operation belongs to one deleted aggregate.
     if (this.#disposed || this.#stopping || rows.length === 0) return;
     const sendRows: OutboxRow[] = [];
     for (const row of rows) {
@@ -1130,13 +1160,19 @@ export class SyncTransport<S extends SchemaMap> {
     let lastOutcome: PostOutcome = "ok";
     for (const row of sendRows) {
       if (this.#disposed || this.#stopping) return;
+      const change = rowToChange(row);
+      if (targetsObsoleteRows(change)) {
+        await this.#archiveDeletedRoot(change);
+        lastOutcome = "archived";
+        continue;
+      }
       if (this.#isOutboxRowBlocked(row)) {
         lastOutcome = "rejected";
         break;
       }
-      const change = rowToChange(row);
       const outcome = await this.#tryPost(change);
       lastOutcome = outcome;
+      if (outcome === "archived") addObsoleteFromChange(change);
       if (outcome === "ok") {
         await this.#engine.withStorage(async (adapter) => {
           if (!isTransactable(adapter))
@@ -1480,10 +1516,10 @@ export class SyncTransport<S extends SchemaMap> {
         }> => {
           const superseded = await target.exec<{
             replacement_change_id: string | null;
-            disposition: string;
+            error_code: string;
           }>(
-            `SELECT replacement_change_id, disposition FROM ${OUTBOX_QUARANTINE_TABLE}
-              WHERE change_id = ? AND (replacement_change_id IS NOT NULL OR disposition = 'root_deleted')`,
+            `SELECT replacement_change_id, error_code FROM ${OUTBOX_QUARANTINE_TABLE}
+              WHERE change_id = ? AND (replacement_change_id IS NOT NULL OR error_code = 'root_deleted' OR disposition = 'root_deleted')`,
             [changeId],
           );
           if (superseded[0] !== undefined) {

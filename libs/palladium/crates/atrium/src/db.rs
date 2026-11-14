@@ -1545,7 +1545,7 @@ impl AtriumDb {
         .await?
         .is_some())
     }
-    /// Represent legacy mixed terminal changes without rewriting their accepted payload.
+    /// Represent mixed terminal changes without rewriting their accepted payload.
     pub async fn deleted_root_purges_for_reader(
         &self,
         workspace: &str,
@@ -1974,15 +1974,6 @@ impl AtriumDb {
                     }
                 }
             }
-        }
-        let contains_root_deletion = change.ops.iter().any(|op| {
-            matches!(op, Op::Delete { .. })
-                && matches!(registry::role_of(op.table()), Some(TableRole::Root(_)))
-        });
-        if contains_root_deletion && change.ops.iter().any(|op| !matches!(op, Op::Delete { .. })) {
-            return Err(AtriumError::BadRequest(
-                "root deletion changes may contain only delete operations".to_owned(),
-            ));
         }
         let terminal_root_deletion = change_root.as_deref().filter(|root_id| {
             change.ops.iter().any(|op| {

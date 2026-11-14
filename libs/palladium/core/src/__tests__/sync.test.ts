@@ -248,6 +248,138 @@ describe("SyncTransport — deleted-root recovery", () => {
     expect(db.getSyncStatus()).toBe("degraded");
     await transport.dispose();
   });
+  it("keeps discarded root-deleted evidence nonretryable before and after restart", async () => {
+    const db = await makeEngine(ALICE);
+    let posts = 0;
+    const { fetch } = makeFakeFetch((call) => {
+      if (call.init?.method === "POST") {
+        posts += 1;
+        return jsonResponse({ code: "root_deleted" }, 403);
+      }
+      return jsonResponse(page());
+    });
+    const first = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await first.poll();
+    await db.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ab",
+      title: "obsolete",
+      updated_at: 1,
+    });
+    await first.syncOnce();
+    const [entry] = await first.inspectQuarantine();
+    if (entry === undefined) throw new Error("expected root-deleted archive");
+    await first.discardQuarantined(entry.changeId);
+    const retained = await first.inspectQuarantine();
+    await expect(first.retryQuarantined(entry.changeId)).rejects.toThrow("root-deleted");
+    expect(await first.inspectQuarantine()).toEqual(retained);
+    expect(await outboxRows(db)).toEqual([]);
+    await first.dispose();
+
+    const restarted = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await expect(restarted.retryQuarantined(entry.changeId)).rejects.toThrow("root-deleted");
+    await restarted.syncOnce();
+    expect(posts).toBe(1);
+    expect(await outboxRows(db)).toEqual([]);
+    expect(await restarted.inspectQuarantine()).toEqual([
+      expect.objectContaining({
+        changeId: entry.changeId,
+        code: "root_deleted",
+        disposition: "discarded",
+        payload: entry.payload,
+      }),
+    ]);
+    await restarted.dispose();
+  });
+
+  it("archives only queued changes wholly targeting rows proven obsolete by root_deleted", async () => {
+    const db = await makeEngine(ALICE);
+    const posted: WireChange[] = [];
+    let childReject = true;
+    const { fetch } = makeFakeFetch((call) => {
+      if (call.init?.method === "POST") {
+        const change = JSON.parse(String(call.init.body)) as WireChange;
+        posted.push(change);
+        if (childReject) {
+          childReject = false;
+          return jsonResponse({ code: "root_deleted" }, 403);
+        }
+        return jsonResponse(receipt(), 201);
+      }
+      return jsonResponse(page());
+    });
+    const first = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await first.poll();
+    const childId = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    await db.insert("notes", { id: childId, title: "insert", updated_at: 1 });
+    await first.syncOnce();
+    const [rejected] = posted;
+    if (rejected === undefined) throw new Error("expected rejected child insert");
+    await first.discardQuarantined(rejected.id);
+    await first.dispose();
+    const restarted = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await db.update("notes", childId, { title: "updated", updated_at: 2 });
+    await db.adapter.exec("UPDATE _sync_outbox SET terminal = 1, terminal_error = 'forbidden'");
+    await db.delete("notes", childId);
+    await db.insert("notes", {
+      id: "018f0f50-7b8d-7a1c-8e2f-1234567890ac",
+      title: "unrelated",
+      updated_at: 3,
+    });
+    await restarted.syncOnce();
+    expect(posted.slice(1).map((change) => change.ops[0]?.row_id)).toEqual([
+      "018f0f50-7b8d-7a1c-8e2f-1234567890ac",
+    ]);
+    const archived = await restarted.inspectQuarantine();
+    expect(archived).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "root_deleted", payload: JSON.stringify(rejected) }),
+        expect.objectContaining({ code: "root_deleted", disposition: "root_deleted" }),
+      ]),
+    );
+    const rootDeleted = archived.filter((entry) => entry.code === "root_deleted");
+    expect(rootDeleted).toHaveLength(3);
+    expect(
+      rootDeleted.flatMap((entry) => (JSON.parse(entry.payload) as WireChange).ops),
+    ).toHaveLength(4);
+    expect(await outboxRows(db)).toEqual([]);
+    expect(db.getSyncStatus()).toBe("degraded");
+
+    await restarted.syncOnce();
+    expect(posted).toHaveLength(2);
+    expect(await outboxRows(db)).toEqual([]);
+    await restarted.dispose();
+  });
+
+  it("does not infer deletion for a batch containing an unproven row", async () => {
+    const db = await makeEngine(ALICE);
+    const obsoleteId = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    const unrelatedId = "018f0f50-7b8d-7a1c-8e2f-1234567890ac";
+    await db.insert("notes", { id: obsoleteId, title: "old", updated_at: 1 });
+    await db.insert("notes", { id: unrelatedId, title: "live", updated_at: 1 });
+    let posts = 0;
+    const { fetch } = makeFakeFetch((call) => {
+      if (call.init?.method !== "POST") return jsonResponse(page());
+      return jsonResponse({ code: ++posts === 1 ? "root_deleted" : "forbidden" }, 403);
+    });
+    const transport = new SyncTransport(db, { serverUrl: SERVER_URL, fetch });
+    await transport.poll();
+    await db.update("notes", obsoleteId, { title: "obsolete update" });
+    await transport.syncOnce();
+    await db.tx((tx) => {
+      tx.update("notes", obsoleteId, { title: "still obsolete" });
+      tx.update("notes", unrelatedId, { title: "must remain queued" });
+    });
+    const before = await outboxRows(db);
+    await transport.syncOnce();
+    expect(posts).toBe(2);
+    expect(await outboxRows(db)).toEqual(before);
+    const archived = await transport.inspectQuarantine();
+    expect(archived).toHaveLength(1);
+    expect(JSON.parse(archived[0]?.payload ?? "{}").ops).toEqual([
+      { op: "update", table: "notes", row_id: obsoleteId, col: "title", value: "obsolete update" },
+    ]);
+    await transport.dispose();
+  });
 
   it("keeps the queued change when deleted-root quarantine persistence fails", async () => {
     const db = await makeEngine(ALICE);

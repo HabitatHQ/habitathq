@@ -828,7 +828,22 @@ async fn a7_deleted_root_change_reaches_previously_authorized_replica_with_child
         Some(2),
         "the exact terminal change must reach the authorized replica with both child and root deletion ops"
     );
+    assert_eq!(
+        response["purges"],
+        json!([]),
+        "ordinary all-delete changes use exact tombstones without redundant purges"
+    );
 
+    let delivered_terminal = response["changes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|change| change["id"] == deletion["id"])
+        .unwrap();
+    assert_eq!(
+        delivered_terminal["ops"], deletion["ops"],
+        "all-delete terminal payloads must be delivered exactly"
+    );
     let outsider = get_env(&app, "carol", &ws).await;
     assert!(
         outsider["changes"]
@@ -980,8 +995,14 @@ async fn obsolete_root_change_keeps_forbidden_outsiders_and_wrong_nodes_generic(
 }
 
 #[tokio::test]
-async fn root_deletion_rejects_mixed_updates_atomically_but_all_delete_is_allowed() {
-    let app = app().await;
+async fn mixed_root_deletion_is_accepted_immutable_and_delivered_as_authorized_purges() {
+    let path = std::env::temp_dir().join(format!("atrium-mixed-delete-{}.sqlite", Uuid::new_v4()));
+    let url = format!("sqlite:{}", path.display());
+    let db = AtriumDb::open(&url).await.unwrap();
+    let app = create_router(
+        AtriumState::new(db.clone(), DevBearerProvider),
+        CorsLayer::permissive(),
+    );
     let ws = family(&app).await;
     let (root, root_insert_change) = root_insert("notes");
     assert_eq!(
@@ -1002,10 +1023,43 @@ async fn root_deletion_rejects_mixed_updates_atomically_but_all_delete_is_allowe
         .unwrap()
         .to_owned();
     let mixed = wrap(&json!([
-        { "op": "update", "table": "note_images", "row_id": image, "col": "caption", "value": "not accepted" },
+        { "op": "update", "table": "note_images", "row_id": image, "col": "caption", "value": "private terminal payload" },
         { "op": "delete", "table": "notes", "row_id": root }
     ]));
-    let (status, response) = call(
+    let mixed_id = mixed["id"].as_str().unwrap().to_owned();
+    let parsed: palladium_core::Change = serde_json::from_value(mixed.clone()).unwrap();
+    let original_ops_json = serde_json::to_string(&parsed.ops).unwrap();
+    let pool = sqlx::SqlitePool::connect(&url).await.unwrap();
+
+    let (status, forbidden) = call(
+        &app,
+        "POST",
+        "/v1/changes",
+        Some("carol"),
+        Some(&ws),
+        Some(mixed.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(forbidden["code"], "forbidden");
+    assert_eq!(
+        get_env(&app, "bob", &ws).await["cursor"].as_str(),
+        Some(before.as_str()),
+        "unauthorized writes must not append history"
+    );
+
+    let (status, receipt) = call(
+        &app,
+        "POST",
+        "/v1/changes",
+        Some("alice"),
+        Some(&ws),
+        Some(mixed.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{receipt:?}");
+    assert_eq!(receipt["outcome"], "inserted");
+    let (duplicate_status, duplicate) = call(
         &app,
         "POST",
         "/v1/changes",
@@ -1014,40 +1068,37 @@ async fn root_deletion_rejects_mixed_updates_atomically_but_all_delete_is_allowe
         Some(mixed),
     )
     .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(response["code"], "invalid_request");
-    let after_rejection = get_env(&app, "bob", &ws).await;
-    assert_eq!(after_rejection["cursor"].as_str(), Some(before.as_str()));
-    assert_eq!(
-        post_change(&app, "alice", &ws, update("notes", root)).await,
-        StatusCode::CREATED,
-        "a rejected mixed deletion must leave the root and its ACL metadata intact"
-    );
-    let deletion = wrap(&json!([
-        { "op": "delete", "table": "note_images", "row_id": image },
-        { "op": "delete", "table": "notes", "row_id": root }
-    ]));
-    let deletion_id = deletion["id"].as_str().unwrap().to_owned();
-    assert_eq!(
-        post_change(&app, "alice", &ws, deletion.clone()).await,
-        StatusCode::CREATED
-    );
-    let delivered = get_env(&app, "bob", &ws).await;
-    assert_eq!(delivered["purges"], json!([]));
-    let terminal = delivered["changes"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|change| change["id"].as_str() == Some(deletion_id.as_str()))
-        .unwrap();
+    assert_eq!(duplicate_status, StatusCode::CREATED);
+    assert_eq!(duplicate["outcome"], "duplicate");
+    assert_eq!(duplicate["cursor"], receipt["cursor"]);
+
+    let stored_payload: String =
+        sqlx::query_scalar("SELECT ops_json FROM palladium_changes WHERE scope = ? AND id = ?")
+            .bind(&ws)
+            .bind(&mixed_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(stored_payload, original_ops_json);
+
+    let bob_page = get_env(&app, "bob", &ws).await;
+    assert_eq!(bob_page["changes"], json!([]));
+    assert!(purged(&bob_page, "notes", root));
+    assert!(purged(&bob_page, "note_images", image));
     assert!(
-        terminal["ops"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|op| op["op"] == "delete"),
-        "all-delete terminal payloads must be delivered intact, without redundant purges"
+        !bob_page.to_string().contains("private terminal payload"),
+        "terminal update data must never be exposed to replicas"
     );
+    let carol_page = get_env(&app, "carol", &ws).await;
+    assert_eq!(carol_page["purges"], json!([]));
+    assert_eq!(carol_page["changes"], json!([]));
+    assert!(!carol_page.to_string().contains(&root.to_string()));
+    assert!(!carol_page.to_string().contains(&image.to_string()));
+
+    drop(app);
+    drop(db);
+    pool.close().await;
+    std::fs::remove_file(path).unwrap();
 }
 #[tokio::test]
 async fn legacy_mixed_root_deletion_reaches_replicas_as_scoped_purge_controls() {
