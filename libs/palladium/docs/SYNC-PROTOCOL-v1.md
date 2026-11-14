@@ -59,8 +59,12 @@ Authenticated single-aggregate changes may combine a root deletion with other
 operations, as produced by a local transaction. Acceptance remains atomic and the
 original payload stays immutable. For mixed terminal changes, authorized readers
 receive root/child purge controls instead of the hidden historical payload.
-This also covers mixed terminal changes accepted before upgrade. Ordinary
-all-delete terminal changes retain their replicated tombstones.
+Purge delivery uses durable per-device events exposed as `revoke` controls:
+retries retain the purge until `/v1/changes/events/ack` acknowledges it, after
+which idle polls do not repeat it. Each device acknowledges independently.
+A transactional upgrade seeds these events for mixed terminal changes accepted
+before upgrade, even when a replica's history cursor already passed the deletion.
+Ordinary all-delete terminal changes retain their replicated tombstones.
 
 On upgrade, Atrium backfills terminal root tombstones from retained accepted
 change history once, transactionally. A delete that existed only on an

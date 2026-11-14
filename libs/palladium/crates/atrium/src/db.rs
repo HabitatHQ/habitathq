@@ -146,6 +146,9 @@ pub const MAX_BLOB_BYTES: usize = 16 * 1024 * 1024;
 pub const EVENT_GRANT: &str = "grant";
 /// A revoke event: a root became invisible to a user (triggers purge).
 pub const EVENT_REVOKE: &str = "revoke";
+// Unlike a reversible ACL revoke, a terminal purge cannot be superseded by
+// retained sharing metadata. It uses the same revoke control on the wire.
+const EVENT_ROOT_DELETE: &str = "root_delete";
 /// Role of a member within a workspace.
 pub const ROLE_OWNER: &str = "owner";
 /// A non-owner workspace member.
@@ -226,6 +229,7 @@ impl AtriumDb {
         Self::upgrade_change_history_primary_key(&pool).await?;
         Self::upgrade_device_event_schema(&pool).await?;
         Self::backfill_deleted_roots(&pool).await?;
+        Self::backfill_mixed_deletion_events(&pool).await?;
         Ok(Self { pool })
     }
 
@@ -686,6 +690,43 @@ impl AtriumDb {
             }
         }
         sqlx::query("INSERT INTO atrium_migrations (name) VALUES ('deleted_roots_v1')")
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Existing replicas may have checkpointed past a mixed terminal change.
+    /// Seed acknowledged device events rather than relying on history cursors.
+    async fn backfill_mixed_deletion_events(pool: &SqlitePool) -> Result<(), AtriumError> {
+        let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+        let complete = sqlx::query_scalar::<_, i64>(
+            "SELECT 1 FROM atrium_migrations WHERE name = 'mixed_deletion_events_v1'",
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .is_some();
+        if complete {
+            tx.commit().await?;
+            return Ok(());
+        }
+        let roots: Vec<(String, String)> = sqlx::query_as(
+            "SELECT deleted.workspace_id, deleted.root_id
+             FROM deleted_roots AS deleted
+             JOIN palladium_changes AS terminal
+               ON terminal.scope = deleted.workspace_id
+              AND terminal.id = deleted.deleted_change_id
+             WHERE EXISTS (
+                 SELECT 1 FROM json_each(terminal.ops_json) AS operation
+                 WHERE json_extract(operation.value, '$.op') != 'delete'
+             )",
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        for (workspace, root_id) in roots {
+            Self::enqueue_deleted_root_purges(&mut tx, &workspace, &root_id).await?;
+        }
+        sqlx::query("INSERT INTO atrium_migrations (name) VALUES ('mixed_deletion_events_v1')")
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
@@ -1348,7 +1389,15 @@ impl AtriumDb {
         .fetch_all(&self.pool)
         .await?
         .into_iter()
-        .map(|(id, kind, root_id)| PendingEvent { id, kind, root_id })
+        .map(|(id, kind, root_id)| PendingEvent {
+            id,
+            kind: if kind == EVENT_ROOT_DELETE {
+                EVENT_REVOKE.to_owned()
+            } else {
+                kind
+            },
+            root_id,
+        })
         .collect())
     }
 
@@ -1545,50 +1594,37 @@ impl AtriumDb {
         .await?
         .is_some())
     }
-    /// Represent mixed terminal changes without rewriting their accepted payload.
-    pub async fn deleted_root_purges_for_reader(
-        &self,
+    /// Reuse per-device revoke acknowledgements for mixed terminal purges.
+    async fn enqueue_deleted_root_purges(
+        tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
         workspace: &str,
-        caller: &str,
-    ) -> Result<Vec<(String, String)>, AtriumError> {
-        Ok(sqlx::query_as(
-            "SELECT records.table_name, records.row_id
-             FROM deleted_roots
-             JOIN palladium_changes AS terminal_change
-               ON terminal_change.scope = deleted_roots.workspace_id
-              AND terminal_change.id = deleted_roots.deleted_change_id
-             JOIN records AS roots
-               ON roots.workspace_id = deleted_roots.workspace_id
-              AND roots.row_id = deleted_roots.root_id
-              AND roots.root_id IS NULL
-             JOIN records
-               ON records.workspace_id = deleted_roots.workspace_id
-              AND (records.row_id = deleted_roots.root_id
-                   OR records.root_id = deleted_roots.root_id)
-             WHERE deleted_roots.workspace_id = ?
-               AND EXISTS (
-                   SELECT 1 FROM json_each(terminal_change.ops_json) AS operation
-                   WHERE json_extract(operation.value, '$.op') != 'delete'
-               )
+        root_id: &str,
+    ) -> Result<(), AtriumError> {
+        sqlx::query(
+            "INSERT INTO grant_events (workspace_id, user_id, root_id, kind)
+             SELECT roots.workspace_id, members.user_id, roots.row_id, ?
+             FROM records AS roots
+             JOIN memberships AS members ON members.workspace_id = roots.workspace_id
+             WHERE roots.workspace_id = ? AND roots.row_id = ? AND roots.root_id IS NULL
                AND (
-                   roots.owner_user_id = ?
+                   roots.owner_user_id = members.user_id
                    OR roots.sharing IN (?, ?)
                    OR EXISTS (
                        SELECT 1 FROM shares
-                       WHERE shares.workspace_id = deleted_roots.workspace_id
-                         AND shares.root_id = deleted_roots.root_id
-                         AND shares.grantee_user_id = ?
+                       WHERE shares.workspace_id = roots.workspace_id
+                         AND shares.root_id = roots.row_id
+                         AND shares.grantee_user_id = members.user_id
                    )
-               )
-             ORDER BY records.table_name, records.row_id",
+               )",
         )
+        .bind(EVENT_ROOT_DELETE)
         .bind(workspace)
-        .bind(caller)
+        .bind(root_id)
         .bind(SHARING_HOUSEHOLD_READ)
         .bind(SHARING_HOUSEHOLD_RW)
-        .bind(caller)
-        .fetch_all(&self.pool)
-        .await?)
+        .execute(&mut **tx)
+        .await?;
+        Ok(())
     }
 
     pub async fn can_read(
@@ -2003,6 +2039,9 @@ impl AtriumDb {
             .bind(EVENT_GRANT)
             .execute(&mut *tx)
             .await?;
+            if change.ops.iter().any(|op| !matches!(op, Op::Delete { .. })) {
+                Self::enqueue_deleted_root_purges(&mut tx, workspace, root_id).await?;
+            }
         }
         let hlc_millis = i64::try_from(change.hlc.millis()).map_err(|_| {
             AtriumError::BadRequest(format!(

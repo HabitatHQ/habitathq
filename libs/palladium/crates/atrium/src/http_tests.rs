@@ -994,6 +994,90 @@ async fn obsolete_root_change_keeps_forbidden_outsiders_and_wrong_nodes_generic(
     assert_eq!(response["code"], "forbidden");
 }
 
+async fn assert_terminal_purge_ack(app: &Router, ws: &str, url: &str, root: Uuid, page: &Value) {
+    let retry = get_env(app, "bob", ws).await;
+    assert_eq!(retry["purges"], page["purges"]);
+    assert_eq!(retry["events"], page["events"]);
+    let event_ids: Vec<_> = page["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|event| event["id"].clone())
+        .collect();
+    let (status, _) = call(
+        app,
+        "POST",
+        "/v1/changes/events/ack",
+        Some("bob"),
+        Some(ws),
+        Some(json!({ "event_ids": event_ids })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(get_env(app, "bob", ws).await["purges"], json!([]));
+    assert!(purged(&get_env(app, "alice", ws).await, "notes", root));
+    let fresh_device = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/changes")
+                .header(AUTHORIZATION, "Bearer bob")
+                .header("x-workspace", ws)
+                .header("x-palladium-node", Uuid::new_v4().to_string())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(fresh_device.status(), StatusCode::OK);
+    let fresh_page: Value = serde_json::from_slice(
+        &to_bytes(fresh_device.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(fresh_page["purges"], page["purges"]);
+    let reopened = create_router(
+        AtriumState::new(AtriumDb::open(url).await.unwrap(), DevBearerProvider),
+        CorsLayer::permissive(),
+    );
+    assert_eq!(get_env(&reopened, "bob", ws).await["purges"], json!([]));
+}
+
+async fn insert_legacy_change(
+    pool: &sqlx::SqlitePool,
+    workspace: &str,
+    change: &palladium_core::Change,
+) -> i64 {
+    let append_seq = sqlx::query_scalar::<_, i64>(
+        "UPDATE atrium_append_sequence
+         SET next_seq = next_seq + 1 WHERE id = 1
+         RETURNING next_seq",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO palladium_changes
+         (id, scope, append_cursor, hlc_key, hlc_millis, hlc_counter,
+          hlc_node_id, ops_json, append_seq, content_hash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'legacy')",
+    )
+    .bind(change.id.to_string())
+    .bind(workspace)
+    .bind(append_seq)
+    .bind(change.hlc.sort_key())
+    .bind(i64::try_from(change.hlc.millis()).unwrap())
+    .bind(i64::from(change.hlc.counter()))
+    .bind(change.hlc.node_id().to_string())
+    .bind(serde_json::to_string(&change.ops).unwrap())
+    .bind(append_seq)
+    .execute(pool)
+    .await
+    .unwrap();
+    append_seq
+}
+
 #[tokio::test]
 async fn mixed_root_deletion_is_accepted_immutable_and_delivered_as_authorized_purges() {
     let path = std::env::temp_dir().join(format!("atrium-mixed-delete-{}.sqlite", Uuid::new_v4()));
@@ -1094,6 +1178,7 @@ async fn mixed_root_deletion_is_accepted_immutable_and_delivered_as_authorized_p
     assert_eq!(carol_page["changes"], json!([]));
     assert!(!carol_page.to_string().contains(&root.to_string()));
     assert!(!carol_page.to_string().contains(&image.to_string()));
+    assert_terminal_purge_ack(&app, &ws, &url, root, &bob_page).await;
 
     drop(app);
     drop(db);
@@ -1133,32 +1218,7 @@ async fn legacy_mixed_root_deletion_reaches_replicas_as_scoped_purge_controls() 
     let parsed: palladium_core::Change = serde_json::from_value(legacy).unwrap();
     let ops_json = serde_json::to_string(&parsed.ops).unwrap();
     let pool = sqlx::SqlitePool::connect(&url).await.unwrap();
-    let append_seq = sqlx::query_scalar::<_, i64>(
-        "UPDATE atrium_append_sequence
-         SET next_seq = next_seq + 1 WHERE id = 1
-         RETURNING next_seq",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "INSERT INTO palladium_changes
-         (id, scope, append_cursor, hlc_key, hlc_millis, hlc_counter,
-          hlc_node_id, ops_json, append_seq, content_hash)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'legacy')",
-    )
-    .bind(&id)
-    .bind(&ws)
-    .bind(append_seq)
-    .bind(parsed.hlc.sort_key())
-    .bind(i64::try_from(parsed.hlc.millis()).unwrap())
-    .bind(i64::from(parsed.hlc.counter()))
-    .bind(parsed.hlc.node_id().to_string())
-    .bind(&ops_json)
-    .bind(append_seq)
-    .execute(&pool)
-    .await
-    .unwrap();
+    let append_seq = insert_legacy_change(&pool, &ws, &parsed).await;
     sqlx::query(
         "INSERT INTO deleted_roots (workspace_id, root_id, deleted_change_id, deleted_at)
          VALUES (?, ?, ?, ?)",
@@ -1171,7 +1231,28 @@ async fn legacy_mixed_root_deletion_reaches_replicas_as_scoped_purge_controls() 
     .await
     .unwrap();
 
-    let (status, bob_page) = call(&app, "GET", "/v1/changes", Some("bob"), Some(&ws), None).await;
+    // Simulate an existing database whose devices already passed the terminal
+    // change before the per-device purge migration was available.
+    sqlx::query("DELETE FROM atrium_migrations WHERE name = 'mixed_deletion_events_v1'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    drop(app);
+    drop(db);
+    let db = AtriumDb::open(&url).await.unwrap();
+    let app = create_router(
+        AtriumState::new(db.clone(), DevBearerProvider),
+        CorsLayer::permissive(),
+    );
+    let (status, bob_page) = call(
+        &app,
+        "GET",
+        &format!("/v1/changes?cursor={append_seq}"),
+        Some("bob"),
+        Some(&ws),
+        None,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(bob_page["purges"].as_array().unwrap().len(), 2);
     assert!(
@@ -1194,6 +1275,7 @@ async fn legacy_mixed_root_deletion_reaches_replicas_as_scoped_purge_controls() 
             .await
             .unwrap();
     assert_eq!(stored_payload, ops_json, "accepted history stays immutable");
+    assert_terminal_purge_ack(&app, &ws, &url, root, &bob_page).await;
 
     drop(app);
     drop(db);
