@@ -12,6 +12,7 @@ use crate::{
     db::{AppendOutcome, AtriumDb, PendingEvent, EVENT_GRANT, EVENT_REVOKE},
     error::AtriumError,
     identity::Caller,
+    registry::{self, TableRole},
     state::AtriumState,
 };
 
@@ -125,6 +126,60 @@ async fn change_visible(
 ) -> Result<bool, AtriumError> {
     if change.ops.is_empty() {
         return Ok(false);
+    }
+    let deleted_root = change.ops.iter().find_map(|op| {
+        (matches!(op, palladium_core::Op::Delete { .. })
+            && matches!(registry::role_of(op.table()), Some(TableRole::Root(_))))
+        .then(|| op.row_id().to_string())
+    });
+    if let Some(root_id) = deleted_root {
+        let mut deletion_only_for_root = true;
+        for op in &change.ops {
+            if !matches!(op, palladium_core::Op::Delete { .. }) {
+                deletion_only_for_root = false;
+                break;
+            }
+            let row_id = op.row_id().to_string();
+            let is_root_delete = row_id == root_id
+                && matches!(registry::role_of(op.table()), Some(TableRole::Root(_)));
+            let is_child_delete = matches!(registry::role_of(op.table()), Some(TableRole::Child))
+                && db.row_belongs_to_root(workspace, &root_id, &row_id).await?;
+            if !is_root_delete && !is_child_delete {
+                deletion_only_for_root = false;
+                break;
+            }
+        }
+        if deletion_only_for_root
+            && db
+                .can_read_deleted_root_change(workspace, caller, &root_id, &change.id.to_string())
+                .await?
+        {
+            return Ok(true);
+        }
+    }
+    if change.ops.iter().all(|op| {
+        matches!(op, palladium_core::Op::Delete { .. })
+            && matches!(registry::role_of(op.table()), Some(TableRole::Child))
+    }) {
+        let mut authorized_deletions = true;
+        for op in &change.ops {
+            if !db
+                .can_read_deleted_root_child_deletion(
+                    workspace,
+                    caller,
+                    &change.id.to_string(),
+                    op.table(),
+                    &op.row_id().to_string(),
+                )
+                .await?
+            {
+                authorized_deletions = false;
+                break;
+            }
+        }
+        if authorized_deletions {
+            return Ok(true);
+        }
     }
     for op in &change.ops {
         if !db

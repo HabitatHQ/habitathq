@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import type { BlobRef } from "../blob.js";
 import { BlobHandle } from "../blob-handle.js";
 import { BlobRegistry } from "../blob-registry.js";
 import { MemoryBlobAdapter } from "../memory-blob-adapter.js";
@@ -30,6 +31,18 @@ describe("BlobHandle", () => {
     await h.put("x", new Uint8Array([4, 5]));
     const b = await h.get("x", "blob");
     expect(b).toBeInstanceOf(Blob);
+  });
+  it("uses caller-declared MIME only for local Blob conversion", async () => {
+    const h = new BlobHandle(new MemoryBlobAdapter(), new BlobRegistry());
+    await h.put("typed", new Uint8Array([1, 2]));
+    const ref: BlobRef = { id: "typed", sizeBytes: 2, mimeType: "image/png" };
+
+    const blob = await h.get(ref, "blob");
+    expect(blob?.type).toBe("image/png");
+    const overridden = await h.get(ref, "blob", { mimeType: "text/plain" });
+    expect(overridden?.type).toBe("text/plain");
+    const explicit = await h.get("typed", "blob", { mimeType: "application/pdf" });
+    expect(explicit?.type).toBe("application/pdf");
   });
 
   it("get as url tracks in registry", async () => {

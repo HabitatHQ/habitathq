@@ -687,6 +687,729 @@ async fn a7_blob_inherits_note_acl() {
 }
 
 #[tokio::test]
+async fn a7_deleted_root_revokes_owner_and_grantee_blob_access_durably() {
+    let path = std::env::temp_dir().join(format!("atrium-deleted-root-{}.sqlite", Uuid::new_v4()));
+    let url = format!("sqlite:{}", path.display());
+    let db = AtriumDb::open(&url).await.unwrap();
+    let app = create_router(
+        AtriumState::new(db.clone(), DevBearerProvider),
+        CorsLayer::permissive(),
+    );
+    let ws = family(&app).await;
+    let (note, insert) = root_insert("notes");
+    assert_eq!(
+        post_change(&app, "alice", &ws, insert).await,
+        StatusCode::CREATED
+    );
+    let blob = Uuid::new_v4().to_string();
+    let peer_blob = Uuid::new_v4().to_string();
+    let bytes = b"retained bytes";
+    assert_eq!(
+        put_blob(&app, "alice", &ws, note, &blob, bytes).await,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        share(&app, "alice", &ws, note, "bob", "write").await,
+        StatusCode::OK
+    );
+    assert_eq!(get_blob(&app, "bob", &ws, &blob).await.0, StatusCode::OK);
+
+    let (peer_note, peer_insert) = root_insert("notes");
+    assert_eq!(
+        post_change(&app, "alice", &ws, peer_insert).await,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        put_blob(&app, "alice", &ws, peer_note, &peer_blob, bytes).await,
+        StatusCode::CREATED
+    );
+
+    let delete = wrap(&json!([
+        { "op": "delete", "table": "notes", "row_id": note }
+    ]));
+    let (delete_status, _) = call(
+        &app,
+        "POST",
+        "/v1/changes",
+        Some("alice"),
+        Some(&ws),
+        Some(delete.clone()),
+    )
+    .await;
+    assert_eq!(delete_status, StatusCode::CREATED);
+    let (duplicate_status, duplicate) = call(
+        &app,
+        "POST",
+        "/v1/changes",
+        Some("alice"),
+        Some(&ws),
+        Some(delete),
+    )
+    .await;
+    assert_eq!(duplicate_status, StatusCode::CREATED);
+    assert_eq!(duplicate["outcome"], "duplicate");
+    let reused_insert = wrap(&json!([
+        { "op": "insert", "table": "notes", "row_id": note, "data": { "id": note } }
+    ]));
+    assert_eq!(
+        post_change(&app, "alice", &ws, reused_insert).await,
+        StatusCode::FORBIDDEN
+    );
+
+    assert_deleted_root_blob_access(&app, &ws, note, &blob, &peer_blob, bytes).await;
+    drop(app);
+    drop(db);
+
+    verify_deleted_root_blob_survives_restart(path, ws, note, blob, peer_blob, bytes).await;
+}
+
+#[tokio::test]
+async fn a7_deleted_root_change_reaches_previously_authorized_replica_with_children() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let (note, insert) = root_insert("notes");
+    assert_eq!(
+        post_change(&app, "alice", &ws, insert.clone()).await,
+        StatusCode::CREATED
+    );
+    let (image, image_insert) = child_insert("note_images", note);
+    assert_eq!(
+        post_change(&app, "alice", &ws, image_insert.clone()).await,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        share(&app, "alice", &ws, note, "bob", "read").await,
+        StatusCode::OK
+    );
+
+    let initial = get_env(&app, "bob", &ws).await;
+    let initial_changes = initial["changes"].as_array().unwrap();
+    assert!(
+        initial_changes
+            .iter()
+            .any(|change| change["id"] == insert["id"]),
+        "the replica must receive the root before its deletion"
+    );
+    assert!(
+        initial_changes
+            .iter()
+            .any(|change| change["id"] == image_insert["id"]),
+        "the replica must receive the child before its deletion"
+    );
+    let cursor = initial["cursor"].as_str().unwrap();
+
+    let deletion = wrap(&json!([
+        { "op": "delete", "table": "note_images", "row_id": image },
+        { "op": "delete", "table": "notes", "row_id": note }
+    ]));
+    assert_eq!(
+        post_change(&app, "alice", &ws, deletion.clone()).await,
+        StatusCode::CREATED
+    );
+    let (status, response) = call(
+        &app,
+        "GET",
+        &format!("/v1/changes?cursor={cursor}"),
+        Some("bob"),
+        Some(&ws),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{response:?}");
+    let delivered_op_count = response["changes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|change| change["id"] == deletion["id"])
+        .and_then(|change| change["ops"].as_array())
+        .map(Vec::len);
+    assert_eq!(
+        delivered_op_count,
+        Some(2),
+        "the exact terminal change must reach the authorized replica with both child and root deletion ops"
+    );
+    assert_eq!(
+        response["purges"],
+        json!([]),
+        "ordinary all-delete changes use exact tombstones without redundant purges"
+    );
+
+    let delivered_terminal = response["changes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|change| change["id"] == deletion["id"])
+        .unwrap();
+    assert_eq!(
+        delivered_terminal["ops"], deletion["ops"],
+        "all-delete terminal payloads must be delivered exactly"
+    );
+    let outsider = get_env(&app, "carol", &ws).await;
+    assert!(
+        outsider["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|change| change["id"] != deletion["id"]),
+        "the terminal change must remain hidden from unrelated members"
+    );
+}
+
+#[tokio::test]
+async fn concurrent_root_deletions_return_a_distinct_obsolete_disposition() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let (root, insert) = root_insert("notes");
+    assert_eq!(
+        post_change(&app, "alice", &ws, insert).await,
+        StatusCode::CREATED
+    );
+    let delete = || wrap(&json!([{ "op": "delete", "table": "notes", "row_id": root }]));
+    let (left, right) = tokio::join!(
+        call(
+            &app,
+            "POST",
+            "/v1/changes",
+            Some("alice"),
+            Some(&ws),
+            Some(delete())
+        ),
+        call(
+            &app,
+            "POST",
+            "/v1/changes",
+            Some("alice"),
+            Some(&ws),
+            Some(delete())
+        ),
+    );
+    let results: [(StatusCode, Value); 2] = (left, right).into();
+    assert_eq!(
+        results
+            .iter()
+            .filter(|(status, _)| *status == StatusCode::CREATED)
+            .count(),
+        1
+    );
+    let obsolete = results
+        .iter()
+        .find(|(status, _)| *status == StatusCode::FORBIDDEN)
+        .unwrap();
+    assert_eq!(obsolete.1["code"], "root_deleted");
+
+    let (other_root, other_insert) = root_insert("notes");
+    assert_eq!(
+        post_change(&app, "alice", &ws, other_insert).await,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        share(&app, "alice", &ws, other_root, "bob", "write").await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        post_change(&app, "bob", &ws, update("notes", other_root),).await,
+        StatusCode::CREATED
+    );
+}
+
+#[tokio::test]
+async fn obsolete_root_change_keeps_forbidden_outsiders_and_wrong_nodes_generic() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let (root, insert) = root_insert("notes");
+    let alice_node = insert["hlc"]["nodeId"].as_str().unwrap().to_owned();
+    assert_eq!(
+        post_change(&app, "alice", &ws, insert).await,
+        StatusCode::CREATED
+    );
+    let (child, child_insert_change) = child_insert("note_images", root);
+    assert_eq!(
+        post_change(&app, "alice", &ws, child_insert_change).await,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        share(&app, "alice", &ws, root, "bob", "write").await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        post_change(
+            &app,
+            "alice",
+            &ws,
+            wrap(&json!([{ "op": "delete", "table": "notes", "row_id": root }])),
+        )
+        .await,
+        StatusCode::CREATED
+    );
+
+    let stale = wrap(&json!([{ "op": "delete", "table": "notes", "row_id": root }]));
+    let (status, response) = call(
+        &app,
+        "POST",
+        "/v1/changes",
+        Some("bob"),
+        Some(&ws),
+        Some(stale.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(response["code"], "root_deleted");
+    let (status, response) = call(
+        &app,
+        "POST",
+        "/v1/changes",
+        Some("bob"),
+        Some(&ws),
+        Some(update("note_images", child)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(response["code"], "root_deleted");
+
+    let outsider = wrap(&json!([{ "op": "delete", "table": "notes", "row_id": root }]));
+    let (status, response) = call(
+        &app,
+        "POST",
+        "/v1/changes",
+        Some("carol"),
+        Some(&ws),
+        Some(outsider),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(response["code"], "forbidden");
+
+    let mut spoofed = stale;
+    spoofed["hlc"]["nodeId"] = json!(alice_node);
+    let (status, response) = call(
+        &app,
+        "POST",
+        "/v1/changes",
+        Some("bob"),
+        Some(&ws),
+        Some(spoofed),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(response["code"], "forbidden");
+}
+
+async fn assert_terminal_purge_ack(app: &Router, ws: &str, url: &str, root: Uuid, page: &Value) {
+    let retry = get_env(app, "bob", ws).await;
+    assert_eq!(retry["purges"], page["purges"]);
+    assert_eq!(retry["events"], page["events"]);
+    let event_ids: Vec<_> = page["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|event| event["id"].clone())
+        .collect();
+    let (status, _) = call(
+        app,
+        "POST",
+        "/v1/changes/events/ack",
+        Some("bob"),
+        Some(ws),
+        Some(json!({ "event_ids": event_ids })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(get_env(app, "bob", ws).await["purges"], json!([]));
+    assert!(purged(&get_env(app, "alice", ws).await, "notes", root));
+    let fresh_device = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/changes")
+                .header(AUTHORIZATION, "Bearer bob")
+                .header("x-workspace", ws)
+                .header("x-palladium-node", Uuid::new_v4().to_string())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(fresh_device.status(), StatusCode::OK);
+    let fresh_page: Value = serde_json::from_slice(
+        &to_bytes(fresh_device.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(fresh_page["purges"], page["purges"]);
+    let reopened = create_router(
+        AtriumState::new(AtriumDb::open(url).await.unwrap(), DevBearerProvider),
+        CorsLayer::permissive(),
+    );
+    assert_eq!(get_env(&reopened, "bob", ws).await["purges"], json!([]));
+}
+
+async fn insert_legacy_change(
+    pool: &sqlx::SqlitePool,
+    workspace: &str,
+    change: &palladium_core::Change,
+) -> i64 {
+    let append_seq = sqlx::query_scalar::<_, i64>(
+        "UPDATE atrium_append_sequence
+         SET next_seq = next_seq + 1 WHERE id = 1
+         RETURNING next_seq",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO palladium_changes
+         (id, scope, append_cursor, hlc_key, hlc_millis, hlc_counter,
+          hlc_node_id, ops_json, append_seq, content_hash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'legacy')",
+    )
+    .bind(change.id.to_string())
+    .bind(workspace)
+    .bind(append_seq)
+    .bind(change.hlc.sort_key())
+    .bind(i64::try_from(change.hlc.millis()).unwrap())
+    .bind(i64::from(change.hlc.counter()))
+    .bind(change.hlc.node_id().to_string())
+    .bind(serde_json::to_string(&change.ops).unwrap())
+    .bind(append_seq)
+    .execute(pool)
+    .await
+    .unwrap();
+    append_seq
+}
+
+#[tokio::test]
+async fn mixed_root_deletion_is_accepted_immutable_and_delivered_as_authorized_purges() {
+    let path = std::env::temp_dir().join(format!("atrium-mixed-delete-{}.sqlite", Uuid::new_v4()));
+    let url = format!("sqlite:{}", path.display());
+    let db = AtriumDb::open(&url).await.unwrap();
+    let app = create_router(
+        AtriumState::new(db.clone(), DevBearerProvider),
+        CorsLayer::permissive(),
+    );
+    let ws = family(&app).await;
+    let (root, root_insert_change) = root_insert("notes");
+    assert_eq!(
+        post_change(&app, "alice", &ws, root_insert_change).await,
+        StatusCode::CREATED
+    );
+    let (image, child_insert_change) = child_insert("note_images", root);
+    assert_eq!(
+        post_change(&app, "alice", &ws, child_insert_change).await,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        share(&app, "alice", &ws, root, "bob", "read").await,
+        StatusCode::OK
+    );
+    let before = get_env(&app, "bob", &ws).await["cursor"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mixed = wrap(&json!([
+        { "op": "update", "table": "note_images", "row_id": image, "col": "caption", "value": "private terminal payload" },
+        { "op": "delete", "table": "notes", "row_id": root }
+    ]));
+    let mixed_id = mixed["id"].as_str().unwrap().to_owned();
+    let parsed: palladium_core::Change = serde_json::from_value(mixed.clone()).unwrap();
+    let original_ops_json = serde_json::to_string(&parsed.ops).unwrap();
+    let pool = sqlx::SqlitePool::connect(&url).await.unwrap();
+
+    let (status, forbidden) = call(
+        &app,
+        "POST",
+        "/v1/changes",
+        Some("carol"),
+        Some(&ws),
+        Some(mixed.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(forbidden["code"], "forbidden");
+    assert_eq!(
+        get_env(&app, "bob", &ws).await["cursor"].as_str(),
+        Some(before.as_str()),
+        "unauthorized writes must not append history"
+    );
+
+    let (status, receipt) = call(
+        &app,
+        "POST",
+        "/v1/changes",
+        Some("alice"),
+        Some(&ws),
+        Some(mixed.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{receipt:?}");
+    assert_eq!(receipt["outcome"], "inserted");
+    let (duplicate_status, duplicate) = call(
+        &app,
+        "POST",
+        "/v1/changes",
+        Some("alice"),
+        Some(&ws),
+        Some(mixed),
+    )
+    .await;
+    assert_eq!(duplicate_status, StatusCode::CREATED);
+    assert_eq!(duplicate["outcome"], "duplicate");
+    assert_eq!(duplicate["cursor"], receipt["cursor"]);
+
+    let stored_payload: String =
+        sqlx::query_scalar("SELECT ops_json FROM palladium_changes WHERE scope = ? AND id = ?")
+            .bind(&ws)
+            .bind(&mixed_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(stored_payload, original_ops_json);
+
+    let bob_page = get_env(&app, "bob", &ws).await;
+    assert_eq!(bob_page["changes"], json!([]));
+    assert!(purged(&bob_page, "notes", root));
+    assert!(purged(&bob_page, "note_images", image));
+    assert!(
+        !bob_page.to_string().contains("private terminal payload"),
+        "terminal update data must never be exposed to replicas"
+    );
+    let carol_page = get_env(&app, "carol", &ws).await;
+    assert_eq!(carol_page["purges"], json!([]));
+    assert_eq!(carol_page["changes"], json!([]));
+    assert!(!carol_page.to_string().contains(&root.to_string()));
+    assert!(!carol_page.to_string().contains(&image.to_string()));
+    assert_terminal_purge_ack(&app, &ws, &url, root, &bob_page).await;
+
+    drop(app);
+    drop(db);
+    pool.close().await;
+    std::fs::remove_file(path).unwrap();
+}
+#[tokio::test]
+async fn legacy_mixed_root_deletion_reaches_replicas_as_scoped_purge_controls() {
+    let path = std::env::temp_dir().join(format!("atrium-legacy-delete-{}.sqlite", Uuid::new_v4()));
+    let url = format!("sqlite:{}", path.display());
+    let db = AtriumDb::open(&url).await.unwrap();
+    let app = create_router(
+        AtriumState::new(db.clone(), DevBearerProvider),
+        CorsLayer::permissive(),
+    );
+    let ws = family(&app).await;
+    let (root, root_insert_change) = root_insert("notes");
+    assert_eq!(
+        post_change(&app, "alice", &ws, root_insert_change).await,
+        StatusCode::CREATED
+    );
+    let (image, child_insert_change) = child_insert("note_images", root);
+    assert_eq!(
+        post_change(&app, "alice", &ws, child_insert_change).await,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        share(&app, "alice", &ws, root, "bob", "read").await,
+        StatusCode::OK
+    );
+
+    let legacy = wrap(&json!([
+        { "op": "update", "table": "note_images", "row_id": image, "col": "caption", "value": "legacy payload" },
+        { "op": "delete", "table": "notes", "row_id": root }
+    ]));
+    let id = legacy["id"].as_str().unwrap().to_owned();
+    let parsed: palladium_core::Change = serde_json::from_value(legacy).unwrap();
+    let ops_json = serde_json::to_string(&parsed.ops).unwrap();
+    let pool = sqlx::SqlitePool::connect(&url).await.unwrap();
+    let append_seq = insert_legacy_change(&pool, &ws, &parsed).await;
+    sqlx::query(
+        "INSERT INTO deleted_roots (workspace_id, root_id, deleted_change_id, deleted_at)
+         VALUES (?, ?, ?, ?)",
+    )
+    .bind(&ws)
+    .bind(root.to_string())
+    .bind(&id)
+    .bind(1_700_000_000_000_i64)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Simulate an existing database whose devices already passed the terminal
+    // change before the per-device purge migration was available.
+    sqlx::query("DELETE FROM atrium_migrations WHERE name = 'mixed_deletion_events_v1'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    drop(app);
+    drop(db);
+    let db = AtriumDb::open(&url).await.unwrap();
+    let app = create_router(
+        AtriumState::new(db.clone(), DevBearerProvider),
+        CorsLayer::permissive(),
+    );
+    let (status, bob_page) = call(
+        &app,
+        "GET",
+        &format!("/v1/changes?cursor={append_seq}"),
+        Some("bob"),
+        Some(&ws),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(bob_page["purges"].as_array().unwrap().len(), 2);
+    assert!(
+        bob_page["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|change| change["id"].as_str() != Some(id.as_str())),
+        "legacy mixed payloads stay hidden while the purge control advances the cursor"
+    );
+    let (status, carol_page) =
+        call(&app, "GET", "/v1/changes", Some("carol"), Some(&ws), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(carol_page["purges"], json!([]));
+    let stored_payload: String =
+        sqlx::query_scalar("SELECT ops_json FROM palladium_changes WHERE scope = ? AND id = ?")
+            .bind(&ws)
+            .bind(&id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(stored_payload, ops_json, "accepted history stays immutable");
+    assert_terminal_purge_ack(&app, &ws, &url, root, &bob_page).await;
+
+    drop(app);
+    drop(db);
+    pool.close().await;
+    std::fs::remove_file(path).unwrap();
+}
+
+#[tokio::test]
+async fn a7_deleted_root_delivers_earlier_child_deletion_without_history() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let (note, root_change) = root_insert("notes");
+    assert_eq!(
+        post_change(&app, "alice", &ws, root_change).await,
+        StatusCode::CREATED
+    );
+    let (image, child_change) = child_insert("note_images", note);
+    assert_eq!(
+        post_change(&app, "alice", &ws, child_change).await,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        share(&app, "alice", &ws, note, "bob", "read").await,
+        StatusCode::OK
+    );
+
+    let initial = get_env(&app, "bob", &ws).await;
+    let cursor = initial["cursor"].as_str().unwrap();
+    let child_deletion = wrap(&json!([
+        { "op": "delete", "table": "note_images", "row_id": image }
+    ]));
+    let root_deletion = wrap(&json!([{ "op": "delete", "table": "notes", "row_id": note }]));
+    assert_eq!(
+        post_change(&app, "alice", &ws, child_deletion.clone()).await,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        post_change(&app, "alice", &ws, root_deletion.clone()).await,
+        StatusCode::CREATED
+    );
+
+    let (status, response) = call(
+        &app,
+        "GET",
+        &format!("/v1/changes?cursor={cursor}"),
+        Some("bob"),
+        Some(&ws),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{response:?}");
+    let delivered = response["changes"].as_array().unwrap();
+    assert!(
+        delivered
+            .iter()
+            .any(|change| change["id"] == child_deletion["id"]),
+        "the replica must receive the earlier child tombstone"
+    );
+    assert!(
+        delivered
+            .iter()
+            .any(|change| change["id"] == root_deletion["id"]),
+        "the replica must receive the terminal root tombstone"
+    );
+    assert!(
+        delivered.iter().all(|change| change["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|op| op["op"] == "delete")),
+        "deleted-root access must disclose deletion operations only"
+    );
+
+    let outsider = get_env(&app, "carol", &ws).await;
+    assert!(
+        outsider["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|change| change["id"] != child_deletion["id"]
+                && change["id"] != root_deletion["id"]),
+        "unrelated members must not receive either deletion"
+    );
+}
+
+#[tokio::test]
+async fn a7_delete_retires_unoffered_grant_events() {
+    let app = app().await;
+    let ws = family(&app).await;
+    let (note, insert) = root_insert("notes");
+    assert_eq!(
+        post_change(&app, "alice", &ws, insert).await,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        share(&app, "alice", &ws, note, "bob", "read").await,
+        StatusCode::OK
+    );
+
+    let deletion = wrap(&json!([
+        { "op": "delete", "table": "notes", "row_id": note }
+    ]));
+    assert_eq!(
+        post_change(&app, "alice", &ws, deletion.clone()).await,
+        StatusCode::CREATED
+    );
+
+    for _ in 0..2 {
+        let response = get_env(&app, "bob", &ws).await;
+        assert!(
+            response["events"].as_array().unwrap().is_empty(),
+            "a deleted root must not leave an unacknowledgeable grant event pending"
+        );
+        assert!(
+            response["changes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|change| change["id"] == deletion["id"]),
+            "the deleted root's terminal change remains deliverable"
+        );
+    }
+
+    let outsider = get_env(&app, "carol", &ws).await;
+    assert!(
+        outsider["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|change| change["id"] != deletion["id"]),
+        "terminal deletion delivery must not expose a private root to unrelated members"
+    );
+}
+#[tokio::test]
 async fn a7_blob_rejects_unknown_or_non_root_note() {
     let app = app().await;
     let ws = family(&app).await;
@@ -1829,4 +2552,64 @@ async fn same_owned_node_may_upload_changes_in_decreasing_hlc_order() {
     assert_eq!(history["changes"].as_array().unwrap().len(), 2);
     assert_eq!(history["changes"][0]["ops"][0]["row_id"], json!(first_row));
     assert_eq!(history["changes"][1]["ops"][0]["row_id"], json!(second_row));
+}
+
+async fn assert_deleted_root_blob_access(
+    app: &Router,
+    workspace: &str,
+    deleted_note: Uuid,
+    deleted_blob: &str,
+    peer_blob: &str,
+    bytes: &[u8],
+) {
+    for user in ["alice", "bob"] {
+        assert_eq!(
+            get_blob(app, user, workspace, deleted_blob).await.0,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            put_blob(
+                app,
+                user,
+                workspace,
+                deleted_note,
+                &Uuid::new_v4().to_string(),
+                bytes,
+            )
+            .await,
+            StatusCode::FORBIDDEN
+        );
+    }
+    assert_eq!(
+        get_blob(app, "alice", workspace, peer_blob).await,
+        (StatusCode::OK, bytes.to_vec())
+    );
+}
+
+async fn verify_deleted_root_blob_survives_restart(
+    path: std::path::PathBuf,
+    workspace: String,
+    deleted_note: Uuid,
+    deleted_blob: String,
+    peer_blob: String,
+    bytes: &[u8],
+) {
+    let url = format!("sqlite:{}", path.display());
+    let reopened = AtriumDb::open(&url).await.unwrap();
+    let reopened_app = create_router(
+        AtriumState::new(reopened.clone(), DevBearerProvider),
+        CorsLayer::permissive(),
+    );
+    assert_deleted_root_blob_access(
+        &reopened_app,
+        &workspace,
+        deleted_note,
+        &deleted_blob,
+        &peer_blob,
+        bytes,
+    )
+    .await;
+    drop(reopened_app);
+    drop(reopened);
+    std::fs::remove_file(path).unwrap();
 }

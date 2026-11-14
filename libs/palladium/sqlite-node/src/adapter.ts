@@ -43,12 +43,26 @@ function assertIdentifier(name: string): void {
   }
 }
 
+function assertColumnValue(value: unknown): void {
+  if (
+    value === null ||
+    value === undefined ||
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    typeof value === "number" ||
+    typeof value === "bigint" ||
+    value instanceof Uint8Array
+  ) {
+    return;
+  }
+  throw new TypeError("SQLite column values must be scalar; encode JSON explicitly as a string");
+}
+
 /** Coerce JS values to types accepted by node:sqlite. */
 function coerce(v: unknown): null | number | bigint | string | Uint8Array {
   if (v === null || v === undefined) return null;
   if (typeof v === "boolean") return v ? 1 : 0;
   if (v instanceof Uint8Array) return v;
-  // Stryker disable next-line all -- LogicalOperator/ConditionalExpression mutations here produce String(v) instead, but SQLite's type affinity coerces "42"→42 on read, making the mutations unobservable via exec()
   if (typeof v === "number" || typeof v === "bigint" || typeof v === "string") return v;
   return String(v);
 }
@@ -90,6 +104,7 @@ class ConnectionAdapter implements StorageAdapter, ConstraintDeferringAdapter {
   async put(table: string, _id: string, data: Record<string, unknown>): Promise<void> {
     assertIdentifier(table);
     const keys = Object.keys(data);
+    for (const key of keys) assertColumnValue(data[key]);
     for (const k of keys) assertIdentifier(k);
     if (keys.length === 0) return;
     const placeholders = keys.map(() => "?").join(", ");
@@ -103,6 +118,7 @@ class ConnectionAdapter implements StorageAdapter, ConstraintDeferringAdapter {
   async patch(table: string, id: string, patch: Record<string, unknown>): Promise<void> {
     assertIdentifier(table);
     const keys = Object.keys(patch);
+    for (const key of keys) assertColumnValue(patch[key]);
     if (keys.length === 0) return;
     for (const k of keys) assertIdentifier(k);
     const sets = keys.map((k) => `${k} = ?`).join(", ");

@@ -334,7 +334,7 @@ export interface SyncQuarantineEntry {
   readonly schemaIdentity?: string;
   readonly code?: string;
   readonly historyPosition?: string;
-  readonly disposition?: "blocking" | "degraded_skip" | "discarded" | "superseded";
+  readonly disposition?: "blocking" | "degraded_skip" | "discarded" | "superseded" | "root_deleted";
   readonly replacementChangeId?: string;
   readonly firstFailedAt?: number;
   readonly discardedAt?: number;
@@ -376,13 +376,14 @@ function rowToChange(row: OutboxRow): WireChange {
   };
 }
 
-type PostOutcome = "ok" | "rejected" | "offline" | "blocked_auth";
+type PostOutcome = "ok" | "rejected" | "offline" | "blocked_auth" | "archived";
 
 const POST_OUTCOME_TO_STATUS: Record<PostOutcome, SyncStatus> = {
   ok: "caught_up",
   rejected: "degraded",
   offline: "offline",
   blocked_auth: "blocked_auth",
+  archived: "degraded",
 };
 
 function isOpaqueCursor(value: unknown): value is string {
@@ -399,6 +400,7 @@ function retryAfterAt(value: string | null): number | null {
 
 const KNOWN_SERVER_ERROR_CODES: Record<string, true> = {
   unauthorized: true,
+  root_deleted: true,
   forbidden: true,
   not_found: true,
   bad_request: true,
@@ -973,6 +975,18 @@ export class SyncTransport<S extends SchemaMap> {
     }
     const body = await this.#readBody(() => response.text());
     const code = serverErrorCode(body);
+    if (response.status === 403 && code === "root_deleted") {
+      this.#recordError({
+        phase: "uplink",
+        code: "root_deleted",
+        retryable: false,
+        status: response.status,
+        body,
+        changeId: change.id,
+      });
+      await this.#archiveDeletedRoot(change);
+      return null;
+    }
     if (code !== "clock_skew" || response.status !== 400) {
       this.#recordError({
         phase: "uplink",
@@ -1084,17 +1098,47 @@ export class SyncTransport<S extends SchemaMap> {
     }
   }
 
+  async #obsoleteOutboxRows(adapter: StorageAdapter): Promise<Set<string>> {
+    const archives = await adapter.exec<{ payload: string }>(
+      `SELECT payload FROM ${OUTBOX_QUARANTINE_TABLE} WHERE error_code = 'root_deleted'`,
+      [],
+    );
+    const obsolete = new Set<string>();
+    for (const archive of archives) {
+      let payload: unknown;
+      try {
+        payload = JSON.parse(archive.payload);
+      } catch {
+        continue;
+      }
+      if (isWireChange(payload)) {
+        for (const op of payload.ops) obsolete.add(JSON.stringify([op.table, op.row_id]));
+      }
+    }
+    return obsolete;
+  }
+
   async #drainOutbox(): Promise<void> {
     if (this.#disposed || this.#stopping) return;
-    const rows = await this.#engine.withStorage((adapter) =>
-      adapter.exec<OutboxRow>(
+    const { rows, obsolete } = await this.#engine.withStorage(async (adapter) => {
+      const rows = await adapter.exec<OutboxRow>(
         `SELECT change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint,
                 retry_attempts, next_retry_at, terminal, terminal_error, created_at
            FROM ${OUTBOX_TABLE}
           ORDER BY hlc_wall_ms ASC, hlc_counter ASC, change_id ASC`,
         [],
-      ),
-    );
+      );
+      const obsolete =
+        rows.length === 0 ? new Set<string>() : await this.#obsoleteOutboxRows(adapter);
+      return { rows, obsolete };
+    });
+    const addObsoleteFromChange = (change: WireChange): void => {
+      for (const op of change.ops) obsolete.add(JSON.stringify([op.table, op.row_id]));
+    };
+    const targetsObsoleteRows = (change: WireChange): boolean =>
+      change.ops.length > 0 &&
+      change.ops.every((op) => obsolete.has(JSON.stringify([op.table, op.row_id])));
+    // The exact root_deleted response guarantees every operation belongs to one deleted aggregate.
     if (this.#disposed || this.#stopping || rows.length === 0) return;
     const sendRows: OutboxRow[] = [];
     for (const row of rows) {
@@ -1116,13 +1160,19 @@ export class SyncTransport<S extends SchemaMap> {
     let lastOutcome: PostOutcome = "ok";
     for (const row of sendRows) {
       if (this.#disposed || this.#stopping) return;
+      const change = rowToChange(row);
+      if (targetsObsoleteRows(change)) {
+        await this.#archiveDeletedRoot(change);
+        lastOutcome = "archived";
+        continue;
+      }
       if (this.#isOutboxRowBlocked(row)) {
         lastOutcome = "rejected";
         break;
       }
-      const change = rowToChange(row);
       const outcome = await this.#tryPost(change);
       lastOutcome = outcome;
+      if (outcome === "archived") addObsoleteFromChange(change);
       if (outcome === "ok") {
         await this.#engine.withStorage(async (adapter) => {
           if (!isTransactable(adapter))
@@ -1134,7 +1184,7 @@ export class SyncTransport<S extends SchemaMap> {
             ]);
           });
         });
-      } else {
+      } else if (outcome !== "archived") {
         await this.#recordOutboxFailure(row, outcome);
         break;
       }
@@ -1216,6 +1266,88 @@ export class SyncTransport<S extends SchemaMap> {
         await transaction.exec(`DELETE FROM ${OUTBOX_TABLE} WHERE change_id = ?`, [row.change_id]);
       });
     });
+  }
+
+  async #tryPost(change: WireChange): Promise<PostOutcome> {
+    try {
+      const res = await this.#fetchCancellable(`${this.#serverUrl}/v1/changes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(change),
+      });
+      if (!res.ok) {
+        const body = await this.#readBody(() => res.text());
+        if (res.status === 403 && serverErrorCode(body) === "root_deleted") {
+          this.#recordError({
+            phase: "uplink",
+            code: "root_deleted",
+            retryable: false,
+            status: res.status,
+            body,
+            changeId: change.id,
+          });
+          await this.#archiveDeletedRoot(change);
+          return "archived";
+        }
+        return this.#recordPostFailure(change, res, body);
+      }
+      return await this.#recordPostReceipt(change, res);
+    } catch (error) {
+      return this.#recordPostException(change, error);
+    }
+  }
+
+  async #archiveDeletedRoot(change: WireChange): Promise<void> {
+    await this.#engine.withStorage(async (adapter) => {
+      if (!isTransactable(adapter)) throw new Error("Outbox quarantine requires transactions");
+      await adapter.transaction(async (transaction) => {
+        const rows = await transaction.exec<OutboxRow>(
+          `SELECT change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint,
+                  retry_attempts, next_retry_at, terminal, terminal_error, created_at
+             FROM ${OUTBOX_TABLE} WHERE change_id = ?`,
+          [change.id],
+        );
+        const row = rows[0];
+        if (row === undefined) throw new Error(`Root-deleted Change ${change.id} left the outbox`);
+        await transaction.exec(
+          `INSERT INTO ${OUTBOX_QUARANTINE_TABLE}
+           (change_id, hlc_wall_ms, hlc_counter, hlc_node_id, ops, schema_fingerprint,
+            error_code, quarantined_at, retry_attempts, terminal_error, disposition, payload)
+           VALUES (?, ?, ?, ?, ?, ?, 'root_deleted', ?, ?, 'root_deleted', 'root_deleted', ?)
+           ON CONFLICT(change_id) DO NOTHING`,
+          [
+            row.change_id,
+            row.hlc_wall_ms,
+            row.hlc_counter,
+            row.hlc_node_id,
+            row.ops,
+            row.schema_fingerprint,
+            Date.now(),
+            row.retry_attempts + 1,
+            JSON.stringify(change),
+          ],
+        );
+        await transaction.exec(`DELETE FROM ${OUTBOX_TABLE} WHERE change_id = ?`, [change.id]);
+      });
+    });
+  }
+
+  async #recordPostFailure(change: WireChange, res: Response, body?: string): Promise<PostOutcome> {
+    const responseBody = body ?? (await this.#readBody(() => res.text()));
+    const code = serverErrorCode(responseBody);
+    const nextRetryAt = retryAfterAt(res.headers.get("Retry-After"));
+    const attempt = this.#nextAttempt(change.id);
+    this.#recordError({
+      phase: "uplink",
+      code: res.status === 401 ? "unauthorized" : code,
+      retryable: isRetryableServerError(code, res.status),
+      status: res.status,
+      body: responseBody,
+      changeId: change.id,
+      attempt,
+      ...(nextRetryAt === null ? {} : { nextRetryAt }),
+    });
+    return res.status === 401 ? "blocked_auth" : "rejected";
   }
 
   async start(): Promise<void> {
@@ -1382,13 +1514,16 @@ export class SyncTransport<S extends SchemaMap> {
             ops: string;
           } | null;
         }> => {
-          const superseded = await target.exec<{ replacement_change_id: string }>(
-            `SELECT replacement_change_id FROM ${OUTBOX_QUARANTINE_TABLE}
-              WHERE change_id = ? AND replacement_change_id IS NOT NULL`,
+          const superseded = await target.exec<{
+            replacement_change_id: string | null;
+            error_code: string;
+          }>(
+            `SELECT replacement_change_id, error_code FROM ${OUTBOX_QUARANTINE_TABLE}
+              WHERE change_id = ? AND (replacement_change_id IS NOT NULL OR error_code = 'root_deleted' OR disposition = 'root_deleted')`,
             [changeId],
           );
           if (superseded[0] !== undefined) {
-            throw new Error("A superseded Change cannot be retried");
+            throw new Error("A superseded or root-deleted Change cannot be retried");
           }
 
           const retained = await target.exec<{ change_id: string }>(
@@ -1561,38 +1696,6 @@ export class SyncTransport<S extends SchemaMap> {
         this.#quarantineCache.set(changeId, { attempts: 0, permanent: true });
       }
     }
-  }
-
-  async #tryPost(change: WireChange): Promise<PostOutcome> {
-    try {
-      const res = await this.#fetchCancellable(`${this.#serverUrl}/v1/changes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(change),
-      });
-      if (!res.ok) return this.#recordPostFailure(change, res);
-      return await this.#recordPostReceipt(change, res);
-    } catch (error) {
-      return this.#recordPostException(change, error);
-    }
-  }
-
-  async #recordPostFailure(change: WireChange, res: Response): Promise<PostOutcome> {
-    const body = await this.#readBody(() => res.text());
-    const code = serverErrorCode(body);
-    const nextRetryAt = retryAfterAt(res.headers.get("Retry-After"));
-    const attempt = this.#nextAttempt(change.id);
-    this.#recordError({
-      phase: "uplink",
-      code: res.status === 401 ? "unauthorized" : code,
-      retryable: isRetryableServerError(code, res.status),
-      status: res.status,
-      body,
-      changeId: change.id,
-      attempt,
-      ...(nextRetryAt === null ? {} : { nextRetryAt }),
-    });
-    return res.status === 401 ? "blocked_auth" : "rejected";
   }
 
   async #recordPostReceipt(change: WireChange, res: Response): Promise<PostOutcome> {
@@ -1995,7 +2098,7 @@ export class SyncTransport<S extends SchemaMap> {
     const quarantinedUploads = await this.#engine.withStorage((adapter) =>
       adapter.exec<{ change_id: string }>(
         `SELECT change_id FROM ${OUTBOX_QUARANTINE_TABLE}
-          WHERE disposition = 'blocking' LIMIT 1`,
+          WHERE disposition = 'blocking' OR error_code = 'root_deleted' LIMIT 1`,
         [],
       ),
     );

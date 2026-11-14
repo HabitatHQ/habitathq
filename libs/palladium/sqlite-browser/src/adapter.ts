@@ -39,6 +39,21 @@ function assertIdentifier(name: string): void {
     );
   }
 }
+/** Reject values the SQLite WASM binding cannot represent losslessly. */
+function assertScalarColumnValue(value: unknown): void {
+  if (
+    value === null ||
+    value === undefined ||
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    typeof value === "number" ||
+    typeof value === "bigint" ||
+    value instanceof Uint8Array
+  ) {
+    return;
+  }
+  throw new TypeError("SQLite column values must be scalar; encode JSON explicitly as a string");
+}
 
 // biome-ignore lint/suspicious/noExplicitAny: sqlite-wasm types are not exported cleanly
 type Sqlite3Db = any;
@@ -118,6 +133,7 @@ export class BrowserSqliteAdapter
     assertIdentifier(table);
     const keys = Object.keys(data);
     for (const k of keys) assertIdentifier(k);
+    for (const key of keys) assertScalarColumnValue(data[key]);
     if (keys.length === 0) return;
     const placeholders = keys.map(() => "?").join(", ");
     // REPLACE deletes the old row, which would cascade into child records.
@@ -134,6 +150,7 @@ export class BrowserSqliteAdapter
     const keys = Object.keys(patch);
     if (keys.length === 0) return;
     for (const k of keys) assertIdentifier(k);
+    for (const key of keys) assertScalarColumnValue(patch[key]);
     const sets = keys.map((k) => `${k} = ?`).join(", ");
     this.#database.exec({
       sql: `UPDATE ${table} SET ${sets} WHERE id = ?`,

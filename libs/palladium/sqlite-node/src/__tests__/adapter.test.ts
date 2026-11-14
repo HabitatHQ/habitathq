@@ -79,11 +79,21 @@ describe("NodeSqliteAdapter", () => {
     expect(rows[0]?.val).toBe(42);
   });
 
-  it("coerces plain objects to their string representation", async () => {
+  it("rejects nested values before writing", async () => {
     const adapter = await makeAdapter();
-    await adapter.put("items", "i1", { id: "i1", val: { nested: true }, flag: 0 });
-    const rows = await adapter.exec<{ id: string; val: string }>("SELECT * FROM items");
-    expect(typeof rows[0]?.val).toBe("string");
+    await expect(
+      adapter.put("items", "i1", { id: "i1", val: { nested: true }, flag: 0 }),
+    ).rejects.toThrow("SQLite column values must be scalar");
+    const rows = await adapter.exec<{ id: string }>("SELECT * FROM items");
+    expect(rows).toEqual([]);
+
+    await adapter.put("items", "i1", { id: "i1", val: "original", flag: 0 });
+    await expect(adapter.patch("items", "i1", { val: { nested: true } })).rejects.toThrow(
+      "SQLite column values must be scalar",
+    );
+    expect(await adapter.exec<{ val: string }>("SELECT val FROM items")).toEqual([
+      { val: "original" },
+    ]);
   });
 
   it("patch with an empty object is a no-op (no SQL error)", async () => {

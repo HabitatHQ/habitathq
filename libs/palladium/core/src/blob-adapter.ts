@@ -9,6 +9,12 @@ export interface BlobAdapterOptions {
   transaction?: StorageAdapter | DbAdapter;
 }
 
+/** High-level conversion options; MIME affects only locally created Blob/URL values. */
+export interface BlobGetOptions extends BlobAdapterOptions {
+  /** Caller-declared MIME type for local Blob or object URL conversion. */
+  mimeType?: string;
+}
+
 /**
  * Storage adapter for binary blob data.
  *

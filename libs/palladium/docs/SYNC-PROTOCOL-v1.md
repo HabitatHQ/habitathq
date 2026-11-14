@@ -12,13 +12,68 @@ V1 has no bare change-array response, no HLC history cursor, no legacy pending-o
 - Insert `data` must be a JSON object containing a string `id` exactly equal to
   its canonical lowercase UUIDv7 `row_id`. Both server admission and the client
   page decoder reject null/scalar/array data, missing IDs, and mismatches before
-  history append or checkpoint advancement. Nested JSON fields remain valid
-  wire values; this does not prescribe an adapter's application-column encoding.
+  history append or checkpoint advancement. JSON remains the wire/container
+  representation, but the TypeScript engine stores replicated insert data and
+  update patches only when every column value is a SQLite scalar (`null`,
+  boolean, string, or a finite number other than negative zero). It rejects
+  nested column values before any operation is applied; page application reports
+  that change as rejected and withholds the page checkpoint.
+  Store application-owned JSON columns explicitly as `JSON.stringify(value)`
+  and parse them in the application; SQLite affinity does not declare a JSON
+  column type. Direct adapter APIs continue to support binary `Uint8Array`
+  bindings; raw SQL callers must bind JSON text explicitly.
+  Values already persisted by older versions after object-to-string coercion
+  cannot be reliably identified or reconstructed: `[object Object]` may also
+  be an intentional literal, and array coercion loses structure. Recover them
+  from an authoritative source or backup; no automatic data migration can
+  recover information SQLite never stored.
+  When a row arrives, persisted legacy pending patches are compared by HLC
+  before scalar validation. Losing nested values are discarded as stale;
+  winning nested fields are durably moved to
+  `_sync_pending_remote_update_quarantine`, while supported winning scalar
+  fields from the same patch still apply. Quarantine retains the original
+  field values for explicit recovery and cannot block the valid row insert.
+  An ACL visibility purge deletes these archived fields for the purged row
+  in the same transaction as the row and its pending updates.
 - The server derives scope from authentication. Atrium additionally requires the `x-workspace` header and verifies workspace membership; callers do not submit a generic store scope in the change payload.
 - `PalladiumEngine.init({ version, schema })` derives and persists a local `schema_identity_v1` value. `SyncTransport` requires either an explicit `schemaFingerprint` or an initialized engine identity, and records that identity with durable outbox rows. Before posting an outbox row from a different identity, the transport moves it to `_sync_outbox_quarantine` rather than sending it. This implementation has no schema-identity field or negotiation in the v1 HTTP payload; server-side schema compatibility is therefore outside this wire contract.
 - A local schema identity may change during an upward, versioned `SchemaConfig` migration. Migration steps, current baseline DDL, `user_version`, and the new identity commit in one storage transaction; failure leaves the prior schema and identity intact. Same-version identity changes and downgrades are rejected. Pending outbox rows keep their original fingerprints and are quarantined, not relabeled, after an upgrade.
 - Client row deletion is permanent remove-wins for that UUID: subsequent or reordered updates and same-ID inserts cannot restore it, regardless of HLC. Local reuse is rejected. Restoration requires a new UUID and deliberate reference updates. An ACL visibility purge is not a replicated deletion; authorized regrant/backfill can restore its local view.
 - This is a breaking pre-alpha cutover: upgrade all replicas and the server together. Mixed old/new row-lifecycle policies are unsupported; the new transport fails closed for uploads when the server lacks the authenticated clock endpoint. V1 still has no capability/schema negotiation or compatibility fallback.
+
+Atrium applies the same terminal remove-wins rule to aggregate-root ACLs.
+Acceptance of a root-table `delete` records a durable workspace/root tombstone
+in the same SQLite transaction as the accepted change. The tombstone denies
+owner and grantee reads and uploads, including blobs attached to descendants;
+root/child ACL records, shares, accepted history, and blob bytes remain stored
+for replay and provenance. This is access revocation, not physical erasure or
+a promise of later garbage collection. A same-ID insert, replay, or reordered
+change cannot reactivate that root; restoration requires a new UUID.
+
+Previously authorized replicas continue to receive child deletion tombstones
+accepted before the root deletion, followed by the terminal root deletion.
+After root deletion, this exception exposes deletion-only changes; it does not
+make earlier row contents or updates visible again.
+
+Authenticated single-aggregate changes may combine a root deletion with other
+operations, as produced by a local transaction. Acceptance remains atomic and the
+original payload stays immutable. For mixed terminal changes, authorized readers
+receive root/child purge controls instead of the hidden historical payload.
+Purge delivery uses durable per-device events exposed as `revoke` controls:
+retries retain the purge until `/v1/changes/events/ack` acknowledges it, after
+which idle polls do not repeat it. Each device acknowledges independently.
+A transactional upgrade seeds these events for mixed terminal changes accepted
+before upgrade, even when a replica's history cursor already passed the deletion.
+Ordinary all-delete terminal changes retain their replicated tombstones.
+
+On upgrade, Atrium backfills terminal root tombstones from retained accepted
+change history once, transactionally. A delete that existed only on an
+unuploaded client cannot be inferred from server history and is not covered by
+this backfill. Authorization reads may already in flight when a delete commits
+finish using the pre-delete decision; later authorization checks deny access.
+Blob writes serialize with deletion in SQLite: a write that commits first
+precedes the deletion, while a write that acquires the transaction afterward
+is denied. This lifecycle does not cancel an already-authorized blob response.
 
 ## 2. HTTP wire contract
 
@@ -44,13 +99,29 @@ The client calibrates authoring against this sample, persists trusted time, and 
 { "version": 1, "outcome": "inserted", "cursor": "opaque-position" }
 ```
 
-`outcome` is exactly `inserted` or `duplicate`; `cursor` is a non-empty string. A `duplicate` receipt identifies a previously accepted identical scoped change. Identical retries are recognized atomically before the current-time skew check, so they remain acknowledged after server clock rollback. Reusing a scoped ID with changed content is an idempotency conflict and is never appended. The client removes an `_sync_outbox` row only after it decodes this complete receipt. A malformed JSON body, another receipt version, an unknown outcome, or a missing/empty cursor leaves the row durable and records `lastError` as `invalid_receipt`.
+`outcome` is exactly `inserted` or `duplicate`; `cursor` is a non-empty string. A `duplicate` receipt identifies a previously accepted identical scoped change. Identical retries are recognized atomically before the current-time skew check, so they remain acknowledged after server clock rollback. Reusing a scoped ID with changed content is an idempotency conflict and is never appended. The client acknowledges an `_sync_outbox` row only after it decodes this complete receipt. A malformed JSON body, another receipt version, an unknown outcome, or a missing/empty cursor leaves the row durable and records `lastError` as `invalid_receipt`.
 
 The client snapshots outbox rows through exclusive engine storage ownership,
 after local transactions finish. Network I/O runs outside that ownership; durable
 receipt acknowledgement re-enters it in a separate transaction. Local operation
 payloads are owned immutable snapshots, so caller mutation cannot make uploaded
 values differ from the committed write.
+
+For a formerly authorized writer, Atrium returns HTTP 403 with the exact code
+`root_deleted` only after every operation resolves to the same permanently
+deleted aggregate and node ownership plus retained write authorization pass.
+The client atomically archives the complete rejected change in
+`_sync_outbox_quarantine` with disposition `root_deleted`, removes it from the
+active queue, and continues unrelated uploads. This is not an acknowledgement:
+`inspectQuarantine()` retains the payload and sync status remains degraded after
+restart. The obsolete change cannot be retried, including after explicit discard.
+The archive also durably identifies the exact table/row IDs proven obsolete by
+that response. Later queued changes are archived without upload only when every
+operation targets one of those proven-obsolete rows. This lets an offline child
+insert followed by updates/deletes drain after the insert is rejected, even
+though the server never accepted that child. No server ACL records are created
+for rejected inserts. Generic HTTP 403 responses without this prior evidence
+keep their existing blocking behavior and do not authorize queue removal.
 
 ### 2.3 Download
 

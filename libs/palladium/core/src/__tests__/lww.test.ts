@@ -573,6 +573,53 @@ describe("column-level LWW", () => {
     expect(rows).toHaveLength(1);
   });
 
+  it("creates the pending-update lookup index without losing legacy buffered updates", async () => {
+    const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ab";
+    const { db, cleanup } = await makeSeededEngine(BOB, async (adapter) => {
+      await adapter.exec(
+        "INSERT INTO _sync_pending_remote_updates (pending_id, tbl, row_id, patch, hlc_wall_ms, hlc_counter, hlc_node_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ["legacy-pending", "notes", id, '{"title":"buffered"}', 2_000, 0, ALICE],
+      );
+    });
+    try {
+      expect(
+        await db.exec<{ count: number }>(
+          sql`SELECT COUNT(*) AS count FROM _sync_pending_remote_updates WHERE row_id = ${id}`,
+        ),
+      ).toEqual([{ count: 1 }]);
+      const plan = await db.exec<{ detail: string }>(
+        sql`EXPLAIN QUERY PLAN SELECT pending_id, patch, hlc_wall_ms, hlc_counter, hlc_node_id
+            FROM _sync_pending_remote_updates WHERE tbl = 'notes' AND row_id = ${id}
+            ORDER BY hlc_wall_ms, hlc_counter, hlc_node_id, pending_id`,
+      );
+      expect(
+        plan.some(({ detail }) => detail.includes("_sync_pending_remote_updates_lookup")),
+      ).toBe(true);
+
+      await db.applyRemote({
+        hlc: hlc(1_000),
+        ops: [
+          {
+            type: "insert",
+            table: "notes",
+            id,
+            data: { id, title: "insert", body: "body", updated_at: 1 },
+          },
+        ],
+      });
+      expect(await db.exec(sql`SELECT title FROM notes WHERE id = ${id}`)).toEqual([
+        { title: "buffered" },
+      ]);
+      expect(
+        await db.exec(
+          sql`SELECT pending_id FROM _sync_pending_remote_updates WHERE row_id = ${id}`,
+        ),
+      ).toEqual([]);
+    } finally {
+      await cleanup();
+    }
+  });
+
   it("init migration merges pre-existing tbl+col alias metadata and pending rows with diverging HLCs", async () => {
     const id = "018f0f50-7b8d-7a1c-8e2f-1234567890ae";
     // The alias has the strictly higher HLC for `title`; the canonical row

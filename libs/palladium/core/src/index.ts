@@ -6,6 +6,7 @@ export type {
   BlobAdapter,
   BlobAdapterOptions,
   BlobGetFormat,
+  BlobGetOptions,
   BlobGetResult,
   BlobStoreLifecycle,
 } from "./blob-adapter.js";
@@ -98,4 +99,4 @@ export type {
   SyncRow,
   UpdateOp,
 } from "./tx.js";
-export { isJsonValue, isSyncRow, TxBuilder } from "./tx.js";
+export { isJsonValue, isSyncColumnValue, isSyncRow, TxBuilder } from "./tx.js";

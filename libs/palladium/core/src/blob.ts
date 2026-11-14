@@ -1,10 +1,13 @@
-/** A compact reference to a blob, stored in a data column. */
+/** A compact, caller-owned reference to a blob stored in a data column. */
 export interface BlobRef {
   /** Blob UUID. */
   id: string;
   /** Blob size in bytes. */
   sizeBytes: number;
-  /** MIME type. */
+  /**
+   * Caller-declared MIME type. It is advisory metadata for local interpretation,
+   * not server-validated or reflected as an HTTP download Content-Type.
+   */
   mimeType: string;
 }
 

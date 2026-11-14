@@ -109,10 +109,11 @@ where
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/octet-stream")
+        .header(header::CONTENT_DISPOSITION, "attachment")
+        .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .body(Body::from(bytes))
         .map_err(AppError::internal)
 }
-
 pub(super) async fn delete_blob<S>(
     State(state): State<AppState<S>>,
     AuthPrincipal(principal): AuthPrincipal,
@@ -160,7 +161,7 @@ fn blob_err(error: palladium_blobs::BlobError) -> AppError {
 mod tests {
     use axum::{
         body::Body,
-        http::{Request, StatusCode},
+        http::{header, Request, StatusCode},
         Router,
     };
     use palladium_blobs::filesystem::FilesystemBlobStore;
@@ -222,6 +223,61 @@ mod tests {
         let val: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert!(val["id"].is_string());
         assert_eq!(val["size"], 11);
+    }
+
+    #[tokio::test]
+    async fn upload_mime_is_advisory_and_download_remains_opaque() {
+        let (router, _dir) = app_with_blobs().await;
+        let payload = b"mime-round-trip";
+        let (ct, body) = multipart_body(payload, "image/png");
+        let uploaded = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/blobs")
+                    .header("content-type", ct)
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(uploaded.status(), StatusCode::CREATED);
+        let receipt: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(uploaded.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(receipt["mime"], "image/png");
+        let id = receipt["id"].as_str().unwrap();
+
+        let downloaded = router
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/v1/blobs/{id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(downloaded.status(), StatusCode::OK);
+        assert_eq!(
+            downloaded.headers()[header::CONTENT_TYPE],
+            "application/octet-stream"
+        );
+        assert_eq!(
+            downloaded.headers()[header::CONTENT_DISPOSITION],
+            "attachment"
+        );
+        assert_eq!(
+            downloaded.headers()[header::X_CONTENT_TYPE_OPTIONS],
+            "nosniff"
+        );
+        let bytes = axum::body::to_bytes(downloaded.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(bytes.as_ref(), payload);
     }
 
     #[tokio::test]
